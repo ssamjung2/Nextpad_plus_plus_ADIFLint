@@ -1,0 +1,2218 @@
+// Loads the built ADIFLint.dylib the way Nextpad++ does (dlopen + the five C
+// exports) and drives it against a simulated host and Scintilla document, so
+// the editor glue can be tested without restarting the real editor.
+//
+//   host_harness path/to/ADIFLint.dylib
+//
+// The simulated host answers only the messages the plugin sends; any other
+// message is reported as a failure so new dependencies on the host are noticed.
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <poll.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+#include <atomic>
+#include <functional>
+#include <thread>
+#include "NppPluginInterfaceMac.h"
+#include "Scintilla.h"
+
+#import <Cocoa/Cocoa.h>
+
+#include <dlfcn.h>
+#include <algorithm>
+#include <cstdlib>
+#include <cstdio>
+#include <cstring>
+#include <map>
+#include <string>
+#include <vector>
+
+static int gFailures = 0, gChecks = 0;
+#define CHECK(cond, ...)                                              \
+    do {                                                              \
+        ++gChecks;                                                    \
+        if (!(cond)) {                                                \
+            ++gFailures;                                              \
+            std::printf("FAIL line %d: ", __LINE__);                  \
+            std::printf(__VA_ARGS__);                                 \
+            std::printf("\n");                                        \
+        }                                                             \
+    } while (0)
+
+enum : uintptr_t { kNpp = 1, kSciMain = 2, kSciSecond = 3 };
+
+static struct Host {
+    std::string doc;
+    std::string path = "/tmp/test.adi";
+    std::string configDir;
+    intptr_t pos = 0;
+    intptr_t selStart = -1, selEnd = -1;  // -1: an empty selection at the caret
+    int indicatorCurrent = 0;
+    std::map<int, std::vector<std::pair<intptr_t, intptr_t>>> fills;  // indicator -> [start, end)
+    std::string tip;
+    int undoDepth = 0, undoActions = 0;
+    intptr_t targetStart = 0, targetEnd = 0;
+    std::map<uintptr_t, intptr_t> dwell;
+    std::map<uintptr_t, intptr_t> checks;  // cmdID -> checked
+    // autocompletion
+    bool acActive = false;
+    char acSeparator = ' ';
+    std::string acList;
+    intptr_t acEntered = 0;
+    int acShows = 0, acCancels = 0;
+    // docking panel
+    NSView *panelView = nil;
+    NSWindow *panelWindow = nil;
+    std::vector<uint32_t> unknown;
+} H;
+
+static intptr_t lineStart(intptr_t line) {
+    intptr_t l = 0, p = 0;
+    while (l < line && p < (intptr_t)H.doc.size()) {
+        if (H.doc[(size_t)p] == '\n') ++l;
+        ++p;
+    }
+    return p;
+}
+
+static intptr_t lineOf(intptr_t pos) {
+    return (intptr_t)std::count(H.doc.begin(), H.doc.begin() + std::min<intptr_t>(pos, (intptr_t)H.doc.size()), '\n');
+}
+
+static void clearFills(int indicator, intptr_t from, intptr_t to) {
+    std::vector<std::pair<intptr_t, intptr_t>> kept;
+    for (auto r : H.fills[indicator]) {
+        if (r.second <= from || r.first >= to) kept.push_back(r);
+        else {
+            if (r.first < from) kept.push_back({r.first, from});
+            if (r.second > to) kept.push_back({to, r.second});
+        }
+    }
+    H.fills[indicator] = kept;
+}
+
+static intptr_t sendMessage(uintptr_t handle, uint32_t msg, uintptr_t w, intptr_t l) {
+    if (handle == kNpp) {
+        switch (msg) {
+            case NPPM_GETCURRENTSCINTILLA: *(int *)l = 0; return 0;
+            case NPPM_GETCURRENTBUFFERID: return 1;
+            case NPPM_GETFULLCURRENTPATH: std::strncpy((char *)l, H.path.c_str(), 1023); return 0;
+            case NPPM_GETPLUGINSCONFIGDIR: std::strncpy((char *)l, H.configDir.c_str(), 1023); return (intptr_t)H.configDir.size();
+            case NPPM_ALLOCATEINDICATOR: *(int *)l = 9; return w == 7;
+            case NPPM_SETMENUITEMCHECK: H.checks[w] = l; return 1;
+            case NPPM_ISDARKMODEENABLED: return 0;
+            case NPPM_DMM_REGISTERPANEL: H.panelView = (__bridge NSView *)(void *)w; return 1;
+            case NPPM_DMM_SHOWPANEL:
+                if (!H.panelWindow) {
+                    H.panelWindow = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 360, 440)
+                                                                styleMask:NSWindowStyleMaskTitled
+                                                                  backing:NSBackingStoreBuffered
+                                                                    defer:YES];
+                    H.panelWindow.releasedWhenClosed = NO;
+                }
+                H.panelWindow.contentView = H.panelView;
+                return 1;
+            case NPPM_DMM_HIDEPANEL: H.panelWindow.contentView = [[NSView alloc] init]; return 1;
+            case NPPM_DMM_UNREGISTERPANEL: return 1;
+        }
+    } else if (handle == kSciMain || handle == kSciSecond) {
+        switch (msg) {
+            case SCI_GETLENGTH: return (intptr_t)H.doc.size();
+            case SCI_GETCHARACTERPOINTER: return (intptr_t)H.doc.c_str();
+            case SCI_GETCODEPAGE: return SC_CP_UTF8;
+            case SCI_GETEOLMODE: return SC_EOL_LF;
+            case SCI_INDICSETSTYLE: case SCI_INDICSETFORE: case SCI_INDICSETUNDER: return 0;
+            case SCI_GETINDICATORCURRENT: return H.indicatorCurrent;
+            case SCI_SETINDICATORCURRENT: H.indicatorCurrent = (int)w; return 0;
+            case SCI_INDICATORCLEARRANGE: clearFills(H.indicatorCurrent, (intptr_t)w, (intptr_t)w + l); return 0;
+            case SCI_INDICATORFILLRANGE: H.fills[H.indicatorCurrent].push_back({(intptr_t)w, (intptr_t)w + l}); return 0;
+            case SCI_CALLTIPSHOW: H.tip = (const char *)l; return 0;
+            case SCI_CALLTIPCANCEL: H.tip.clear(); return 0;
+            case SCI_GETCURRENTPOS: return H.pos;
+            case SCI_GOTOPOS: H.pos = (intptr_t)w; return 0;
+            case SCI_SETSEL: H.pos = l; return 0;
+            case SCI_GETSELECTIONSTART: return H.selStart < 0 ? H.pos : H.selStart;
+            case SCI_GETSELECTIONEND: return H.selEnd < 0 ? H.pos : H.selEnd;
+            case SCI_SCROLLCARET: return 0;
+            case SCI_ENSUREVISIBLEENFORCEPOLICY: return 0;
+            case SCI_GRABFOCUS: return 0;
+            case SCI_GETREADONLY: return 0;
+            case SCI_BEGINUNDOACTION: ++H.undoDepth; ++H.undoActions; return 0;
+            case SCI_ENDUNDOACTION: --H.undoDepth; return 0;
+            case SCI_SETTARGETRANGE: H.targetStart = (intptr_t)w; H.targetEnd = l; return 0;
+            case SCI_TARGETWHOLEDOCUMENT: H.targetStart = 0; H.targetEnd = (intptr_t)H.doc.size(); return 0;
+            case SCI_REPLACETARGET: {
+                std::string text((const char *)l, w);
+                H.doc.replace((size_t)H.targetStart, (size_t)(H.targetEnd - H.targetStart), text);
+                intptr_t delta = (intptr_t)text.size() - (H.targetEnd - H.targetStart);
+                if (H.pos >= H.targetEnd) H.pos += delta;  // Scintilla keeps the caret after the edit
+                else if (H.pos > H.targetStart) H.pos = H.targetStart + (intptr_t)text.size();
+                return (intptr_t)w;
+            }
+            case SCI_SETMOUSEDWELLTIME: H.dwell[handle] = (intptr_t)w; return 0;
+            case SCI_GETFIRSTVISIBLELINE: return 0;
+            case SCI_SETFIRSTVISIBLELINE: return 0;
+            case SCI_LINESONSCREEN: return 40;
+            case SCI_DOCLINEFROMVISIBLE: return (intptr_t)w;
+            case SCI_POSITIONFROMLINE: return lineStart((intptr_t)w);
+            case SCI_GETLINEENDPOSITION: {
+                intptr_t p = lineStart((intptr_t)w);
+                while (p < (intptr_t)H.doc.size() && H.doc[(size_t)p] != '\n') ++p;
+                return p;
+            }
+            case SCI_LINEFROMPOSITION: return lineOf((intptr_t)w);
+            case SCI_AUTOCSETSEPARATOR: H.acSeparator = (char)w; return 0;
+            case SCI_AUTOCSETIGNORECASE: return 0;
+            case SCI_AUTOCSHOW: H.acActive = true; H.acEntered = (intptr_t)w; H.acList = (const char *)l; ++H.acShows; return 0;
+            case SCI_AUTOCCANCEL: H.acActive = false; ++H.acCancels; return 0;
+            case SCI_AUTOCACTIVE: return H.acActive;
+        }
+    }
+    H.unknown.push_back(msg);
+    return 0;
+}
+
+static void pump(double seconds) {
+    [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:seconds]];
+}
+
+static PBENOTIFIED gNotify;
+
+static void notify(unsigned code, int ch = 0, intptr_t position = 0, int modType = 0, int updated = 0, const char *text = nullptr) {
+    SCNotification n{};
+    n.nmhdr.code = code;
+    n.ch = ch;
+    n.position = position;
+    n.modificationType = modType;
+    n.updated = updated;
+    n.text = text;
+    gNotify(&n);
+}
+
+// Type one character at the caret as Scintilla would: insert, SCN_MODIFIED, SCN_CHARADDED.
+static void type(char c) {
+    H.doc.insert((size_t)H.pos, 1, c);
+    ++H.pos;
+    notify(SCN_MODIFIED, 0, H.pos - 1, SC_MOD_INSERTTEXT);
+    notify(SCN_CHARADDED, (unsigned char)c);
+}
+
+static void typeString(const char *s) {
+    for (; *s; ++s) {
+        type(*s);
+        pump(0.01);
+    }
+}
+
+static bool filledAt(int indicator, intptr_t pos) {
+    for (auto r : H.fills[indicator])
+        if (r.first <= pos && pos < r.second) return true;
+    return false;
+}
+
+static size_t countFills(int indicator) { return H.fills[indicator].size(); }
+
+static bool listHas(const char *item) {
+    std::string sep(1, H.acSeparator), hay = sep + H.acList + sep, needle = sep + item + sep;
+    return hay.find(needle) != std::string::npos;
+}
+
+static NSTableView *findTable(NSView *v) {
+    if ([v isKindOfClass:NSTableView.class]) return (NSTableView *)v;
+    for (NSView *s in v.subviews)
+        if (NSTableView *t = findTable(s)) return t;
+    return nil;
+}
+
+static NSString *findTitle(NSView *v) {
+    for (NSView *s in v.subviews)
+        if ([s isKindOfClass:NSTextField.class] && ((NSTextField *)s).font.pointSize > NSFont.smallSystemFontSize &&
+            !((NSTextField *)s).editable)
+            return ((NSTextField *)s).stringValue;
+    return @"";
+}
+
+static NSString *cell(NSTableView *t, NSInteger row, NSString *column) {
+    NSTableColumn *col = [t tableColumnWithIdentifier:column];
+    NSView *v = [t.delegate tableView:t viewForTableColumn:col row:row];
+    return [v isKindOfClass:NSTextField.class] ? ((NSTextField *)v).stringValue : @"";
+}
+
+static NSGridView *findGrid(NSView *v) {
+    if ([v isKindOfClass:NSGridView.class]) return (NSGridView *)v;
+    for (NSView *s in v.subviews)
+        if (NSGridView *g = findGrid(s)) return g;
+    return nil;
+}
+
+static NSButton *findButton(NSView *v, NSString *title) {
+    if ([v isKindOfClass:NSButton.class] && [((NSButton *)v).title isEqualToString:title]) return (NSButton *)v;
+    for (NSView *s in v.subviews)
+        if (NSButton *b = findButton(s, title)) return b;
+    return nil;
+}
+
+static NSTextField *summaryLabel(NSView *v) {  // the wrapping label under the grid
+    for (NSView *s in v.subviews)
+        if ([s isKindOfClass:NSTextField.class] && !((NSTextField *)s).editable && ((NSTextField *)s).maximumNumberOfLines == 4)
+            return (NSTextField *)s;
+    return nil;
+}
+
+// The New QSO window's control for a field.
+static NSTextField *qsoControl(NSWindow *w, NSString *name) {
+    NSGridView *grid = findGrid(w.contentView);
+    for (NSInteger r = 0; r < grid.numberOfRows; ++r) {
+        NSTextField *label = (NSTextField *)[grid cellAtColumnIndex:0 rowIndex:r].contentView;
+        if ([label.stringValue isEqualToString:name]) return (NSTextField *)[grid cellAtColumnIndex:1 rowIndex:r].contentView;
+    }
+    return nil;
+}
+
+static NSWindow *qsoWindow() {
+    for (NSWindow *w in NSApp.windows)
+        if ([w.title isEqualToString:@"New QSO"]) return w;
+    return nil;
+}
+
+static void collect(NSView *v, Class cls, NSMutableArray *out);
+
+static NSView *viewWithIdentifier(NSView *v, NSString *ident);
+
+// The New QSO "Look up:" row (label and popup) and the line under it.
+static NSStackView *lookupRow(NSWindow *w) {
+    NSMutableArray *stacks = [NSMutableArray array];
+    collect(w.contentView, NSStackView.class, stacks);
+    for (NSStackView *s in stacks) {
+        NSArray *v = s.arrangedSubviews;
+        if (v.count == 2 && [v[0] isKindOfClass:NSTextField.class] && [((NSTextField *)v[0]).stringValue isEqualToString:@"Look up:"])
+            return s;
+    }
+    return nil;
+}
+static std::string lookupInfo(NSWindow *w) {
+    NSTextField *f = (NSTextField *)viewWithIdentifier(w.contentView, @"qso.lookupInfo");
+    return f ? std::string(f.stringValue.UTF8String) : std::string("(no lookup line)");
+}
+
+static std::string utcDate() {
+    time_t now = time(nullptr);
+    struct tm t;
+    gmtime_r(&now, &t);
+    char b[16];
+    strftime(b, sizeof b, "%Y%m%d", &t);
+    return b;
+}
+
+static NSWindow *windowTitled(NSString *title) {
+    for (NSWindow *w in NSApp.windows)
+        if ([w.title isEqualToString:title]) return w;
+    return nil;
+}
+
+static NSPopUpButton *findPopup(NSView *v) {
+    if ([v isKindOfClass:NSPopUpButton.class]) return (NSPopUpButton *)v;
+    for (NSView *s in v.subviews)
+        if (NSPopUpButton *p = findPopup(s)) return p;
+    return nil;
+}
+
+static NSString *labelWithLines(NSView *v, NSInteger lines) {  // the status label (wrapping, N lines)
+    for (NSView *s in v.subviews)
+        if ([s isKindOfClass:NSTextField.class] && !((NSTextField *)s).editable && ((NSTextField *)s).maximumNumberOfLines == lines)
+            return ((NSTextField *)s).stringValue;
+    return @"";
+}
+
+// The review table as "record CALL FIELD=value" strings.
+static std::vector<std::string> reviewRows(NSTableView *t) {
+    std::vector<std::string> out;
+    NSInteger n = [t.dataSource numberOfRowsInTableView:t];
+    for (NSInteger r = 0; r < n; ++r) {
+        auto text = [&](NSString *col) {
+            NSView *v = [t.delegate tableView:t viewForTableColumn:[t tableColumnWithIdentifier:col] row:r];
+            return std::string(((NSTextField *)v).stringValue.UTF8String);
+        };
+        out.push_back(text(@"record") + " " + text(@"call") + " " + text(@"field") + "=" + text(@"value"));
+    }
+    return out;
+}
+
+static bool hasRow(const std::vector<std::string> &rows, const std::string &row) {
+    return std::find(rows.begin(), rows.end(), row) != rows.end();
+}
+
+static void waitForStatus(NSWindow *w, NSString *needle, double seconds) {
+    for (int i = 0; i < (int)(seconds / 0.05) && ![labelWithLines(w.contentView, 3) containsString:needle]; ++i) pump(0.05);
+}
+
+static void collect(NSView *v, Class cls, NSMutableArray *out) {
+    if ([v isKindOfClass:cls]) [out addObject:v];
+    for (NSView *s in v.subviews) collect(s, cls, out);
+}
+
+// The Settings window's controls for a source (sections are identified "settings.source.N").
+struct SettingsRow {
+    NSTextField *user = nil;
+    NSSecureTextField *secret = nil;
+    NSTextField *status = nil;
+    NSTextField *title = nil;
+    NSView *box = nil;
+};
+static NSView *viewWithIdentifier(NSView *v, NSString *ident) {
+    if ([v.identifier isEqualToString:ident]) return v;
+    for (NSView *s in v.subviews)
+        if (NSView *f = viewWithIdentifier(s, ident)) return f;
+    return nil;
+}
+static SettingsRow settingsRow(NSWindow *w, NSInteger source) {
+    SettingsRow r;
+    r.box = viewWithIdentifier(w.contentView, [NSString stringWithFormat:@"settings.source.%ld", (long)source]);
+    if (!r.box) return r;
+    NSMutableArray *fields = [NSMutableArray array];
+    collect(r.box, NSTextField.class, fields);
+    for (NSTextField *f in fields) {
+        if ([f isKindOfClass:NSSecureTextField.class]) r.secret = (NSSecureTextField *)f;
+        else if (f.editable && !r.user) r.user = f;
+        else if (!f.editable && !r.title) r.title = f;  // the first label is the section title
+        else if (!f.editable) r.status = f;             // the last label is the status
+    }
+    return r;
+}
+
+// With ADIFLINT_SNAPSHOT_DIR set, save a window as a PNG (dark appearance, like
+// the user's setup) so its layout can be looked at without the real editor.
+static void snapshot(NSWindow *w, const char *name) {
+    const char *dir = getenv("ADIFLINT_SNAPSHOT_DIR");
+    if (!dir || !w) return;
+    w.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+    NSView *v = w.contentView;
+    [v layoutSubtreeIfNeeded];
+    NSBitmapImageRep *rep = [v bitmapImageRepForCachingDisplayInRect:v.bounds];
+    [v cacheDisplayInRect:v.bounds toBitmapImageRep:rep];
+    // The window background is drawn by the window frame, not the content view:
+    // compose the content over a dark-mode window colour so light text shows.
+    NSBitmapImageRep *out = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:NULL
+                                                                    pixelsWide:rep.pixelsWide
+                                                                    pixelsHigh:rep.pixelsHigh
+                                                                 bitsPerSample:8
+                                                               samplesPerPixel:4
+                                                                      hasAlpha:YES
+                                                                      isPlanar:NO
+                                                                colorSpaceName:NSCalibratedRGBColorSpace
+                                                                   bytesPerRow:0
+                                                                  bitsPerPixel:0];
+    out.size = rep.size;
+    [NSGraphicsContext saveGraphicsState];
+    [NSGraphicsContext setCurrentContext:[NSGraphicsContext graphicsContextWithBitmapImageRep:out]];
+    [[NSColor colorWithCalibratedRed:0.17 green:0.17 blue:0.18 alpha:1] setFill];
+    NSRectFill(NSMakeRect(0, 0, rep.size.width, rep.size.height));
+    [rep drawInRect:NSMakeRect(0, 0, rep.size.width, rep.size.height)
+           fromRect:NSZeroRect
+          operation:NSCompositingOperationSourceOver
+           fraction:1
+     respectFlipped:NO
+              hints:nil];
+    [NSGraphicsContext restoreGraphicsState];
+    NSData *png = [out representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+    [png writeToFile:[NSString stringWithFormat:@"%s/%s.png", dir, name] atomically:YES];
+}
+
+// A view's area in window coordinates, clipped by the scroll views it is in:
+// table rows scrolled out of sight are hidden, not overlapping.
+static NSRect visibleInWindow(NSView *v) {
+    NSRect r = [v convertRect:v.bounds toView:nil];
+    for (NSView *p = v.superview; p; p = p.superview)
+        if ([p isKindOfClass:NSClipView.class]) r = NSIntersectionRect(r, [p convertRect:p.bounds toView:nil]);
+    return r;
+}
+
+// Overlapping controls are the symptom of a broken layout: no two sibling
+// controls in a window may intersect.
+static int overlaps(NSView *root) {
+    NSMutableArray *controls = [NSMutableArray array];
+    collect(root, NSControl.class, controls);
+    int n = 0;
+    for (NSUInteger i = 0; i < controls.count; ++i)
+        for (NSUInteger j = i + 1; j < controls.count; ++j) {
+            NSView *a = controls[i], *b = controls[j];
+            if (a.hidden || b.hidden || [a isDescendantOf:b] || [b isDescendantOf:a]) continue;
+            // Overlay scroll bars are drawn over their content by design.
+            if ([a isKindOfClass:NSScroller.class] || [b isKindOfClass:NSScroller.class]) continue;
+            if (!a.window || a.superview.hidden || b.superview.hidden) continue;
+            NSRect ra = visibleInWindow(a), rb = visibleInWindow(b);
+            if (NSIsEmptyRect(ra) || NSIsEmptyRect(rb)) continue;
+            if (NSWidth(NSIntersectionRect(ra, rb)) > 1 && NSHeight(NSIntersectionRect(ra, rb)) > 1) {
+                ++n;
+                if (getenv("ADIFLINT_DEBUG_OVERLAPS"))
+                    std::printf("  overlap: %s %s / %s %s\n", NSStringFromClass([a class]).UTF8String, NSStringFromRect(ra).UTF8String,
+                                NSStringFromClass([b class]).UTF8String, NSStringFromRect(rb).UTF8String);
+            }
+        }
+    return n;
+}
+
+static std::vector<std::string> qsoRowNames(NSWindow *w) {
+    std::vector<std::string> out;
+    NSGridView *grid = findGrid(w.contentView);
+    for (NSInteger r = 0; r < grid.numberOfRows; ++r)
+        out.push_back(((NSTextField *)[grid cellAtColumnIndex:0 rowIndex:r].contentView).stringValue.UTF8String);
+    return out;
+}
+
+static NSInteger tableRowNamed(NSTableView *t, NSString *name) {
+    NSInteger n = [t.dataSource numberOfRowsInTableView:t];
+    for (NSInteger r = 0; r < n; ++r) {
+        NSView *v = [t.delegate tableView:t viewForTableColumn:[t tableColumnWithIdentifier:@"name"] row:r];
+        if ([((NSTextField *)v).stringValue isEqualToString:name]) return r;
+    }
+    return -1;
+}
+
+static bool contains(const std::vector<std::string> &v, const char *x) { return std::find(v.begin(), v.end(), x) != v.end(); }
+
+// A loopback TCP server on a free port, answering with `reply(request, &response)`
+// once a request is complete; it closes each connection after answering.
+struct FakeServer {
+    int fd = -1, port = 0;
+    std::atomic<bool> stop{false};
+    std::thread thread;
+    explicit FakeServer(std::function<bool(const std::string &, std::string *)> reply) {
+        fd = socket(AF_INET, SOCK_STREAM, 0);
+        int one = 1;
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
+        sockaddr_in a{};
+        a.sin_family = AF_INET;
+        a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        if (bind(fd, (sockaddr *)&a, sizeof a) != 0 || listen(fd, 8) != 0) return;
+        socklen_t len = sizeof a;
+        getsockname(fd, (sockaddr *)&a, &len);
+        port = ntohs(a.sin_port);
+        thread = std::thread([this, reply] {
+            while (!stop) {
+                pollfd p{fd, POLLIN, 0};
+                if (poll(&p, 1, 100) != 1) continue;
+                int c = accept(fd, nullptr, nullptr);
+                if (c < 0) continue;
+                std::string in, out;
+                char buf[2048];
+                for (int i = 0; i < 50; ++i) {
+                    pollfd q{c, POLLIN, 0};
+                    if (poll(&q, 1, 100) != 1) continue;
+                    ssize_t n = recv(c, buf, sizeof buf, 0);
+                    if (n <= 0) break;
+                    in.append(buf, (size_t)n);
+                    if (reply(in, &out)) {
+                        send(c, out.data(), out.size(), 0);
+                        break;
+                    }
+                }
+                close(c);
+            }
+        });
+    }
+    ~FakeServer() {
+        stop = true;
+        if (thread.joinable()) thread.join();
+        if (fd >= 0) close(fd);
+    }
+};
+
+int main(int argc, char **argv) {
+    @autoreleasepool {
+        [NSApplication sharedApplication];
+        // Keep test windows (New QSO) from taking focus on the desktop.
+        [NSApp setActivationPolicy:NSApplicationActivationPolicyProhibited];
+        if (argc < 3) {
+            std::fprintf(stderr, "usage: host_harness ADIFLint.dylib LOOKUP_FIXTURE_DIR\n");
+            return 2;
+        }
+        setenv("ADIFLINT_FAKE_LOOKUP_DIR", argv[2], 1);  // lookups read fixtures, never the network
+        NSString *tmp = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+        [[NSFileManager defaultManager] createDirectoryAtPath:tmp withIntermediateDirectories:YES attributes:nil error:nil];
+        H.configDir = tmp.UTF8String;
+
+        void *lib = dlopen(argv[1], RTLD_LAZY | RTLD_LOCAL);
+        if (!lib) {
+            std::printf("FAIL dlopen: %s\n", dlerror());
+            return 1;
+        }
+        auto setInfo = (PFUNCSETINFO)dlsym(lib, "setInfo");
+        auto getName = (PFUNCGETNAME)dlsym(lib, "getName");
+        auto getFuncsArray = (PFUNCGETFUNCSARRAY)dlsym(lib, "getFuncsArray");
+        gNotify = (PBENOTIFIED)dlsym(lib, "beNotified");
+        auto messageProc = (PMESSAGEPROC)dlsym(lib, "messageProc");
+        CHECK(setInfo && getName && getFuncsArray && gNotify && messageProc, "all five exports resolve");
+        if (gFailures) return 1;
+
+        // A header and one record whose CALL length is wrong (4, data is 6 bytes).
+        H.doc = "test\n<ADIF_VER:5>3.1.7\n<EOH>\n"
+                "<QSO_DATE:8>20240115 <TIME_ON:4>1830 <CALL:4>VE3AAA <BAND:3>20m <MODE:2>CW <EOR>\n";
+        const intptr_t callTag = (intptr_t)H.doc.find("<CALL:4>");
+
+        NppData data{kNpp, kSciMain, kSciSecond, sendMessage};
+        setInfo(data);
+        CHECK(std::strcmp(getName(), "ADIF Lint") == 0, "plugin name: %s", getName());
+        int n = 0;
+        FuncItem *items = getFuncsArray(&n);
+        CHECK(n == 47, "47 menu items, got %d", n);
+        std::map<std::string, FuncItem *> byName;
+        int nextId = 22000;
+        for (int i = 0; i < n; ++i) {
+            if (items[i]._pFunc) items[i]._cmdID = nextId++;  // as the host does
+            byName[items[i]._itemName] = &items[i];
+            CHECK(items[i]._pShKey == nullptr, "no default shortcuts (host ignores them)");
+        }
+        auto run = [&](const char *name) {
+            FuncItem *f = byName.count(name) ? byName[name] : nullptr;
+            CHECK(f && f->_pFunc, "menu item %s exists", name);
+            if (f && f->_pFunc) f->_pFunc();
+        };
+        for (const char *name : {"New QSO...", "Log Table...", "Activation Tracker (POTA, WWFF, SOTA)...", "Spots (POTA, WWFF)...", "Worked Before...", "Log Summary...",
+                                 "Bulk Edit...", "Time Shift...", "Sort Records by Date and Time", "Remove Duplicates...",
+                                 "Merge Another Log...", "Export CSV...", "Export Activation Logs...", "Import CSV...", "Export Cabrillo...",
+                                 "Enrich from QRZ.com Logbook Confirmations...", "Enrich from eQSL Confirmations...",
+                                 "Enrich from Country Data...", "Enrich from QRZ.com...", "Enrich from HamQTH...", "Enrich from LoTW Confirmations...",
+                                 "Settings...", "Validate Now", "Fix Lengths", "Next Problem", "Previous Problem", "Reformat: One Record per Line",
+                                 "Reformat: One Field per Line", "Record Panel", "Colour ADIF Syntax",
+                                 "Autocomplete Field Names and Values", "Count Lengths in Characters"})
+            CHECK(byName.count(name), "menu item %s", name);
+        CHECK(byName["Validate .adi Files While Typing"]->_init2Check && byName["Colour ADIF Syntax"]->_init2Check &&
+                  byName["Autocomplete Field Names and Values"]->_init2Check && !byName["Record Panel"]->_init2Check,
+              "default settings");
+
+        {   // The layout check itself must catch a real overlap.
+            NSWindow *w = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 200, 100) styleMask:NSWindowStyleMaskTitled
+                                                        backing:NSBackingStoreBuffered defer:YES];
+            NSButton *a = [NSButton buttonWithTitle:@"A" target:nil action:nil], *b = [NSButton buttonWithTitle:@"B" target:nil action:nil];
+            a.frame = NSMakeRect(10, 10, 80, 30);
+            b.frame = NSMakeRect(50, 20, 80, 30);
+            [w.contentView addSubview:a];
+            [w.contentView addSubview:b];
+            CHECK(overlaps(w.contentView) == 1, "the overlap check detects overlapping controls");
+            b.frame = NSMakeRect(100, 10, 80, 30);
+            CHECK(overlaps(w.contentView) == 0, "and accepts separate ones");
+        }
+        notify(NPPN_READY);
+        CHECK(H.dwell[kSciMain] == 500 && H.dwell[kSciSecond] == 500, "dwell time armed on both views");
+        const int kError = 9, kName = 12, kPunct = 13, kMarker = 14, kComment = 15;
+
+        // ── Validation and colouring after READY ──
+        pump(0.4);
+        CHECK(countFills(kError) == 1, "one error marked, got %zu", countFills(kError));
+        if (countFills(kError) == 1) CHECK(H.fills[kError][0].first == callTag, "error marks the <CALL:4> tag");
+        CHECK(filledAt(kName, callTag + 1) && filledAt(kName, callTag + 4) && !filledAt(kName, callTag + 5), "field name coloured");
+        CHECK(filledAt(kPunct, callTag) && filledAt(kPunct, callTag + 6) && !filledAt(kPunct, callTag + 8), "'<' and ':4>' greyed");
+        CHECK(filledAt(kMarker, (intptr_t)H.doc.find("<EOH>")) && filledAt(kMarker, (intptr_t)H.doc.find("<EOR>") + 4), "markers coloured");
+        CHECK(filledAt(kComment, 0) && filledAt(kComment, 3) && !filledAt(kComment, 4), "header text coloured");
+        CHECK(!filledAt(kName, callTag + 9), "data not coloured");
+
+        // ── Hover, Next Problem, Fix Lengths ──
+        notify(SCN_DWELLSTART, 0, callTag + 2);
+        CHECK(H.tip.find("Error: Length 4 does not match the data 'VE3AAA'") == 0, "hover tip: %s", H.tip.c_str());
+        notify(SCN_DWELLEND);
+        CHECK(H.tip.empty(), "tip cancelled on dwell end");
+        H.pos = 0;
+        run("Next Problem");
+        CHECK(H.pos == callTag, "caret moved to the problem: %ld", (long)H.pos);
+        run("Fix Lengths");
+        CHECK(H.doc.find("<CALL:6>VE3AAA") != std::string::npos, "length fixed");
+        CHECK(H.undoDepth == 0 && H.undoActions == 1, "one balanced undo action");
+        CHECK(H.tip.find("Fixed 1 data length") == 0, "fix tip: %s", H.tip.c_str());
+        CHECK(countFills(kError) == 0, "no errors after fixing");
+
+        // ── Reformat ──
+        int undoBefore = H.undoActions;
+        H.pos = (intptr_t)H.doc.find("VE3AAA") + 2;  // keep the caret on CALL
+        run("Reformat: One Field per Line");
+        const std::string fieldLayout = "test\n<ADIF_VER:5>3.1.7\n<EOH>\n\n<QSO_DATE:8>20240115\n<TIME_ON:4>1830\n<CALL:6>VE3AAA\n"
+                                        "<BAND:3>20m\n<MODE:2>CW\n<EOR>\n";
+        CHECK(H.doc == fieldLayout, "field-per-line layout:\n%s", H.doc.c_str());
+        CHECK(H.undoActions == undoBefore + 1 && H.undoDepth == 0, "reformat is one undo step");
+        CHECK(H.pos == (intptr_t)H.doc.find("VE3AAA") + 2, "caret stays on the same field");
+        run("Reformat: One Record per Line");
+        CHECK(H.doc.find("<QSO_DATE:8>20240115 <TIME_ON:4>1830 <CALL:6>VE3AAA <BAND:3>20m <MODE:2>CW <EOR>\n") != std::string::npos,
+              "record-per-line layout:\n%s", H.doc.c_str());
+        std::string saved = H.doc;
+        H.doc.replace(H.doc.find("<CALL:6>"), 8, "<CALL:2>");
+        notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+        run("Reformat: One Field per Line");
+        CHECK(H.tip.find("Run Fix Lengths first") != std::string::npos, "reformat refuses with a wrong length: %s", H.tip.c_str());
+        CHECK(H.doc.find("<CALL:2>VE3AAA <BAND") != std::string::npos, "document untouched when refused");
+        H.doc = saved;
+        notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+        pump(0.5);
+
+        // ── Autocomplete: names, then values, with the length set ──
+        H.pos = (intptr_t)H.doc.find("<EOR>");
+        type('<');
+        CHECK(!H.acActive, "list opens only after the host has handled the key");
+        pump(0.05);
+        CHECK(H.acActive && H.acSeparator == ' ' && listHas("BAND_RX") && listHas("EOR") && !listHas("ADIF_VER"),
+              "field name list after '<'");
+        const intptr_t nameStart = H.pos;
+        type('B');
+        H.acActive = false;  // the host's word completion replaces or closes the list here
+        pump(0.05);
+        CHECK(H.acActive && H.acEntered == 1, "list re-shown after the host handled 'B' (entered %ld)", (long)H.acEntered);
+        int cancels = H.acCancels;
+        notify(SCN_AUTOCSELECTION, 0, nameStart, 0, 0, "BAND_RX");
+        CHECK(H.acCancels == cancels + 1, "selection cancelled so Scintilla does not insert it");
+        pump(0.05);
+        CHECK(H.doc.find("<BAND_RX:0><EOR>") != std::string::npos, "name written as <BAND_RX:0>:\n%s", H.doc.c_str());
+        CHECK(H.acActive && H.acSeparator == '\n' && listHas("20m") && listHas("2m"), "value list for BAND_RX");
+        const intptr_t valueStart = H.pos;
+        notify(SCN_AUTOCSELECTION, 0, valueStart, 0, 0, "40m");
+        pump(0.05);
+        CHECK(H.doc.find("<BAND_RX:3>40m<EOR>") != std::string::npos, "value written with its length:\n%s", H.doc.c_str());
+        CHECK(H.pos == (intptr_t)H.doc.find("40m<EOR>") + 3, "caret after the value");
+
+        // Free text: the length is filled in when the caret leaves the data.
+        type(' ');
+        type('<');
+        pump(0.05);
+        intptr_t s2 = H.pos;
+        notify(SCN_AUTOCSELECTION, 0, s2, 0, 0, "NAME");
+        pump(0.05);
+        CHECK(H.doc.find("<NAME:0>") != std::string::npos, "NAME inserted");
+        CHECK(H.tip.find("NAME (String)") == 0, "hint for a free-text field: %s", H.tip.c_str());
+        typeString("Bob Smith");
+        type('\n');
+        pump(0.1);
+        CHECK(H.doc.find("<NAME:9>Bob Smith\n") != std::string::npos, "length set on Enter:\n%s", H.doc.c_str());
+
+        // Escape ends the session: typing no longer re-shows the list.
+        type('<');
+        pump(0.05);
+        notify(SCN_AUTOCCANCELLED);
+        H.acActive = false;
+        pump(0.05);
+        int shows = H.acShows;
+        type('X');
+        pump(0.05);
+        CHECK(H.acShows == shows, "no list after Escape");
+        // Remove the stray "<X" and settle.
+        H.doc.erase((size_t)H.pos - 2, 2);
+        H.pos -= 2;
+        notify(SCN_MODIFIED, 0, 0, SC_MOD_DELETETEXT);
+        pump(0.6);
+
+        // ── Record panel ──
+        H.pos = (intptr_t)H.doc.find("VE3AAA");
+        run("Record Panel");
+        CHECK(H.panelView != nil && H.panelView.window != nil, "panel registered and shown");
+        CHECK(H.checks[(uintptr_t)byName["Record Panel"]->_cmdID] == 1, "Record Panel checked");
+        NSTableView *table = findTable(H.panelView);
+        CHECK(table != nil, "panel has a table");
+        snapshot(H.panelWindow, "record-panel");
+        if (table) {
+            NSInteger rows = [table.dataSource numberOfRowsInTableView:table];
+            CHECK(rows == 7, "7 fields in the record, got %ld", (long)rows);
+            CHECK([cell(table, 2, @"field") isEqualToString:@"CALL"] && [cell(table, 2, @"value") isEqualToString:@"VE3AAA"],
+                  "CALL row: %s = %s", cell(table, 2, @"field").UTF8String, cell(table, 2, @"value").UTF8String);
+            CHECK(table.selectedRow == 2, "the field under the caret is selected (%ld)", (long)table.selectedRow);
+            CHECK([findTitle(H.panelView) hasPrefix:@"Record 1 of 1"], "title: %s", findTitle(H.panelView).UTF8String);
+
+            id panel = table.dataSource;
+            void (^edit)(NSInteger, NSString *) = [panel valueForKey:@"onEditValue"];
+            edit(2, @"VE3AAA/P");
+            pump(0.1);
+            CHECK(H.doc.find("<CALL:8>VE3AAA/P") != std::string::npos, "panel edit writes the length:\n%s", H.doc.c_str());
+            void (^add)(NSString *, NSString *) = [panel valueForKey:@"onAddField"];
+            add(@"RST_SENT", @"599");
+            pump(0.1);
+            CHECK(H.doc.find("<NAME:9>Bob Smith\n<RST_SENT:3>599 <EOR>") != std::string::npos ||
+                      H.doc.find("<RST_SENT:3>599") != std::string::npos,
+                  "panel add:\n%s", H.doc.c_str());
+            CHECK([table.dataSource numberOfRowsInTableView:table] == 8, "panel shows the new field");
+            void (^remove)(NSInteger) = [panel valueForKey:@"onRemoveField"];
+            remove(5);  // BAND_RX
+            pump(0.1);
+            CHECK(H.doc.find("BAND_RX") == std::string::npos, "panel remove:\n%s", H.doc.c_str());
+            CHECK([table.dataSource numberOfRowsInTableView:table] == 7, "panel row removed");
+            NSInteger callRow = -1;
+            for (NSInteger r = 0; r < 7; ++r)
+                if ([cell(table, r, @"field") isEqualToString:@"BAND"]) callRow = r;
+            CHECK(callRow >= 0, "BAND row present");
+            NSTableColumn *valueCol = [table tableColumnWithIdentifier:@"value"];
+            NSView *bandCell = callRow >= 0 ? [table.delegate tableView:table viewForTableColumn:valueCol row:callRow] : nil;
+            CHECK([bandCell isKindOfClass:NSComboBox.class] && ((NSComboBox *)bandCell).numberOfItems >= 30,
+                  "BAND is a combo box of bands");
+
+            // Moving the caret to another record updates the panel.
+            H.doc += "<CALL:5>K1ABC <BAND:3>40m <EOR>\n";
+            notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+            pump(0.6);
+            H.pos = (intptr_t)H.doc.find("K1ABC");
+            notify(SCN_UPDATEUI, 0, 0, 0, SC_UPDATE_SELECTION);
+            pump(0.3);
+            CHECK([findTitle(H.panelView) hasPrefix:@"Record 2 of 2"], "title after caret move: %s", findTitle(H.panelView).UTF8String);
+            CHECK([table.dataSource numberOfRowsInTableView:table] == 2, "record 2 has 2 fields");
+        }
+
+        // ── Settings ──
+        run("Count Lengths in Characters");
+        CHECK(H.checks[(uintptr_t)byName["Count Lengths in Characters"]->_cmdID] == 1, "menu check set");
+        run("Colour ADIF Syntax");
+        CHECK(countFills(kName) == 0, "colours cleared when switched off");
+        NSString *ini = [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint.ini"]
+                                                  encoding:NSUTF8StringEncoding
+                                                     error:nil];
+        CHECK(ini && [ini containsString:@"countCharacters=1"] && [ini containsString:@"colour=0"] &&
+                  [ini containsString:@"recordPanel=1"],
+              "settings saved: %s", ini.UTF8String);
+
+        run("Validate Now");
+        CHECK(H.tip.find("ADIF 3.1.7: 2 records, 0 errors") == 0, "summary tip: %s", H.tip.c_str());
+
+        // ── New QSO ──
+        run("New QSO...");
+        NSWindow *qw = qsoWindow();
+        CHECK(qw != nil, "New QSO window created");
+        if (qw) {
+            [qw.contentView layoutSubtreeIfNeeded];
+            CHECK(overlaps(qw.contentView) == 0, "New QSO controls do not overlap (%d overlaps)", overlaps(qw.contentView));
+            snapshot(qw, "new-qso");
+            NSTextField *call = qsoControl(qw, @"CALL"), *band = qsoControl(qw, @"BAND"), *freq = qsoControl(qw, @"FREQ");
+            NSTextField *date = qsoControl(qw, @"QSO_DATE"), *rst = qsoControl(qw, @"RST_SENT");
+            CHECK(call && band && freq && date && rst, "core rows present");
+            CHECK(call.stringValue.length == 0, "CALL starts empty");
+            CHECK([band.stringValue isEqualToString:@"40m"], "BAND carried from the last record: %s", band.stringValue.UTF8String);
+            CHECK([band isKindOfClass:NSComboBox.class], "BAND is a combo box");
+            CHECK([date.stringValue isEqualToString:@(utcDate().c_str())] && !date.editable, "QSO_DATE is today's UTC date, filled at logging");
+            NSButton *logButton = findButton(qw.contentView, @"Log QSO");
+            CHECK(logButton != nil && [logButton.keyEquivalent isEqualToString:@"\r"], "Log QSO is the Return button");
+
+            // Required fields block logging.
+            std::string before = H.doc;
+            [logButton performClick:nil];
+            CHECK(H.doc == before, "nothing logged without CALL and MODE");
+            CHECK([summaryLabel(qw.contentView).stringValue containsString:@"marked in red"], "summary asks for the fields");
+
+            call.stringValue = @"n0call";
+            freq.stringValue = @"7.074";
+            qsoControl(qw, @"MODE").stringValue = @"CW";
+            [logButton performClick:nil];
+            pump(0.2);
+            CHECK([band.stringValue isEqualToString:@"40m"], "BAND follows FREQ");
+            size_t rec = H.doc.find("<CALL:6>N0CALL");
+            CHECK(rec != std::string::npos, "logged with an upper-case call and its length:\n%s", H.doc.c_str());
+            CHECK(H.doc.find("<FREQ:5>7.074") != std::string::npos && H.doc.find("<MODE:2>CW <RST_SENT:3>599 <RST_RCVD:3>599 <EOR>\n", rec) != std::string::npos,
+                  "fields and <EOR> appended:\n%s", H.doc.substr(rec == std::string::npos ? 0 : rec).c_str());
+            CHECK(H.doc.find("<QSO_DATE:8>" + utcDate(), rec) != std::string::npos, "logged with the UTC date");
+            CHECK(H.pos == (intptr_t)rec, "caret on the new record");
+            CHECK([summaryLabel(qw.contentView).stringValue hasPrefix:@"Logged N0CALL as record 3"], "summary: %s",
+                  summaryLabel(qw.contentView).stringValue.UTF8String);
+            CHECK(call.stringValue.length == 0 && [freq.stringValue isEqualToString:@"7.074"], "CALL cleared, FREQ kept");
+            CHECK([rst.stringValue isEqualToString:@"599"], "RST reset to the CW default: %s", rst.stringValue.UTF8String);
+
+            // The same contact again is logged, with a warning.
+            call.stringValue = @"N0CALL";
+            [logButton performClick:nil];
+            pump(0.2);
+            CHECK([summaryLabel(qw.contentView).stringValue containsString:@"already in this log"], "duplicate warned: %s",
+                  summaryLabel(qw.contentView).stringValue.UTF8String);
+
+            // A brand-new empty document gets a header first.
+            H.doc.clear();
+            H.pos = 0;
+            H.path = "/tmp/new.txt";
+            notify(SCN_MODIFIED, 0, 0, SC_MOD_DELETETEXT);
+            run("New QSO...");
+            call = qsoControl(qw, @"CALL");
+            call.stringValue = @"W1AW";
+            qsoControl(qw, @"BAND").stringValue = @"20m";
+            qsoControl(qw, @"MODE").stringValue = @"SSB";
+            [findButton(qw.contentView, @"Log QSO") performClick:nil];
+            pump(0.2);
+            CHECK(H.doc.rfind("ADIF log created with ADIF Lint\n<ADIF_VER:5>3.1.7\n<PROGRAMID:9>ADIF Lint\n", 0) == 0 &&
+                      H.doc.find("<EOH>\n\n<CALL:4>W1AW ") != std::string::npos,
+                  "new log with a header:\n%s", H.doc.c_str());
+            CHECK(H.doc.find("<RST_SENT:2>59 ") != std::string::npos, "SSB report defaults to 59");
+
+            run("Validate Now");
+            CHECK(H.tip.find("ADIF 3.1.7: 1 record, 0 errors, 0 warnings") == 0, "new log lints clean: %s", H.tip.c_str());
+            // ── Choosing the New QSO fields ──
+            H.doc = "log\n<ADIF_VER:5>3.1.7\n<EOH>\n<CALL:5>K1ABC <QSO_DATE:8>20261006 <TIME_ON:4>2300 <BAND:3>20m "
+                    "<MODE:3>SSB <STATION_CALLSIGN:4>KW9D <MY_SIG_INFO:7>US-7929 <EOR>\n";
+            H.path = "/tmp/pota.adi";
+            H.pos = (intptr_t)H.doc.size();
+            notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+            run("New QSO...");
+            std::vector<std::string> names = qsoRowNames(qw);
+            CHECK(contains(names, "MY_SIG_INFO") && contains(names, "RST_RCVD"), "automatic: the log's fields plus the core ones");
+            [findButton(qw.contentView, @"Fields...") performClick:nil];
+            NSWindow *fw = windowTitled(@"New QSO Fields");
+            CHECK(fw != nil, "New QSO Fields window opened");
+            if (fw) {
+                [fw.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(fw.contentView) == 0, "Fields controls do not overlap (%d overlaps)", overlaps(fw.contentView));
+                snapshot(fw, "qso-fields-all");
+                NSTableView *ft = findTable(fw.contentView);
+                CHECK([ft.dataSource numberOfRowsInTableView:ft] == (NSInteger)names.size(), "the list starts as the window's rows");
+                auto selectRow = [&](NSString *name) {
+                    NSInteger r = tableRowNamed(ft, name);
+                    if (r >= 0) [ft selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)r] byExtendingSelection:NO];
+                    return r;
+                };
+                NSButton *remove = findButton(fw.contentView, @"Remove");
+                selectRow(@"CALL");
+                CHECK(!remove.enabled, "CALL cannot be removed");
+                for (NSString *n in @[ @"MY_SIG_INFO", @"STATION_CALLSIGN", @"RST_RCVD" ]) {
+                    selectRow(n);
+                    CHECK(remove.enabled, "%s can be removed", n.UTF8String);
+                    [remove performClick:nil];
+                }
+                selectRow(@"FREQ");
+                [remove performClick:nil];
+                selectRow(@"BAND");
+                CHECK(!remove.enabled, "BAND stays when FREQ is gone");
+                // Search the available fields, which carry brief descriptions.
+                NSMutableArray *searches = [NSMutableArray array];
+                collect(fw.contentView, NSSearchField.class, searches);
+                NSSearchField *search = searches.firstObject;
+                NSMutableArray *tables = [NSMutableArray array];
+                collect(fw.contentView, NSTableView.class, tables);
+                NSTableView *avail = tables.count > 1 ? tables[1] : nil;
+                CHECK(search && avail, "search field and available list");
+                auto availRows = [&]() {
+                    std::vector<std::string> v;
+                    NSInteger n = [avail.dataSource numberOfRowsInTableView:avail];
+                    for (NSInteger r = 0; r < n; ++r) {
+                        NSView *nv = [avail.delegate tableView:avail viewForTableColumn:[avail tableColumnWithIdentifier:@"name"] row:r];
+                        NSView *dv = [avail.delegate tableView:avail viewForTableColumn:[avail tableColumnWithIdentifier:@"brief"] row:r];
+                        v.push_back(std::string(((NSTextField *)nv).stringValue.UTF8String) + " | " +
+                                    ((NSTextField *)dv).stringValue.UTF8String);
+                    }
+                    return v;
+                };
+                CHECK(availRows().size() > 100, "every addable field is listed (%zu)", availRows().size());
+                auto setSearch = [&](NSString *q) {
+                    search.stringValue = q;
+                    [[NSNotificationCenter defaultCenter] postNotificationName:NSControlTextDidChangeNotification object:search];
+                };
+                setSearch(@"park");
+                std::vector<std::string> park = availRows();
+                bool potaListed = false;
+                for (const std::string &r : park) potaListed |= r.rfind("POTA_REF | A comma-delimited list of one or more of the contacted station's POTA (Parks on the Air) reference(s)", 0) == 0;
+                CHECK(potaListed, "search by description finds POTA_REF, with its description (%zu rows)", park.size());
+                setSearch(@"sig_info");
+                std::vector<std::string> sig = availRows();
+                CHECK(!sig.empty() && sig[0].rfind("SIG_INFO | Information associated with the contacted station's activity", 0) == 0,
+                      "SIG_INFO and its description: %s", sig.empty() ? "" : sig[0].c_str());
+                NSView *typeCell = [avail.delegate tableView:avail viewForTableColumn:[avail tableColumnWithIdentifier:@"type"] row:0];
+                CHECK([((NSTextField *)typeCell).stringValue isEqualToString:@"String"], "type shown");
+                CHECK(((NSTextField *)typeCell).toolTip.length > 0, "full description on hover");
+                setSearch(@"zzzz");
+                CHECK(availRows().empty(), "no match, no rows");
+                setSearch(@"sig_info");
+                [avail selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
+                selectRow(@"RST_SENT");  // add after this one
+                [findButton(fw.contentView, @"Add to New QSO") performClick:nil];
+                CHECK(tableRowNamed(ft, @"SIG_INFO") == tableRowNamed(ft, @"RST_SENT") + 1, "added after the selected field");
+                bool stillAvailable = false;
+                for (const std::string &r : availRows()) stillAvailable |= r.rfind("SIG_INFO |", 0) == 0;
+                CHECK(!stillAvailable, "an added field leaves the available list");
+                NSInteger sigRow = selectRow(@"SIG_INFO");
+                [findButton(fw.contentView, @"Move Up") performClick:nil];
+                CHECK(tableRowNamed(ft, @"SIG_INFO") == sigRow - 1, "Move Up");
+                snapshot(fw, "qso-fields");
+                [findButton(fw.contentView, @"Save") performClick:nil];
+                names = qsoRowNames(qw);
+                CHECK(contains(names, "SIG_INFO") && !contains(names, "MY_SIG_INFO") && !contains(names, "RST_RCVD") &&
+                          !contains(names, "FREQ"),
+                      "the window shows the chosen fields");
+                CHECK([labelWithLines(qw.contentView, 3) containsString:@"STATION_CALLSIGN KW9D"] &&
+                          [labelWithLines(qw.contentView, 3) containsString:@"MY_SIG_INFO US-7929"],
+                      "hidden station fields are listed: %s", labelWithLines(qw.contentView, 3).UTF8String);
+                NSString *ini2 = [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint.ini"]
+                                                           encoding:NSUTF8StringEncoding
+                                                              error:nil];
+                CHECK([ini2 containsString:@"SIG_INFO"] && [ini2 containsString:@"qsoFields=CALL,"] && ![ini2 containsString:@"RST_RCVD"],
+                      "the list is saved: %s", ini2.UTF8String);
+                snapshot(qw, "new-qso-custom");
+
+                qsoControl(qw, @"CALL").stringValue = @"n1abc";
+                qsoControl(qw, @"MODE").stringValue = @"SSB";
+                qsoControl(qw, @"SIG_INFO").stringValue = @"US-1234";
+                [findButton(qw.contentView, @"Log QSO") performClick:nil];
+                pump(0.2);
+                size_t rec = H.doc.find("<CALL:5>N1ABC");
+                CHECK(rec != std::string::npos && H.doc.find("<SIG_INFO:7>US-1234", rec) != std::string::npos &&
+                          H.doc.find("<STATION_CALLSIGN:4>KW9D <MY_SIG_INFO:7>US-7929 <EOR>", rec) != std::string::npos,
+                      "hidden station fields written:\n%s", H.doc.substr(rec == std::string::npos ? 0 : rec).c_str());
+
+                // Back to the log's own fields.
+                [findButton(qw.contentView, @"Fields...") performClick:nil];
+                [findButton(fw.contentView, @"Use the Log's Fields") performClick:nil];
+                names = qsoRowNames(qw);
+                CHECK(contains(names, "MY_SIG_INFO") && contains(names, "SIG_INFO") && contains(names, "RST_RCVD"),
+                      "automatic again: the last record's fields");
+                ini2 = [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint.ini"]
+                                                 encoding:NSUTF8StringEncoding
+                                                    error:nil];
+                CHECK([ini2 containsString:@"qsoFields=\n"], "automatic is saved as an empty list");
+            }
+            [qw orderOut:nil];
+        }
+
+        // ── Enrich Log ──
+        H.doc = "log\n<ADIF_VER:5>3.1.7\n<EOH>\n"
+                "<CALL:5>AA7BQ <QSO_DATE:8>20261006 <TIME_ON:4>2300 <BAND:3>20m <MODE:3>SSB <EOR>\n"
+                "<CALL:7>AA7BQ/P <QSO_DATE:8>20261006 <TIME_ON:4>2305 <BAND:3>20m <MODE:3>SSB <EOR>\n"
+                "<CALL:5>W1XYZ <QSO_DATE:8>20261006 <TIME_ON:4>2310 <BAND:3>20m <MODE:3>SSB <EOR>\n"
+                "<CALL:6>OK2CQR <QSO_DATE:8>20261006 <TIME_ON:4>2315 <BAND:3>20m <MODE:2>CW <EOR>\n";
+        H.path = "/tmp/enrich.adi";
+        H.pos = 0;
+        notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+        pump(0.5);
+        run("Enrich from QRZ.com...");
+        NSWindow *ew = windowTitled(@"Enrich from QRZ.com");
+        CHECK(ew != nil, "Enrich from QRZ.com window created");
+        if (ew) {
+            NSTableView *review = findTable(ew.contentView);
+            NSButton *findData = findButton(ew.contentView, @"Find Data");
+            CHECK(review && findData && findButton(ew.contentView, @"Settings..."), "window controls present");
+            CHECK(findPopup(ew.contentView) == nil, "no source menu: the menu item chose the source");
+            [ew.contentView layoutSubtreeIfNeeded];
+            CHECK(overlaps(ew.contentView) == 0, "Enrich controls do not overlap (%d overlaps)", overlaps(ew.contentView));
+            auto choose = [&](NSInteger i) {
+                const char *items[] = {"Enrich from QRZ.com...", "Enrich from HamQTH...", "Enrich from LoTW Confirmations..."};
+                byName[items[i]]->_pFunc();
+            };
+
+            // QRZ: missing fields for AA7BQ, the name only for AA7BQ/P, W1XYZ not found.
+            choose(0);
+            [findData performClick:nil];
+            waitForStatus(ew, @"Untick", 3);
+            std::vector<std::string> rows = reviewRows(review);
+            snapshot(ew, "enrich-review");
+            CHECK(hasRow(rows, "1 AA7BQ GRIDSQUARE=DM32af") && hasRow(rows, "1 AA7BQ CNTY=AZ,Maricopa") &&
+                      hasRow(rows, "1 AA7BQ COUNTRY=UNITED STATES OF AMERICA") && hasRow(rows, "2 AA7BQ/P NAME=FRED L LLOYD"),
+                  "QRZ proposals (%zu rows)", rows.size());
+            bool portableLocation = false;
+            for (const std::string &r : rows) portableLocation |= r.rfind("2 AA7BQ/P GRIDSQUARE", 0) == 0;
+            CHECK(!portableLocation, "no callbook location for the portable call");
+            CHECK([labelWithLines(ew.contentView, 3) containsString:@"Found 1 of 3 calls (2 not found)"], "status: %s",
+                  labelWithLines(ew.contentView, 3).UTF8String);
+            NSButton *apply = findButton(ew.contentView, [NSString stringWithFormat:@"Apply %zu Changes", rows.size()]);
+            CHECK(apply != nil, "Apply button names the count");
+            int undo = H.undoActions;
+            [apply performClick:nil];
+            pump(0.1);
+            CHECK(H.undoActions == undo + 1, "applied as one undo step");
+            CHECK(H.doc.find("<MODE:3>SSB <NAME:12>FRED L LLOYD <QTH:10>SCOTTSDALE ") != std::string::npos &&
+                      H.doc.find("<GRIDSQUARE:6>DM32af") != std::string::npos && H.doc.find("<CNTY:11>AZ,Maricopa") != std::string::npos,
+                  "QRZ data written with lengths:\n%s", H.doc.c_str());
+            CHECK([labelWithLines(ew.contentView, 3) hasPrefix:@"Applied"], "applied status: %s", labelWithLines(ew.contentView, 3).UTF8String);
+            run("Validate Now");
+            CHECK(H.tip.find("0 errors, 0 warnings") != std::string::npos, "enriched log lints clean: %s", H.tip.c_str());
+
+            // Run again: nothing left to add.
+            [findData performClick:nil];
+            waitForStatus(ew, @"Nothing to add", 3);
+            CHECK([labelWithLines(ew.contentView, 3) containsString:@"Nothing to add"], "second run: nothing to add");
+
+            // HamQTH.
+            choose(1);
+            CHECK([ew.title isEqualToString:@"Enrich from HamQTH"] && reviewRows(review).empty(), "switched to HamQTH: %s",
+                  ew.title.UTF8String);
+            [findData performClick:nil];
+            waitForStatus(ew, @"Untick", 3);
+            rows = reviewRows(review);
+            CHECK(hasRow(rows, "4 OK2CQR GRIDSQUARE=jo70gg") && hasRow(rows, "4 OK2CQR CONT=EU") &&
+                      hasRow(rows, "4 OK2CQR COUNTRY=CZECH REPUBLIC"),
+                  "HamQTH proposals (%zu rows)", rows.size());
+            CHECK(findButton(ew.contentView, @"Untick All") != nil, "untick control");
+            [findButton(ew.contentView, @"Untick All") performClick:nil];
+            CHECK(findButton(ew.contentView, @"Apply Changes") != nil && !findButton(ew.contentView, @"Apply Changes").enabled,
+                  "nothing ticked: Apply disabled");
+            [findButton(ew.contentView, @"Tick All") performClick:nil];
+            [findButton(ew.contentView, [NSString stringWithFormat:@"Apply %zu Changes", rows.size()]) performClick:nil];
+            pump(0.1);
+            CHECK(H.doc.find("<CONT:2>EU") != std::string::npos && H.doc.find("<GRIDSQUARE:6>jo70gg") != std::string::npos,
+                  "HamQTH data written");
+
+            // LoTW: the confirmed QSO's own details, and the confirmation itself.
+            choose(2);
+            [findData performClick:nil];
+            waitForStatus(ew, @"confirmed in LoTW", 3);
+            rows = reviewRows(review);
+            CHECK(hasRow(rows, "1 AA7BQ LOTW_QSL_RCVD=Y") && hasRow(rows, "1 AA7BQ LOTW_QSLRDATE=20261007"),
+                  "LoTW proposals (%zu rows): %s", rows.size(), labelWithLines(ew.contentView, 3).UTF8String);
+            CHECK(!hasRow(rows, "1 AA7BQ GRIDSQUARE=DM33XO"), "existing GRIDSQUARE is not replaced");
+            CHECK([labelWithLines(ew.contentView, 3) containsString:@"1 of 4 records are confirmed"], "LoTW status: %s",
+                  labelWithLines(ew.contentView, 3).UTF8String);
+
+            // An edit after Find Data: that record's changes are skipped, not misapplied.
+            H.doc.replace(H.doc.find("<CALL:5>AA7BQ"), 13, "<CALL:5>AA7BX");
+            notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+            [findButton(ew.contentView, [NSString stringWithFormat:@"Apply %zu Changes", rows.size()]) performClick:nil];
+            pump(0.1);
+            CHECK([labelWithLines(ew.contentView, 3) containsString:@"Skipped 2"], "changed record skipped: %s",
+                  labelWithLines(ew.contentView, 3).UTF8String);
+            CHECK(H.doc.find("LOTW_QSL_RCVD") == std::string::npos, "nothing written to the changed record");
+
+        // ── Settings: accounts in the (test) Keychain ──
+        run("Settings...");
+        NSWindow *sw = windowTitled(@"ADIF Lint Settings");
+        CHECK(sw != nil, "Settings window created");
+        if (sw) {
+            SettingsRow qrz = settingsRow(sw, 0), lotw = settingsRow(sw, 2);
+            CHECK(qrz.user && qrz.secret && qrz.status && lotw.secret, "a section per source with username, password, status");
+            CHECK([qrz.title.stringValue isEqualToString:@"QRZ.com"] && [settingsRow(sw, 1).title.stringValue isEqualToString:@"HamQTH"] &&
+                      [lotw.title.stringValue isEqualToString:@"LoTW"],
+                  "sections titled by source");
+            [sw.contentView layoutSubtreeIfNeeded];
+            CHECK(overlaps(sw.contentView) == 0, "Settings controls do not overlap (%d overlaps)", overlaps(sw.contentView));
+            // The sections scroll when the screen is short: the last one can be scrolled into view.
+            SettingsRow last = settingsRow(sw, 7);
+            [last.status scrollRectToVisible:last.status.bounds];
+            NSRect lastRect = visibleInWindow(last.status);
+            CHECK(last.status && NSHeight(lastRect) > 0 && NSMaxY(lastRect) <= NSHeight(sw.contentView.bounds) && NSMinY(lastRect) >= 0,
+                  "the last section scrolls into the window");
+            NSMutableArray *scrolls = [NSMutableArray array];
+            collect(sw.contentView, NSScrollView.class, scrolls);
+            [((NSScrollView *)scrolls.firstObject).documentView scrollPoint:NSZeroPoint];
+            snapshot(sw, "settings");
+            CHECK([qrz.user.stringValue isEqualToString:@"TEST"] && qrz.secret.stringValue.length == 0 &&
+                      [qrz.secret.placeholderString hasPrefix:@"Saved in your Keychain"],
+                  "saved username shown, saved password never shown");
+            [findButton(qrz.box, @"Remove") performClick:nil];
+            CHECK([qrz.status.stringValue hasPrefix:@"Removed"] && qrz.user.stringValue.length == 0, "removed: %s",
+                  qrz.status.stringValue.UTF8String);
+
+            // Without an account, Find Data says where to add one.
+            choose(0);
+            [findData performClick:nil];
+            pump(0.05);
+            CHECK([labelWithLines(ew.contentView, 3) containsString:@"No QRZ.com account yet. Add one in Settings"],
+                  "no account: %s", labelWithLines(ew.contentView, 3).UTF8String);
+
+            run("Settings...");
+            qrz.user.stringValue = @"KW9D";
+            qrz.secret.stringValue = @"not-a-real-password";
+            [findButton(qrz.box, @"Save") performClick:nil];
+            CHECK([qrz.status.stringValue hasPrefix:@"Saved in your Keychain"] && qrz.secret.stringValue.length == 0,
+                  "saved, and the password field cleared: %s", qrz.status.stringValue.UTF8String);
+            [findButton(qrz.box, @"Test Sign-In") performClick:nil];
+            pump(0.1);
+            CHECK([qrz.status.stringValue hasPrefix:@"Signed in. QRZ.com XML subscription until"], "test sign-in: %s",
+                  qrz.status.stringValue.UTF8String);
+            [findButton(lotw.box, @"Test Sign-In") performClick:nil];
+            pump(0.1);
+            CHECK([lotw.status.stringValue hasPrefix:@"LoTW accepted the login"], "LoTW test: %s", lotw.status.stringValue.UTF8String);
+            qrz.user.stringValue = @"KW9D";
+            qrz.secret.stringValue = @"";
+            [findButton(qrz.box, @"Save") performClick:nil];
+            CHECK([qrz.status.stringValue isEqualToString:@"Enter both fields."], "both fields required: %s",
+                  qrz.status.stringValue.UTF8String);
+            [sw orderOut:nil];
+
+            // With the account back, lookups work again.
+            choose(0);
+            [findData performClick:nil];
+            waitForStatus(ew, @"Found", 3);
+            CHECK([labelWithLines(ew.contentView, 3) containsString:@"Found 1 of"], "lookups after saving: %s",
+                  labelWithLines(ew.contentView, 3).UTF8String);
+            [ew orderOut:nil];
+        }
+        }  // if (ew)
+
+        // ── Log tools ──
+        {
+            NSString *outDir = [tmp stringByAppendingPathComponent:@"out"];
+            [[NSFileManager defaultManager] createDirectoryAtPath:outDir withIntermediateDirectories:YES attributes:nil error:nil];
+            setenv("ADIFLINT_TEST_SAVE_DIR", outDir.UTF8String, 1);
+            setenv("ADIFLINT_TEST_FOLDER", outDir.UTF8String, 1);
+            auto spec = [](const char *name, const std::string &v) { return "<" + std::string(name) + ":" + std::to_string(v.size()) + ">" + v + " "; };
+            auto rec = [&](const char *call, const char *time) {
+                return spec("CALL", call) + spec("QSO_DATE", "20261006") + spec("TIME_ON", time) + spec("BAND", "20m") +
+                       spec("MODE", "SSB") + spec("STATION_CALLSIGN", "KW9D") + spec("MY_SIG", "POTA") +
+                       spec("MY_SIG_INFO", "US-7929") + "<EOR>\n";
+            };
+            // An activation logged out of order, with K1AC twice.
+            H.doc = "log\n<ADIF_VER:5>3.1.7\n<EOH>\n" + rec("K1AA", "2210") + rec("K1AB", "2200") + rec("K1AC", "2205") +
+                    rec("K1AC", "2206") + rec("K1AD", "2215") + rec("K1AE", "2220") + rec("K1AF", "2225") + rec("K1AG", "2230") +
+                    rec("K1AH", "2235") + rec("K1AI", "2238") + rec("K1AJ", "2240");
+            H.path = "/tmp/US-7929.adi";
+            H.pos = 0;
+            notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+            pump(0.5);
+            auto tableRows = [](NSTableView *t) { return t ? [t.dataSource numberOfRowsInTableView:t] : -1; };
+            auto status = [](NSWindow *w) { return std::string(labelWithLines(w.contentView, 4).UTF8String); };
+
+            // Log Table: every record, filter, sort, click to show it in the editor.
+            run("Log Table...");
+            NSWindow *tw = windowTitled(@"Log Table");
+            NSTableView *t = tw ? findTable(tw.contentView) : nil;
+            CHECK(t && tableRows(t) == 11, "Log Table lists 11 records (%ld)", (long)tableRows(t));
+            if (t) {
+                CHECK([t.tableColumns[0].title isEqualToString:@"#"] && [t.tableColumns[1].title isEqualToString:@"QSO_DATE"] &&
+                          [t.tableColumns[3].title isEqualToString:@"CALL"],
+                      "columns: #, QSO_DATE, TIME_ON, CALL...");
+                NSMutableArray *searches = [NSMutableArray array];
+                collect(tw.contentView, NSSearchField.class, searches);
+                NSSearchField *sf = searches.firstObject;
+                sf.stringValue = @"k1ac";
+                [sf sendAction:sf.action to:sf.target];
+                CHECK(tableRows(t) == 2, "filter K1AC: 2 rows (%ld)", (long)tableRows(t));
+                sf.stringValue = @"";
+                [sf sendAction:sf.action to:sf.target];
+                t.sortDescriptors = @[ [NSSortDescriptor sortDescriptorWithKey:@"2" ascending:YES] ];
+                CHECK([cell(t, 0, @"2") isEqualToString:@"22:00"] && [cell(t, 0, @"3") isEqualToString:@"K1AB"],
+                      "sorted by TIME_ON: %s", cell(t, 0, @"3").UTF8String);
+                [t selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
+                CHECK(H.pos == (intptr_t)H.doc.find("<CALL:4>K1AB"), "selecting a row moves the caret to its record");
+                [tw.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(tw.contentView) == 0, "Log Table controls do not overlap (%d)", overlaps(tw.contentView));
+                snapshot(tw, "log-table");
+                // Typing elsewhere must not pull the caret to the selected row, and the selection
+                // stays on its record when another record is added above it.
+                std::string savedDoc = H.doc;
+                H.pos = 3;
+                H.doc += "\n";
+                notify(SCN_MODIFIED, 0, (intptr_t)H.doc.size() - 1, SC_MOD_INSERTTEXT);
+                pump(1.2);
+                CHECK(H.pos == 3, "a re-check leaves the caret where you typed (%ld)", (long)H.pos);
+                size_t firstRec = H.doc.find("<EOH>\n") + 6;
+                H.doc.insert(firstRec, "<CALL:4>W0NE <QSO_DATE:8>20261005 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <EOR>\n");
+                notify(SCN_MODIFIED, 0, (intptr_t)firstRec, SC_MOD_INSERTTEXT);
+                pump(1.2);
+                CHECK([cell(t, t.selectedRow, @"3") isEqualToString:@"K1AB"] && H.pos == 3,
+                      "the selection stays on K1AB (%s), caret unmoved", cell(t, t.selectedRow, @"3").UTF8String);
+                H.doc = savedDoc;
+                notify(SCN_MODIFIED, 0, 0, SC_MOD_DELETETEXT);
+                pump(1.0);
+            }
+
+            // Summary.
+            run("Log Summary...");
+            NSWindow *sw2 = windowTitled(@"Log Summary");
+            NSMutableArray *tvs = [NSMutableArray array];
+            if (sw2) collect(sw2.contentView, NSTextView.class, tvs);
+            NSString *report = ((NSTextView *)tvs.firstObject).string;
+            CHECK([report containsString:@"Records               11"] && [report containsString:@"Parks on the Air"] &&
+                      [report containsString:@"US-7929"],
+                  "summary report:\n%s", report.UTF8String);
+            if (sw2) {
+                CHECK(overlaps(sw2.contentView) == 0, "Summary controls do not overlap");
+                snapshot(sw2, "summary");
+            }
+
+            // Activation Tracker: 10 unique QSOs (the repeat doesn't count).
+            run("Activation Tracker (POTA, WWFF, SOTA)...");
+            NSWindow *aw = windowTitled(@"Activation Tracker");
+            NSTableView *at = aw ? findTable(aw.contentView) : nil;
+            CHECK(at && tableRows(at) == 1, "one park-day");
+            if (at) {
+                CHECK([cell(at, 0, @"3") isEqualToString:@"10"] && [cell(at, 0, @"4") isEqualToString:@"done"] &&
+                          [cell(at, 0, @"6") isEqualToString:@"1"],
+                      "10 QSOs, activated, 1 duplicate: %s %s %s", cell(at, 0, @"3").UTF8String, cell(at, 0, @"4").UTF8String,
+                      cell(at, 0, @"6").UTF8String);
+                CHECK([labelWithLines(aw.contentView, 2) containsString:@"US-7929 on 2026-10-06: 10 QSOs, activated"],
+                      "headline: %s", labelWithLines(aw.contentView, 2).UTF8String);
+                [aw.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(aw.contentView) == 0, "Tracker controls do not overlap (%d)", overlaps(aw.contentView));
+                snapshot(aw, "activation-tracker");
+            }
+
+            // Sort by date and time: one undo step.
+            int undo = H.undoActions;
+            run("Sort Records by Date and Time");
+            CHECK(H.doc.find("K1AB") < H.doc.find("K1AC") && H.doc.find("K1AC") < H.doc.find("K1AA") && H.undoActions == undo + 1,
+                  "sorted:\n%s", H.doc.c_str());
+            CHECK(H.tip.find("sorted 11 records") != std::string::npos, "tip: %s", H.tip.c_str());
+            run("Sort Records by Date and Time");
+            CHECK(H.tip.find("already in date and time order") != std::string::npos, "already sorted: %s", H.tip.c_str());
+            pump(0.4);
+            CHECK(tableRows(t) == 11 && [cell(t, 0, @"0") isEqualToString:@"1"], "Log Table followed the edit");
+
+            // Remove Duplicates.
+            run("Remove Duplicates...");
+            NSWindow *dw = windowTitled(@"Remove Duplicates");
+            NSTableView *dt = dw ? findTable(dw.contentView) : nil;
+            CHECK(dt && tableRows(dt) == 1, "one duplicate set");
+            NSButton *removeButton = dw ? findButton(dw.contentView, @"Remove 1 Record") : nil;
+            CHECK(removeButton != nil, "Remove 1 Record button");
+            if (dw) {
+                [dw.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(dw.contentView) == 0, "Duplicates controls do not overlap (%d)", overlaps(dw.contentView));
+                snapshot(dw, "duplicates");
+            }
+            [removeButton performClick:nil];
+            size_t first = H.doc.find("<CALL:4>K1AC");
+            CHECK(first != std::string::npos && H.doc.find("<CALL:4>K1AC", first + 1) == std::string::npos &&
+                      H.doc.find("<TIME_ON:4>2206") == std::string::npos,
+                  "the later K1AC is gone");
+            CHECK(status(dw).find("Removed 1 duplicate record") == 0, "status: %s", status(dw).c_str());
+
+            // Bulk Edit: add MY_STATE to every record.
+            run("Bulk Edit...");
+            NSWindow *bw = windowTitled(@"Bulk Edit");
+            CHECK(bw != nil, "Bulk Edit window");
+            if (bw) {
+                NSMutableArray *combos = [NSMutableArray array], *fields = [NSMutableArray array];
+                collect(bw.contentView, NSComboBox.class, combos);
+                collect(bw.contentView, NSTextField.class, fields);
+                NSTextField *value = nil;
+                NSMutableArray<NSTextField *> *shiftFields = [NSMutableArray array];
+                for (NSTextField *f in fields) {
+                    if ([f.placeholderString isEqualToString:@"new value"]) value = f;
+                    if ([f.placeholderString isEqualToString:@"0"]) [shiftFields addObject:f];
+                }
+                ((NSComboBox *)combos[0]).stringValue = @"my_state";
+                value.stringValue = @"KS";
+                [findButton(bw.contentView, @"Preview") performClick:nil];
+                NSTableView *bt = findTable(bw.contentView);
+                CHECK(tableRows(bt) == 10, "10 changes previewed (%ld): %s", (long)tableRows(bt), status(bw).c_str());
+                CHECK(status(bw).find("10 changes in 10 records. No new problems") == 0, "preview status: %s", status(bw).c_str());
+                [bw.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(bw.contentView) == 0, "Bulk Edit controls do not overlap (%d)", overlaps(bw.contentView));
+                snapshot(bw, "bulk-edit");
+                undo = H.undoActions;
+                [findButton(bw.contentView, @"Apply 10 Changes") performClick:nil];
+                size_t n = 0;
+                for (size_t p = H.doc.find("<MY_STATE:2>KS <EOR>"); p != std::string::npos; p = H.doc.find("<MY_STATE:2>KS <EOR>", p + 1)) ++n;
+                CHECK(n == 10 && H.undoActions == undo + 1, "MY_STATE added to 10 records in one undo step (%zu)", n);
+                CHECK(status(bw).find("Applied 10 changes to 10 records") == 0, "applied: %s", status(bw).c_str());
+
+                // Time Shift: the same window, 30 minutes later.
+                run("Time Shift...");
+                CHECK([bw.title isEqualToString:@"Time Shift"], "titled Time Shift");
+                NSPopUpButton *convert = nil;
+                NSMutableArray *pops = [NSMutableArray array];
+                collect(bw.contentView, NSPopUpButton.class, pops);
+                for (NSPopUpButton *pb in pops)
+                    if ([pb indexOfItemWithTitle:@"By a fixed amount"] >= 0) convert = pb;
+                NSComboBox *zone = nil;
+                for (NSComboBox *c in combos)
+                    if ([c.placeholderString isEqualToString:@"e.g. America/Chicago"]) zone = c;
+                CHECK(convert && zone && [convert.titleOfSelectedItem isEqualToString:@"From local time to UTC"] &&
+                          zone.stringValue.length > 0,
+                      "Time Shift opens on local time to UTC, with a zone filled in");
+                auto choose = [&](NSString *title) {
+                    [convert selectItemWithTitle:title];
+                    [convert sendAction:convert.action to:convert.target];
+                };
+                auto shiftOnce = [&](NSString *mode) {
+                    choose(mode);
+                    [findButton(bw.contentView, @"Preview") performClick:nil];
+                    NSButton *ap = findButton(bw.contentView, @"Apply 10 Changes");
+                    if (!ap) ap = findButton(bw.contentView, @"Apply 20 Changes");
+                    [ap performClick:nil];
+                };
+                // Local (Central) time to UTC and back: CDT is UTC-5 in October.
+                zone.stringValue = @"America/Chicago";
+                [zone sendAction:zone.action to:zone.target];
+                choose(@"From local time to UTC");
+                [bw.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(bw.contentView) == 0, "Time Shift (zone) controls do not overlap (%d)", overlaps(bw.contentView));
+                snapshot(bw, "time-shift-zone");
+                shiftOnce(@"From local time to UTC");
+                CHECK(H.doc.find("<CALL:4>K1AB <QSO_DATE:8>20261007 <TIME_ON:4>0300") != std::string::npos,
+                      "22:00 CDT on 6 Oct is 03:00 UTC on 7 Oct:\n%s", H.doc.c_str());
+                shiftOnce(@"From UTC to local time");
+                CHECK(H.doc.find("<CALL:4>K1AB <QSO_DATE:8>20261006 <TIME_ON:4>2200") != std::string::npos, "and back to local time");
+                // A time the clocks skipped and one they repeated are listed and left alone.
+                std::string saved = H.doc;
+                H.doc += "<CALL:4>GAPP <QSO_DATE:8>20260308 <TIME_ON:4>0230 <BAND:3>20m <MODE:3>SSB <EOR>\n"
+                         "<CALL:4>REPT <QSO_DATE:8>20261101 <TIME_ON:4>0130 <BAND:3>20m <MODE:3>SSB <EOR>\n";
+                notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+                pump(0.5);
+                choose(@"From local time to UTC");
+                [findButton(bw.contentView, @"Preview") performClick:nil];
+                CHECK(status(bw).find("(GAPP): 2026-03-08 02:30 didn't happen in America/Chicago (the clocks went forward)") !=
+                              std::string::npos &&
+                          status(bw).find("(REPT): 2026-11-01 01:30 happened twice in America/Chicago") != std::string::npos &&
+                          status(bw).find("2 records skipped") != std::string::npos,
+                      "DST gaps and repeats: %s", status(bw).c_str());
+                H.doc = saved;
+                notify(SCN_MODIFIED, 0, 0, SC_MOD_DELETETEXT);
+                pump(0.5);
+                choose(@"By a fixed amount");
+                if (shiftFields.count == 3) shiftFields[2].stringValue = @"30";
+                [findButton(bw.contentView, @"Preview") performClick:nil];
+                CHECK(tableRows(bt) == 10, "10 TIME_ON changes (%ld): %s", (long)tableRows(bt), status(bw).c_str());
+                snapshot(bw, "time-shift");
+                [findButton(bw.contentView, @"Apply 10 Changes") performClick:nil];
+                CHECK(H.doc.find("<CALL:4>K1AB <QSO_DATE:8>20261006 <TIME_ON:4>2230") != std::string::npos &&
+                          H.doc.find("<TIME_ON:4>2310") != std::string::npos,
+                      "times moved 30 minutes:\n%s", H.doc.c_str());
+                [bw orderOut:nil];
+            }
+
+            // CSV export (the save dialog is replaced by ADIFLINT_TEST_SAVE_DIR).
+            run("Export CSV...");
+            NSString *csv = [NSString stringWithContentsOfFile:[outDir stringByAppendingPathComponent:@"US-7929.csv"]
+                                                      encoding:NSUTF8StringEncoding
+                                                         error:nil];
+            CHECK([csv hasPrefix:@"QSO_DATE,TIME_ON,CALL,BAND,MODE"] && [csv containsString:@"\r\n20261006,2230,K1AB,20m,SSB"],
+                  "CSV saved: %s", csv.UTF8String);
+
+            // POTA export: one file named callsign@park-date.
+            run("Export Activation Logs...");
+            NSWindow *pw = windowTitled(@"Export Activation Logs");
+            NSTableView *pt = pw ? findTable(pw.contentView) : nil;
+            CHECK(pt && tableRows(pt) == 1 && [cell(pt, 0, @"0") isEqualToString:@"KW9D@US-7929-20261006.adi"], "POTA file: %s",
+                  pt ? cell(pt, 0, @"0").UTF8String : "");
+            if (pw) {
+                [pw.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(pw.contentView) == 0, "POTA export controls do not overlap (%d)", overlaps(pw.contentView));
+                snapshot(pw, "pota-export");
+                NSButton *save = findButton(pw.contentView, @"Save 1 File");
+                [save performClick:nil];
+                NSString *potaPath = [outDir stringByAppendingPathComponent:@"KW9D@US-7929-20261006.adi"];
+                NSString *pf = [NSString stringWithContentsOfFile:potaPath encoding:NSUTF8StringEncoding error:nil];
+                CHECK([pf containsString:@"<CALL:4>K1AB"] && [pf containsString:@"<MY_SIG_INFO:7>US-7929"], "POTA file written");
+                CHECK(status(pw).find("Saved 1 file") == 0, "saved: %s", status(pw).c_str());
+                [save performClick:nil];
+                CHECK(status(pw).find("Already in the folder: KW9D@US-7929-20261006.adi") == 0, "asks before replacing: %s",
+                      status(pw).c_str());
+                [save performClick:nil];
+                CHECK(status(pw).find("Saved 1 file") == 0, "replaced on the second press: %s", status(pw).c_str());
+                [pw orderOut:nil];
+            }
+
+            // Merge another log: one QSO already here, one new.
+            NSString *other = [tmp stringByAppendingPathComponent:@"other.adi"];
+            std::string otherText = "other\n<ADIF_VER:5>3.1.7\n<EOH>\n" + spec("CALL", "K1AB") + spec("QSO_DATE", "20261006") +
+                                    spec("TIME_ON", "223030") + spec("BAND", "20m") + spec("MODE", "SSB") + "<EOR>\n" +
+                                    spec("CALL", "W2XY") + spec("QSO_DATE", "20261006") + spec("TIME_ON", "2233") +
+                                    spec("BAND", "20m") + spec("MODE", "SSB") + "<EOR>\n";
+            [@(otherText.c_str()) writeToFile:other atomically:YES encoding:NSUTF8StringEncoding error:nil];
+            setenv("ADIFLINT_TEST_OPEN_FILE", other.UTF8String, 1);
+            run("Merge Another Log...");
+            NSWindow *mw = windowTitled(@"Merge Another Log");
+            if (mw) {
+                [findButton(mw.contentView, @"Choose...") performClick:nil];
+                NSTableView *mt = findTable(mw.contentView);
+                CHECK(tableRows(mt) == 2 && [cell(mt, 0, @"6") hasPrefix:@"already here"] && [cell(mt, 1, @"6") isEqualToString:@"add"],
+                      "merge preview: %s / %s", cell(mt, 0, @"6").UTF8String, cell(mt, 1, @"6").UTF8String);
+                [mw.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(mw.contentView) == 0, "Merge controls do not overlap (%d)", overlaps(mw.contentView));
+                snapshot(mw, "merge");
+                [findButton(mw.contentView, @"Add 1 QSO") performClick:nil];
+                size_t w2 = H.doc.find("<CALL:4>W2XY");
+                CHECK(w2 != std::string::npos && w2 > H.doc.find("<TIME_ON:4>2230") && w2 < H.doc.find("<TIME_ON:4>2235"),
+                      "W2XY added and sorted into place:\n%s", H.doc.c_str());
+                CHECK(status(mw).find("Added 1 QSO from other.adi and sorted") == 0, "merge status: %s", status(mw).c_str());
+                [mw orderOut:nil];
+            }
+
+            // Worked Before: index the output folder (it holds the POTA file).
+            run("Worked Before...");
+            NSWindow *ww = windowTitled(@"Worked Before");
+            if (ww) {
+                [findButton(ww.contentView, @"Choose...") performClick:nil];
+                for (int i = 0; i < 60 && status(ww).find("Searched") == std::string::npos; ++i) pump(0.05);
+                NSMutableArray *searches = [NSMutableArray array];
+                collect(ww.contentView, NSSearchField.class, searches);
+                NSSearchField *callField = searches.firstObject;
+                callField.stringValue = @"VE3/K1AD/P";
+                [callField sendAction:callField.action to:callField.target];
+                NSTableView *wt = findTable(ww.contentView);
+                CHECK(tableRows(wt) == 1 && [cell(wt, 0, @"0") isEqualToString:@"KW9D@US-7929-20261006.adi"],
+                      "K1AD found in the exported log (%ld): %s", (long)tableRows(wt), status(ww).c_str());
+                CHECK(status(ww).find("K1AD: 1 QSO in 1 other log; last 2026-10-06 22:45 on 20m SSB") == 0, "worked status: %s",
+                      status(ww).c_str());
+                [ww.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(ww.contentView) == 0, "Worked Before controls do not overlap (%d)", overlaps(ww.contentView));
+                snapshot(ww, "worked-before");
+                [ww orderOut:nil];
+            }
+            // ...and New QSO mentions it.
+            run("New QSO...");
+            NSWindow *qw2 = qsoWindow();
+            if (qw2) {
+                NSTextField *callField = qsoControl(qw2, @"CALL");
+                callField.stringValue = @"K1AE";
+                [[NSNotificationCenter defaultCenter] postNotificationName:NSControlTextDidChangeNotification object:callField];
+                pump(0.4);
+                CHECK([summaryLabel(qw2.contentView).stringValue containsString:@"K1AE: 1 QSO in 1 other log"],
+                      "New QSO shows worked before: %s", summaryLabel(qw2.contentView).stringValue.UTF8String);
+                [qw2 orderOut:nil];
+            }
+            for (NSWindow *w in @[ tw ?: NSNull.null, sw2 ?: NSNull.null, aw ?: NSNull.null, dw ?: NSNull.null ])
+                if ([w isKindOfClass:NSWindow.class]) [w orderOut:nil];
+            unsetenv("ADIFLINT_TEST_SAVE_DIR");
+            unsetenv("ADIFLINT_TEST_FOLDER");
+            unsetenv("ADIFLINT_TEST_OPEN_FILE");
+        }
+
+        // ── Radio (rigctld and flrig stand-ins on loopback) and POTA spots ──
+        {
+            FakeServer rig([](const std::string &in, std::string *out) {
+                // rigctld: answer each complete query line.
+                size_t lines = (size_t)std::count(in.begin(), in.end(), '\n');
+                if (lines < 2) return false;
+                *out = "get_freq:\nFrequency: 14285000\nRPRT 0\nget_mode:\nMode: USB\nPassband: 2400\nRPRT 0\n";
+                return true;
+            });
+            std::atomic<bool> flrigOnline{true};
+            FakeServer flrig([&flrigOnline](const std::string &in, std::string *out) {
+                size_t end = in.find("\r\n\r\n");
+                if (end == std::string::npos) return false;
+                size_t cl = in.find("Content-Length: ");
+                size_t len = cl == std::string::npos ? 0 : (size_t)std::atoi(in.c_str() + cl + 16);
+                if (in.size() < end + 4 + len) return false;
+                std::string value = in.find("rig.get_xcvr") != std::string::npos  ? std::string(flrigOnline ? "IC-7300" : "")
+                                    : in.find("rig.get_vfo") != std::string::npos ? "7074000"
+                                                                                  : "DATA-U";
+                std::string body = "<?xml version=\"1.0\"?>\r\n<methodResponse><params><param>\r\n\t<value>" + value +
+                                   "</value>\r\n</param></params></methodResponse>\r\n";
+                *out = "HTTP/1.1 200 OK\r\nServer: XMLRPC++ 0.8\r\nContent-Type: text/xml\r\nContent-length: " +
+                       std::to_string(body.size()) + "\r\n\r\n" + body;
+                return true;
+            });
+            CHECK(rig.port > 0 && flrig.port > 0, "fake servers listening");
+
+            run("Settings...");
+            NSWindow *setw = windowTitled(@"ADIF Lint Settings");
+            NSView *radio = setw ? viewWithIdentifier(setw.contentView, @"settings.radio") : nil;
+            CHECK(radio != nil, "Settings has a Radio section");
+            if (radio) {
+                NSPopUpButton *kind = findPopup(radio);
+                NSMutableArray *fields = [NSMutableArray array];
+                collect(radio, NSTextField.class, fields);
+                NSTextField *host = nil, *port = nil, *rstatus = nil;
+                for (NSTextField *f in fields) {
+                    if (f.editable && !host) host = f;
+                    else if (f.editable) port = f;
+                    else rstatus = f;  // the last label is the status
+                }
+                [setw.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(setw.contentView) == 0, "Settings with Radio do not overlap (%d)", overlaps(setw.contentView));
+                snapshot(setw, "settings-radio");
+                auto testRadio = [&](NSInteger k, int p) {
+                    [kind selectItemAtIndex:k];
+                    host.stringValue = @"127.0.0.1";
+                    port.stringValue = [NSString stringWithFormat:@"%d", p];
+                    [findButton(radio, @"Test") performClick:nil];
+                    for (int i = 0; i < 60 && [rstatus.stringValue hasPrefix:@"Asking"]; ++i) pump(0.05);
+                    return std::string(rstatus.stringValue.UTF8String);
+                };
+                std::string st = testRadio(1, rig.port);
+                CHECK(st.find("Connected: 14.285 MHz USB. New QSO would log FREQ 14.285 (20m), MODE SSB USB.") == 0,
+                      "rigctld test: %s", st.c_str());
+                st = testRadio(2, flrig.port);
+                CHECK(st.find("Connected: 7.074 MHz DATA-U (IC-7300)") == 0 && st.find("data mode") != std::string::npos,
+                      "flrig test: %s", st.c_str());
+                flrigOnline = false;
+                st = testRadio(2, flrig.port);
+                CHECK(st == "flrig is running but not connected to a radio", "flrig without a radio: %s", st.c_str());
+                flrigOnline = true;
+                st = testRadio(1, 9);  // the discard port: nothing listens there
+                CHECK(st.find("nothing is listening on 127.0.0.1:9") == 0 || st.find("no answer") == 0, "closed port: %s", st.c_str());
+                testRadio(1, rig.port);  // leave rigctld saved
+                NSString *ini = [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint.ini"]
+                                                          encoding:NSUTF8StringEncoding
+                                                             error:nil];
+                NSString *portLine = [NSString stringWithFormat:@"radioPort=%d\n", rig.port];
+                CHECK([ini containsString:@"radioKind=rigctld\n"] && [ini containsString:portLine],
+                      "radio settings saved in ADIFLint.ini");
+                [setw orderOut:nil];
+            }
+
+            // New QSO: From Radio fills FREQ, BAND, MODE and SUBMODE.
+            run("New QSO...");
+            NSWindow *qw3 = qsoWindow();
+            if (qw3) {
+                qsoControl(qw3, @"MODE").stringValue = @"CW";
+                [findButton(qw3.contentView, @"From Radio") performClick:nil];
+                for (int i = 0; i < 60 && ![qsoControl(qw3, @"FREQ").stringValue isEqualToString:@"14.285"]; ++i) pump(0.05);
+                CHECK([qsoControl(qw3, @"FREQ").stringValue isEqualToString:@"14.285"] &&
+                          [qsoControl(qw3, @"BAND").stringValue isEqualToString:@"20m"] &&
+                          [qsoControl(qw3, @"MODE").stringValue isEqualToString:@"SSB"] &&
+                          [qsoControl(qw3, @"SUBMODE").stringValue isEqualToString:@"USB"],
+                      "From Radio: %s %s %s", qsoControl(qw3, @"FREQ").stringValue.UTF8String,
+                      qsoControl(qw3, @"BAND").stringValue.UTF8String, qsoControl(qw3, @"MODE").stringValue.UTF8String);
+                [qw3.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(qw3.contentView) == 0, "New QSO with the radio row does not overlap (%d)", overlaps(qw3.contentView));
+                snapshot(qw3, "new-qso-radio");
+            }
+
+            // POTA spots (fixture): the malformed spot is dropped; one fills New QSO.
+            run("Spots (POTA, WWFF)...");
+            NSWindow *spw = windowTitled(@"Spots");
+            NSTableView *spt = spw ? findTable(spw.contentView) : nil;
+            for (int i = 0; i < 40 && spt && [spt.dataSource numberOfRowsInTableView:spt] == 0; ++i) pump(0.05);
+            CHECK(spt && [spt.dataSource numberOfRowsInTableView:spt] == 3, "3 usable spots (%ld)",
+                  spt ? (long)[spt.dataSource numberOfRowsInTableView:spt] : -1L);
+            if (spt) {
+                NSInteger wg = -1;
+                for (NSInteger r = 0; r < [spt.dataSource numberOfRowsInTableView:spt]; ++r)
+                    if ([cell(spt, r, @"1") isEqualToString:@"WG0Y"]) wg = r;
+                CHECK(wg >= 0 && [cell(spt, wg, @"4") isEqualToString:@"US-12593"] && [cell(spt, wg, @"2") isEqualToString:@"14059.1"],
+                      "WG0Y spot row");
+                [spw.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(spw.contentView) == 0, "Spots controls do not overlap (%d)", overlaps(spw.contentView));
+                snapshot(spw, "pota-spots");
+                [spt selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)wg] byExtendingSelection:NO];
+                // A refresh that brings a newer spot keeps WG0Y selected (the rows move down one).
+                NSString *more = [tmp stringByAppendingPathComponent:@"spots2"];
+                [[NSFileManager defaultManager] createDirectoryAtPath:[more stringByAppendingPathComponent:@"pota"]
+                                          withIntermediateDirectories:YES
+                                                           attributes:nil
+                                                                error:nil];
+                NSMutableArray *list = [[NSJSONSerialization
+                    JSONObjectWithData:[NSData dataWithContentsOfFile:[@(argv[2]) stringByAppendingPathComponent:@"pota/spots.json"]]
+                               options:NSJSONReadingMutableContainers
+                                 error:nil] mutableCopy];
+                NSMutableDictionary *newer = [list[0] mutableCopy];
+                newer[@"spotId"] = @99;
+                newer[@"activator"] = @"N9NEW";
+                newer[@"spotTime"] = @"2026-10-07T21:15:00";
+                [list insertObject:newer atIndex:0];
+                [[NSJSONSerialization dataWithJSONObject:list options:0 error:nil]
+                    writeToFile:[more stringByAppendingPathComponent:@"pota/spots.json"]
+                     atomically:YES];
+                setenv("ADIFLINT_FAKE_LOOKUP_DIR", more.UTF8String, 1);
+                [findButton(spw.contentView, @"Refresh") performClick:nil];
+                pump(0.3);
+                setenv("ADIFLINT_FAKE_LOOKUP_DIR", argv[2], 1);
+                CHECK([spt.dataSource numberOfRowsInTableView:spt] == 4 && spt.selectedRow == wg + 1 &&
+                          [cell(spt, spt.selectedRow, @"1") isEqualToString:@"WG0Y"],
+                      "refresh keeps WG0Y selected (%ld)", (long)spt.selectedRow);
+                [findButton(spw.contentView, @"Use in New QSO") performClick:nil];
+                pump(0.3);
+                NSWindow *qw4 = qsoWindow();
+                CHECK(qw4 && [qsoControl(qw4, @"CALL").stringValue isEqualToString:@"WG0Y"] &&
+                          [qsoControl(qw4, @"FREQ").stringValue isEqualToString:@"14.0591"] &&
+                          [qsoControl(qw4, @"MODE").stringValue isEqualToString:@"CW"] &&
+                          [qsoControl(qw4, @"SIG").stringValue isEqualToString:@"POTA"] &&
+                          [qsoControl(qw4, @"SIG_INFO").stringValue isEqualToString:@"US-12593"],
+                      "spot copied to New QSO, with SIG and SIG_INFO rows added");
+                if (qw4) snapshot(qw4, "new-qso-spot");
+                CHECK(qw4 && qsoControl(qw4, @"SUBMODE").stringValue.length == 0, "the spot's CW clears the radio's earlier USB");
+                if (qw4) {
+                    // Park-to-park: the same activator at another park is a new contact, not a repeat.
+                    [findButton(qw4.contentView, @"Log QSO") performClick:nil];
+                    pump(0.2);
+                    if (getenv("ADIFLINT_DEBUG")) {
+                        std::printf("after Log QSO: %s\n", summaryLabel(qw4.contentView).stringValue.UTF8String);
+                        NSGridView *grid = findGrid(qw4.contentView);
+                        for (NSInteger gr = 0; gr < grid.numberOfRows; ++gr)
+                            std::printf("  %s = [%s] %s\n", ((NSTextField *)[grid cellAtColumnIndex:0 rowIndex:gr].contentView).stringValue.UTF8String,
+                                        ((NSTextField *)[grid cellAtColumnIndex:1 rowIndex:gr].contentView).stringValue.UTF8String,
+                                        ((NSTextField *)[grid cellAtColumnIndex:2 rowIndex:gr].contentView).stringValue.UTF8String);
+                    }
+                    auto summaryFor = [&](NSString *park) {
+                        qsoControl(qw4, @"CALL").stringValue = @"WG0Y";
+                        qsoControl(qw4, @"SIG_INFO").stringValue = park;
+                        [[NSNotificationCenter defaultCenter] postNotificationName:NSControlTextDidChangeNotification
+                                                                            object:qsoControl(qw4, @"CALL")];
+                        pump(0.4);
+                        return std::string(summaryLabel(qw4.contentView).stringValue.UTF8String);
+                    };
+                    std::string other = summaryFor(@"US-99999"), same = summaryFor(@"US-12593");
+                    CHECK(other.find("already in this log") == std::string::npos, "another park is not a repeat: %s", other.c_str());
+                    CHECK(same.find("already in this log") != std::string::npos, "the same park is: %s", same.c_str());
+                    qsoControl(qw4, @"CALL").stringValue = @"";
+                    qsoControl(qw4, @"SIG_INFO").stringValue = @"";
+                }
+                // Band filter.
+                NSMutableArray *pops = [NSMutableArray array];
+                collect(spw.contentView, NSPopUpButton.class, pops);
+                NSPopUpButton *programPop = nil, *bandPop = nil;
+                for (NSPopUpButton *pb in pops) {
+                    if ([pb indexOfItemWithTitle:@"WWFF"] >= 0) programPop = pb;
+                    if ([pb indexOfItemWithTitle:@"40m"] >= 0) bandPop = pb;
+                }
+                [bandPop selectItemWithTitle:@"40m"];
+                [bandPop sendAction:bandPop.action to:bandPop.target];
+                CHECK([spt.dataSource numberOfRowsInTableView:spt] == 1 && [cell(spt, 0, @"1") isEqualToString:@"K1AE"],
+                      "40m filter: K1AE only");
+                [bandPop selectItemAtIndex:0];
+                [bandPop sendAction:bandPop.action to:bandPop.target];
+                // The station just logged shows as worked today; a park not in any log is NEW.
+                [findButton(spw.contentView, @"Refresh") performClick:nil];
+                for (int i = 0; i < 40 && [spt.dataSource numberOfRowsInTableView:spt] < 3; ++i) pump(0.05);
+                std::map<std::string, std::string> workedCol;
+                for (NSInteger r = 0; r < [spt.dataSource numberOfRowsInTableView:spt]; ++r)
+                    workedCol[cell(spt, r, @"1").UTF8String] = cell(spt, r, @"7").UTF8String;
+                CHECK(workedCol["WG0Y"] == "today" && workedCol["K1AE"] == "NEW", "Worked column: WG0Y %s, K1AE %s",
+                      workedCol["WG0Y"].c_str(), workedCol["K1AE"].c_str());
+                // WWFF spots from spots.wwff.co (fixture).
+                [programPop selectItemWithTitle:@"WWFF"];
+                [programPop sendAction:programPop.action to:programPop.target];
+                for (int i = 0; i < 40 && ![cell(spt, 0, @"4") hasSuffix:@"FF-5255"] && ![cell(spt, 0, @"4") hasSuffix:@"FF-0100"]; ++i)
+                    pump(0.05);
+                NSInteger k3 = -1;
+                for (NSInteger r = 0; r < [spt.dataSource numberOfRowsInTableView:spt]; ++r)
+                    if ([cell(spt, r, @"1") isEqualToString:@"K3MTO"]) k3 = r;
+                CHECK([spt.dataSource numberOfRowsInTableView:spt] == 2 && k3 >= 0 && [cell(spt, k3, @"4") isEqualToString:@"KFF-5255"] &&
+                          [cell(spt, k3, @"2") isEqualToString:@"14025"] && [cell(spt, k3, @"7") isEqualToString:@"NEW"],
+                      "WWFF spots: %ld rows", (long)[spt.dataSource numberOfRowsInTableView:spt]);
+                if (k3 >= 0) {
+                    [spt selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)k3] byExtendingSelection:NO];
+                    [findButton(spw.contentView, @"Use in New QSO") performClick:nil];
+                    pump(0.3);
+                    NSWindow *qw5 = qsoWindow();
+                    CHECK(qw5 && [qsoControl(qw5, @"CALL").stringValue isEqualToString:@"K3MTO"] &&
+                              [qsoControl(qw5, @"FREQ").stringValue isEqualToString:@"14.025"] &&
+                              [qsoControl(qw5, @"SIG").stringValue isEqualToString:@"WWFF"] &&
+                              [qsoControl(qw5, @"SIG_INFO").stringValue isEqualToString:@"KFF-5255"],
+                          "WWFF spot copied to New QSO");
+                    pump(0.8);
+                    std::string info = qw5 ? lookupInfo(qw5) : "";
+                    CHECK(info.find("KFF-5255: a new reference!") != std::string::npos, "the reference's history: %s", info.c_str());
+                    if (qw5) {
+                        qsoControl(qw5, @"CALL").stringValue = @"";
+                        qsoControl(qw5, @"SIG").stringValue = @"";
+                        qsoControl(qw5, @"SIG_INFO").stringValue = @"";
+                        [qw5 orderOut:nil];
+                    }
+                }
+                [programPop selectItemWithTitle:@"POTA"];
+                [programPop sendAction:programPop.action to:programPop.target];
+                pump(0.2);
+                [spw orderOut:nil];
+                if (qw4) [qw4 orderOut:nil];
+            }
+        }
+
+        // ── Uploads (test mode: no network; fake TQSL) ──
+        {
+            NSString *fake = @(argv[2]);
+            NSString *logPath = [fake stringByAppendingPathComponent:@"uploads.log"];
+            [[NSFileManager defaultManager] removeItemAtPath:logPath error:nil];
+            auto uploadsLog = [&]() {
+                return std::string(([NSString stringWithContentsOfFile:logPath encoding:NSUTF8StringEncoding error:nil] ?: @"").UTF8String);
+            };
+            auto count = [](const std::string &hay, const std::string &needle) {
+                size_t n = 0;
+                for (size_t p = hay.find(needle); p != std::string::npos; p = hay.find(needle, p + 1)) ++n;
+                return n;
+            };
+            // One QSO the logbook already has, and one that can't be sent (no MODE).
+            H.doc += "<CALL:4>DUPE <QSO_DATE:8>20261006 <TIME_ON:4>2315 <BAND:3>20m <MODE:3>SSB <STATION_CALLSIGN:4>KW9D <EOR>\n"
+                     "<CALL:4>NOMO <QSO_DATE:8>20261006 <TIME_ON:4>2320 <BAND:3>20m <STATION_CALLSIGN:4>KW9D <EOR>\n";
+            notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+            pump(0.5);
+            size_t records = count(H.doc, "<EOR>");
+            auto status = [](NSWindow *w) { return std::string(labelWithLines(w.contentView, 4).UTF8String); };
+            auto waitDone = [&](NSWindow *w) {
+                for (int i = 0; i < 200; ++i) {
+                    std::string s = status(w);
+                    if (s.find("Sending") == std::string::npos && s.find("is signing") == std::string::npos) break;
+                    pump(0.05);
+                }
+            };
+
+            // Settings lists the upload accounts.
+            run("Settings...");
+            NSWindow *setw = windowTitled(@"ADIF Lint Settings");
+            if (setw) {
+                SettingsRow club = settingsRow(setw, 4);
+                CHECK(club.title && [club.title.stringValue isEqualToString:@"Club Log"] &&
+                          [club.user.placeholderString isEqualToString:@"Email"],
+                      "Club Log section asks for an email");
+                NSView *eq = viewWithIdentifier(setw.contentView, @"settings.source.6");
+                NSButton *test = eq ? findButton(eq, @"Test Sign-In") : nil;
+                CHECK(eq && test && test.hidden, "eQSL has no sign-in test button");
+                NSView *ql = viewWithIdentifier(setw.contentView, @"settings.source.3");
+                CHECK(ql && !findButton(ql, @"Test Sign-In").hidden, "QRZ Logbook key can be tested");
+                [setw orderOut:nil];
+            }
+
+            // QRZ.com Logbook: lists what it would send; nothing goes until Upload.
+            run("Upload to QRZ.com Logbook...");
+            NSWindow *qz = windowTitled(@"Upload to QRZ.com Logbook");
+            NSTableView *qt = qz ? findTable(qz.contentView) : nil;
+            CHECK(qt && (size_t)[qt.dataSource numberOfRowsInTableView:qt] == records, "every record listed (%ld of %zu)",
+                  qt ? (long)[qt.dataSource numberOfRowsInTableView:qt] : -1L, records);
+            NSButton *send = qz ? findButton(qz.contentView, [NSString stringWithFormat:@"Upload %zu QSOs", records - 1]) : nil;
+            CHECK(send != nil && status(qz).find("Nothing is sent until you press Upload") != std::string::npos,
+                  "Upload button counts the sendable QSOs: %s", status(qz).c_str());
+            CHECK(uploadsLog().empty(), "nothing sent before Upload");
+            if (qt) {
+                [qz.contentView layoutSubtreeIfNeeded];
+                NSButton *box = [qt viewAtColumn:0 row:0 makeIfNecessary:YES];
+                [box performClick:nil];
+                NSString *less = [NSString stringWithFormat:@"Upload %zu QSOs", records - 2];
+                CHECK(findButton(qz.contentView, less) != nil, "the count follows the ticks");
+                H.doc += "\n";
+                notify(SCN_MODIFIED, 0, (intptr_t)H.doc.size() - 1, SC_MOD_INSERTTEXT);
+                pump(1.2);
+                CHECK(![qz.contentView isHidden] && findButton(qz.contentView, less) != nil && ![(NSButton *)[qt viewAtColumn:0 row:0 makeIfNecessary:YES] state],
+                      "an unticked QSO stays unticked after an edit to the log");
+                [findButton(qz.contentView, @"Tick All") performClick:nil];
+                send = findButton(qz.contentView, [NSString stringWithFormat:@"Upload %zu QSOs", records - 1]);
+            }
+            if (qz) {
+                [qz.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(qz.contentView) == 0, "Upload controls do not overlap (%d)", overlaps(qz.contentView));
+                snapshot(qz, "upload-qrz");
+            }
+            [send performClick:nil];
+            waitDone(qz);
+            std::string log = uploadsLog();
+            CHECK(count(log, "QRZ <CALL:") == records - 1 && log.find("QRZCOM_QSO_UPLOAD") == std::string::npos &&
+                      log.find("<CALL:4>NOMO") == std::string::npos,
+                  "one INSERT per QSO, no status fields, nothing for the record without MODE");
+            CHECK(count(H.doc, "<QRZCOM_QSO_UPLOAD_STATUS:1>Y") == records - 1 && count(H.doc, "<QRZCOM_QSO_UPLOAD_DATE:8>" + utcDate()) == records - 1,
+                  "status Y and today's date on the %zu sent (DUPE counts: already in the logbook)", records - 1);
+            CHECK(status(qz).find("Sent " + std::to_string(records - 1) + " of " + std::to_string(records - 1)) == 0 &&
+                      status(qz).find("one undo step") != std::string::npos,
+                  "QRZ summary: %s", status(qz).c_str());
+            if (qt) {
+                bool dupeShown = false;
+                for (NSInteger r = 0; r < [qt.dataSource numberOfRowsInTableView:qt]; ++r)
+                    if ([cell(qt, r, @"1") isEqualToString:@"DUPE"]) dupeShown = [cell(qt, r, @"7") isEqualToString:@"already in the logbook"];
+                CHECK(dupeShown, "the duplicate is reported as already in the logbook");
+                snapshot(qz, "upload-qrz-done");
+            }
+            CHECK(!findButton(qz.contentView, @"Upload").enabled, "Upload is off after a run until Refresh");
+            [findButton(qz.contentView, @"Refresh") performClick:nil];
+            CHECK(status(qz).find("Nothing to send") == 0, "afterwards nothing is left to send: %s", status(qz).c_str());
+            // Sending uploaded QSOs again replaces QRZ's copies.
+            NSButton *listSent = nil;
+            NSMutableArray *qboxes = [NSMutableArray array];
+            collect(qz.contentView, NSButton.class, qboxes);
+            for (NSButton *b in qboxes)
+                if ([b.title isEqualToString:@"Also list QSOs already sent"]) listSent = b;
+            [listSent performClick:nil];
+            [findButton(qz.contentView, [NSString stringWithFormat:@"Upload %zu QSOs", records - 1]) performClick:nil];
+            waitDone(qz);
+            CHECK(count(uploadsLog(), "QRZ REPLACE <CALL:") == records - 1, "re-sent with OPTION=REPLACE (%zu)",
+                  count(uploadsLog(), "QRZ REPLACE <CALL:"));
+            [listSent performClick:nil];
+            // Editing an uploaded QSO by hand makes it M: modified since upload.
+            size_t k1 = H.doc.find("<CALL:4>K1AB");
+            size_t st = H.doc.find("<MY_STATE:2>KS", k1);
+            H.doc.replace(st + 12, 2, "MO");
+            notify(SCN_MODIFIED, 0, (intptr_t)st + 12, SC_MOD_INSERTTEXT | SC_PERFORMED_USER);
+            pump(1.0);
+            std::string k1rec = H.doc.substr(k1, H.doc.find("<EOR>", k1) - k1);
+            CHECK(k1rec.find("<QRZCOM_QSO_UPLOAD_STATUS:1>M") != std::string::npos, "hand edit marks M:\n%s", k1rec.c_str());
+            [qz orderOut:nil];
+
+            // eQSL, with a QTH nickname.
+            run("Upload to eQSL...");
+            NSWindow *eq = windowTitled(@"Upload to eQSL");
+            if (eq) {
+                NSMutableArray *fields = [NSMutableArray array];
+                collect(eq.contentView, NSTextField.class, fields);
+                for (NSTextField *f in fields)
+                    if ([f.placeholderString isEqualToString:@"optional"]) f.stringValue = @"PARK";
+                [findButton(eq.contentView, [NSString stringWithFormat:@"Upload %zu QSOs", records - 1]) performClick:nil];
+                waitDone(eq);
+                log = uploadsLog();
+                CHECK(count(log, "EQSL ") == records - 1 && count(log, "<APP_EQSL_QTH_NICKNAME:4>PARK <EOR>") == records - 1 &&
+                          count(log, "<EOH>") >= records - 1,
+                      "eQSL: one file per QSO with the nickname");
+                CHECK(count(H.doc, "<EQSL_QSL_SENT:1>Y") == records - 1, "EQSL_QSL_SENT set: %s", status(eq).c_str());
+                [eq orderOut:nil];
+            }
+
+            // Club Log: one batch to putlogs.php.
+            run("Upload to Club Log...");
+            NSWindow *cl = windowTitled(@"Upload to Club Log");
+            if (cl) {
+                [findButton(cl.contentView, [NSString stringWithFormat:@"Upload %zu QSOs", records - 1]) performClick:nil];
+                waitDone(cl);
+                log = uploadsLog();
+                CHECK(count(log, "CLUBLOG KW9D adiflint.adi") == 1, "Club Log: one upload into KW9D");
+                CHECK(count(H.doc, "<CLUBLOG_QSO_UPLOAD_STATUS:1>Y") == records - 1 &&
+                          status(cl).find("Club Log accepted " + std::to_string(records - 1) + " QSOs") == 0,
+                      "Club Log status: %s", status(cl).c_str());
+                snapshot(cl, "upload-clublog");
+                [cl orderOut:nil];
+            }
+
+            // LoTW through a stand-in TQSL that records its arguments.
+            NSString *script = [tmp stringByAppendingPathComponent:@"tqsl"];
+            NSString *argsFile = [tmp stringByAppendingPathComponent:@"tqsl-args.txt"];
+            NSString *body = [NSString stringWithFormat:@"#!/bin/sh\nfor a in \"$@\"; do echo \"$a\"; done > '%@'\n"
+                                                        @"echo 'Signed and uploaded' >&2\nexit ${FAKE_TQSL_EXIT:-0}\n", argsFile];
+            [body writeToFile:script atomically:YES encoding:NSUTF8StringEncoding error:nil];
+            chmod(script.fileSystemRepresentation, 0755);
+            setenv("ADIFLINT_TEST_OPEN_FILE", script.UTF8String, 1);
+            run("Upload to LoTW (TQSL)...");
+            NSWindow *lw = windowTitled(@"Upload to LoTW (TQSL)");
+            if (lw) {
+                [findButton(lw.contentView, @"Choose...") performClick:nil];
+                NSMutableArray *combos = [NSMutableArray array];
+                collect(lw.contentView, NSComboBox.class, combos);
+                ((NSComboBox *)combos.firstObject).stringValue = @"Home QTH";
+                [lw.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(lw.contentView) == 0, "LoTW controls do not overlap (%d)", overlaps(lw.contentView));
+                snapshot(lw, "upload-lotw");
+                [findButton(lw.contentView, [NSString stringWithFormat:@"Upload %zu QSOs", records - 1]) performClick:nil];
+                waitDone(lw);
+                NSString *args = [NSString stringWithContentsOfFile:argsFile encoding:NSUTF8StringEncoding error:nil];
+                CHECK([args hasPrefix:@"-x\n-d\n-u\n-a\ncompliant\n-l\nHome QTH\n"] && [args containsString:@"adiflint-lotw-"],
+                      "TQSL arguments:\n%s", args.UTF8String);
+                CHECK([args containsString:@"\n-p\ntest\n"], "the saved certificate password goes to TQSL with -p");
+                CHECK(count(H.doc, "<LOTW_QSL_SENT:1>Y") == records - 1 && status(lw).find("TQSL: all QSOs were signed and uploaded") == 0,
+                      "LoTW: %s", status(lw).c_str());
+                // Exit 9 (some ignored): nothing is marked, and TQSL's report is shown.
+                setenv("FAKE_TQSL_EXIT", "9", 1);
+                NSButton *again = nil;
+                NSMutableArray *boxes = [NSMutableArray array];
+                collect(lw.contentView, NSButton.class, boxes);
+                for (NSButton *b in boxes)
+                    if ([b.title isEqualToString:@"Also list QSOs already sent"]) again = b;
+                [again performClick:nil];
+                std::string before = H.doc;
+                [findButton(lw.contentView, [NSString stringWithFormat:@"Upload %zu QSOs", records - 1]) performClick:nil];
+                waitDone(lw);
+                CHECK(H.doc == before && status(lw).find("some QSOs were uploaded") != std::string::npos &&
+                          status(lw).find("Signed and uploaded") != std::string::npos,
+                      "exit 9 marks nothing: %s", status(lw).c_str());
+                unsetenv("FAKE_TQSL_EXIT");
+                // A TQSL that never finishes is stopped after the time limit.
+                NSString *slow = [tmp stringByAppendingPathComponent:@"tqsl-slow"];
+                [@"#!/bin/sh\nexec sleep 30\n" writeToFile:slow atomically:YES encoding:NSUTF8StringEncoding error:nil];
+                chmod(slow.fileSystemRepresentation, 0755);
+                setenv("ADIFLINT_TEST_OPEN_FILE", slow.UTF8String, 1);
+                [findButton(lw.contentView, @"Choose...") performClick:nil];
+                setenv("ADIFLINT_TEST_TQSL_SECONDS", "1", 1);
+                [findButton(lw.contentView, [NSString stringWithFormat:@"Upload %zu QSOs", records - 1]) performClick:nil];
+                for (int i = 0; i < 80 && status(lw).find("did not finish") == std::string::npos; ++i) pump(0.1);
+                CHECK(status(lw).find("did not finish within 1 seconds, so it was stopped") != std::string::npos,
+                      "TQSL time limit: %s", status(lw).c_str());
+                unsetenv("ADIFLINT_TEST_TQSL_SECONDS");
+                [lw orderOut:nil];
+            }
+            unsetenv("ADIFLINT_TEST_OPEN_FILE");
+            [[NSFileManager defaultManager] removeItemAtPath:logPath error:nil];
+        }
+
+        // ── 0.8: confirmations, country data, lookup, table edits, distance, Cabrillo, CSV, WWFF and SOTA ──
+        {
+            NSString *outDir = [tmp stringByAppendingPathComponent:@"out8"];
+            [[NSFileManager defaultManager] createDirectoryAtPath:outDir withIntermediateDirectories:YES attributes:nil error:nil];
+            setenv("ADIFLINT_TEST_SAVE_DIR", outDir.UTF8String, 1);
+            setenv("ADIFLINT_TEST_FOLDER", outDir.UTF8String, 1);
+            auto tableRows = [](NSTableView *t) { return t ? (long)[t.dataSource numberOfRowsInTableView:t] : -1L; };
+            auto status = [](NSWindow *w) { return std::string(labelWithLines(w.contentView, 4).UTF8String); };
+            auto has = [](const std::string &s) { return H.doc.find(s) != std::string::npos; };
+            auto ini = [&]() {
+                NSString *f = [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint.ini"]
+                                                        encoding:NSUTF8StringEncoding
+                                                           error:nil];
+                return std::string((f ?: @"").UTF8String);
+            };
+            H.doc = "features\n<ADIF_VER:5>3.1.7\n<EOH>\n"
+                    "<CALL:4>K1AD <QSO_DATE:8>20261006 <TIME_ON:4>2250 <BAND:3>20m <MODE:3>SSB <STATION_CALLSIGN:4>KW9D "
+                    "<MY_GRIDSQUARE:4>EN52 <GRIDSQUARE:6>FN42aa <QRZCOM_QSO_UPLOAD_STATUS:1>Y <EOR>\n"
+                    "<CALL:4>K1AE <QSO_DATE:8>20261006 <TIME_ON:4>2255 <BAND:3>20m <MODE:3>SSB <STATION_CALLSIGN:4>KW9D "
+                    "<MY_GRIDSQUARE:4>EN52 <GRIDSQUARE:4>FN31 <CLUBLOG_QSO_UPLOAD_STATUS:1>Y <EOR>\n"
+                    "<CALL:5>DL1AB <QSO_DATE:8>20261006 <TIME_ON:4>2300 <BAND:3>20m <MODE:2>CW <STATION_CALLSIGN:4>KW9D "
+                    "<MY_GRIDSQUARE:4>EN52 <GRIDSQUARE:4>JO62 <EOR>\n";
+            H.path = "/tmp/features.adi";
+            H.pos = 0;
+            notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+            pump(0.5);
+
+            // Confirmations downloaded from QRZ.com Logbook and eQSL (fixtures), then offline country data.
+            auto findData = [&](const char *item, NSString *title, NSString *wait) {
+                run(item);
+                NSWindow *ew = windowTitled(title);
+                CHECK(ew != nil, "%s window", title.UTF8String);
+                if (!ew) return std::make_pair((NSWindow *)nil, std::vector<std::string>());
+                [findButton(ew.contentView, @"Find Data") performClick:nil];
+                waitForStatus(ew, wait, 3);
+                return std::make_pair(ew, reviewRows(findTable(ew.contentView)));
+            };
+            auto applyAll = [&](NSWindow *ew, size_t n) {
+                NSButton *b = findButton(ew.contentView, [NSString stringWithFormat:@"Apply %zu Change%@", n, n == 1 ? @"" : @"s"]);
+                CHECK(b != nil, "Apply %zu", n);
+                [b performClick:nil];
+                pump(0.1);
+            };
+            auto [qe, qrows] = findData("Enrich from QRZ.com Logbook Confirmations...", @"Enrich from QRZ.com Logbook Confirmations",
+                                        @"records are confirmed");
+            if (qe) {
+                CHECK(hasRow(qrows, "2 K1AE APP_QRZLOG_STATUS=C") && hasRow(qrows, "2 K1AE APP_QRZLOG_QSLDATE=20261007") &&
+                          hasRow(qrows, "2 K1AE QRZCOM_QSO_DOWNLOAD_STATUS=Y") && qrows.size() == 4,
+                      "QRZ.com Logbook proposals (%zu rows): %s", qrows.size(), labelWithLines(qe.contentView, 3).UTF8String);
+                CHECK([labelWithLines(qe.contentView, 3) containsString:@"1 of 3 records are confirmed in QRZ.com Logbook"],
+                      "QRZ.com Logbook status: %s", labelWithLines(qe.contentView, 3).UTF8String);
+                [qe.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(qe.contentView) == 0, "QRZ.com Logbook enrich does not overlap (%d)", overlaps(qe.contentView));
+                applyAll(qe, qrows.size());
+                CHECK(has("<APP_QRZLOG_STATUS:1>C") && has("<CLUBLOG_QSO_UPLOAD_STATUS:1>Y"),
+                      "confirmation written; a QSL field does not make the QSO modified");
+            }
+            auto [ee, erows] = findData("Enrich from eQSL Confirmations...", @"Enrich from eQSL Confirmations", @"records are confirmed");
+            if (ee) {
+                CHECK(hasRow(erows, "1 K1AD EQSL_QSL_RCVD=Y") && hasRow(erows, "1 K1AD EQSL_QSLRDATE=20261007") && erows.size() == 2,
+                      "eQSL proposals (%zu rows): %s", erows.size(), labelWithLines(ee.contentView, 3).UTF8String);
+                applyAll(ee, erows.size());
+                CHECK(has("<EQSL_QSL_RCVD:1>Y") && has("<QRZCOM_QSO_UPLOAD_STATUS:1>Y"), "eQSL confirmation written, upload status kept");
+            }
+
+            // Log Table: readable dates and times, edits written back, columns chosen, sort remembered.
+            CHECK(ini().find("tableSort=TIME_ON:a") != std::string::npos, "the Log Table sort is saved:\n%s", ini().c_str());
+            run("Log Table...");
+            NSWindow *tw = windowTitled(@"Log Table");
+            NSTableView *t = tw ? findTable(tw.contentView) : nil;
+            if (t) {
+                NSSortDescriptor *sd = t.sortDescriptors.firstObject;
+                CHECK(sd && [sd.key isEqualToString:@"2"] && sd.ascending, "the saved sort is applied (%s)", sd.key.UTF8String);
+                CHECK([cell(t, 0, @"1") isEqualToString:@"2026-10-06"] && [cell(t, 0, @"2") isEqualToString:@"22:50"],
+                      "dates and times readable: %s %s", cell(t, 0, @"1").UTF8String, cell(t, 0, @"2").UTF8String);
+                NSTextField *f = [t viewAtColumn:[t columnWithIdentifier:@"2"] row:0 makeIfNecessary:YES];
+                CHECK(f.editable, "value cells are editable");
+                int undo = H.undoActions;
+                f.stringValue = @"22:51";
+                [f sendAction:f.action to:f.target];
+                pump(0.5);
+                CHECK(has("<CALL:4>K1AD <QSO_DATE:8>20261006 <TIME_ON:4>2251 ") && H.undoActions == undo + 1,
+                      "TIME_ON edited as 2251 in one undo step");
+                CHECK(has("<QRZCOM_QSO_UPLOAD_STATUS:1>M"), "the edited, uploaded QSO is marked modified (M)");
+                NSMenu *menu = t.headerView.menu;
+                NSInteger gi = [menu indexOfItemWithTitle:@"GRIDSQUARE"];
+                CHECK(menu && gi >= 0 && menu.itemArray[(NSUInteger)gi].state == NSControlStateValueOn, "heading menu lists GRIDSQUARE, ticked");
+                if (gi >= 0) {
+                    [menu performActionForItemAtIndex:gi];
+                    pump(0.1);
+                    bool shown = false;
+                    for (NSTableColumn *c in t.tableColumns) shown |= [c.title isEqualToString:@"GRIDSQUARE"];
+                    CHECK(!shown && ini().find("tableHidden=GRIDSQUARE") != std::string::npos, "GRIDSQUARE hidden and remembered");
+                    gi = [menu indexOfItemWithTitle:@"GRIDSQUARE"];
+                    if (gi >= 0) [menu performActionForItemAtIndex:gi];
+                    pump(0.1);
+                    shown = false;
+                    for (NSTableColumn *c in t.tableColumns) shown |= [c.title isEqualToString:@"GRIDSQUARE"];
+                    CHECK(shown, "and shown again");
+                }
+                [tw.contentView layoutSubtreeIfNeeded];
+                snapshot(tw, "log-table-edit");
+                [tw orderOut:nil];
+            }
+
+            // Country data (the AD1C file installed beside the plugin).
+            auto [ce, crows] = findData("Enrich from Country Data...", @"Enrich from Country Data", @"known prefix");
+            if (ce) {
+                CHECK(hasRow(crows, "3 DL1AB DXCC=230") && hasRow(crows, "3 DL1AB CQZ=14") && hasRow(crows, "3 DL1AB CONT=EU") &&
+                          hasRow(crows, "1 K1AD DXCC=291") && hasRow(crows, "2 K1AE ITUZ=8"),
+                      "country proposals (%zu rows): %s", crows.size(), labelWithLines(ce.contentView, 3).UTF8String);
+                CHECK([labelWithLines(ce.contentView, 3) containsString:@"3 of 3 calls have a known prefix"], "country status: %s",
+                      labelWithLines(ce.contentView, 3).UTF8String);
+                applyAll(ce, crows.size());
+                CHECK(has("<DXCC:3>230") && has("<CLUBLOG_QSO_UPLOAD_STATUS:1>M"), "country data written; the uploaded QSO is now M");
+                snapshot(ce, "enrich-country");
+                [ce orderOut:nil];
+            }
+
+            // New QSO looks the call up as you type: country, zones, distance and bearing.
+            run("New QSO...");
+            NSWindow *qw = qsoWindow();
+            if (qw) {
+                NSStackView *row = lookupRow(qw);
+                NSPopUpButton *pop = row ? (NSPopUpButton *)row.arrangedSubviews[1] : nil;
+                CHECK(pop && [pop.titleOfSelectedItem isEqualToString:@"Country data"], "Look up: country data by default");
+                qsoControl(qw, @"GRIDSQUARE").stringValue = @"JO62";
+                qsoControl(qw, @"CALL").stringValue = @"DL2XYZ";
+                [[NSNotificationCenter defaultCenter] postNotificationName:NSControlTextDidChangeNotification object:qsoControl(qw, @"CALL")];
+                for (int i = 0; i < 40 && lookupInfo(qw).find("km") == std::string::npos; ++i) pump(0.05);
+                std::string info = lookupInfo(qw);
+                CHECK(info.find("FEDERAL REPUBLIC OF GERMANY (DXCC 230, CQ 14, ITU 28)") != std::string::npos &&
+                          info.find(" km at ") != std::string::npos,
+                      "lookup line: %s", info.c_str());
+                CHECK([qsoControl(qw, @"DXCC").stringValue isEqualToString:@"230"] && [qsoControl(qw, @"CONT").stringValue isEqualToString:@"EU"],
+                      "empty fields filled from the prefix");
+                [qw.contentView layoutSubtreeIfNeeded];
+                NSTextField *infoField = (NSTextField *)viewWithIdentifier(qw.contentView, @"qso.lookupInfo");
+                NSRect need = [infoField.cell titleRectForBounds:NSMakeRect(0, 0, NSWidth(infoField.bounds), 1000)];
+                NSSize text = [infoField.attributedStringValue boundingRectWithSize:NSMakeSize(NSWidth(need), 1000)
+                                                                            options:NSStringDrawingUsesLineFragmentOrigin]
+                                  .size;
+                CHECK(text.height <= NSHeight(infoField.bounds) + 1, "the lookup line is not cut off (%.0f of %.0f points)", text.height,
+                      NSHeight(infoField.bounds));
+                [qw.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(qw.contentView) == 0, "New QSO with the lookup row does not overlap (%d)", overlaps(qw.contentView));
+                snapshot(qw, "new-qso-lookup");
+                // Another call takes back what the lookup filled.
+                qsoControl(qw, @"CALL").stringValue = @"";
+                [[NSNotificationCenter defaultCenter] postNotificationName:NSControlTextDidChangeNotification object:qsoControl(qw, @"CALL")];
+                pump(0.8);
+                CHECK(qsoControl(qw, @"DXCC").stringValue.length == 0, "cleared with the call");
+                qsoControl(qw, @"GRIDSQUARE").stringValue = @"";
+                [qw orderOut:nil];
+            }
+
+            // Bulk Edit: DISTANCE from both grid squares.
+            run("Bulk Edit...");
+            NSWindow *bw = windowTitled(@"Bulk Edit");
+            if (bw) {
+                NSMutableArray *pops = [NSMutableArray array], *buttons = [NSMutableArray array];
+                collect(bw.contentView, NSPopUpButton.class, pops);
+                collect(bw.contentView, NSButton.class, buttons);
+                for (NSPopUpButton *p in pops) {
+                    if ([p indexOfItemWithTitle:@"Fill DISTANCE from grid squares"] >= 0) {
+                        [p selectItemWithTitle:@"Fill DISTANCE from grid squares"];
+                        [p sendAction:p.action to:p.target];
+                    }
+                    if ([p indexOfItemWithTitle:@"All records"] >= 0) {
+                        [p selectItemWithTitle:@"All records"];
+                        [p sendAction:p.action to:p.target];
+                    }
+                }
+                for (NSButton *b in buttons)
+                    if ([b.title isEqualToString:@"Only where"] && b.state == NSControlStateValueOn) [b performClick:nil];
+                [findButton(bw.contentView, @"Preview") performClick:nil];
+                CHECK(status(bw).find("3 changes in 3 records") == 0, "distance preview: %s", status(bw).c_str());
+                [bw.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(bw.contentView) == 0, "Bulk Edit distance does not overlap (%d)", overlaps(bw.contentView));
+                [findButton(bw.contentView, @"Apply 3 Changes") performClick:nil];
+                size_t n = 0;
+                for (size_t p = H.doc.find("<DISTANCE:"); p != std::string::npos; p = H.doc.find("<DISTANCE:", p + 1)) ++n;
+                CHECK(n == 3, "DISTANCE on 3 records (%zu)", n);
+                [bw orderOut:nil];
+            }
+
+            // Cabrillo.
+            run("Export Cabrillo...");
+            NSWindow *cw = windowTitled(@"Export Cabrillo");
+            if (cw) {
+                NSMutableArray *tvs = [NSMutableArray array];
+                collect(cw.contentView, NSTextView.class, tvs);
+                NSString *cab = @"";  // the longest: a field editor may be in the window too
+                for (NSTextView *tv in tvs)
+                    if (tv.string.length > cab.length) cab = tv.string;
+                CHECK([cab hasPrefix:@"START-OF-LOG: 3.0\nCALLSIGN: KW9D\n"] &&
+                          [cab containsString:@"\nQSO: 14000 CW 2026-10-06 2300 KW9D "] && [cab hasSuffix:@"END-OF-LOG:\n"],
+                      "Cabrillo:\n%s", cab.UTF8String);
+                [cw.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(cw.contentView) == 0, "Cabrillo controls do not overlap (%d)", overlaps(cw.contentView));
+                snapshot(cw, "export-cabrillo");
+                [findButton(cw.contentView, @"Save...") performClick:nil];
+                NSString *saved = [NSString stringWithContentsOfFile:[outDir stringByAppendingPathComponent:@"features.log"]
+                                                            encoding:NSUTF8StringEncoding
+                                                               error:nil];
+                CHECK([saved isEqualToString:cab] && status(cw).find("Saved 3 QSOs to features.log") == 0, "Cabrillo saved: %s",
+                      status(cw).c_str());
+                [cw orderOut:nil];
+            }
+
+            // Import CSV: a spreadsheet's names and formats become ADIF.
+            NSString *csvPath = [tmp stringByAppendingPathComponent:@"park.csv"];
+            [@"\xEF\xBB\xBF" @"Callsign,Date,UTC,Freq (kHz),Mode,Notes\r\nW1AW,2026-10-06,23:10,14250,SSB,\"hello, world\"\r\n"
+                writeToFile:csvPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+            setenv("ADIFLINT_TEST_OPEN_FILE", csvPath.UTF8String, 1);
+            run("Import CSV...");
+            NSWindow *iw = windowTitled(@"Import CSV");
+            if (iw) {
+                [findButton(iw.contentView, @"Choose...") performClick:nil];
+                NSTableView *it = findTable(iw.contentView);
+                CHECK(tableRows(it) == 1 && [cell(it, 0, @"0") isEqualToString:@"W1AW"] && [cell(it, 0, @"3") isEqualToString:@"20m"],
+                      "CSV preview: %s", status(iw).c_str());
+                [iw.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(iw.contentView) == 0, "Import CSV controls do not overlap (%d)", overlaps(iw.contentView));
+                snapshot(iw, "import-csv");
+                int undo = H.undoActions;
+                [findButton(iw.contentView, @"Add 1 QSO") performClick:nil];
+                pump(0.2);
+                CHECK(has("<CALL:4>W1AW") && has("<TIME_ON:4>2310") && has("<FREQ:6>14.250") && has("<COMMENT:12>hello, world") &&
+                          H.undoActions == undo + 1,
+                      "CSV row added in one undo step:\n%s", H.doc.c_str());
+                CHECK(status(iw).find("Added 1 QSO from park.csv") == 0, "import status: %s", status(iw).c_str());
+                [iw orderOut:nil];
+            }
+            unsetenv("ADIFLINT_TEST_OPEN_FILE");
+            run("Validate Now");
+            CHECK(H.tip.find("0 errors") != std::string::npos, "the log lints clean after all of that: %s", H.tip.c_str());
+
+            // WWFF and SOTA: the tracker and the export follow the program.
+            auto spec = [](const char *name, const std::string &v) { return "<" + std::string(name) + ":" + std::to_string(v.size()) + ">" + v + " "; };
+            auto prec = [&](const char *call, const char *date, const char *time, const char *refField, const char *ref) {
+                return spec("CALL", call) + spec("QSO_DATE", date) + spec("TIME_ON", time) + spec("BAND", "40m") + spec("MODE", "CW") +
+                       spec("STATION_CALLSIGN", "KW9D") + spec(refField, ref) + "<EOR>\n";
+            };
+            H.doc = "programs\n<ADIF_VER:5>3.1.7\n<EOH>\n" + prec("K1AA", "20261006", "1500", "MY_WWFF_REF", "KFF-1234") +
+                    prec("K1AB", "20261006", "1501", "MY_WWFF_REF", "KFF-1234") + prec("K1AC", "20261006", "1502", "MY_WWFF_REF", "KFF-1234") +
+                    prec("N7AA", "20261007", "1800", "MY_SOTA_REF", "W7A/AE-001") + prec("N7AB", "20261007", "1801", "MY_SOTA_REF", "W7A/AE-001") +
+                    prec("N7AC", "20261007", "1802", "MY_SOTA_REF", "W7A/AE-001") + prec("N7AD", "20261007", "1803", "MY_SOTA_REF", "W7A/AE-001");
+            H.path = "/tmp/programs.adi";
+            notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+            pump(0.5);
+            run("Activation Tracker (POTA, WWFF, SOTA)...");
+            NSWindow *aw = windowTitled(@"Activation Tracker");
+            NSTableView *at = aw ? findTable(aw.contentView) : nil;
+            NSPopUpButton *prog = aw ? findPopup(aw.contentView) : nil;
+            if (at && prog) {
+                CHECK(tableRows(at) == 0 && [labelWithLines(aw.contentView, 2) containsString:@"No POTA activations"], "no POTA here");
+                [prog selectItemWithTitle:@"WWFF"];
+                [prog sendAction:prog.action to:prog.target];
+                CHECK(tableRows(at) == 1 && [cell(at, 0, @"0") isEqualToString:@"KFF-1234"] && [cell(at, 0, @"3") isEqualToString:@"3"] &&
+                          [cell(at, 0, @"4") isEqualToString:@"41 more"],
+                      "WWFF: %s %s %s", cell(at, 0, @"0").UTF8String, cell(at, 0, @"3").UTF8String, cell(at, 0, @"4").UTF8String);
+                CHECK([labelWithLines(aw.contentView, 2) containsString:@"KFF-1234 (all days): 3 QSOs, 41 more to activate"],
+                      "WWFF headline: %s", labelWithLines(aw.contentView, 2).UTF8String);
+                [prog selectItemWithTitle:@"SOTA"];
+                [prog sendAction:prog.action to:prog.target];
+                CHECK(tableRows(at) == 1 && [cell(at, 0, @"0") isEqualToString:@"W7A/AE-001"] && [cell(at, 0, @"4") isEqualToString:@"done"],
+                      "SOTA: %s %s", cell(at, 0, @"0").UTF8String, cell(at, 0, @"4").UTF8String);
+                CHECK([labelWithLines(aw.contentView, 2) containsString:@"W7A/AE-001 on 2026-10-07: 4 stations, points scored"],
+                      "SOTA headline: %s", labelWithLines(aw.contentView, 2).UTF8String);
+                CHECK(ini().find("trackerProgram=SOTA") != std::string::npos, "the program is remembered");
+                [aw.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(aw.contentView) == 0, "Tracker with the program row does not overlap (%d)", overlaps(aw.contentView));
+                snapshot(aw, "activation-tracker-sota");
+                [findButton(aw.contentView, @"Export Logs...") performClick:nil];
+                NSWindow *pw = windowTitled(@"Export Activation Logs");
+                NSTableView *pt = pw ? findTable(pw.contentView) : nil;
+                CHECK(pt && tableRows(pt) == 1 && [cell(pt, 0, @"0") isEqualToString:@"KW9D_W7A-AE-001_20261007.adi"], "SOTA file: %s",
+                      pt ? cell(pt, 0, @"0").UTF8String : "");
+                if (pw && pt) {
+                    [findButton(pw.contentView, @"Save 1 File") performClick:nil];
+                    // The folder chosen in the POTA export earlier is remembered.
+                    NSString *sf = [NSString stringWithContentsOfFile:[[tmp stringByAppendingPathComponent:@"out"]
+                                                                          stringByAppendingPathComponent:@"KW9D_W7A-AE-001_20261007.adi"]
+                                                             encoding:NSUTF8StringEncoding
+                                                                error:nil];
+                    CHECK([sf containsString:@"<MY_SOTA_REF:10>W7A/AE-001"] && [sf containsString:@"<CALL:4>N7AD"], "SOTA file written:\n%s",
+                          sf.UTF8String);
+                    NSPopUpButton *ep = findPopup(pw.contentView);
+                    [ep selectItemWithTitle:@"WWFF"];
+                    [ep sendAction:ep.action to:ep.target];
+                    CHECK(tableRows(pt) == 1 && [cell(pt, 0, @"0") isEqualToString:@"KW9D@KFF-1234 20261006.adi"], "WWFF file: %s",
+                          cell(pt, 0, @"0").UTF8String);
+                    [pw.contentView layoutSubtreeIfNeeded];
+                    CHECK(overlaps(pw.contentView) == 0, "Export with the program row does not overlap (%d)", overlaps(pw.contentView));
+                    snapshot(pw, "export-wwff");
+                    [pw orderOut:nil];
+                }
+                [prog selectItemWithTitle:@"POTA"];
+                [prog sendAction:prog.action to:prog.target];
+                [aw orderOut:nil];
+            }
+
+            // Settings: Update the country file (fixture), saved beside ADIFLint.ini.
+            run("Settings...");
+            NSWindow *setw = windowTitled(@"ADIF Lint Settings");
+            NSView *country = setw ? viewWithIdentifier(setw.contentView, @"settings.country") : nil;
+            CHECK(country && findButton(country, @"Update"), "Country Data section with Update");
+            if (country) {
+                auto countryStatus = [&]() {
+                    NSMutableArray *labels = [NSMutableArray array];
+                    collect(country, NSTextField.class, labels);
+                    return std::string(((NSTextField *)labels.lastObject).stringValue.UTF8String);
+                };
+                CHECK(countryStatus().find("(installed with ADIF Lint)") != std::string::npos, "country status: %s", countryStatus().c_str());
+                [findButton(country, @"Update") performClick:nil];
+                for (int i = 0; i < 40 && countryStatus().find("Updated") == std::string::npos; ++i) pump(0.05);
+                CHECK(countryStatus().find("Updated to bigcty-test") == 0 &&
+                          [[NSFileManager defaultManager] fileExistsAtPath:[tmp stringByAppendingPathComponent:@"ADIFLint-cty.csv"]],
+                      "country file updated: %s", countryStatus().c_str());
+                [setw orderOut:nil];
+            }
+        }
+
+        CHECK(messageProc(0, 0, 0) == TRUE, "messageProc answers");
+        notify(NPPN_SHUTDOWN);
+
+        for (uint32_t m : H.unknown) CHECK(false, "plugin sent a message the harness does not model: %u", m);
+        [[NSFileManager defaultManager] removeItemAtPath:tmp error:nil];
+        std::printf("%d/%d host checks passed\n", gChecks - gFailures, gChecks);
+        return gFailures ? 1 : 0;
+    }
+}

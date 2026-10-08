@@ -1,0 +1,1 @@
+RESULT=OK&COUNT=1&ADIF=&lt;call:4&gt;K1AE &lt;qso_date:8&gt;20261006 &lt;time_on:4&gt;2255 &lt;band:3&gt;20m &lt;mode:3&gt;SSB &lt;app_qrzlog_status:1&gt;C &lt;app_qrzlog_qsldate:8&gt;20261007 &lt;app_qrzlog_logid:4&gt;1001 &lt;eor&gt;

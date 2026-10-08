@@ -1,0 +1,27 @@
+Sample log with deliberate mistakes for ADIF Lint. Open it in Nextpad++ and hover the marks.
+<ADIF_VER:5>3.1.7
+<PROGRAMID:9>HandTyped
+<EOH>
+
+Correct record:
+<QSO_DATE:8>20260412 <TIME_ON:4>1405 <CALL:5>K1ABC <BAND:3>20m <FREQ:6>14.062 <MODE:2>CW <RST_SENT:3>599 <RST_RCVD:3>579 <EOR>
+
+Call edited from W1AW to W1AW/P without updating the length (Fix Lengths repairs it):
+<QSO_DATE:8>20260412 <TIME_ON:4>1422 <CALL:4>W1AW/P <BAND:3>40m <MODE:3>SSB <EOR>
+
+Length too long, so CALL swallows the next field:
+<QSO_DATE:8>20260412 <TIME_ON:4>1430 <CALL:9>VE3AAA
+<BAND:3>20m <MODE:3>FT8 <EOR>
+
+Value problems: impossible date, hour 24, unknown band, submode of another mode, frequency outside its band:
+<QSO_DATE:8>20260230 <TIME_ON:4>2410 <CALL:5>DL1XX <BAND:3>21m <MODE:3>FT8 <SUBMODE:3>FT4 <EOR>
+<QSO_DATE:8>20260412 <TIME_ON:4>1500 <CALL:5>JA1ZZ <BAND:3>20m <FREQ:6>21.074 <MODE:4>MFSK <SUBMODE:3>FT4 <EOR>
+
+Deprecated (import-only) mode, and a POTA reference that is not one:
+<QSO_DATE:8>20260412 <TIME_ON:4>1510 <CALL:5>N0CAL <BAND:2>2m <MODE:4>C4FM <POTA_REF:4>K-50 <EOR>
+
+Field repeated in one record, and a STATE that does not belong to DXCC 291 (USA):
+<QSO_DATE:8>20260412 <TIME_ON:4>1520 <CALL:5>W2XYZ <CALL:5>W2XYZ <BAND:3>20m <MODE:2>CW <DXCC:3>291 <STATE:2>ZZ <EOR>
+
+Last record is missing its end-of-record marker:
+<QSO_DATE:8>20260412 <TIME_ON:4>1530 <CALL:5>G4ABC <BAND:3>20m <MODE:2>CW

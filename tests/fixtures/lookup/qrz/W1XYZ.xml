@@ -1,0 +1,9 @@
+<?xml version="1.0" ?>
+<!-- "Not found" response, in the form shown in the QRZ.com XML specification 1.34. -->
+<QRZDatabase version="1.34" xmlns="http://xmldata.qrz.com">
+    <Session>
+	<Error>Not found: W1XYZ</Error>
+	<Key>1232u4eaf13b8336d61982c1fd1099c9a38ac</Key>
+	<GMTime>Sun Nov 16 05:07:14 2003</GMTime>
+    </Session>
+</QRZDatabase>

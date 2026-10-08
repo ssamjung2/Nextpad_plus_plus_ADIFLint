@@ -1,0 +1,356 @@
+#import "SettingsPanel.h"
+
+#import "Lookup.h"
+
+// Flipped, so the sections start at the top of the scroll view.
+@interface ADIFSettingsDocument : NSView
+@end
+@implementation ADIFSettingsDocument
+- (BOOL)isFlipped {
+    return YES;
+}
+@end
+
+@implementation ADIFSettingsPanel {
+    NSPanel *_window;
+    NSMutableArray<NSTextField *> *_user;    // per source; hidden for API-key sources
+    NSMutableArray<NSSecureTextField *> *_secret;
+    NSMutableArray<NSTextField *> *_status;
+    NSPopUpButton *_radioKind;
+    NSTextField *_radioHost, *_radioPort, *_radioStatus, *_countryStatus;
+    NSButton *_countryUpdate;
+    NSScrollView *_scroll;
+}
+
+// Fixed text width: wrapping labels need it to work out their height.
+static const CGFloat kTextWidth = 520;
+
+static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
+    NSTextField *t = [NSTextField wrappingLabelWithString:text ?: @""];
+    t.font = [NSFont systemFontOfSize:size];
+    t.textColor = color;
+    t.preferredMaxLayoutWidth = kTextWidth;
+    [t.widthAnchor constraintEqualToConstant:kTextWidth].active = YES;
+    return t;
+}
+
+- (instancetype)init {
+    if (!(self = [super init])) return nil;
+    _user = [NSMutableArray array];
+    _secret = [NSMutableArray array];
+    _status = [NSMutableArray array];
+    _window = [[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, kTextWidth + 40, 400)
+                                         styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
+                                           backing:NSBackingStoreBuffered
+                                             defer:YES];
+    _window.title = @"ADIF Lint Settings";
+    _window.floatingPanel = YES;
+    _window.hidesOnDeactivate = YES;
+    _window.releasedWhenClosed = NO;
+    _window.delegate = self;
+
+    NSMutableArray<NSView *> *views = [NSMutableArray array];
+    [views addObject:[self radioSection]];
+    for (NSView *section in @[ [self countrySection] ]) {
+        NSBox *line = [[NSBox alloc] init];
+        line.boxType = NSBoxSeparator;
+        [line.widthAnchor constraintEqualToConstant:kTextWidth].active = YES;
+        [views addObject:line];
+        [views addObject:section];
+    }
+    NSBox *radioLine = [[NSBox alloc] init];
+    radioLine.boxType = NSBoxSeparator;
+    [radioLine.widthAnchor constraintEqualToConstant:kTextWidth].active = YES;
+    [views addObject:radioLine];
+    [views addObject:wrapping(@"Accounts and API keys for the online services. They are saved in your macOS Keychain "
+                              @"(items named \"ADIF Lint: ...\"), never in a file, and a saved password is never shown "
+                              @"here.",
+                              NSFont.systemFontSize, NSColor.labelColor)];
+    for (NSInteger s = 0; s < ADIFSourceCount; ++s) {
+        NSBox *line = [[NSBox alloc] init];
+        line.boxType = NSBoxSeparator;
+        [line.widthAnchor constraintEqualToConstant:kTextWidth].active = YES;
+        [views addObject:line];
+        [views addObject:[self sectionFor:(ADIFSource)s]];
+    }
+    // Plain stack views size themselves from their content (an NSBox does not).
+    NSStackView *stack = [NSStackView stackViewWithViews:views];
+    stack.orientation = NSUserInterfaceLayoutOrientationVertical;
+    stack.alignment = NSLayoutAttributeLeading;
+    stack.spacing = 14;
+    stack.edgeInsets = NSEdgeInsetsMake(18, 20, 20, 20);
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    // The sections scroll when the screen is too short for all of them.
+    NSView *document = [[ADIFSettingsDocument alloc] initWithFrame:NSZeroRect];
+    document.translatesAutoresizingMaskIntoConstraints = NO;
+    [document addSubview:stack];
+    _scroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
+    _scroll.hasVerticalScroller = YES;
+    _scroll.autohidesScrollers = YES;
+    _scroll.drawsBackground = NO;
+    _scroll.documentView = document;
+    _scroll.translatesAutoresizingMaskIntoConstraints = NO;
+    NSView *root = _window.contentView;
+    [root addSubview:_scroll];
+    NSSize fit = stack.fittingSize;
+    CGFloat screen = NSScreen.mainScreen ? NSHeight(NSScreen.mainScreen.visibleFrame) - 80 : 760;
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.topAnchor constraintEqualToAnchor:document.topAnchor],
+        [stack.leadingAnchor constraintEqualToAnchor:document.leadingAnchor],
+        [stack.trailingAnchor constraintEqualToAnchor:document.trailingAnchor],
+        [stack.bottomAnchor constraintEqualToAnchor:document.bottomAnchor],
+        [document.leadingAnchor constraintEqualToAnchor:_scroll.contentView.leadingAnchor],
+        [document.trailingAnchor constraintEqualToAnchor:_scroll.contentView.trailingAnchor],
+        [document.topAnchor constraintEqualToAnchor:_scroll.contentView.topAnchor],
+        [_scroll.topAnchor constraintEqualToAnchor:root.topAnchor],
+        [_scroll.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
+        [_scroll.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
+        [_scroll.bottomAnchor constraintEqualToAnchor:root.bottomAnchor],
+    ]];
+    [_window setContentSize:NSMakeSize(fit.width, MIN(fit.height, MAX(screen, 400)))];
+    _window.contentMinSize = NSMakeSize(fit.width, 300);
+    _window.contentMaxSize = NSMakeSize(fit.width, fit.height);
+    _window.styleMask |= NSWindowStyleMaskResizable;
+    [_window center];
+    [self refresh];
+    return self;
+}
+
+- (NSView *)radioSection {
+    NSTextField *title = [NSTextField labelWithString:@"Radio"];
+    title.font = [NSFont boldSystemFontOfSize:NSFont.systemFontSize + 1];
+    NSTextField *help = wrapping(@"New QSO can read FREQ and MODE from your radio through Hamlib's rigctld or through "
+                                 @"flrig, when one of them is running and connected to the radio. Only reads are sent: "
+                                 @"nothing here keys or tunes the radio. Defaults: rigctld port 4532, flrig port 12345.",
+                                 NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    _radioKind = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [_radioKind addItemsWithTitles:@[ @"None", @"Hamlib rigctld", @"flrig" ]];
+    _radioKind.target = self;
+    _radioKind.action = @selector(radioKindChanged:);
+    _radioHost = [NSTextField textFieldWithString:@"127.0.0.1"];
+    _radioHost.placeholderString = @"127.0.0.1";
+    [_radioHost.widthAnchor constraintEqualToConstant:180].active = YES;
+    _radioPort = [NSTextField textFieldWithString:@""];
+    _radioPort.placeholderString = @"4532";
+    [_radioPort.widthAnchor constraintEqualToConstant:70].active = YES;
+    NSStackView *where = [NSStackView stackViewWithViews:@[ _radioHost, [NSTextField labelWithString:@"Port:"], _radioPort ]];
+    where.spacing = 8;
+    NSGridView *grid = [NSGridView gridViewWithViews:@[
+        @[ [NSTextField labelWithString:@"Program:"], _radioKind ],
+        @[ [NSTextField labelWithString:@"Host:"], where ],
+    ]];
+    grid.rowSpacing = 6;
+    grid.columnSpacing = 8;
+    grid.rowAlignment = NSGridRowAlignmentFirstBaseline;
+    [grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
+    [grid columnAtIndex:0].width = 80;
+    NSButton *save = [NSButton buttonWithTitle:@"Save" target:self action:@selector(radioSave:)];
+    NSButton *test = [NSButton buttonWithTitle:@"Test" target:self action:@selector(radioTest:)];
+    NSStackView *buttons = [NSStackView stackViewWithViews:@[ save, test ]];
+    buttons.spacing = 8;
+    _radioStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    NSStackView *section = [NSStackView stackViewWithViews:@[ title, help, grid, buttons, _radioStatus ]];
+    section.orientation = NSUserInterfaceLayoutOrientationVertical;
+    section.alignment = NSLayoutAttributeLeading;
+    section.spacing = 8;
+    [section setCustomSpacing:4 afterView:title];
+    section.identifier = @"settings.radio";
+    return section;
+}
+
+- (NSView *)countrySection {
+    NSTextField *title = [NSTextField labelWithString:@"Country Data"];
+    title.font = [NSFont boldSystemFontOfSize:NSFont.systemFontSize + 1];
+    NSTextField *help = wrapping(@"DXCC entity, CQ and ITU zones and continent from a call's prefix, offline, for Enrich from "
+                                 @"Country Data and New QSO. From Jim Reisert AD1C's country files (country-files.com, "
+                                 @"MIT licence), updated every few weeks. Update downloads the newest release.",
+                                 NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    _countryUpdate = [NSButton buttonWithTitle:@"Update" target:self action:@selector(countryUpdate:)];
+    _countryStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    NSStackView *section = [NSStackView stackViewWithViews:@[ title, help, _countryUpdate, _countryStatus ]];
+    section.orientation = NSUserInterfaceLayoutOrientationVertical;
+    section.alignment = NSLayoutAttributeLeading;
+    section.spacing = 8;
+    [section setCustomSpacing:4 afterView:title];
+    section.identifier = @"settings.country";
+    return section;
+}
+
+- (void)countryUpdate:(id)sender {
+    _countryUpdate.enabled = NO;
+    [self setCountryStatus:@"Downloading the newest country file..." ok:YES];
+    if (self.onCountryUpdate) self.onCountryUpdate();
+}
+
+- (void)setCountryStatus:(NSString *)text ok:(BOOL)ok {
+    _countryUpdate.enabled = YES;
+    _countryStatus.stringValue = text ?: @"";
+    _countryStatus.textColor = ok ? NSColor.secondaryLabelColor : NSColor.systemRedColor;
+}
+
+- (int)radioPortValue {
+    int port = _radioPort.intValue;
+    if (port <= 0 || port > 65535) port = _radioKind.indexOfSelectedItem == 2 ? 12345 : 4532;
+    return port;
+}
+
+- (void)radioKindChanged:(id)sender {
+    NSString *def = _radioKind.indexOfSelectedItem == 2 ? @"12345" : @"4532";
+    _radioPort.placeholderString = def;
+    if ([_radioPort.stringValue isEqualToString:@"4532"] || [_radioPort.stringValue isEqualToString:@"12345"])
+        _radioPort.stringValue = def;
+}
+
+- (void)setRadioKind:(NSInteger)kind host:(NSString *)host port:(int)port {
+    [_radioKind selectItemAtIndex:kind >= 0 && kind <= 2 ? kind : 0];
+    _radioHost.stringValue = host.length ? host : @"127.0.0.1";
+    _radioPort.stringValue = port > 0 ? [NSString stringWithFormat:@"%d", port] : @"";
+    _radioPort.placeholderString = kind == 2 ? @"12345" : @"4532";
+}
+
+- (void)setRadioStatus:(NSString *)text ok:(BOOL)ok {
+    _radioStatus.stringValue = text ?: @"";
+    _radioStatus.textColor = ok ? NSColor.secondaryLabelColor : NSColor.systemRedColor;
+}
+
+- (NSString *)radioHostValue {
+    NSString *h = [_radioHost.stringValue stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+    return h.length ? h : @"127.0.0.1";
+}
+
+- (void)radioSave:(id)sender {
+    if (self.onRadioSave) self.onRadioSave(_radioKind.indexOfSelectedItem, [self radioHostValue], [self radioPortValue]);
+    [self setRadioStatus:_radioKind.indexOfSelectedItem == 0 ? @"Saved: no radio." : @"Saved." ok:YES];
+}
+
+- (void)radioTest:(id)sender {
+    if (self.onRadioSave) self.onRadioSave(_radioKind.indexOfSelectedItem, [self radioHostValue], [self radioPortValue]);
+    if (_radioKind.indexOfSelectedItem == 0) {
+        [self setRadioStatus:@"Choose rigctld or flrig first." ok:NO];
+        return;
+    }
+    [self setRadioStatus:@"Asking the radio..." ok:YES];
+    if (self.onRadioTest) self.onRadioTest(_radioKind.indexOfSelectedItem, [self radioHostValue], [self radioPortValue]);
+}
+
+- (NSView *)sectionFor:(ADIFSource)source {
+    NSTextField *title = [NSTextField labelWithString:ADIFSourceName(source)];
+    title.font = [NSFont boldSystemFontOfSize:NSFont.systemFontSize + 1];
+    NSTextField *help = wrapping(ADIFSourceCredentialHelp(source), NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+
+    BOOL apiKey = ADIFSourceCredentialKind(source) == ADIFCredentialAPIKey;
+    NSTextField *user = [NSTextField textFieldWithString:@""];
+    user.placeholderString = ADIFSourceUserLabel(source);
+    NSSecureTextField *secret = [[NSSecureTextField alloc] initWithFrame:NSZeroRect];
+    secret.placeholderString = ADIFSourceSecretLabel(source);
+    for (NSTextField *f in @[ user, secret ]) [f.widthAnchor constraintEqualToConstant:300].active = YES;
+    NSGridView *grid = [NSGridView gridViewWithViews:@[
+        @[ [NSTextField labelWithString:[ADIFSourceUserLabel(source) stringByAppendingString:@":"]], user ],
+        @[ [NSTextField labelWithString:[ADIFSourceSecretLabel(source) stringByAppendingString:@":"]], secret ],
+    ]];
+    grid.rowSpacing = 6;
+    grid.columnSpacing = 8;
+    grid.rowAlignment = NSGridRowAlignmentFirstBaseline;
+    [grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
+    [grid columnAtIndex:0].width = 80;
+    [grid rowAtIndex:0].hidden = apiKey;
+
+    NSButton *save = [NSButton buttonWithTitle:@"Save" target:self action:@selector(save:)];
+    NSButton *test = [NSButton buttonWithTitle:@"Test Sign-In" target:self action:@selector(test:)];
+    test.hidden = !ADIFSourceCanTest(source);
+    NSButton *remove = [NSButton buttonWithTitle:@"Remove" target:self action:@selector(remove:)];
+    for (NSButton *b in @[ save, test, remove ]) b.tag = source;
+    NSStackView *buttons = [NSStackView stackViewWithViews:@[ save, test, remove ]];
+    buttons.spacing = 8;
+    NSTextField *status = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+
+    NSStackView *section = [NSStackView stackViewWithViews:@[ title, help, grid, buttons, status ]];
+    section.orientation = NSUserInterfaceLayoutOrientationVertical;
+    section.alignment = NSLayoutAttributeLeading;
+    section.spacing = 8;
+    [section setCustomSpacing:4 afterView:title];
+    section.identifier = [NSString stringWithFormat:@"settings.source.%ld", (long)source];
+
+    [_user addObject:user];
+    [_secret addObject:secret];
+    [_status addObject:status];
+    return section;
+}
+
+- (NSPanel *)window {
+    return _window;
+}
+
+- (void)setStatus:(NSString *)text ok:(BOOL)ok forSource:(NSInteger)s {
+    _status[(NSUInteger)s].stringValue = text ?: @"";
+    _status[(NSUInteger)s].textColor = ok ? NSColor.secondaryLabelColor : NSColor.systemRedColor;
+}
+
+- (void)refresh {
+    for (NSInteger s = 0; s < ADIFSourceCount; ++s) {
+        NSString *account = ADIFSavedAccount((ADIFSource)s);
+        BOOL secret = ADIFHasSecret((ADIFSource)s);
+        BOOL apiKey = ADIFSourceCredentialKind((ADIFSource)s) == ADIFCredentialAPIKey;
+        _user[(NSUInteger)s].stringValue = apiKey ? @"" : (account ?: @"");
+        _secret[(NSUInteger)s].stringValue = @"";
+        _secret[(NSUInteger)s].placeholderString =
+            secret ? @"Saved in your Keychain (type to replace)" : ADIFSourceSecretLabel((ADIFSource)s);
+        [self setStatus:secret ? @"Saved." : @"Not set." ok:YES forSource:s];
+    }
+}
+
+- (void)showSource:(NSInteger)source {
+    [self refresh];
+    [_window makeKeyAndOrderFront:nil];
+    if (source == -2) {
+        [_window makeFirstResponder:_radioHost];
+        [_scroll.documentView scrollPoint:NSZeroPoint];
+        return;
+    }
+    if (source == -3) {  // country data
+        [_countryUpdate scrollRectToVisible:_countryUpdate.bounds];
+        return;
+    }
+    if (source >= 0 && source < ADIFSourceCount) {
+        BOOL apiKey = ADIFSourceCredentialKind((ADIFSource)source) == ADIFCredentialAPIKey;
+        NSTextField *first = apiKey || _user[(NSUInteger)source].stringValue.length ? _secret[(NSUInteger)source]
+                                                                                     : _user[(NSUInteger)source];
+        [_window makeFirstResponder:first];
+        [first scrollRectToVisible:first.bounds];
+    }
+}
+
+- (void)save:(NSButton *)sender {
+    NSInteger s = sender.tag;
+    NSString *user = [_user[(NSUInteger)s].stringValue stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+    NSString *secret = _secret[(NSUInteger)s].stringValue;
+    NSString *error = nil;
+    if (!ADIFSaveCredential((ADIFSource)s, user, secret, &error)) {
+        [self setStatus:error ?: @"Could not save." ok:NO forSource:s];
+        return;
+    }
+    _secret[(NSUInteger)s].stringValue = @"";  // do not keep the secret in the window
+    _secret[(NSUInteger)s].placeholderString = @"Saved in your Keychain (type to replace)";
+    [self setStatus:@"Saved in your Keychain." ok:YES forSource:s];
+    if (self.onChanged) self.onChanged(s);
+}
+
+- (void)test:(NSButton *)sender {
+    NSInteger s = sender.tag;
+    sender.enabled = NO;
+    [self setStatus:@"Signing in..." ok:YES forSource:s];
+    ADIFTestCredential((ADIFSource)s, ^(BOOL ok, NSString *message) {
+        sender.enabled = YES;
+        [self setStatus:message ok:ok forSource:s];
+    });
+}
+
+- (void)remove:(NSButton *)sender {
+    NSInteger s = sender.tag;
+    ADIFDeleteCredential((ADIFSource)s);
+    [self refresh];
+    [self setStatus:@"Removed from your Keychain." ok:YES forSource:s];
+    if (self.onChanged) self.onChanged(s);
+}
+
+@end
