@@ -9,6 +9,8 @@ Versions before 0.8.0 were development builds and were not published.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-08
+
 ### Added
 
 - The **Log Table edits like a spreadsheet**. Click a cell and type, or press Return; Tab,
@@ -195,5 +197,6 @@ First public release.
 - **Fix Lengths**, as one undo step, and **Count Lengths in Characters**.
 - The `adiflint` command-line tool.
 
-[Unreleased]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/releases/tag/v0.8.0

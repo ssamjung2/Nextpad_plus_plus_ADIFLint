@@ -63,7 +63,7 @@
 #include <vector>
 
 #ifndef ADIFLINT_VERSION
-#define ADIFLINT_VERSION "0.8.0"
+#define ADIFLINT_VERSION "0.9.0"
 #endif
 
 static const char kPluginName[] = "ADIF Lint";
