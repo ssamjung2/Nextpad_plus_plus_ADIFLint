@@ -45,9 +45,12 @@ ADIF Lint checks `.adi` and `.adif` files as you type, against the
   - for a free-text field, type the data; the length is filled in when you press Enter,
     type the next `<`, or move the caret away.
 - **Record Panel** docks a table of the header or record at the caret, with each field's
-  problem. Edit a value in place (enumerated fields are drop-downs) and the length is set
-  for you; **+** adds a field, **−** removes one, ▲ and ▼ step between records, and
-  double-clicking a row selects that field's data in the editor.
+  position (#) and problem. Edit a value in place (enumerated fields are drop-downs) and
+  the length is set for you; **+** adds a field, **−** removes one, ▲ and ▼ step between
+  records, and double-clicking a row selects that field's data in the editor. Click a
+  heading to sort the rows by field name, value or problem (errors first); click **#** to
+  return to the record's own order. Sorting only changes the view, not the record, and the
+  choice is remembered.
 - **Validate .adi Files While Typing** (on by default) turns the marks on or off.
 
 ### What is checked

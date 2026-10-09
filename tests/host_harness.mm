@@ -689,6 +689,49 @@ int main(int argc, char **argv) {
             CHECK([bandCell isKindOfClass:NSComboBox.class] && ((NSComboBox *)bandCell).numberOfItems >= 30,
                   "BAND is a combo box of bands");
 
+            // Click a heading: the rows sort; an edit still goes to its field; # brings back the record's order.
+            table.sortDescriptors = @[ [NSSortDescriptor sortDescriptorWithKey:@"field" ascending:YES] ];
+            std::vector<std::string> names;
+            for (NSInteger r = 0; r < [table.dataSource numberOfRowsInTableView:table]; ++r)
+                names.push_back(cell(table, r, @"field").UTF8String);
+            CHECK(names.size() == 7 && std::is_sorted(names.begin(), names.end()) && names[0] != "QSO_DATE",
+                  "rows sorted by field name: %s first", names.empty() ? "" : names[0].c_str());
+            NSInteger nameRow = -1;
+            for (NSInteger r = 0; r < (NSInteger)names.size(); ++r)
+                if (names[(size_t)r] == "NAME") nameRow = r;
+            NSTextField *nameCell =
+                nameRow >= 0 ? [table viewAtColumn:[table columnWithIdentifier:@"value"] row:nameRow makeIfNecessary:YES] : nil;
+            CHECK([nameCell isKindOfClass:NSTextField.class] && [nameCell.stringValue isEqualToString:@"Bob Smith"],
+                  "NAME's value in the sorted view: %s", nameCell.stringValue.UTF8String);
+            nameCell.stringValue = @"Bob Smyth";
+            [(id)panel controlTextDidEndEditing:[NSNotification notificationWithName:NSControlTextDidEndEditingNotification
+                                                                              object:nameCell]];
+            pump(0.2);
+            CHECK(H.doc.find("<NAME:9>Bob Smyth") != std::string::npos && H.doc.find("Bob Smith") == std::string::npos,
+                  "an edit in the sorted view goes to NAME:\n%s", H.doc.c_str());
+            NSString *panelIni = [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint.ini"]
+                                                           encoding:NSUTF8StringEncoding
+                                                              error:nil];
+            CHECK([panelIni containsString:@"panelSort=field:a"], "the panel's sort is remembered");
+            // Problem: a field with an error comes first (an unknown MODE, put back afterwards).
+            NSInteger modeModel = -1;
+            NSString *oldMode = nil;
+            for (NSInteger r = 0; r < [table.dataSource numberOfRowsInTableView:table]; ++r)
+                if ([cell(table, r, @"field") isEqualToString:@"MODE"]) {
+                    modeModel = [cell(table, r, @"pos") integerValue] - 1;
+                    oldMode = cell(table, r, @"value");
+                }
+            edit(modeModel, @"XYZ");
+            pump(0.3);
+            table.sortDescriptors = @[ [NSSortDescriptor sortDescriptorWithKey:@"note" ascending:YES] ];
+            CHECK([cell(table, 0, @"field") isEqualToString:@"MODE"] && [cell(table, 0, @"note") length] > 0,
+                  "Problem: the field with an error first (%s)", cell(table, 0, @"field").UTF8String);
+            edit(modeModel, oldMode);
+            pump(0.3);
+            table.sortDescriptors = @[ [NSSortDescriptor sortDescriptorWithKey:@"pos" ascending:YES] ];
+            CHECK([cell(table, 0, @"pos") isEqualToString:@"1"] && [cell(table, 2, @"field") isEqualToString:@"CALL"],
+                  "# restores the record's order");
+
             // Moving the caret to another record updates the panel.
             H.doc += "<CALL:5>K1ABC <BAND:3>40m <EOR>\n";
             notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);

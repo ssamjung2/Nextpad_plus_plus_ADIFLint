@@ -33,7 +33,8 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
 - **Fix Lengths** corrects every wrong `<FIELD:LENGTH>` in one undo step.
 - Syntax colouring, **Reformat** (one record or one field per line, without touching any
   data), autocomplete of field names and values with automatic lengths, and a docked
-  **Record Panel** for editing the record at the caret.
+  **Record Panel** for editing the record at the caret, sortable by field, value or
+  problem.
 
 **Logging**
 - **New QSO**: log contacts one after another, with your station's fields carried over,

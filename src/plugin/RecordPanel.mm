@@ -1,5 +1,10 @@
 #import "RecordPanel.h"
 
+#include "adif_tools.h"
+
+#include <algorithm>
+
+static NSString *const kPosColumn = @"pos";
 static NSString *const kFieldColumn = @"field";
 static NSString *const kValueColumn = @"value";
 static NSString *const kNoteColumn = @"note";
@@ -31,6 +36,8 @@ static NSButton *symbolButton(NSString *symbol, NSString *fallback, NSString *ti
 
 @implementation ADIFRecordPanel {
     ADIFPanelSnapshot _snapshot;
+    std::vector<size_t> _order;  // table row -> snapshot row, as sorted
+    bool _settingSort;           // a sort set by the caller, not a heading click
     NSView *_root;
     NSTextField *_title;
     NSButton *_previous, *_next, *_add, *_remove;
@@ -66,13 +73,19 @@ static NSButton *symbolButton(NSString *symbol, NSString *fallback, NSString *ti
     _table.target = self;
     _table.doubleAction = @selector(revealRow:);
     if (@available(macOS 11.0, *)) _table.style = NSTableViewStyleFullWidth;
-    struct { NSString *ident, *title; CGFloat width; } cols[] = {
-        {kFieldColumn, @"Field", 130}, {kValueColumn, @"Value", 150}, {kNoteColumn, @"Problem", 160}};
+    struct { NSString *ident, *title, *tip; CGFloat width; } cols[] = {
+        {kPosColumn, @"#", @"Position in the record: sort by it for the file's order", 30},
+        {kFieldColumn, @"Field", @"Sort by field name", 130},
+        {kValueColumn, @"Value", @"Sort by value", 150},
+        {kNoteColumn, @"Problem", @"Sort by problem: errors first", 160}};
     for (auto &c : cols) {
         NSTableColumn *col = [[NSTableColumn alloc] initWithIdentifier:c.ident];
         col.title = c.title;
+        col.headerToolTip = c.tip;
         col.width = c.width;
-        col.minWidth = 60;
+        col.minWidth = c.ident == kPosColumn ? 26 : 60;
+        // Click a heading to sort the rows shown; the record itself is not changed.
+        col.sortDescriptorPrototype = [NSSortDescriptor sortDescriptorWithKey:c.ident ascending:YES];
         [_table addTableColumn:col];
     }
 
@@ -144,25 +157,99 @@ static NSButton *symbolButton(NSString *symbol, NSString *fallback, NSString *ti
     _previous.enabled = snapshot.canPrevious;
     _next.enabled = snapshot.canNext;
     _add.enabled = snapshot.hasGroup;
+    [self sortRows];
     [_table reloadData];
-    if (snapshot.selectedRow >= 0 && snapshot.selectedRow < (int)snapshot.rows.size()) {
-        [_table selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)snapshot.selectedRow] byExtendingSelection:NO];
-        [_table scrollRowToVisible:snapshot.selectedRow];
+    NSInteger shown = [self tableRowFor:snapshot.selectedRow];
+    if (shown >= 0) {
+        [_table selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)shown] byExtendingSelection:NO];
+        [_table scrollRowToVisible:shown];
     } else {
         [_table deselectAll:nil];
     }
     _remove.enabled = snapshot.hasGroup && _table.selectedRow >= 0;
 }
 
+// ── Sorting (the rows shown, not the record) ────────────────────────────────
+
+- (void)sortRows {
+    _order.resize(_snapshot.rows.size());
+    for (size_t i = 0; i < _order.size(); ++i) _order[i] = i;
+    NSSortDescriptor *sort = _table.sortDescriptors.firstObject;
+    if (!sort || [sort.key isEqualToString:kPosColumn]) {
+        if (sort && !sort.ascending) std::reverse(_order.begin(), _order.end());
+        return;
+    }
+    NSString *column = sort.key;
+    bool asc = sort.ascending;
+    std::stable_sort(_order.begin(), _order.end(), [&](size_t x, size_t y) {
+        const ADIFPanelRow &a = _snapshot.rows[x], &b = _snapshot.rows[y];
+        int c = 0;
+        if ([column isEqualToString:kFieldColumn]) c = adif::naturalCompare(a.name, b.name);
+        else if ([column isEqualToString:kValueColumn]) {
+            if (a.value.empty() != b.value.empty()) return b.value.empty();  // empty values last either way
+            c = adif::naturalCompare(a.value, b.value);
+        } else {  // problems: errors, warnings, notes, then none
+            if (a.severity != b.severity) c = a.severity > b.severity ? -1 : 1;
+            else c = adif::naturalCompare(a.note, b.note);
+        }
+        return asc ? c < 0 : c > 0;
+    });
+}
+
+// The table row showing a snapshot row, or -1.
+- (NSInteger)tableRowFor:(NSInteger)snapshotRow {
+    for (size_t i = 0; i < _order.size(); ++i)
+        if ((NSInteger)_order[i] == snapshotRow) return (NSInteger)i;
+    return -1;
+}
+
+// The snapshot row a table row shows, or -1.
+- (NSInteger)snapshotRowFor:(NSInteger)tableRow {
+    return tableRow >= 0 && (size_t)tableRow < _order.size() ? (NSInteger)_order[(size_t)tableRow] : -1;
+}
+
+- (void)tableView:(NSTableView *)tableView sortDescriptorsDidChange:(NSArray<NSSortDescriptor *> *)oldDescriptors {
+    NSInteger selected = [self snapshotRowFor:_table.selectedRow];
+    [self sortRows];
+    [_table reloadData];
+    NSInteger shown = [self tableRowFor:selected];
+    if (shown >= 0) [_table selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)shown] byExtendingSelection:NO];
+    NSSortDescriptor *sort = _table.sortDescriptors.firstObject;
+    if (!_settingSort && self.onSortChanged) self.onSortChanged(sort ? sort.key : kPosColumn, sort ? sort.ascending : YES);
+}
+
+- (void)setSortColumn:(NSString *)column ascending:(BOOL)ascending {
+    if (!([column isEqualToString:kPosColumn] || [column isEqualToString:kFieldColumn] ||
+          [column isEqualToString:kValueColumn] || [column isEqualToString:kNoteColumn]))
+        return;
+    _settingSort = true;
+    _table.sortDescriptors = @[ [NSSortDescriptor sortDescriptorWithKey:column ascending:ascending] ];
+    _settingSort = false;
+}
+
 // ── Table ───────────────────────────────────────────────────────────────────
 
 - (NSInteger)numberOfRowsInTableView:(NSTableView *)tableView {
-    return (NSInteger)_snapshot.rows.size();
+    return (NSInteger)_order.size();
 }
 
 - (NSView *)tableView:(NSTableView *)tableView viewForTableColumn:(NSTableColumn *)column row:(NSInteger)row {
-    const ADIFPanelRow &r = _snapshot.rows[(size_t)row];
+    NSInteger model = [self snapshotRowFor:row];
+    if (model < 0) return nil;
+    const ADIFPanelRow &r = _snapshot.rows[(size_t)model];
     NSString *ident = column.identifier;
+    if ([ident isEqualToString:kPosColumn]) {
+        NSTextField *f = [tableView makeViewWithIdentifier:@"pos.cell" owner:self];
+        if (!f) {
+            f = [NSTextField labelWithString:@""];
+            f.identifier = @"pos.cell";
+            f.alignment = NSTextAlignmentRight;
+            f.textColor = NSColor.secondaryLabelColor;
+            f.font = [NSFont monospacedDigitSystemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightRegular];
+        }
+        f.stringValue = [NSString stringWithFormat:@"%ld", (long)model + 1];
+        return f;
+    }
     if ([ident isEqualToString:kFieldColumn]) {
         NSTextField *f = [tableView makeViewWithIdentifier:@"field.cell" owner:self];
         if (!f) {
@@ -227,7 +314,7 @@ static NSButton *symbolButton(NSString *symbol, NSString *fallback, NSString *ti
 }
 
 - (void)commit:(NSControl *)control value:(NSString *)value {
-    NSInteger row = [_table rowForView:control];
+    NSInteger row = [self snapshotRowFor:[_table rowForView:control]];
     if (row < 0 || row >= (NSInteger)_snapshot.rows.size() || !value) return;
     if ([ADIFRecordPanel valueFromDisplay:value] == _snapshot.rows[(size_t)row].value) return;  // unchanged
     if (self.onEditValue) self.onEditValue(row, value);
@@ -266,12 +353,12 @@ static NSButton *symbolButton(NSString *symbol, NSString *fallback, NSString *ti
 }
 
 - (void)revealRow:(id)sender {
-    NSInteger row = _table.clickedRow;
+    NSInteger row = [self snapshotRowFor:_table.clickedRow];
     if (row >= 0 && self.onRevealRow) self.onRevealRow(row);
 }
 
 - (void)removeField:(id)sender {
-    NSInteger row = _table.selectedRow;
+    NSInteger row = [self snapshotRowFor:_table.selectedRow];
     if (row >= 0 && self.onRemoveField) self.onRemoveField(row);
 }
 

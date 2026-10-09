@@ -40,8 +40,13 @@ struct ADIFPanelSnapshot {
 @property(nonatomic, copy) void (^onGoToRecord)(NSInteger delta);  // -1 previous, +1 next
 @property(nonatomic, copy) void (^onRevealRow)(NSInteger row);      // select the field's data in the editor
 @property(nonatomic, copy) NSArray<NSString *> * (^valuesForField)(NSString *name);
+// A heading was clicked: the rows are shown sorted by "pos" (the record's own
+// order), "field", "value" or "note" (problems, errors first). The rows given
+// to the other callbacks are always snapshot rows, whatever the sort.
+@property(nonatomic, copy) void (^onSortChanged)(NSString *column, BOOL ascending);
 
 - (void)update:(const ADIFPanelSnapshot &)snapshot;
+- (void)setSortColumn:(NSString *)column ascending:(BOOL)ascending;  // without calling onSortChanged
 
 // Line breaks inside a value are shown as ⏎ in the single-line cells.
 + (NSString *)displayString:(const std::string &)value;

@@ -29,6 +29,9 @@ Versions before 0.8.0 were development builds and were not published.
 
 ### Changed
 
+- The **Record Panel** can be sorted: click a heading to order its rows by field name,
+  value or problem (errors first), or **#** (a new column, the field's position) for the
+  record's own order. Only the view changes, and the choice is remembered.
 - The confirmation sources leave Enrich: **Enrich from LoTW Confirmations…**, **QRZ.com
   Logbook Confirmations…** and **eQSL Confirmations…** are replaced by the Import commands.
   Enrich keeps QRZ.com, HamQTH and Country Data.

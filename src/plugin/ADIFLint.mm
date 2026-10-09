@@ -1314,6 +1314,15 @@ static void createPanel() {
         }
         return out;
     };
+    g.panel.onSortChanged = ^(NSString *column, BOOL ascending) {
+        adifhost::setSetting("panelSort", std::string(column.UTF8String ?: "pos") + (ascending ? ":a" : ":d"));
+    };
+    {
+        std::string sort = adifhost::setting("panelSort");  // "field:a"; empty: the record's own order
+        size_t colon = sort.find(':');
+        if (colon != std::string::npos)
+            [g.panel setSortColumn:@(sort.substr(0, colon).c_str()) ascending:sort.substr(colon + 1) != "d"];
+    }
     g.panelHandle = (uint64_t)app(NPPM_DMM_REGISTERPANEL, (uintptr_t)(__bridge void *)g.panel.view, (intptr_t)"ADIF Record");
     if (!g.panelHandle) {
         // Older host: a floating utility window instead of a docked panel.
