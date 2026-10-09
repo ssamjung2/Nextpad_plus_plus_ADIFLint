@@ -9,7 +9,7 @@ Versions before 0.8.0 were development builds and were not published.
 
 ## [Unreleased]
 
-## [0.9.0] - 2026-10-08
+## [0.9.0] - 2026-10-09
 
 ### Added
 
