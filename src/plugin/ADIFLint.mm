@@ -1,9 +1,9 @@
 // ADIF Lint — a Nextpad++ (macOS) plugin for ADIF 3.1.7 .adi log files:
 // validation as you type, length repair, syntax colouring, reformatting,
-// autocomplete of field names and values, a record panel, a New QSO window,
-// Enrich Log (callbook and LoTW data for the log's records), and log tools
-// (table, summary, POTA tracker and export, worked before, bulk edit, time
-// shift, sort, duplicates, merge, CSV).
+// autocomplete, a record panel, a New QSO window (radio, lookup, spots),
+// Enrich (callbooks, confirmations, country data), log tools (table, summary,
+// POTA/WWFF/SOTA tracker and export, worked before, bulk edit, time shift,
+// sort, duplicates, merge, CSV, Cabrillo) and uploads.
 //
 // All ADIF logic lives in src/core (pure C++, tested on its own). This file is
 // the editor glue; RecordPanel.mm, NewQsoPanel.mm, EnrichPanel.mm and
@@ -68,6 +68,7 @@
 #endif
 
 static const char kPluginName[] = "ADIF Lint";
+static const char kProjectUrl[] = "https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint";
 
 NppData nppData;
 
@@ -2425,30 +2426,25 @@ static void cmdAbout() {
     alert.messageText = [NSString stringWithFormat:@"ADIF Lint %s", ADIFLINT_VERSION];
     alert.informativeText = [NSString
         stringWithFormat:
-            @"Checks ADIF %s (%s) .adi log files as you type: data lengths, structure, field names, data types, "
-            @"enumerations (BAND, MODE/SUBMODE, QSL, STATE...), user-defined and APP_ fields.\n\n"
-            @"Red: error. Orange: warning. Blue dots: note. Hover a mark to read it.\n\n"
-            @"Fix Lengths rewrites every wrong <FIELD:LENGTH>, as one undo step. Reformat puts one record or one field "
-            @"on each line without touching any data.\n\n"
-            @"Type '<' for a list of field names; enumerated fields then offer their values. A field added this way gets "
-            @"its length when you move on. The Record Panel shows the record at the caret as a table you can edit.\n\n"
-            @"New QSO opens a window for logging contacts one after another: your station's fields carry over from the "
-            @"last record, date and time are UTC, duplicates are flagged, and each record is appended with correct lengths.\n\n"
-            @"Enrich from QRZ.com, HamQTH or LoTW adds missing NAME, QTH, STATE, CNTY, GRIDSQUARE, DXCC, zones and more, "
-            @"after you review them. Accounts are kept in your Keychain: see Settings.\n\n"
-            @"Log tools: a sortable Log Table, a Summary, the POTA Activation Tracker and per-park export, Worked "
-            @"Before across a folder of logs, Bulk Edit and Time Shift with a preview, sorting, duplicates, merging "
-            @"another log, and CSV export. Every change is one undo step.\n\n"
-            @"New QSO reads FREQ and MODE from your radio through Hamlib rigctld or flrig, and POTA Spots fills it from "
-            @"an activator's spot. Upload sends QSOs to QRZ.com Logbook, LoTW (through TQSL), Club Log or eQSL after "
-            @"showing what will be sent, then sets the ADIF upload status fields.\n\n"
-            @"Count Lengths in Characters: ADI files are ASCII, where bytes and characters are the same. For files with "
-            @"non-ASCII text, turn this on if the program that wrote them counted characters.",
+            @"Checks and edits ADIF %s (%s) .adi amateur-radio logs: problems marked as you type (red error, "
+            @"orange warning, blue note; hover to read), Fix Lengths, syntax colouring, Reformat, autocomplete and "
+            @"the Record Panel.\n\n"
+            @"Logging and log tools: New QSO with radio, callsign lookup and POTA/WWFF spots; Log Table, Summary, "
+            @"Activation Tracker and export for POTA, WWFF and SOTA; Worked Before; Bulk Edit and Time Shift; "
+            @"duplicates, merge, CSV and Cabrillo. Every change is one undo step.\n\n"
+            @"Online services: Enrich from QRZ.com, HamQTH, LoTW, QRZ.com Logbook and eQSL; uploads to QRZ.com "
+            @"Logbook, LoTW (TQSL), Club Log and eQSL, sent only when you press Upload. Accounts stay in your macOS "
+            @"Keychain.\n\n"
+            @"Free software under the GNU GPL v3. Country data by Jim Reisert AD1C (MIT licence).",
             adif::kSpecVersion, adif::kSpecDate];
     [alert addButtonWithTitle:@"OK"];
-    [alert addButtonWithTitle:@"Open the ADIF Specification"];
-    if ([alert runModal] == NSAlertSecondButtonReturn)
-        [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"https://www.adif.org/317/ADIF_317.htm"]];
+    [alert addButtonWithTitle:@"Project Page"];
+    [alert addButtonWithTitle:@"ADIF Specification"];
+    NSModalResponse r = [alert runModal];
+    NSString *url = r == NSAlertSecondButtonReturn  ? @(kProjectUrl)
+                    : r == NSAlertThirdButtonReturn ? @"https://www.adif.org/317/ADIF_317.htm"
+                                                    : nil;
+    if (url) [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:url]];
 }
 
 // ── Hover ───────────────────────────────────────────────────────────────────

@@ -1,0 +1,453 @@
+# ADIF Lint user guide
+
+Everything ADIF Lint does, window by window. Every command is on the **Plugins → ADIF
+Lint** menu. Every change a command makes to your log is one undo step, and nothing is
+saved to disk until you save the file.
+
+- [Checking and repairing a log](#checking-and-repairing-a-log)
+- [Logging with New QSO](#logging-with-new-qso)
+- [Spots](#spots)
+- [Log Table, Summary and Worked Before](#log-table-summary-and-worked-before)
+- [Activations: POTA, WWFF and SOTA](#activations-pota-wwff-and-sota)
+- [Editing the whole log](#editing-the-whole-log)
+- [Importing and exporting](#importing-and-exporting)
+- [Uploading](#uploading)
+- [Enrich](#enrich)
+- [Settings](#settings)
+- [Command line](#command-line)
+- [Limits](#limits)
+
+## Checking and repairing a log
+
+ADIF Lint checks `.adi` and `.adif` files as you type, against the
+[ADIF 3.1.7 specification](https://www.adif.org/317/ADIF_317.htm) (2026-03-22).
+
+- **Marks:** red squiggles for errors, orange for warnings, blue dots for notes. Rest the
+  mouse on a mark to read why. **Next Problem** and **Previous Problem** move between
+  marks and show the message.
+- **Validate Now** checks the current document whatever its extension, and shows a
+  summary at the caret.
+- **Fix Lengths** rewrites every wrong `<FIELD:LENGTH>` to match its data. For example,
+  `<CALL:4>W1AW/P` becomes `<CALL:6>W1AW/P`.
+- **Reformat: One Record per Line / One Field per Line** re-lays the file. Only the
+  whitespace between fields changes: every data specifier and comment is copied byte for
+  byte, and the header is kept. It refuses while any length is wrong.
+- **Colour ADIF Syntax** (on by default): field names blue; `<`, `:LENGTH` and `>` grey;
+  `<EOH>` and `<EOR>` purple; comments (header text, notes between records) green. Data
+  keeps the theme's text colour.
+- **Autocomplete Field Names and Values** (on by default):
+  - type `<` for a list of field names: QSO fields in records, header fields in the
+    header, plus the file's own `USERDEFn` and `APP_` fields;
+  - enumerated fields (BAND, MODE, SUBMODE for the record's MODE, STATE for its DXCC, QSL
+    statuses, Y/N…) then offer their values, and picking one writes the value and its
+    length;
+  - for a free-text field, type the data; the length is filled in when you press Enter,
+    type the next `<`, or move the caret away.
+- **Record Panel** docks a table of the header or record at the caret, with each field's
+  problem. Edit a value in place (enumerated fields are drop-downs) and the length is set
+  for you; **+** adds a field, **−** removes one, ▲ and ▼ step between records, and
+  double-clicking a row selects that field's data in the editor.
+- **Validate .adi Files While Typing** (on by default) turns the marks on or off.
+
+### What is checked
+
+Every rule comes from the ADIF 3.1.7 specification. Every field, data type, enumeration
+value, band edge and import-only flag is generated from ADIF's official JSON export, not
+typed by hand.
+
+- **Structure** (§IV.A): data specifier syntax, data lengths (too short, too long, past
+  the end of file, including the line break), leading zeros in lengths (import-only),
+  header and `<EOH>` rules, `<EOR>` on every record, a field repeated in one header or
+  record, a stray `<`, and a field missing its `<`.
+- **Fields:** unknown names, header fields in records and the reverse, import-only fields,
+  `_INTL` fields (which ADI cannot carry), and type indicators that don't match the field.
+- **Data types** (§II.B): Date, Time, Number (no `+`, no `,`), Integer, PositiveInteger,
+  Boolean, String and MultilineString characters (ASCII only, CR LF line breaks),
+  GridSquare, GridSquareExt, GridSquareList, Location, IOTA, POTA, SOTA, WWFF, CreditList,
+  SponsoredAwardList, and minimum and maximum values (CQZ, ITUZ, AGE, K_INDEX…).
+- **Enumerations:** BAND, MODE, QSL statuses, DXCC, ARRL section, continent, propagation
+  mode and the rest, plus deprecated values with the specification's advice (for example
+  `MODE C4FM` → `DIGITALVOICE` with `SUBMODE C4FM`).
+- **Between fields:** SUBMODE must belong to MODE; FREQ must lie in BAND, and FREQ_RX in
+  BAND_RX (band edges included); STATE and CNTY must belong to the DXCC entity where ADIF
+  lists that entity's subdivisions.
+- **User fields:** `USERDEFn` definitions in the header, with their enumerations
+  `{S,M,L}` or ranges `{5:20}`, and `APP_PROGRAMID_FIELDNAME` fields, whose type the first
+  occurrence fixes.
+- **Notes:** records lacking ADIF's guideline minimum (QSO_DATE, TIME_ON, CALL, BAND or
+  FREQ, MODE), and CONTEST_ID and SUBMODE values not in ADIF's lists.
+
+### Bytes or characters?
+
+ADI files are ASCII only (§II.B), where a length counts bytes and characters equally.
+Some programs write UTF-8 anyway (`Jürg` is 4 characters but 5 bytes), and they disagree
+on which to count. ADIF Lint warns about non-ASCII text, and when a length is wrong it
+also says whether the length would be right in the other unit. Turn on **Count Lengths in
+Characters** for files whose program counted characters; Fix Lengths uses whichever unit
+is selected.
+
+## Logging with New QSO
+
+**New QSO…** opens a window for logging contacts one after another.
+
+- **Fields:** the window keeps the log's field order, then adds CALL, QSO_DATE, TIME_ON,
+  BAND, FREQ, MODE, SUBMODE, RST_SENT and RST_RCVD if the log doesn't have them.
+- **Carry-over:** your station's fields come from the last record (STATION_CALLSIGN,
+  OPERATOR, the MY_ fields such as MY_SIG_INFO and MY_STATE, BAND, FREQ, MODE and
+  SUBMODE). Per-contact fields start empty each time.
+- **Date and time:** QSO_DATE and TIME_ON are the current UTC time when you log. Untick
+  the box to type them, for example when entering a paper log.
+- **As you type:** BAND follows FREQ, the SUBMODE list follows MODE, reports default to 59
+  (phone) or 599 (CW, RTTY), and every field is checked. CALL, QSO_DATE, TIME_ON, MODE, and
+  BAND or FREQ are required.
+- **Duplicates:** a contact already in the log on the same band, mode and UTC day gets a
+  warning. Following POTA's rule, the same activator at another park (SIG_INFO or
+  POTA_REF) is a new contact, and portable forms of a call (`K1ABC/P`) count as the same
+  station.
+- **Log QSO** (Return) appends the record with correct lengths, in the log's own layout,
+  then clears the window for the next contact. In an empty document it starts a new log
+  with a header.
+- **Worked before:** with a logs folder chosen in Worked Before, the window also says when
+  the call is in your other logs ("K1ABC: 4 QSOs in 2 other logs; last 2026-09-30 14:05 on
+  20m SSB").
+
+### Choosing the fields
+
+**Fields…** chooses and orders the fields the window asks for. Your fields are on the
+left; every field you can add is on the right with its type and the first paragraph of
+its description in the ADIF specification (hover a row for the full text).
+
+- Search matches names and descriptions ("park" finds POTA_REF), exact name matches first.
+- Add the selected fields (several at once) or double-click one; remove fields, and
+  reorder them with Move Up and Move Down.
+- CALL, QSO_DATE, TIME_ON and MODE always stay, and so does BAND or FREQ.
+- **Use the Log's Fields** returns to the automatic list.
+- With "Also copy this station's details…" ticked (the default), station fields you
+  don't list are still copied from the last record: STATION_CALLSIGN, OPERATOR,
+  OWNER_CALLSIGN, TX_PWR and the MY_ fields. The window names them, for example "Also
+  written, from the last record: MY_SIG_INFO US-7929".
+
+### Reading the radio
+
+**From Radio** reads the frequency and mode through Hamlib's `rigctld` or through flrig
+(set up under Settings → Radio). FREQ is written in MHz and BAND follows. MODE and SUBMODE
+come from the radio's mode: USB or LSB → SSB with that sideband; CW, RTTY, AM and FM as
+they are; C4FM and D-STAR → DIGITALVOICE. For a data mode (PKTUSB, DATA-U, USB-D…) MODE is
+left to you, since only the program decoding it knows it is FT8.
+
+**Follow the radio** reads it every 2 seconds and updates the fields when the radio
+changes. Only queries are sent (rigctld `get_freq` and `get_mode`; flrig `rig.get_xcvr`,
+`rig.get_vfo` and `rig.get_mode`): nothing keys or tunes the radio. flrig answers
+14.070 MHz USB when it has no radio, so ADIF Lint checks `rig.get_xcvr` first.
+
+### Looking up the call
+
+**Look up** fills the fields a new call leaves empty, as you type:
+
+- **Country data** (the default, offline): DXCC, COUNTRY, CQZ, ITUZ and CONT from the
+  call's prefix.
+- **QRZ.com** or **HamQTH**: name, QTH, state, grid and more from your callbook account.
+  For a portable or park station, the home address is shown but not written.
+
+The line under it shows what was found, the distance and bearing from MY_GRIDSQUARE to
+the station's grid ("7,086 km at 42°", also written to DISTANCE when the window has that
+field), and, for a park, reference or summit in SIG_INFO, POTA_REF, WWFF_REF or SOTA_REF,
+what your logs say about it ("US-1234: a new park!", "KFF-5255: worked 2 times before,
+last 2026-10-03 (a.adi)"). Changing the call takes back what the last lookup filled,
+unless you edited it.
+
+## Spots
+
+**Spots (POTA, WWFF)…** (or **Spots…** in New QSO) lists the activators spotted now, from
+`api.pota.app` or `spots.wwff.co`, refreshed every minute while the window is open, with
+band and mode filters and a search box.
+
+- Double-click a spot (or select it and press **Use in New QSO**) to fill CALL, FREQ,
+  BAND, MODE and the reference: SIG (POTA or WWFF) and SIG_INFO, plus POTA_REF or
+  WWFF_REF. SSB becomes LSB below 10 MHz (except 60 m) and USB above; FT4 becomes MFSK
+  with SUBMODE FT4.
+- If New QSO shows none of SIG_INFO, POTA_REF and WWFF_REF, SIG and SIG_INFO rows are
+  added so the reference is logged.
+- The **Worked** column says **NEW** (green) for a park or reference that isn't in this
+  log or your logs folder, **worked** for one that is, and **today** (blue) for a station
+  already worked today on that band.
+
+## Log Table, Summary and Worked Before
+
+**Log Table…** shows every record in a table with a filter box. Dates and times read as
+2026-10-06 and 22:30.
+
+- Click a heading to sort (numbers sort as numbers); the sort is remembered.
+- Selecting a row shows that record in the editor; double-clicking the # goes there.
+- Double-click a value to edit it. The field is written back with its length (an empty
+  value removes it; dates and times may be typed either way), and an uploaded QSO becomes
+  M (see [Uploading](#uploading)).
+- Right-click the headings to choose the columns shown.
+- **Bulk Edit Selected…** edits the selected rows, and **Export CSV…** saves the rows
+  shown. The table follows your edits.
+
+**Log Summary…** reports records, calls, date range, QSOs per band, mode and UTC day,
+DXCC entities, states, grids, parks activated and parks worked (a hunter's tally), and how
+many QSOs are confirmed and uploaded to each service. **Copy** puts it on the clipboard.
+
+**Worked Before…** searches every `.adi` and `.adif` file in a folder you choose (and its
+subfolders) for a call, matching portable forms (`VE3/K1ABC/P` finds K1ABC). The folder
+is read in the background; files that changed are read again when you use it after a
+couple of minutes.
+
+## Activations: POTA, WWFF and SOTA
+
+**Activation Tracker (POTA, WWFF, SOTA)…** counts activations with each program's rule.
+Choose the program at the top; it is remembered.
+
+- **POTA** ([rules](https://docs.pota.app/docs/rules.html), modified 2026-10-04): 10 QSOs
+  from one park in one UTC day. A repeat of the same CALL, band, mode and park-to-park
+  park doesn't count; records missing CALL, TIME_ON, BAND or MODE, or working your own
+  call, are rejected. Parks come from MY_POTA_REF, or MY_SIG=POTA with MY_SIG_INFO.
+- **WWFF** (WWFF Global Rules v5.10, 2025-09-03): 44 QSOs per reference, counted over all
+  your activations of it; the same call on another band, mode or day counts again.
+  References come from MY_WWFF_REF, or MY_SIG=WWFF with MY_SIG_INFO.
+- **SOTA:** one QSO activates a summit, and four different stations score its points.
+  This rule is taken from SOTA's published guides; check it at sota.org.uk. The QSOs
+  column counts stations. Summits come from MY_SOTA_REF, or MY_SIG=SOTA with MY_SIG_INFO.
+
+Records without STATION_CALLSIGN or OPERATOR count for the log's usual station. The
+headline shows today's activation ("US-7929 today: 7 QSOs, 3 more to activate") and
+updates as you log. **Export Logs…** opens the export for that program.
+
+**Export Activation Logs…** writes one file per park (reference, summit) and UTC day.
+Each file is listed with its QSO count and notes (too few QSOs, duplicates the program
+will drop) before anything is saved, and an existing file is replaced only when you press
+Save a second time. Records without STATION_CALLSIGN or OPERATOR get the callsign you
+enter, and a `/` in a callsign becomes `_` in the file name.
+
+- **POTA**, named as POTA asks for emailed logs
+  ([submitting logs](https://docs.pota.app/docs/activator_reference/submitting_logs.html)):
+  `KW9D@US-7929-20261006.adi`, with the state added for a park spanning several
+  (`W8MSC@US-4239-20181231-US-MI.adi`). A two-fer gives one file per park, each with
+  MY_SIG=POTA and that park in MY_SIG_INFO, since POTA wants a separate log per park.
+- **WWFF:** `KW9D@KFF-1234 20261006.adi`, the name WWFF's log search tutorial (v1.3, April
+  2025) asks for, with MY_WWFF_REF set. Send them to your national WWFF log manager.
+- **SOTA:** `KW9D_W7A-AE-001_20261006.adi`, with MY_SOTA_REF set. SOTA has no file-name
+  rule; this name is ADIF Lint's own.
+
+## Editing the whole log
+
+Bulk Edit and Time Shift work on all records, the records in the editor selection, or the
+rows selected in the Log Table, optionally only where another field is, contains, lacks
+or has a value. **Preview** lists every change (untick any) and says whether the log would
+have more errors afterwards; nothing changes until **Apply**.
+
+- **Bulk Edit…** sets, replaces text in, removes or renames a field. A rename that would
+  duplicate a field in a record skips that record. **Fill DISTANCE from grid squares**
+  writes DISTANCE (km, great circle between the centres of MY_GRIDSQUARE and GRIDSQUARE)
+  where both grids are known.
+- **Time Shift…** moves QSO_DATE and TIME_ON (and QSO_DATE_OFF and TIME_OFF):
+  - **From local time to UTC**, for a log written in local time (ADIF times are UTC), or
+    **From UTC to local time** to undo that. The zone is a name such as America/Chicago
+    (your Mac's zone at first, then the last one used), and each QSO gets the offset in
+    force on its own date, daylight saving included, from macOS's time zone database. A
+    local time the clocks skipped or repeated is listed by record and left alone, since its
+    UTC time is unknown or ambiguous.
+  - **By a fixed amount** of days, hours and minutes, for a clock that was wrong.
+  - Dates follow across midnight, month and year ends, and times keep HHMM or HHMMSS.
+- **Sort Records by Date and Time** reorders the records. A comment between records moves
+  with the record after it; records without a valid date and time go last in their old
+  order.
+- **Remove Duplicates…** finds QSOs logged more than once: the same CALL, band and mode
+  starting within 2 minutes (adjustable), and no different STATION_CALLSIGN, MY_SIG_INFO,
+  SIG_INFO or POTA reference, so park-to-park lines repeated for each park of a two-fer
+  stay. It keeps the record with the most fields and can copy fields only the removed one
+  had. Untick any set before removing.
+- **Merge Another Log…** adds another file's records at the end, rebuilt in this log's
+  layout with lengths counted this log's way, skipping QSOs it already has, then sorts by
+  date and time if you like. It warns about USERDEF fields this log's header lacks.
+
+## Importing and exporting
+
+- **Import CSV…** adds the rows of a CSV file (comma, semicolon or tab separated, the
+  first row naming the columns), then sorts by date and time if you like. The window lists
+  every row and the column mapping before anything is added.
+  - Columns named as ADIF fields are used as they are; common names are mapped too
+    (Callsign, Date, UTC, Frequency, "Freq (kHz)", RST Sent, RST Rcvd, Grid, Park, Summit,
+    Notes, Power…).
+  - Dates must be year first (2026-10-06, 2026/10/06 or 20261006), since 06/10 could be
+    either month; times may be 22:30, 2230 or 22:30:15; a frequency in kHz becomes MHz;
+    the apostrophe Export CSV puts before a formula is taken off.
+- **Export CSV…** saves the log as CSV (RFC 4180, a column per field used). A value a
+  spreadsheet would run as a formula (`=…`, `@…`) gets a leading apostrophe; numbers like
+  `-10` are left alone.
+- **Export Activation Logs…**: see [Activations](#activations-pota-wwff-and-sota).
+- **Export Cabrillo…** writes a Cabrillo 3.0 contest log
+  ([WWROF specification](https://wwrof.org/cabrillo/)): the header from the contest,
+  callsign, category, grid and location you enter, and a QSO line per record with the
+  frequency in kHz (or the band for 50 MHz and up), mode CW, PH, FM, RY or DG, date, time,
+  and the reports and exchange from STX_STRING or STX and SRX_STRING or SRX. A line missing
+  an exchange shows `-`, and the window says how many do. Check the contest's own template
+  before submitting.
+
+## Uploading
+
+**Upload to QRZ.com Logbook… / LoTW (TQSL)… / Club Log… / eQSL…** list the QSOs not yet
+sent, by the ADIF status field, with the ones that can't be sent (no MODE…) in red.
+**Nothing is sent until you press Upload.** Each QSO's result is shown, and the accepted
+ones get the status field Y and today's date: QRZCOM_QSO_UPLOAD_STATUS and _DATE,
+LOTW_QSL_SENT and LOTW_QSLSDATE, CLUBLOG_QSO_UPLOAD_STATUS and _DATE, EQSL_QSL_SENT and
+EQSL_QSLSDATE. **Copy ADIF** copies exactly what would be sent, and QSOs you untick stay
+unticked while you edit the log.
+
+- **ADIF statuses:** a QRZ.com or Club Log status of N means "do not upload" and is
+  skipped; M (modified since upload) is sent again; a QSL status of I is skipped.
+- **Changing an uploaded QSO:** its QRZCOM_QSO_UPLOAD_STATUS and CLUBLOG_QSO_UPLOAD_STATUS
+  of Y become M, as ADIF prescribes, so the next upload sends the change (to QRZ.com with
+  OPTION=REPLACE). Bulk Edit, Time Shift, Enrich, Remove Duplicates and the Log Table do
+  this in the same undo step; typing, autocomplete and the Record Panel do it once the log
+  reads cleanly again, as its own undo step. Changes to QSL and upload fields themselves
+  don't count.
+- **QRZ.com Logbook:** one INSERT per QSO with your logbook API key
+  ([QRZ Logbook API](https://www.qrz.com/docs/logbook/QRZLogbookAPI.html)). A QSO the
+  logbook already has counts as sent; a key error stops the run.
+- **LoTW:** runs TQSL (`/Applications/TrustedQSL/tqsl.app`, or choose it) as
+  `tqsl -x -d -u -a compliant -l "<Station Location>" file`, which signs with that Station
+  Location's certificate and uploads. A certificate password saved in Settings is passed
+  with `-p`. Only exit code 0 marks records: for 8 or 9 TQSL doesn't say which QSOs it
+  skipped, so nothing is marked and its report is shown. TQSL is stopped if it hasn't
+  finished in 10 minutes.
+- **Club Log:** one batch upload to `putlogs.php` with your account email, an Application
+  Password and an API key. Club Log gives each program its own key: request one at
+  clublog.org/requestapikey.php, and never publish it. Club Log blocks programs that
+  repeat failed requests, so the first error stops the run.
+- **eQSL:** one QSO per request to ImportADIF
+  ([eQSL interface](https://www.eqsl.cc/qslcard/ImportADIF.txt)), with an optional QTH
+  Nickname for users with several accounts. A QSO eQSL already has counts as sent; a
+  sign-in error stops the run.
+
+## Enrich
+
+**Enrich from …** (one menu item per source) adds fields a record lacks: NAME, QTH,
+STATE, CNTY, GRIDSQUARE, DXCC and COUNTRY, CQZ, ITUZ, IOTA, CONT, optionally LAT and LON,
+and confirmations. Every proposed change is listed for review; nothing changes until you
+press **Apply**.
+
+- **QRZ.com** (XML interface): grid, county and zones need a QRZ XML Logbook Data
+  subscription; without one QRZ returns only a few fields, and the window says so.
+  Coordinates QRZ only estimated from the entity or state are not used.
+- **HamQTH:** a free account; its data is credited in the window.
+- **LoTW Confirmations:** downloads your confirmed QSOs for the log's date range and
+  matches them the way LoTW does: same call and band, the same mode or mode group, start
+  times within 30 minutes. It adds the other station's grid, state, county and zones as
+  they certified them for that QSO, and sets LOTW_QSL_RCVD=Y and LOTW_QSLRDATE.
+- **QRZ.com Logbook Confirmations:** downloads the QSOs your logbook shows as confirmed
+  (with your logbook API key, 250 at a time), matched the same way, and sets
+  APP_QRZLOG_STATUS=C, APP_QRZLOG_QSLDATE, QRZCOM_QSO_DOWNLOAD_STATUS=Y and its date.
+- **eQSL Confirmations:** downloads your eQSL InBox and sets EQSL_QSL_RCVD=Y and
+  EQSL_QSLRDATE for each QSO it matches, plus the grid the other station sent.
+- **Country Data:** offline, from the call's prefix: DXCC, COUNTRY, CQZ, ITUZ and CONT.
+  Portable calls use the prefix part (`VE3/K1ABC` is Canada; `/P`, `/M`, `/QRP` and a
+  call-area digit are ignored), and `/MM` and `/AM` get no entity.
+
+Rules for every source:
+
+- Only fields a record lacks are filled; existing values are never replaced. The one
+  exception is LOTW_QSL_RCVD, where N, R, Q or I becomes Y when LoTW confirms the QSO.
+- COUNTRY comes from ADIF's own DXCC entity table ("UNITED STATES OF AMERICA"), so it
+  matches LoTW and ADIF.
+- Callbooks give a station's home data. For portable calls (`K1ABC/P`, `VE3/K1ABC`) and
+  records with SIG_INFO, POTA_REF, SOTA_REF or WWFF_REF, where the station was elsewhere,
+  only the name is added (untick the option to change that). Confirmations describe each
+  QSO, so they are always used.
+- Accented names are transliterated to ASCII ("Jürg" → "Jurg"), since ADI is ASCII.
+- If you edit a record after Find Data, its changes are skipped rather than applied to the
+  wrong place.
+- Club Log has no documented way for programs to download confirmations, so it isn't a
+  source.
+
+## Settings
+
+**Settings…** has three parts.
+
+- **Radio:** rigctld or flrig, host and port (defaults 4532 and 12345). **Test** reports
+  what New QSO would log.
+- **Country Data:** the AD1C country file in use. **Update** downloads the newest Big CTY
+  release from country-files.com into the plugin config folder.
+- **Accounts**, one section each: QRZ.com, HamQTH and LoTW (username and password, for
+  Enrich); QRZ.com Logbook (API key); Club Log (email and Application Password) and Club
+  Log API key; eQSL (username and password); and the TQSL certificate password. **Save**
+  stores them, **Test Sign-In** tries them where the service allows it (for QRZ.com it also
+  shows the XML subscription end date), and **Remove** deletes them.
+
+Where things are kept:
+
+- **Credentials** only in your macOS Keychain, as items named "ADIF Lint: QRZ.com",
+  "ADIF Lint: LoTW" and so on; never in a file. A saved password is never shown again.
+- **Settings** (menu toggles, New QSO fields, radio, folders, table columns and sort, the
+  last time zone and program) in `ADIFLint.ini`, and a downloaded country file in
+  `ADIFLint-cty.csv`, both in Nextpad++'s plugin config folder
+  (`~/Library/Application Support/Nextpad++/plugins/Config/`). They survive plugin updates.
+- **The installed country file** beside the plugin, in
+  `~/Library/Application Support/Nextpad++/plugins/ADIFLint/`.
+
+All requests use HTTPS. The QRZ.com sign-in is sent as a POST, so the password isn't in
+a URL. HamQTH's sign-in, LoTW's report API and eQSL's DownloadInBox take the login as
+parameters of their HTTPS address, as those services document it.
+
+## Command line
+
+`adiflint` runs the same checks without the editor:
+
+```bash
+build/adiflint examples/try-me.adi
+```
+
+Output is `file:line:column: severity: message`, and the exit status is 1 when there are
+errors.
+
+| Option | Does |
+|---|---|
+| `--fix OUT` | Write a copy with corrected lengths |
+| `--reformat records\|fields OUT` | Write a copy with one record (or field) per line |
+| `--chars` | Count lengths in characters instead of bytes |
+| `--quiet` | Show errors only |
+| `--sort OUT` | Write a copy sorted by date and time |
+| `--dedupe OUT` | Write a copy without repeated QSOs |
+| `--csv OUT` | Write the log as CSV |
+| `--from-csv OUT` | The input is a CSV file: write it as an ADIF log |
+| `--summary` | Print the Log Summary |
+| `--cabrillo OUT --contest ID --call CALL` | Write a Cabrillo 3.0 log |
+| `--export pota\|wwff\|sota DIR [--call CALL]` | Write the activation upload files into DIR |
+
+The log tools work on one file and never change it.
+
+## Limits
+
+- Nextpad++ ignores plugin default shortcuts, so ADIF Lint declares none. Assign your
+  own in Nextpad++'s Shortcut Mapper; it stores them in `shortcuts.xml` under
+  `<PluginCommands>`, keyed by `moduleName="ADIF Lint"` and the command's position.
+- Plugins can't write to the status bar, so summaries appear in a tip at the caret.
+- Plugins can't supply a lexer, so colours are painted for the lines on screen as you
+  scroll; while you type, they catch up when you pause.
+- With Nextpad++'s own word completion on, its list can flash briefly before ADIF Lint's
+  list takes its place. The autocomplete value lists are alphabetical (bands too), because
+  Scintilla's list order is a setting the host relies on; the Record Panel's drop-downs
+  keep the natural order.
+- Only the active document is checked; the host gives plugins no access to other tabs.
+- CNTY is checked only for entities whose subdivisions ADIF lists (US counties are not
+  listed). DARC_DOK and COUNTRY are not checked against a list, and SOTA references get a
+  loose check because the specification's definition is loose.
+- Trailing spaces inside data are legal, so a length that includes one is not flagged.
+- Enrich, the uploads, confirmations and spots were tested against saved sample replies
+  and stand-in servers, and the radio against stand-in rigctld and flrig servers, not the
+  live services. The POTA spot format was checked against the live feed on 2026-10-07.
+- TQSL must have the Station Location set up. A certificate password saved in Settings is
+  passed on TQSL's command line (the only way TQSL takes it in batch mode), where other
+  programs on your Mac could see it while TQSL runs.
+- No SOTA spots: the SOTA API's terms don't allow software written with AI tools without
+  the SOTA team's approval. SOTA tracking and export work offline.
+- Confirmations are matched like LoTW (same call and band, mode or mode group, within 30
+  minutes). QRZ.com doesn't document how FETCH encodes its ADIF; it is decoded as HTML
+  entities.
+- The country file installed with the plugin is the 2026-09-15 release; press Update in
+  Settings for the newest. Prefix rules give the usual entity; special cases are right
+  only when the file lists the exact call.
+- POTA's file-name rule is the one its documentation gives for emailed logs.
+- ADX (XML) files are not handled.

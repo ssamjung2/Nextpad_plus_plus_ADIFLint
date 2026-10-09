@@ -1,0 +1,30 @@
+# Security
+
+ADIF Lint keeps logins for several online services and sends your QSOs to them, so
+security reports are taken seriously.
+
+## Reporting a vulnerability
+
+Please report privately, not in a public issue: use **Report a vulnerability** on the
+repository's [Security tab](https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/security).
+Include the version (Plugins → ADIF Lint → About ADIF Lint…), what an attacker could do,
+and how to reproduce it. Fixes go into the next release; only the latest release is
+supported.
+
+## How ADIF Lint handles your data
+
+- **Credentials** (usernames, passwords, API keys, the TQSL certificate password) are
+  stored only in your macOS login Keychain, as items named "ADIF Lint: …". They are never
+  written to `ADIFLint.ini`, to logs or to any other file, and a saved password is never
+  shown again. Settings → Remove deletes them.
+- **Network requests** use HTTPS and go only to the service you chose, when you ask:
+  Enrich, Upload, Test Sign-In, a callbook lookup you turned on in New QSO, an open Spots
+  window, or Settings → Country Data → Update. The README lists every address. The
+  QRZ.com sign-in is sent as a POST; HamQTH's sign-in, LoTW's report API and eQSL's
+  DownloadInBox take the login in the HTTPS address, as those services document it.
+- **Radio control** connects only to the rigctld or flrig host and port you set, and only
+  reads the frequency and mode; it never keys or tunes the radio.
+- **Programs run**: TQSL, which you choose, for LoTW uploads (with the certificate
+  password on its command line when you save one, where other programs on your Mac could
+  see it while TQSL runs), and `/usr/bin/unzip` to unpack a downloaded country file.
+- **Uploads** list exactly what would be sent, and nothing is sent until you press Upload.
