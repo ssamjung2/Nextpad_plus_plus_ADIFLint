@@ -149,6 +149,34 @@ std::vector<TextEdit> planEdits(std::string_view text, const DocModel &m, const 
 // record ended by <EOR>. `changed` reports whether the order changed.
 std::string sortedByTime(std::string_view text, const DocModel &m, std::string_view eol, bool *changed);
 
+// Text order with digit runs compared by value ("K2AB" before "K10AB") and
+// case ignored; two plain numbers ("-10", "14.074") compare as numbers.
+int naturalCompare(std::string_view a, std::string_view b);
+// Two values of a field, in the order a log sorts them: bands by frequency
+// (160m before 20m), dates and times in time order (with or without - and :),
+// numbers by value, anything else as naturalCompare. -1, 0 or 1.
+int compareFieldValues(std::string_view field, std::string_view a, std::string_view b);
+
+struct SortKey {
+    std::string field;  // an ADIF field name
+    bool descending = false;
+};
+// The document with its records ordered by the keys, the first key first. A
+// record without a value for a key goes after those with one, whichever the
+// direction; records that tie keep their order. Comments and separators as
+// sortedByTime(), with the same requirements.
+std::string sortedBy(std::string_view text, const DocModel &m, const std::vector<SortKey> &keys, std::string_view eol,
+                     bool *changed);
+
+// Every record's fields put in `order` (the ones it has), the others after them
+// in their own order. Each data specifier is copied byte for byte and the
+// whitespace between fields stays where it was: only the order changes. The
+// header is left alone, and so is a record with a wrong length or anything but
+// whitespace between its fields (counted in `skipped`). `changedRecords` counts
+// the records edited.
+std::vector<TextEdit> fieldOrderEdits(std::string_view text, const DocModel &m, const std::vector<std::string> &order,
+                                      size_t *changedRecords, size_t *skipped);
+
 struct DupeOptions {
     int windowMinutes = 2;  // start times this close are the same contact
 };

@@ -1459,6 +1459,64 @@ static void testFormats() {
           "counts and end");
 }
 
+static void testOrganize() {
+    // Comparisons: bands by frequency, times with or without seconds or colons, numbers by value, calls naturally.
+    CHECK(compareFieldValues("BAND", "160m", "20m") < 0 && compareFieldValues("BAND", "2m", "70cm") < 0 &&
+              compareFieldValues("band", "20M", "20m") == 0 && compareFieldValues("BAND", "20m", "xyz") < 0,
+          "bands by frequency");
+    CHECK(compareFieldValues("TIME_ON", "2230", "223015") < 0 && compareFieldValues("TIME_ON", "22:30", "2230") == 0 &&
+              compareFieldValues("QSO_DATE", "2026-10-06", "20261005") > 0,
+          "times and dates");
+    CHECK(compareFieldValues("FREQ", "7.074", "14.074") < 0 && compareFieldValues("DISTANCE", "900", "1200") < 0 &&
+              compareFieldValues("CALL", "K2AB", "K10AB") < 0 && compareFieldValues("CALL", "k1ab", "K1AB") == 0,
+          "numbers and calls");
+    CHECK(naturalCompare("-10", "2") < 0 && naturalCompare("A9", "A10") < 0 && naturalCompare("abc", "ABD") < 0, "natural order");
+
+    // Records by BAND, then CALL descending; a record without BAND goes last; a comment moves with its record.
+    std::string t = std::string(kHeader) +
+                    "<CALL:4>K1AA <BAND:3>20m <MODE:2>CW <EOR>\n"
+                    "<CALL:4>K1BB <BAND:3>40m <MODE:2>CW <EOR>\n"
+                    "note about K1CC\n"
+                    "<CALL:4>K1CC <BAND:3>20m <MODE:2>CW <EOR>\n"
+                    "<CALL:4>K1DD <MODE:2>CW <EOR>\n"
+                    "<CALL:4>K1EE <BAND:4>160m <MODE:2>CW <EOR>\n";
+    LintResult r = lintModel(t);
+    bool changed = false;
+    std::string s = sortedBy(t, r.model, {{"BAND", false}, {"CALL", true}}, "\n", &changed);
+    std::vector<std::string> calls;
+    for (size_t p = s.find("<CALL:4>"); p != std::string::npos; p = s.find("<CALL:4>", p + 1)) calls.push_back(s.substr(p + 8, 4));
+    CHECK(changed && calls == std::vector<std::string>({"K1EE", "K1BB", "K1CC", "K1AA", "K1DD"}),
+          "160m, 40m, then 20m by CALL descending, no BAND last:\n%s", s.c_str());
+    CHECK(s.find("note about K1CC\n<CALL:4>K1CC") != std::string::npos && lint(s).errors == 0, "the comment moved with K1CC");
+    LintResult rs = lintModel(s);
+    sortedBy(s, rs.model, {{"BAND", false}, {"CALL", true}}, "\n", &changed);
+    CHECK(!changed, "sorting again changes nothing");
+    s = sortedBy(t, r.model, {{"BAND", true}}, "\n", &changed);
+    calls.clear();
+    for (size_t p = s.find("<CALL:4>"); p != std::string::npos; p = s.find("<CALL:4>", p + 1)) calls.push_back(s.substr(p + 8, 4));
+    CHECK(calls == std::vector<std::string>({"K1AA", "K1CC", "K1BB", "K1EE", "K1DD"}),
+          "descending: ties keep their order, no BAND still last");
+
+    // Field order: listed fields first, the rest in their order; gaps stay where they were; data byte for byte.
+    std::string f = std::string(kHeader) +
+                    "<QSO_DATE:8>20261006 <TIME_ON:4>2230 <CALL:4>K1AA <BAND:3>20m <MODE:2>CW <EOR>\n"
+                    "<MODE:3>SSB\n<BAND:3>40m\n<CALL:4>K1BB\n<QSO_DATE:8>20261006\n<TIME_ON:4>2231\n<EOR>\n"
+                    "<CALL:4>K1CC <QSO_DATE:8>20261006 <TIME_ON:4>2232 <BAND:3>20m <MODE:2>CW <EOR>\n"
+                    "<MODE:2>CW <CALL:4>K1DDX <BAND:3>20m <EOR>\n";  // a wrong length: left alone
+    LintResult fr = lintModel(f);
+    size_t edited = 0, skipped = 0;
+    std::vector<TextEdit> e = fieldOrderEdits(f, fr.model, {"CALL", "QSO_DATE", "TIME_ON"}, &edited, &skipped);
+    std::string fo = applyTextEdits(f, e);
+    CHECK(edited == 2 && skipped == 1, "2 records reordered, K1CC already in order, K1DD skipped (%zu, %zu)", edited, skipped);
+    CHECK(fo.find("<CALL:4>K1AA <QSO_DATE:8>20261006 <TIME_ON:4>2230 <BAND:3>20m <MODE:2>CW <EOR>") != std::string::npos &&
+              fo.find("<CALL:4>K1BB\n<QSO_DATE:8>20261006\n<TIME_ON:4>2231\n<MODE:3>SSB\n<BAND:3>40m\n<EOR>") != std::string::npos &&
+              fo.find("<MODE:2>CW <CALL:4>K1DDX <BAND:3>20m <EOR>") != std::string::npos && fo.substr(0, sizeof kHeader - 1) == kHeader,
+          "fields reordered, layout kept, comment record untouched:\n%s", fo.c_str());
+    CHECK(lint(fo).errors == lint(f).errors && fo.size() == f.size(), "same size, no new errors");
+    LintResult fr2 = lintModel(fo);
+    CHECK(fieldOrderEdits(fo, fr2.model, {"CALL", "QSO_DATE", "TIME_ON"}, &edited, &skipped).empty(), "a second run changes nothing");
+}
+
 static void testImport() {
     auto applied = [](const std::string &log, const LintResult &lr, const std::vector<ImportItem> &items,
                       const std::vector<SiteQso> &qsos) {
@@ -1704,6 +1762,7 @@ int main(int argc, char **argv) {
     testPrograms();
     testFormats();
     testImport();
+    testOrganize();
     if (argc > 1) testOfficialFile(argv[1]);
     else std::printf("note: official test file not given; skipping\n");
     std::printf("%d/%d checks passed\n", gChecks - gFailures, gChecks);

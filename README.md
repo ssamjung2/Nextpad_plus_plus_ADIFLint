@@ -49,8 +49,12 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
   across a folder of logs.
 - **Activation Tracker** for POTA, WWFF and SOTA, each with its own rule, and **Export
   Activation Logs** with each program's file names.
+- **Sort and Organize**: sort the records by any fields (e.g. band, then call, then date),
+  each ascending or descending, and give every record the same field order, without
+  changing any data. The Log Table's **Organize Log…** starts from the table's sort and
+  columns.
 - **Bulk Edit**, **Time Shift** (local time to UTC and back, daylight saving included),
-  sort, **Remove Duplicates** and **Merge Another Log**, each previewed before it changes
+  **Remove Duplicates** and **Merge Another Log**, each previewed before it changes
   anything.
 - **Import CSV**, **Export CSV** and **Export Cabrillo**.
 
@@ -136,7 +140,8 @@ shortcuts, so assign your own in Nextpad++'s Shortcut Mapper.
 | Log Summary… | Counts by band, mode, day, entity and park; confirmations and uploads |
 | Bulk Edit… | Set, replace, remove or rename a field, or fill DISTANCE, with a preview |
 | Time Shift… | Convert times between UTC and a time zone, or shift by a fixed amount |
-| Sort Records by Date and Time | Reorder the records |
+| Sort Records by Date and Time | Reorder the records by QSO_DATE and TIME_ON |
+| Sort and Organize… | Sort the records by any fields, and put every record's fields in one order |
 | Remove Duplicates… | Find QSOs logged twice and remove them after review |
 | Merge Another Log… | Add another log's QSOs that this one doesn't have |
 | Import CSV… | Add a CSV file's rows to the log |
@@ -197,8 +202,9 @@ message`; the exit status is 1 when there are errors.
 build/adiflint examples/try-me.adi
 ```
 
-It can also fix lengths, reformat, sort, remove duplicates, convert to and from CSV, print
-the summary, and write Cabrillo or activation files. `build/adiflint --help` lists the
+It can also fix lengths, reformat, sort (by date and time or by any fields), put fields in
+order, remove duplicates, convert to and from CSV, print the summary, and write Cabrillo or
+activation files. `build/adiflint --help` lists the
 options, and the [user guide](docs/USER_GUIDE.md#command-line) describes them.
 
 ## Building and testing

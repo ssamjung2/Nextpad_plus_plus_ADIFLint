@@ -165,12 +165,16 @@ band and mode filters and a search box.
 **Log Table…** shows every record in a table with a filter box. Dates and times read as
 2026-10-06 and 22:30.
 
-- Click a heading to sort (numbers sort as numbers); the sort is remembered.
+- Click a heading to sort; the sort is remembered. Bands sort by frequency (160m before
+  20m), dates and times in time order, numbers by value, and empty cells last.
 - Selecting a row shows that record in the editor; double-clicking the # goes there.
 - Double-click a value to edit it. The field is written back with its length (an empty
   value removes it; dates and times may be typed either way), and an uploaded QSO becomes
   M (see [Uploading](#uploading)).
 - Right-click the headings to choose the columns shown.
+- **Organize Log…** opens [Sort and Organize](#sort-and-organize) with the table's sort
+  and its columns as shown (drag a heading to move a column), so the file can take the
+  order you see.
 - **Bulk Edit Selected…** edits the selected rows, and **Export CSV…** saves the rows
   shown. The table follows your edits.
 
@@ -242,6 +246,7 @@ have more errors afterwards; nothing changes until **Apply**.
 - **Sort Records by Date and Time** reorders the records. A comment between records moves
   with the record after it; records without a valid date and time go last in their old
   order.
+- **Sort and Organize…**: see [below](#sort-and-organize).
 - **Remove Duplicates…** finds QSOs logged more than once: the same CALL, band and mode
   starting within 2 minutes (adjustable), and no different STATION_CALLSIGN, MY_SIG_INFO,
   SIG_INFO or POTA reference, so park-to-park lines repeated for each park of a two-fer
@@ -250,6 +255,26 @@ have more errors afterwards; nothing changes until **Apply**.
 - **Merge Another Log…** adds another file's records at the end, rebuilt in this log's
   layout with lengths counted this log's way, skipping QSOs it already has, then sorts by
   date and time if you like. It warns about USERDEF fields this log's header lacks.
+
+### Sort and Organize
+
+**Sort and Organize…** rewrites the order of the log, not its data: every data specifier
+is copied byte for byte. Tick one or both parts, then **Apply** (one undo step). Your
+choices are remembered.
+
+- **Sort the records by** up to three fields, each **Ascending** or **Descending**: for
+  example BAND, then CALL, then QSO_DATE. Bands sort by frequency (160m before 20m), dates
+  and times in time order (HHMM and HHMMSS together), numbers by value, and other text
+  with digit runs by value and case ignored (`K2AB` before `K10AB`). A record without a
+  value for a field goes after the ones with one, either way; records that tie keep their
+  order. A comment between records moves with the record after it.
+- **Put the fields of every record in this order**: the list shows the fields the log
+  uses and how many records use each. Select one and **Move Up** or **Move Down**; **Log
+  Table Order** starts again from the Log Table's column order. Each record gets the
+  fields it has in this order, the others after them; the whitespace between fields stays
+  where it was, so the layout (one record or one field per line) is kept. The header is
+  not changed, and a record with a wrong length is left as it is and counted.
+- Neither part changes QSO data, so uploaded QSOs don't become M.
 
 ## Importing and exporting
 
@@ -432,6 +457,8 @@ errors.
 | `--chars` | Count lengths in characters instead of bytes |
 | `--quiet` | Show errors only |
 | `--sort OUT` | Write a copy sorted by date and time |
+| `--sort-by KEYS OUT` | Write a copy sorted by fields, e.g. `BAND,CALL:desc,QSO_DATE` |
+| `--field-order FIELDS OUT` | Write a copy with every record's fields in this order, e.g. `CALL,QSO_DATE,TIME_ON` |
 | `--dedupe OUT` | Write a copy without repeated QSOs |
 | `--csv OUT` | Write the log as CSV |
 | `--from-csv OUT` | The input is a CSV file: write it as an ADIF log |

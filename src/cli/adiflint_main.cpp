@@ -2,7 +2,8 @@
 // as the Nextpad++ plugin.
 //
 //   adiflint [--chars] [--quiet] [--fix OUT] [--reformat records|fields OUT] FILE...
-//   adiflint [--sort OUT | --dedupe OUT | --csv OUT | --summary | --cabrillo OUT
+//   adiflint [--sort OUT | --sort-by KEYS OUT | --field-order FIELDS OUT | --dedupe OUT
+//            | --csv OUT | --summary | --cabrillo OUT
 //            | --export pota|wwff|sota DIR | --from-csv OUT] [--call CALL] [--contest ID] FILE
 //
 // Prints FILE:LINE:COLUMN: severity: message for each problem. Exit status is
@@ -15,6 +16,7 @@
 #include "adif_spec.h"
 #include "adif_tools.h"
 
+#include <cctype>
 #include <ctime>
 
 #include <cstdio>
@@ -38,6 +40,11 @@ void usage() {
                  "              needs correct lengths, so combine with --fix only by running twice)\n"
                  "Log tools (one FILE; FILE itself is never changed):\n"
                  "  --sort OUT           records by QSO_DATE and TIME_ON\n"
+                 "  --sort-by KEYS OUT   records by fields, e.g. BAND,CALL:desc,QSO_DATE (bands by frequency,\n"
+                 "                       numbers by value; records without a value last)\n"
+                 "  --field-order FIELDS OUT\n"
+                 "                       every record's fields in this order, e.g. CALL,QSO_DATE,TIME_ON (the\n"
+                 "                       others after them); data copied byte for byte\n"
                  "  --dedupe OUT         remove repeated QSOs (same CALL, band, mode within 2 minutes)\n"
                  "  --csv OUT            a CSV file with a column per field\n"
                  "  --summary            print the log summary\n"
@@ -85,7 +92,7 @@ int main(int argc, char **argv) {
     adif::LintOptions opt;
     bool quiet = false;
     const char *fixOut = nullptr, *reformatOut = nullptr;
-    std::string tool, toolOut, program, call, contest;  // a log tool, its output, and options
+    std::string tool, toolOut, program, call, contest, list;  // a log tool, its output, and options
     adif::Layout layout = adif::Layout::RecordPerLine;
     std::vector<const char *> files;
     for (int i = 1; i < argc; ++i) {
@@ -103,6 +110,11 @@ int main(int argc, char **argv) {
                  i + 1 < argc && tool.empty()) {
             tool = argv[i] + 2;
             toolOut = argv[++i];
+        } else if ((!std::strcmp(argv[i], "--sort-by") || !std::strcmp(argv[i], "--field-order")) && i + 2 < argc && tool.empty()) {
+            tool = argv[i] + 2;
+            list = argv[i + 1];
+            toolOut = argv[i + 2];
+            i += 2;
         } else if (!std::strcmp(argv[i], "--summary") && tool.empty()) {
             tool = "summary";
         } else if (!std::strcmp(argv[i], "--export") && i + 2 < argc && tool.empty() &&
@@ -172,7 +184,7 @@ int main(int argc, char **argv) {
             bool crlf = text.find("\r\n") != std::string::npos;
             std::string eol = crlf ? "\r\n" : "\n";
             std::vector<adif::Record> recs = adif::records(text, r.model);
-            if ((tool == "sort" || tool == "dedupe") && (!adif::canReformat(r))) {
+            if ((tool == "sort" || tool == "sort-by" || tool == "field-order" || tool == "dedupe") && (!adif::canReformat(r))) {
                 std::fprintf(stderr, "adiflint: fix the data lengths and malformed tags in %s first\n", path);
                 return 2;
             }
@@ -184,6 +196,34 @@ int main(int argc, char **argv) {
                 std::string out = adif::sortedByTime(text, r.model, eol, &changed);
                 if (!writeFile(toolOut, out)) return 2;
                 if (!changed) std::fprintf(stderr, "(already in date and time order)\n");
+            } else if (tool == "sort-by" || tool == "field-order") {
+                std::vector<std::string> names;
+                std::string item;
+                for (size_t k = 0; k <= list.size(); ++k) {
+                    if (k == list.size() || list[k] == ',') {
+                        if (!item.empty()) names.push_back(item);
+                        item.clear();
+                    } else {
+                        item.push_back((char)std::toupper((unsigned char)list[k]));
+                    }
+                }
+                std::string out;
+                if (tool == "sort-by") {
+                    std::vector<adif::SortKey> keys;
+                    for (const std::string &n : names) {
+                        size_t colon = n.find(':');
+                        std::string dir = colon == std::string::npos ? "" : n.substr(colon + 1);
+                        keys.push_back({n.substr(0, colon), dir == "DESC" || dir == "D"});
+                    }
+                    bool changed = false;
+                    out = adif::sortedBy(text, r.model, keys, eol, &changed);
+                    if (!changed) std::fprintf(stderr, "(already in that order)\n");
+                } else {
+                    size_t edited = 0, skipped = 0;
+                    out = adif::applyTextEdits(text, adif::fieldOrderEdits(text, r.model, names, &edited, &skipped));
+                    std::fprintf(stderr, "%zu record(s) reordered, %zu left as they were\n", edited, skipped);
+                }
+                if (!writeFile(toolOut, out)) return 2;
             } else if (tool == "dedupe") {
                 std::vector<adif::DupeSet> sets = adif::findDuplicates(text, r.model, adif::DupeOptions());
                 size_t removed = 0;

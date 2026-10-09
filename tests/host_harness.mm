@@ -505,7 +505,7 @@ int main(int argc, char **argv) {
         CHECK(std::strcmp(getName(), "ADIF Lint") == 0, "plugin name: %s", getName());
         int n = 0;
         FuncItem *items = getFuncsArray(&n);
-        CHECK(n == 48, "48 menu items, got %d", n);
+        CHECK(n == 49, "49 menu items, got %d", n);
         std::map<std::string, FuncItem *> byName;
         int nextId = 22000;
         for (int i = 0; i < n; ++i) {
@@ -519,7 +519,7 @@ int main(int argc, char **argv) {
             if (f && f->_pFunc) f->_pFunc();
         };
         for (const char *name : {"New QSO...", "Log Table...", "Activation Tracker (POTA, WWFF, SOTA)...", "Spots (POTA, WWFF)...", "Worked Before...", "Log Summary...",
-                                 "Bulk Edit...", "Time Shift...", "Sort Records by Date and Time", "Remove Duplicates...",
+                                 "Bulk Edit...", "Time Shift...", "Sort Records by Date and Time", "Sort and Organize...", "Remove Duplicates...",
                                  "Merge Another Log...", "Export CSV...", "Export Activation Logs...", "Import CSV...", "Export Cabrillo...",
                                  "Import from LoTW...", "Import from QRZ.com Logbook...", "Import from eQSL...",
                                  "Enrich from Country Data...", "Enrich from QRZ.com...", "Enrich from HamQTH...",
@@ -2059,6 +2059,80 @@ int main(int argc, char **argv) {
             unsetenv("ADIFLINT_TEST_OPEN_FILE");
             run("Validate Now");
             CHECK(H.tip.find("0 errors") != std::string::npos, "the log lints clean after all of that: %s", H.tip.c_str());
+
+            // Sort and Organize: records by CALL (descending), CALL first in every record.
+            run("Sort and Organize...");
+            NSWindow *ow = windowTitled(@"Sort and Organize");
+            NSTableView *ot = ow ? findTable(ow.contentView) : nil;
+            if (ow && ot) {
+                NSMutableArray *combos = [NSMutableArray array], *pops = [NSMutableArray array], *boxes = [NSMutableArray array];
+                collect(ow.contentView, NSComboBox.class, combos);
+                collect(ow.contentView, NSPopUpButton.class, pops);
+                collect(ow.contentView, NSButton.class, boxes);
+                CHECK(combos.count == 3 && pops.count == 3 && [((NSComboBox *)combos[0]).stringValue isEqualToString:@"QSO_DATE"] &&
+                          [((NSComboBox *)combos[1]).stringValue isEqualToString:@"TIME_ON"],
+                      "three sort keys, date and time by default");
+                ((NSComboBox *)combos[0]).stringValue = @"call";
+                ((NSComboBox *)combos[1]).stringValue = @"";
+                [(NSPopUpButton *)pops[0] selectItemWithTitle:@"Descending"];
+                for (NSButton *b in boxes)
+                    if ([b.title hasPrefix:@"Put the fields"] && b.state != NSControlStateValueOn) [b performClick:nil];
+                NSInteger callRow = -1;
+                for (NSInteger r = 0; r < [ot.dataSource numberOfRowsInTableView:ot]; ++r)
+                    if ([cell(ot, r, @"1") isEqualToString:@"CALL"]) callRow = r;
+                CHECK(callRow == 2, "the fields in the Log Table's order: CALL third (%ld)", (long)callRow);
+                [ot selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)callRow] byExtendingSelection:NO];
+                [findButton(ow.contentView, @"Move Up") performClick:nil];
+                [findButton(ow.contentView, @"Move Up") performClick:nil];
+                CHECK([cell(ot, 0, @"1") isEqualToString:@"CALL"] && ot.selectedRow == 0, "CALL moved to the top, still selected");
+                [ow.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(ow.contentView) == 0, "Sort and Organize controls do not overlap (%d)", overlaps(ow.contentView));
+                snapshot(ow, "sort-organize");
+                int undo = H.undoActions;
+                [findButton(ow.contentView, @"Apply") performClick:nil];
+                pump(0.2);
+                std::vector<std::string> order;
+                bool callFirst = true;
+                for (size_t p = H.doc.find("<EOH>"); (p = H.doc.find('\n', p)) != std::string::npos;) {
+                    ++p;
+                    if (H.doc.compare(p, 1, "<") != 0) continue;
+                    callFirst &= H.doc.compare(p, 6, "<CALL:") == 0;
+                    size_t v = H.doc.find('>', p) + 1;
+                    order.push_back(H.doc.substr(v, H.doc.find(' ', v) - v));
+                }
+                CHECK(order == std::vector<std::string>({"W8NEW", "W1AW", "K1AE", "K1AD", "DL1AB"}) && callFirst && H.undoActions == undo + 1,
+                      "sorted by CALL descending, CALL first, one undo step:\n%s", H.doc.c_str());
+                CHECK(status(ow).find("Sorted 5 records by CALL (descending). Put the fields of 4 records in order.") == 0,
+                      "organize status: %s", status(ow).c_str());
+                CHECK(ini().find("organizeSort=CALL:d\n") != std::string::npos && ini().find("organizeFields=CALL,QSO_DATE,TIME_ON,") != std::string::npos,
+                      "the choices are remembered");
+                run("Validate Now");
+                CHECK(H.tip.find("0 errors") != std::string::npos, "still clean after organizing: %s", H.tip.c_str());
+                [ow orderOut:nil];
+            }
+            // From the Log Table: its sort fills in the window.
+            run("Log Table...");
+            NSWindow *tw2 = windowTitled(@"Log Table");
+            NSTableView *tt = tw2 ? findTable(tw2.contentView) : nil;
+            if (tt) {
+                NSInteger timeCol = -1;
+                for (NSTableColumn *c in tt.tableColumns)
+                    if ([c.title isEqualToString:@"TIME_ON"]) timeCol = c.identifier.integerValue;
+                tt.sortDescriptors = @[ [NSSortDescriptor sortDescriptorWithKey:[NSString stringWithFormat:@"%ld", (long)timeCol] ascending:NO] ];
+                [findButton(tw2.contentView, @"Organize Log...") performClick:nil];
+                NSWindow *ow2 = windowTitled(@"Sort and Organize");
+                NSMutableArray *combos = [NSMutableArray array], *pops = [NSMutableArray array];
+                if (ow2) {
+                    collect(ow2.contentView, NSComboBox.class, combos);
+                    collect(ow2.contentView, NSPopUpButton.class, pops);
+                }
+                CHECK(combos.count == 3 && [((NSComboBox *)combos[0]).stringValue isEqualToString:@"TIME_ON"] &&
+                          ((NSPopUpButton *)pops[0]).indexOfSelectedItem == 1 && ((NSComboBox *)combos[1]).stringValue.length == 0,
+                      "Organize Log... takes the table's sort (TIME_ON descending)");
+                [ow2 orderOut:nil];
+                tt.sortDescriptors = @[];
+                [tw2 orderOut:nil];
+            }
 
             // WWFF and SOTA: the tracker and the export follow the program.
             auto spec = [](const char *name, const std::string &v) { return "<" + std::string(name) + ":" + std::to_string(v.size()) + ">" + v + " "; };

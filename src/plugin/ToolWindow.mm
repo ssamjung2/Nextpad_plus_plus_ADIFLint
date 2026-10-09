@@ -2,6 +2,8 @@
 
 #import <objc/runtime.h>
 
+#include "adif_tools.h"
+
 #include <algorithm>
 #include <cstdlib>
 #include <map>
@@ -86,49 +88,9 @@ void ADIFBlockMenuItem(NSMenuItem *item, void (^block)(void)) {
     item.action = @selector(fire:);
 }
 
-// A plain decimal number: optional sign, digits, at most one point ("-10", "14.074").
-static bool plainNumber(const std::string &s) {
-    size_t i = (!s.empty() && (s[0] == '-' || s[0] == '+')) ? 1 : 0;
-    bool digit = false, dot = false;
-    for (; i < s.size(); ++i) {
-        if (s[i] >= '0' && s[i] <= '9') digit = true;
-        else if (s[i] == '.' && !dot) dot = true;
-        else return false;
-    }
-    return digit;
-}
-
 // Numbers compare as numbers ("7.074" < "14.074"); otherwise digit runs compare
 // by value and letters case-insensitively ("K1ABC" < "K10ABC").
-int ADIFNaturalCompare(const std::string &a, const std::string &b) {
-    if (plainNumber(a) && plainNumber(b)) {
-        double x = std::strtod(a.c_str(), nullptr), y = std::strtod(b.c_str(), nullptr);
-        if (x != y) return x < y ? -1 : 1;
-    }
-    size_t i = 0, j = 0;
-    while (i < a.size() && j < b.size()) {
-        bool da = a[i] >= '0' && a[i] <= '9', db = b[j] >= '0' && b[j] <= '9';
-        if (da && db) {
-            size_t si = i, sj = j;
-            while (si < a.size() && a[si] == '0') ++si;
-            while (sj < b.size() && b[sj] == '0') ++sj;
-            size_t ei = si, ej = sj;
-            while (ei < a.size() && a[ei] >= '0' && a[ei] <= '9') ++ei;
-            while (ej < b.size() && b[ej] >= '0' && b[ej] <= '9') ++ej;
-            if (ei - si != ej - sj) return ei - si < ej - sj ? -1 : 1;
-            int c = a.compare(si, ei - si, b, sj, ej - sj);
-            if (c) return c < 0 ? -1 : 1;
-            i = ei;
-            j = ej;
-            continue;
-        }
-        int ca = std::toupper((unsigned char)a[i]), cb = std::toupper((unsigned char)b[j]);
-        if (ca != cb) return ca < cb ? -1 : 1;
-        ++i;
-        ++j;
-    }
-    return a.size() - i < b.size() - j ? -1 : (a.size() - i > b.size() - j ? 1 : 0);
-}
+int ADIFNaturalCompare(const std::string &a, const std::string &b) { return adif::naturalCompare(a, b); }
 
 static bool containsNoCase(const std::string &hay, const std::string &upperNeedle) {
     if (upperNeedle.empty()) return true;
@@ -392,6 +354,11 @@ static bool containsNoCase(const std::string &hay, const std::string &upperNeedl
         std::stable_sort(_shown.begin(), _shown.end(), [&](NSInteger x, NSInteger y) {
             const std::string &a = col < _rows[(size_t)x].size() ? _rows[(size_t)x][col] : std::string();
             const std::string &b = col < _rows[(size_t)y].size() ? _rows[(size_t)y][col] : std::string();
+            if (self.compareCells) {  // the caller's order, with empty cells last either way
+                if (a.empty() != b.empty()) return b.empty();
+                int c = self.compareCells(col, a, b);
+                return asc ? c < 0 : c > 0;
+            }
             int c = ADIFNaturalCompare(a, b);
             return asc ? c < 0 : c > 0;
         });
@@ -508,6 +475,13 @@ static bool containsNoCase(const std::string &hay, const std::string &upperNeedl
                                                                                ascending:ascending] ];
     _quiet = false;
     [self rebuild];
+}
+
+- (std::vector<size_t>)columnOrder {
+    std::vector<size_t> out;
+    for (NSTableColumn *c in _table.tableColumns)
+        if (![c.identifier isEqualToString:@"__use"]) out.push_back((size_t)c.identifier.integerValue);
+    return out;
 }
 
 - (void)setHeaderMenu:(NSMenu *)menu {

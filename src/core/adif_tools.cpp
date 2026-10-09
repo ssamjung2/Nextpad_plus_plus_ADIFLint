@@ -5,7 +5,11 @@
 #include "adif_spec.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
+#include <cstdlib>
+#include <functional>
+#include <map>
 #include <set>
 #include <tuple>
 #include <unordered_map>
@@ -732,7 +736,13 @@ std::vector<TextEdit> planEdits(std::string_view text, const DocModel &m, const 
 
 // ── Sorting ─────────────────────────────────────────────────────────────────
 
-std::string sortedByTime(std::string_view text, const DocModel &m, std::string_view eol, bool *changed) {
+namespace {
+
+// The records rearranged in the order `arrange` gives (indexes into the
+// records): the comment before each record moves with it, and the blank runs
+// between records become the log's usual separator.
+std::string rearranged(std::string_view text, const DocModel &m, std::string_view eol, bool *changed,
+                       const std::function<std::vector<size_t>(const std::vector<Record> &)> &arrange) {
     if (changed) *changed = false;
     std::vector<Record> recs = records(text, m);
     if (recs.size() < 2) return std::string(text);
@@ -758,18 +768,10 @@ std::string sortedByTime(std::string_view text, const DocModel &m, std::string_v
         if (kv.second > best) best = kv.second, sep = kv.first;
     if (sep.empty()) sep = recordLayout(text, m) == Layout::FieldPerLine ? std::string(eol) + std::string(eol) : std::string(eol);
 
-    std::vector<long long> key(n);
-    for (size_t i = 0; i < n; ++i) key[i] = qsoStart(recs[i]);
-    std::vector<size_t> order(n);
-    for (size_t i = 0; i < n; ++i) order[i] = i;
-    std::stable_sort(order.begin(), order.end(), [&](size_t x, size_t y) {
-        bool vx = key[x] >= 0, vy = key[y] >= 0;
-        if (vx != vy) return vx;  // dated records first
-        return vx && key[x] < key[y];
-    });
-    bool same = true;
-    for (size_t i = 0; i < n; ++i) same &= order[i] == i;
-    if (same) return std::string(text);
+    std::vector<size_t> order = arrange(recs);
+    bool same = order.size() == n;
+    for (size_t i = 0; same && i < n; ++i) same = order[i] == i;
+    if (same || order.size() != n) return std::string(text);
 
     std::string out;
     out.reserve(text.size() + 64);
@@ -783,6 +785,160 @@ std::string sortedByTime(std::string_view text, const DocModel &m, std::string_v
     out.append(text.substr(e[n - 1]));
     if (changed) *changed = true;
     return out;
+}
+
+bool isPlainNumber(std::string_view s) {
+    size_t i = (!s.empty() && (s[0] == '+' || s[0] == '-')) ? 1 : 0;
+    bool digit = false, dot = false;
+    for (; i < s.size(); ++i) {
+        if (s[i] >= '0' && s[i] <= '9') digit = true;
+        else if (s[i] == '.' && !dot) dot = true;
+        else return false;
+    }
+    return digit;
+}
+
+std::string digitsOnly(std::string_view s) {
+    std::string out;
+    for (char c : s)
+        if (c >= '0' && c <= '9') out.push_back(c);
+    return out;
+}
+
+}  // namespace
+
+std::string sortedByTime(std::string_view text, const DocModel &m, std::string_view eol, bool *changed) {
+    return rearranged(text, m, eol, changed, [](const std::vector<Record> &recs) {
+        size_t n = recs.size();
+        std::vector<long long> key(n);
+        for (size_t i = 0; i < n; ++i) key[i] = qsoStart(recs[i]);
+        std::vector<size_t> order(n);
+        for (size_t i = 0; i < n; ++i) order[i] = i;
+        std::stable_sort(order.begin(), order.end(), [&](size_t x, size_t y) {
+            bool vx = key[x] >= 0, vy = key[y] >= 0;
+            if (vx != vy) return vx;  // dated records first
+            return vx && key[x] < key[y];
+        });
+        return order;
+    });
+}
+
+int naturalCompare(std::string_view a, std::string_view b) {
+    if (isPlainNumber(a) && isPlainNumber(b)) {
+        double x = std::strtod(std::string(a).c_str(), nullptr), y = std::strtod(std::string(b).c_str(), nullptr);
+        if (x != y) return x < y ? -1 : 1;
+    }
+    size_t i = 0, j = 0;
+    while (i < a.size() && j < b.size()) {
+        bool da = a[i] >= '0' && a[i] <= '9', db = b[j] >= '0' && b[j] <= '9';
+        if (da && db) {
+            size_t si = i, sj = j;
+            while (si < a.size() && a[si] == '0') ++si;
+            while (sj < b.size() && b[sj] == '0') ++sj;
+            size_t ei = si, ej = sj;
+            while (ei < a.size() && a[ei] >= '0' && a[ei] <= '9') ++ei;
+            while (ej < b.size() && b[ej] >= '0' && b[ej] <= '9') ++ej;
+            if (ei - si != ej - sj) return ei - si < ej - sj ? -1 : 1;
+            int c = a.substr(si, ei - si).compare(b.substr(sj, ej - sj));
+            if (c) return c < 0 ? -1 : 1;
+            i = ei;
+            j = ej;
+            continue;
+        }
+        int ca = std::toupper((unsigned char)a[i]), cb = std::toupper((unsigned char)b[j]);
+        if (ca != cb) return ca < cb ? -1 : 1;
+        ++i;
+        ++j;
+    }
+    return a.size() - i < b.size() - j ? -1 : (a.size() - i > b.size() - j ? 1 : 0);
+}
+
+int compareFieldValues(std::string_view field, std::string_view a, std::string_view b) {
+    std::string x = trim(a), y = trim(b);
+    const FieldDef *d = findField(field);
+    if (d && d->enumeration && equalsNoCase(d->enumeration, "Band")) {
+        const BandDef *bx = findBand(x), *by = findBand(y);
+        if (bx && by) return bx->lowerMHz < by->lowerMHz ? -1 : bx->lowerMHz > by->lowerMHz ? 1 : 0;
+        if (bx || by) return bx ? -1 : 1;  // known bands before anything else
+    } else if (d && (d->type == DataType::Date || d->type == DataType::Time)) {
+        std::string dx = digitsOnly(x), dy = digitsOnly(y);
+        if (d->type == DataType::Time) {  // HHMM is HHMM00
+            if (dx.size() == 4) dx += "00";
+            if (dy.size() == 4) dy += "00";
+        }
+        if (!dx.empty() && !dy.empty() && dx != dy) return dx < dy ? -1 : 1;
+        if (!dx.empty() && !dy.empty()) return 0;
+    } else if (d && (d->type == DataType::Number || d->type == DataType::Integer || d->type == DataType::PositiveInteger)) {
+        if (isPlainNumber(x) && isPlainNumber(y)) {
+            double nx = std::strtod(x.c_str(), nullptr), ny = std::strtod(y.c_str(), nullptr);
+            return nx < ny ? -1 : nx > ny ? 1 : 0;
+        }
+    }
+    return naturalCompare(x, y);
+}
+
+std::string sortedBy(std::string_view text, const DocModel &m, const std::vector<SortKey> &keys, std::string_view eol,
+                     bool *changed) {
+    if (keys.empty()) {
+        if (changed) *changed = false;
+        return std::string(text);
+    }
+    return rearranged(text, m, eol, changed, [&](const std::vector<Record> &recs) {
+        size_t n = recs.size();
+        std::vector<size_t> order(n);
+        for (size_t i = 0; i < n; ++i) order[i] = i;
+        std::stable_sort(order.begin(), order.end(), [&](size_t x, size_t y) {
+            for (const SortKey &k : keys) {
+                std::string a = trim(recs[x].get(k.field)), b = trim(recs[y].get(k.field));
+                if (a.empty() != b.empty()) return b.empty();  // a value before none, either direction
+                if (a.empty()) continue;
+                int c = compareFieldValues(k.field, a, b);
+                if (c) return k.descending ? c > 0 : c < 0;
+            }
+            return false;
+        });
+        return order;
+    });
+}
+
+std::vector<TextEdit> fieldOrderEdits(std::string_view text, const DocModel &m, const std::vector<std::string> &order,
+                                      size_t *changedRecords, size_t *skipped) {
+    std::vector<TextEdit> edits;
+    if (changedRecords) *changedRecords = 0;
+    if (skipped) *skipped = 0;
+    std::map<std::string, size_t> rank;  // listed fields by position
+    for (size_t i = 0; i < order.size(); ++i) rank.emplace(upperAscii(order[i]), i);
+    for (const ModelGroup &g : m.groups) {
+        if (g.header || g.fieldCount < 2) continue;
+        const ModelField *f = &m.fields[g.firstField];
+        bool clean = true;  // right lengths, and only whitespace between the fields
+        for (size_t i = 0; i < g.fieldCount && clean; ++i) clean = f[i].lengthOk;
+        for (size_t i = 1; i < g.fieldCount && clean; ++i) clean = isBlankText(text.substr(f[i - 1].valueE, f[i].tagB - f[i - 1].valueE));
+        if (!clean) {
+            if (skipped) ++*skipped;
+            continue;
+        }
+        std::vector<size_t> idx(g.fieldCount);
+        for (size_t i = 0; i < g.fieldCount; ++i) idx[i] = i;
+        std::stable_sort(idx.begin(), idx.end(), [&](size_t x, size_t y) {
+            auto rx = rank.find(upperAscii(fieldName(text, f[x]))), ry = rank.find(upperAscii(fieldName(text, f[y])));
+            size_t px = rx == rank.end() ? order.size() : rx->second, py = ry == rank.end() ? order.size() : ry->second;
+            return px < py;
+        });
+        bool same = true;
+        for (size_t i = 0; i < idx.size() && same; ++i) same = idx[i] == i;
+        if (same) continue;
+        // The fields in their new order, each gap staying at its position.
+        std::string out;
+        for (size_t k = 0; k < idx.size(); ++k) {
+            const ModelField &field = f[idx[k]];
+            out.append(text.substr(field.tagB, field.valueE - field.tagB));
+            if (k + 1 < idx.size()) out.append(text.substr(f[k].valueE, f[k + 1].tagB - f[k].valueE));
+        }
+        edits.push_back(TextEdit{f[0].tagB, f[g.fieldCount - 1].valueE, out});
+        if (changedRecords) ++*changedRecords;
+    }
+    return edits;
 }
 
 // ── Duplicates ──────────────────────────────────────────────────────────────

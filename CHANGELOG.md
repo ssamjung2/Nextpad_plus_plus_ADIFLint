@@ -11,6 +11,12 @@ Versions before 0.8.0 were development builds and were not published.
 
 ### Added
 
+- **Sort and Organize…**: sort the records by up to three fields (ascending or descending;
+  bands by frequency, dates and times in time order, numbers by value), and give every
+  record the same field order without changing any data. One undo step; the choices are
+  remembered. The Log Table's **Organize Log…** starts from its sort and columns, and the
+  table now sorts bands by frequency and empty cells last. `adiflint --sort-by` and
+  `--field-order` do the same from the command line.
 - **Import from LoTW…, Import from QRZ.com Logbook…, Import from eQSL…**, grouped with
   Import CSV: download your QSOs from the site, add the ones the log lacks, and add the
   confirmation and its details to the ones it has, after a review (one undo step). LoTW

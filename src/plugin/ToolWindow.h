@@ -47,6 +47,9 @@ void ADIFBlockMenuItem(NSMenuItem *item, void (^block)(void));
 @property(nonatomic, copy) void (^onEditCell)(NSInteger row, size_t column, NSString *text);
 // The user sorted by a column (-1: unsorted).
 @property(nonatomic, copy) void (^onSortChanged)(NSInteger column, BOOL ascending);
+// How to order two cells of a column when sorting (-1, 0, 1); empty cells then go
+// last either way. Unset: ADIFNaturalCompare.
+@property(nonatomic, copy) int (^compareCells)(size_t column, const std::string &a, const std::string &b);
 
 // `headline`: reserve a line of large text above the status.
 - (instancetype)initWithTitle:(NSString *)title size:(NSSize)size headline:(BOOL)headline;
@@ -85,6 +88,7 @@ void ADIFBlockMenuItem(NSMenuItem *item, void (^block)(void));
 - (void)setEditableColumns:(const std::vector<size_t> &)columns;
 - (void)setSortColumn:(NSInteger)column ascending:(BOOL)ascending;  // -1: unsorted
 - (void)setHeaderMenu:(NSMenu *)menu;  // the column headings' right-click menu
+- (std::vector<size_t>)columnOrder;     // the columns as shown, left to right (headings can be dragged)
 
 // Show a monospaced, read-only report instead of the table.
 - (void)setText:(NSString *)text;

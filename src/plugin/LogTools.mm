@@ -1831,6 +1831,271 @@ void cabPlan() {
     }
 }
 
+
+// ── Sort and Organize ───────────────────────────────────────────────────────
+
+const size_t kSortKeys = 3;
+
+struct {
+    ADIFToolWindow *w = nil;
+    NSButton *doSort = nil, *doFields = nil, *apply = nil;
+    NSComboBox *key[kSortKeys] = {nil, nil, nil};
+    NSPopUpButton *dir[kSortKeys] = {nil, nil, nil};
+    std::vector<std::string> fields;     // the field order shown
+    std::map<std::string, size_t> uses;  // records using each field
+} org;
+
+std::vector<std::string> splitList(const std::string &list) {
+    std::vector<std::string> out;
+    std::string item;
+    for (size_t i = 0; i <= list.size(); ++i) {
+        if (i == list.size() || list[i] == ',') {
+            if (!item.empty()) out.push_back(item);
+            item.clear();
+        } else {
+            item.push_back(list[i]);
+        }
+    }
+    return out;
+}
+
+// `preferred` first (the ones the log uses), then the log's other fields in the Log Table's order.
+std::vector<std::string> orgFieldOrder(const std::vector<std::string> &preferred, const std::vector<std::string> &used) {
+    std::vector<std::string> out;
+    for (const std::string &f : preferred)
+        if (std::find(used.begin(), used.end(), f) != used.end() && std::find(out.begin(), out.end(), f) == out.end())
+            out.push_back(f);
+    for (const std::string &f : used)
+        if (std::find(out.begin(), out.end(), f) == out.end()) out.push_back(f);
+    return out;
+}
+
+std::vector<adif::SortKey> orgKeys() {
+    std::vector<adif::SortKey> keys;
+    for (size_t i = 0; i < kSortKeys; ++i) {
+        std::string f = ADIFStd(org.key[i].stringValue);
+        while (!f.empty() && f.back() == ' ') f.pop_back();
+        while (!f.empty() && f.front() == ' ') f.erase(0, 1);
+        for (char &c : f) c = (char)std::toupper((unsigned char)c);
+        if (!f.empty()) keys.push_back({f, org.dir[i].indexOfSelectedItem == 1});
+    }
+    return keys;
+}
+
+std::string orgKeysText(const std::vector<adif::SortKey> &keys) {
+    std::string s;
+    for (size_t i = 0; i < keys.size(); ++i)
+        s += (i == 0 ? "" : i + 1 == keys.size() ? " and then " : ", then ") + keys[i].field + (keys[i].descending ? " (descending)" : "");
+    return s;
+}
+
+void orgStatus() {
+    if (!org.w) return;
+    bool sort = org.doSort.state == NSControlStateValueOn, fields = org.doFields.state == NSControlStateValueOn;
+    std::vector<adif::SortKey> keys = orgKeys();
+    std::string st;
+    if (sort && !keys.empty()) st += "Sorts the records by " + orgKeysText(keys) + ". ";
+    if (fields) st += "Puts the fields of every record in the order below (select one and move it). ";
+    if (st.empty()) st = "Tick what to do: sort the records, put their fields in order, or both. ";
+    st += "Data is copied byte for byte; nothing changes until Apply (one undo step).";
+    [org.w setStatus:ADIFString(st) severity:-1];
+    org.apply.enabled = (sort && !keys.empty()) || fields;
+}
+
+void orgShow(const std::vector<std::string> &select) {
+    std::vector<std::vector<std::string>> rows;
+    for (size_t i = 0; i < org.fields.size(); ++i) {
+        const std::string &f = org.fields[i];
+        const adif::FieldDef *d = adif::findField(f);
+        rows.push_back({std::to_string(i + 1), f, std::to_string(org.uses[f]), d && d->description ? d->description : ""});
+    }
+    [org.w setRows:rows severities:kNoSev keys:org.fields ticks:kNoTicks keepTicks:NO];
+    for (const std::string &f : select) {
+        auto it = std::find(org.fields.begin(), org.fields.end(), f);
+        if (it != org.fields.end()) [org.w selectRow:(NSInteger)(it - org.fields.begin())];
+    }
+}
+
+// Re-read the log's fields, keeping the order shown.
+void orgRefresh() {
+    if (!org.w) return;
+    try {
+        NppHandle h = scintilla();
+        const adif::LintResult &r = lint(h);
+        std::vector<adif::Record> recs = adif::records(adifhost::text(h), r.model);
+        [org.w setTarget:logLine()];
+        org.uses.clear();
+        for (const adif::Record &rec : recs)
+            for (const auto &kv : rec.fields) ++org.uses[kv.first];
+        std::vector<std::string> used = adif::tableColumns(recs);
+        org.fields = orgFieldOrder(org.fields, used);
+        NSMutableArray *names = [NSMutableArray array];
+        for (const std::string &f : used) [names addObject:ADIFString(f)];
+        for (size_t i = 0; i < kSortKeys; ++i) {
+            [org.key[i] removeAllItems];
+            [org.key[i] addItemsWithObjectValues:names];
+        }
+        std::vector<std::string> selected;
+        for (NSInteger row : [org.w selectedRows])
+            if ((size_t)row < org.fields.size()) selected.push_back(org.fields[(size_t)row]);
+        orgShow(selected);
+    } catch (...) {
+    }
+    orgStatus();
+}
+
+void orgMove(int step) {
+    std::vector<NSInteger> sel = [org.w selectedRows];
+    if (sel.size() != 1 || (size_t)sel[0] >= org.fields.size()) {
+        [org.w setStatus:@"Select one field to move." severity:1];
+        return;
+    }
+    size_t i = (size_t)sel[0];
+    size_t to = step < 0 ? (i == 0 ? 0 : i - 1) : std::min(i + 1, org.fields.size() - 1);
+    std::string f = org.fields[i];
+    org.fields.erase(org.fields.begin() + (std::ptrdiff_t)i);
+    org.fields.insert(org.fields.begin() + (std::ptrdiff_t)to, f);
+    orgShow({f});
+    orgStatus();
+}
+
+void orgApply() {
+    try {
+        NppHandle h = scintilla();
+        adif::LintResult r = lint(h);  // a copy: the edit changes the document
+        if (!hasRecords(r)) {
+            [org.w setStatus:@"This document has no ADIF records." severity:2];
+            return;
+        }
+        std::string problem = structureProblem(r);
+        if (!problem.empty()) {
+            [org.w setStatus:ADIFString(problem) severity:2];
+            return;
+        }
+        if (readOnly(h)) {
+            [org.w setStatus:@"This document is read-only." severity:2];
+            return;
+        }
+        bool sort = org.doSort.state == NSControlStateValueOn, fields = org.doFields.state == NSControlStateValueOn;
+        std::vector<adif::SortKey> keys = orgKeys();
+        for (const adif::SortKey &k : keys)
+            if (!adif::findField(k.field) && !org.uses.count(k.field)) {
+                [org.w setStatus:ADIFString(k.field + " is not an ADIF field or one this log uses.") severity:2];
+                return;
+            }
+        std::string text(adifhost::text(h)), merged = text;
+        size_t edited = 0, skipped = 0;
+        if (fields) merged = adif::applyTextEdits(text, adif::fieldOrderEdits(text, r.model, org.fields, &edited, &skipped));
+        bool moved = false;
+        if (sort && !keys.empty()) {
+            adif::LintResult mr = lintText(merged);
+            merged = adif::sortedBy(merged, mr.model, keys, eol(h), &moved);
+        }
+        // Remember the choices for next time.
+        std::string sortSetting, fieldSetting;
+        for (const adif::SortKey &k : keys) sortSetting += (sortSetting.empty() ? "" : ",") + k.field + (k.descending ? ":d" : ":a");
+        for (const std::string &f : org.fields) fieldSetting += (fieldSetting.empty() ? "" : ",") + f;
+        setSetting("organizeSort", sortSetting);
+        setSetting("organizeFields", fieldSetting);
+        setSetting("organizeDo", std::string(sort ? "sort" : "") + (fields ? "fields" : ""));
+        if (merged == text) {
+            [org.w setStatus:@"Already in this order: nothing changed." severity:-1];
+            return;
+        }
+        adifhost::apply(h, {adif::TextEdit{0, text.size(), merged}});
+        std::string st;
+        if (moved) st += "Sorted " + plural(adif::recordCount(r.model), "record") + " by " + orgKeysText(keys) + ". ";
+        if (edited) st += "Put the fields of " + plural(edited, "record") + " in order. ";
+        if (skipped) st += plural(skipped, "record") + " with a wrong length or text between fields left as they were. ";
+        st += "One undo step.";
+        [org.w setStatus:ADIFString(st) severity:skipped ? 1 : -1];
+    } catch (...) {
+        [org.w setStatus:@"Something went wrong sorting the log." severity:2];
+    }
+}
+
+// Open the window. With `seeded`, the sort keys and field order come from the
+// arguments (the Log Table's), else from the last time.
+void openOrganize(bool seeded, const std::vector<adif::SortKey> &seedKeys, const std::vector<std::string> &seedFields) {
+    if (!org.w) {
+        ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"Sort and Organize" size:NSMakeSize(760, 600) headline:NO];
+        org.w = w;
+        org.doSort = ADIFCheckbox(@"Sort the records by:", YES);
+        for (size_t i = 0; i < kSortKeys; ++i) {
+            org.key[i] = ADIFComboBox(@[], 180);
+            org.key[i].placeholderString = i == 0 ? @"e.g. BAND" : @"(optional)";
+            org.dir[i] = ADIFPopup(@[ @"Ascending", @"Descending" ]);
+            ADIFOnAction(org.key[i], ^{ orgStatus(); });
+            ADIFOnAction(org.dir[i], ^{ orgStatus(); });
+            [[NSNotificationCenter defaultCenter] addObserverForName:NSControlTextDidChangeNotification
+                                                              object:org.key[i]
+                                                               queue:nil
+                                                          usingBlock:^(NSNotification *n) { orgStatus(); }];
+        }
+        [w addOptionRow:@[ org.doSort, org.key[0], org.dir[0] ]];
+        [w addOptionRow:@[ ADIFLabel(@"then by:"), org.key[1], org.dir[1] ]];
+        [w addOptionRow:@[ ADIFLabel(@"then by:"), org.key[2], org.dir[2] ]];
+        org.doFields = ADIFCheckbox(@"Put the fields of every record in this order:", NO);
+        ADIFOnAction(org.doSort, ^{ orgStatus(); });
+        ADIFOnAction(org.doFields, ^{ orgStatus(); });
+        [w addOptionRow:@[ org.doFields ]];
+        [w setColumns:std::vector<ADIFToolColumn>{{"pos", "#", 36}, {"field", "Field", 170}, {"records", "Records", 64},
+                                                  {"about", "Description", 420}}
+            checkboxes:NO
+              sortable:NO];
+        [w addButton:@"Move Up" trailing:NO action:^{ orgMove(-1); }];
+        [w addButton:@"Move Down" trailing:NO action:^{ orgMove(1); }];
+        [w addButton:@"Log Table Order" trailing:NO action:^{
+            try {
+                NppHandle h = scintilla();
+                org.fields = adif::tableColumns(adif::records(adifhost::text(h), lint(h).model));
+                orgShow({});
+                orgStatus();
+            } catch (...) {
+            }
+        }];
+        org.apply = [w addButton:@"Apply" trailing:YES action:^{ orgApply(); }];
+        [w setDefaultButton:org.apply];
+    }
+    std::vector<adif::SortKey> keys = seedKeys;
+    if (!seeded) {
+        keys.clear();
+        std::string saved = setting("organizeSort");
+        for (const std::string &k : splitList(saved.empty() ? "QSO_DATE:a,TIME_ON:a" : saved)) {
+            size_t colon = k.find(':');
+            keys.push_back({k.substr(0, colon), colon != std::string::npos && k.substr(colon + 1) == "d"});
+        }
+        std::string what = setting("organizeDo");
+        org.doSort.state = what.empty() || what.find("sort") != std::string::npos ? NSControlStateValueOn : NSControlStateValueOff;
+        org.doFields.state = what.find("fields") != std::string::npos ? NSControlStateValueOn : NSControlStateValueOff;
+        org.fields = splitList(setting("organizeFields"));
+    } else {
+        org.doSort.state = keys.empty() ? NSControlStateValueOff : NSControlStateValueOn;
+        org.doFields.state = NSControlStateValueOn;
+        org.fields = seedFields;
+    }
+    for (size_t i = 0; i < kSortKeys; ++i) {
+        org.key[i].stringValue = i < keys.size() ? ADIFString(keys[i].field) : @"";
+        [org.dir[i] selectItemAtIndex:i < keys.size() && keys[i].descending ? 1 : 0];
+    }
+    orgRefresh();
+    [org.w show];
+}
+
+// From the Log Table: its sort and its columns as shown (hidden ones after).
+void openOrganizeFromTable() {
+    std::vector<adif::SortKey> keys;
+    std::string sort = setting("tableSort");
+    size_t colon = sort.find(':');
+    if (colon != std::string::npos && sort.substr(0, colon) != "#")
+        keys.push_back({sort.substr(0, colon), sort.substr(colon + 1) == "d"});
+    std::vector<std::string> fields;
+    for (size_t c : [table.w columnOrder])
+        if (c > 0 && c <= table.columns.size()) fields.push_back(table.columns[c - 1]);
+    for (const std::string &f : table.all)
+        if (std::find(fields.begin(), fields.end(), f) == fields.end()) fields.push_back(f);
+    openOrganize(true, keys, fields);
+}
 }  // namespace
 
 namespace logtools {
@@ -1921,9 +2186,15 @@ void cmdLogTable() {
             std::string field = column == 0 ? "#" : column > 0 && (size_t)column <= table.columns.size() ? table.columns[(size_t)column - 1] : "";
             setSetting("tableSort", field.empty() ? "" : field + (ascending ? ":a" : ":d"));
         };
+        // Bands by frequency, dates and times in time order, numbers by value: the order Sort and Organize writes.
+        w.compareCells = ^int(size_t column, const std::string &a, const std::string &b) {
+            if (column == 0 || column > table.columns.size()) return adif::naturalCompare(a, b);
+            return adif::compareFieldValues(table.columns[column - 1], a, b);
+        };
         table.menu = [[NSMenu alloc] initWithTitle:@"Columns"];
         [w setHeaderMenu:table.menu];
         [w addButton:@"Bulk Edit Selected..." trailing:NO action:^{ openBulkEdit(false, true); }];
+        [w addButton:@"Organize Log..." trailing:NO action:^{ openOrganizeFromTable(); }];
         [w addButton:@"Export CSV..." trailing:NO action:^{
             std::vector<adif::Record> shown;
             for (NSInteger row : [table.w shownRows])
@@ -2017,6 +2288,8 @@ void cmdWorkedBefore() {
 
 void cmdBulkEdit() { openBulkEdit(false, false); }
 void cmdTimeShift() { openBulkEdit(true, false); }
+
+void cmdOrganize() { openOrganize(false, {}, {}); }
 
 void cmdSortByTime() {
     try {
@@ -2211,6 +2484,7 @@ void documentChanged() {
         if (merge.w && merge.w.window.visible && merge.ready) mergePlanNow();
         if (pota.w && pota.w.window.visible) potaPlan();
         if (spots.w && spots.w.window.visible && !spots.all.empty()) spotsShow();
+        if (org.w && org.w.window.visible) orgRefresh();
     });
 }
 

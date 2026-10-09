@@ -139,6 +139,21 @@ static void checkModel(const std::string &text, const LintResult &r, std::mt1993
         }
         recordKeys(recs);
         if (!recs.empty()) sameContactAs(text, m, recs.front());
+        size_t edited = 0, skipped = 0;
+        std::vector<TextEdit> fo = fieldOrderEdits(text, m, {"CALL", "QSO_DATE", "TIME_ON", "BAND"}, &edited, &skipped);
+        if (!editsOk(fo)) {
+            std::printf("FAIL field-order edits out of order or bounds\n");
+            ++gFailures;
+        } else if (lint(applyTextEdits(text, fo)).records != r.records) {
+            std::printf("FAIL reordering fields changed the number of records\n");
+            ++gFailures;
+        }
+        bool sortedAgain = false;
+        std::string byBand = sortedBy(text, m, {{"BAND", false}, {"CALL", true}, {"FREQ", false}}, "\n", &sortedAgain);
+        if (lint(byBand).records != r.records) {
+            std::printf("FAIL sorting by fields changed the number of records\n");
+            ++gFailures;
+        }
         bool changed = false;
         std::string sorted = sortedByTime(text, m, "\n", &changed);
         LintResult rs = lint(sorted);

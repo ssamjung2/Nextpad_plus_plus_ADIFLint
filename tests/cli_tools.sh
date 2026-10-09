@@ -9,6 +9,11 @@ rm -rf "$dir" && mkdir -p "$dir/pota"
 grep -q "^Records" "$dir/summary.txt"
 "$lint" --sort "$dir/sorted.adi" "$adi" 2>/dev/null
 "$lint" --quiet "$dir/sorted.adi" > /dev/null 2>&1
+"$lint" --sort-by BAND,CALL:desc,QSO_DATE "$dir/sortby.adi" "$adi" 2>/dev/null
+"$lint" --quiet "$dir/sortby.adi" > /dev/null 2>&1
+"$lint" --field-order CALL,QSO_DATE,TIME_ON "$dir/fields.adi" "$adi" 2>/dev/null
+"$lint" --quiet "$dir/fields.adi" > /dev/null 2>&1
+[ "$(wc -c < "$dir/fields.adi")" -eq "$(wc -c < "$adi")" ] || { echo "field order changed the size"; exit 1; }
 "$lint" --dedupe "$dir/dedupe.adi" "$adi" 2>/dev/null
 "$lint" --quiet "$dir/dedupe.adi" > /dev/null 2>&1
 "$lint" --csv "$dir/log.csv" "$adi" 2>/dev/null

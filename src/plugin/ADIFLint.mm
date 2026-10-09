@@ -82,6 +82,7 @@ enum {
     kCmdBulkEdit,
     kCmdTimeShift,
     kCmdSort,
+    kCmdOrganize,
     kCmdDupes,
     kCmdMerge,
     kSepImport,
@@ -2303,6 +2304,7 @@ extern "C" NPP_EXPORT void setInfo(NppData data) {
     setItem(kCmdBulkEdit, "Bulk Edit...", logtools::cmdBulkEdit);
     setItem(kCmdTimeShift, "Time Shift...", logtools::cmdTimeShift);
     setItem(kCmdSort, "Sort Records by Date and Time", logtools::cmdSortByTime);
+    setItem(kCmdOrganize, "Sort and Organize...", logtools::cmdOrganize);
     setItem(kCmdDupes, "Remove Duplicates...", logtools::cmdRemoveDuplicates);
     setItem(kCmdMerge, "Merge Another Log...", logtools::cmdMergeLog);
     setItem(kSepImport, "", nullptr);
