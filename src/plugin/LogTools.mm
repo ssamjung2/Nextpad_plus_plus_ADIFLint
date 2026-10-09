@@ -197,7 +197,13 @@ struct {
     std::vector<std::string> columns; // shown, after "#"
     std::vector<std::string> all;     // every field the log uses
     std::vector<size_t> starts;       // record start per model row
-    NSMenu *menu = nil;               // the headings' menu: show or hide columns
+    std::vector<std::vector<std::string>> cells;  // the rows as shown (dates and times readable)
+    std::vector<std::string> extra;   // columns added with Add Field, before any record has the field
+    NSMenu *menu = nil;               // the headings' menu: show or hide columns, add or remove a field
+    NSMenuItem *removeItem = nil;     // "Remove FIELD from Every Record" in it
+    NSInteger menuColumn = -1;        // the column the headings' menu opened over
+    NSStackView *addRow = nil;        // Add Field: the name to add
+    NSComboBox *addName = nil;
 } table;
 
 // Hidden columns and the sort, kept in ADIFLint.ini.
@@ -227,6 +233,8 @@ bool isTimeField(const std::string &f) {
 
 void tableRefresh();
 void tableEdit(NSInteger row, size_t column, NSString *text);
+void tableShowAddField();
+void tableRemoveField(NSInteger column);
 
 bool tableVisible() { return table.w && table.w.window.visible; }
 
@@ -248,6 +256,8 @@ void tableRefresh() {
         table.buffer = buffer();
         table.recs = adif::records(text, r.model);
         table.all = adif::tableColumns(table.recs);
+        for (const std::string &f : table.extra)  // added columns, still empty
+            if (std::find(table.all.begin(), table.all.end(), f) == table.all.end()) table.all.push_back(f);
         std::set<std::string> hidden = tableHidden();
         std::vector<std::string> cols;
         for (const std::string &c : table.all)
@@ -289,6 +299,10 @@ void tableRefresh() {
                 tableRefresh();
             });
         }
+        [table.menu addItem:NSMenuItem.separatorItem];
+        ADIFBlockMenuItem([table.menu addItemWithTitle:@"Add Field..." action:nil keyEquivalent:@""], ^{ tableShowAddField(); });
+        table.removeItem = [table.menu addItemWithTitle:@"Remove Field from Every Record" action:nil keyEquivalent:@""];
+        ADIFBlockMenuItem(table.removeItem, ^{ tableRemoveField(table.menuColumn); });
         std::vector<std::vector<std::string>> rows;
         table.starts.clear();
         rows.reserve(table.recs.size());
@@ -301,6 +315,7 @@ void tableRefresh() {
             rows.push_back(std::move(row));
             table.starts.push_back(adif::groupStart(r.model, r.model.groups[(size_t)rec.group]));
         }
+        table.cells = rows;
         // Keys keep the selection on the same record when others are added, removed or reordered.
         [table.w setRows:rows severities:kNoSev keys:adif::recordKeys(table.recs) ticks:kNoTicks keepTicks:NO];
         if (!hasRecords(r))
@@ -309,69 +324,357 @@ void tableRefresh() {
             [table.w setStatus:@"The log has structural errors, so some records may be shown wrongly. Fix Lengths may help."
                       severity:1];
         else
-            [table.w setStatus:@"Click a row to show it in the editor; double-click # to go there, or a value to edit it. "
-                               @"Click a heading to sort; right-click the headings to choose columns."
+            [table.w setStatus:@"Click a cell and type, or press Return, to edit it; Tab and Return move on. Command-C and "
+                               @"Command-V copy and paste cells (to and from Numbers or Excel), Command-D fills down, Delete "
+                               @"clears, Command-Delete deletes rows; right-click for more. Double-click # to go to the "
+                               @"record. Click a heading to sort; right-click the headings to choose, add or remove columns."
                       severity:-1];
         tableUpdateCount();
     } catch (...) {
     }
 }
 
+// ── Log Table editing (spreadsheet) ──
+
+// The log the table shows, ready for an edit; otherwise a message in the table and false.
+bool tableEditable(NppHandle h, const adif::LintResult &r) {
+    if (table.buffer != buffer() || readOnly(h)) {
+        [table.w setStatus:@"Switch back to the log the table shows (and make sure it isn't read-only)." severity:2];
+        return false;
+    }
+    if (r.structuralErrors) {
+        [table.w setStatus:@"The log has structural problems (run Fix Lengths, then fix the errors marked in red); nothing "
+                           @"was changed."
+                  severity:2];
+        return false;
+    }
+    return true;
+}
+
+// The selected rows (model rows) in the order shown.
+std::vector<NSInteger> tableSelection() {
+    std::vector<NSInteger> sel = [table.w selectedRows], out;
+    for (NSInteger row : [table.w shownRows])
+        if (std::find(sel.begin(), sel.end(), row) != sel.end()) out.push_back(row);
+    return out;
+}
+
+// A field name as typed or pasted: trimmed, upper case.
+std::string upperName(std::string_view s) {
+    size_t b = s.find_first_not_of(" \t\r\n"), e = s.find_last_not_of(" \t\r\n");
+    std::string out(b == std::string_view::npos ? std::string_view() : s.substr(b, e - b + 1));
+    for (char &c : out) c = (char)std::toupper((unsigned char)c);
+    return out;
+}
+
+// The field of a table column (0 is "#"), or "".
+std::string tableField(NSInteger column) {
+    return column >= 1 && (size_t)column <= table.columns.size() ? table.columns[(size_t)column - 1] : std::string();
+}
+
+// Apply cell changes, record removals and new records as one undo step. An
+// uploaded QSO whose data changes becomes M. Then the table is redrawn at once.
+bool tableChange(const std::vector<adif::CellChange> &changes, const std::vector<int> &removeGroups,
+                 const std::vector<std::vector<std::pair<std::string, std::string>>> &newRecords) {
+    NppHandle h = scintilla();
+    adif::LintResult r = lint(h);  // a copy: the edit changes the document
+    if (!tableEditable(h, r)) return false;
+    std::string text(adifhost::text(h));
+    std::vector<adif::TextEdit> edits = adif::cellEdits(text, r.model, changes, lengthUnit(), utf8(h));
+    std::vector<int> changedData;
+    for (const adif::CellChange &c : changes)
+        if (!adif::isTrackingField(c.field)) changedData.push_back(c.group);
+    edits = adif::mergeEdits(edits, adif::markModified(text, r.model, changedData, lengthUnit(), utf8(h)));
+    for (const adif::TextEdit &e : adif::removeRecordsEdits(text, r.model, removeGroups)) edits.push_back(e);
+    std::sort(edits.begin(), edits.end(), [](const adif::TextEdit &x, const adif::TextEdit &y) { return x.start < y.start; });
+    std::string eolText = eol(h);
+    if (!newRecords.empty()) {
+        bool blank = text.find_first_not_of(" \t\r\n") == std::string::npos;
+        adif::Layout layout = blank ? adif::Layout::RecordPerLine : adif::recordLayout(text, r.model);
+        std::string records;
+        for (const auto &fields : newRecords) {
+            if (fields.empty()) continue;
+            if (!records.empty() && layout == adif::Layout::FieldPerLine) records += eolText;
+            records += adif::buildRecord(fields, layout, eolText, lengthUnit(), utf8(h)).text;
+        }
+        if (blank) {
+            edits.assign(1, adif::TextEdit{0, text.size(),
+                                           adif::newLogHeader(ADIFLINT_VERSION, utcNow("%Y%m%d %H%M%S"), eolText) + records});
+        } else if (!records.empty()) {
+            size_t start = 0;
+            edits.push_back(adif::appendRecord(text, r.model, records, eolText, &start));
+        }
+    }
+    if (edits.empty()) return false;
+    adifhost::apply(h, edits);
+    tableRefresh();
+    return true;
+}
+
 // A value edited in the Log Table: written with its length (an empty value removes the field), as
 // one undo step; an uploaded QSO becomes M (modified since upload).
 void tableEdit(NSInteger row, size_t column, NSString *text) {
     try {
-        if (row < 0 || (size_t)row >= table.recs.size() || column == 0 || column > table.columns.size()) return;
-        NppHandle h = scintilla();
-        if (table.buffer != buffer() || readOnly(h)) {
-            [table.w setStatus:@"Switch back to the log the table shows (and make sure it isn't read-only)." severity:2];
-            tableRefresh();
-            return;
-        }
-        std::string field = table.columns[column - 1], value = ADIFStd(text);
-        while (!value.empty() && value.back() == ' ') value.pop_back();
-        while (!value.empty() && value.front() == ' ') value.erase(0, 1);
-        if (isDateField(field) || isTimeField(field)) {  // shown as 2026-10-06 and 22:30
-            std::string v;
-            for (char c : value)
-                if (c != '-' && c != ':' && c != '/') v.push_back(c);
-            value = v;
-        }
-        adif::LintResult r = lint(h);  // a copy: the edit changes the document
-        std::string_view doc = adifhost::text(h);
-        // Find the record again by its key: the log may have changed since the table was drawn.
-        std::vector<adif::Record> recs = adif::records(doc, r.model);
-        std::vector<std::string> keys = adif::recordKeys(recs), shownKeys = adif::recordKeys(table.recs);
-        int group = -1;
-        for (size_t i = 0; i < keys.size(); ++i)
-            if (keys[i] == shownKeys[(size_t)row]) group = recs[i].group;
-        if (group < 0 || r.structuralErrors) {
-            [table.w setStatus:@"That record changed or the log has structural problems; nothing was edited." severity:2];
-            tableRefresh();
-            return;
-        }
-        const adif::ModelGroup &g = r.model.groups[(size_t)group];
-        std::vector<adif::TextEdit> edits;
-        int found = -1;
-        for (size_t i = 0; i < g.fieldCount; ++i)
-            if (adif::equalsNoCase(adif::fieldName(doc, r.model.fields[g.firstField + i]), field)) {
-                found = (int)i;
-                break;
-            }
-        if (value.empty() && found >= 0) edits.push_back(adif::removeField(doc, r.model, g, (size_t)found));
-        else if (!value.empty() && found >= 0)
-            edits.push_back(adif::setFieldValue(doc, r.model.fields[g.firstField + (size_t)found], value, lengthUnit(), utf8(h)));
-        else if (!value.empty()) edits.push_back(adif::insertField(doc, r.model, g, field, value, lengthUnit(), utf8(h)));
-        if (edits.empty()) return;
-        if (!adif::isTrackingField(field))
-            edits = adif::mergeEdits(edits, adif::markModified(doc, r.model, {group}, lengthUnit(), utf8(h)));
+        if (row < 0 || (size_t)row >= table.recs.size()) return;
+        std::string field = tableField((NSInteger)column);
+        if (field.empty()) return;
+        std::string value = adif::cellValue(field, ADIFStd(text));  // shown as 2026-10-06 and 22:30
         int number = table.recs[(size_t)row].number;
-        adifhost::apply(h, edits);
+        if (!tableChange({{table.recs[(size_t)row].group, field, value}}, {}, {})) return;
         [table.w setStatus:ADIFString("Record " + std::to_string(number) + ": " + field +
                                       (value.empty() ? " removed" : " set to " + value) + " (one undo step).")
                   severity:-1];
     } catch (...) {
     }
+}
+
+void tableCopy() {
+    std::vector<NSInteger> rows = tableSelection();
+    if (rows.empty()) {
+        [table.w setStatus:@"Select the rows to copy." severity:1];
+        return;
+    }
+    std::vector<size_t> cols;
+    for (size_t c : [table.w columnOrder])
+        if (c >= 1 && c <= table.columns.size()) cols.push_back(c);
+    std::vector<std::vector<std::string>> out(1);
+    for (size_t c : cols) out[0].push_back(table.columns[c - 1]);
+    for (NSInteger row : rows) {
+        std::vector<std::string> line;
+        for (size_t c : cols) line.push_back((size_t)row < table.cells.size() && c < table.cells[(size_t)row].size() ? table.cells[(size_t)row][c] : "");
+        out.push_back(line);
+    }
+    NSString *tsv = ADIFString(adif::toTsv(out));
+    [NSPasteboard.generalPasteboard clearContents];
+    [NSPasteboard.generalPasteboard setString:tsv forType:NSPasteboardTypeString];
+    [NSPasteboard.generalPasteboard setString:tsv forType:@"public.utf8-tab-separated-values-text"];
+    [table.w setStatus:ADIFString("Copied " + plural(rows.size(), "row") + " of " + plural(cols.size(), "column") +
+                                  ", with a heading row of field names: paste into Numbers or Excel, or back into this table.")
+              severity:-1];
+}
+
+// Rows of cells from pasted text: tab-separated (quotes as a spreadsheet writes them), or one cell per line.
+std::vector<std::vector<std::string>> pastedCells(const std::string &text) {
+    std::vector<std::vector<std::string>> rows;
+    if (text.find('\t') != std::string::npos) {
+        rows = adif::parseCsv(text);
+    } else {
+        std::string line;
+        for (size_t i = 0; i <= text.size(); ++i) {
+            if (i == text.size() || text[i] == '\n') {
+                if (!line.empty() && line.back() == '\r') line.pop_back();
+                rows.push_back({line});
+                line.clear();
+            } else {
+                line.push_back(text[i]);
+            }
+        }
+    }
+    while (!rows.empty()) {  // no trailing empty rows
+        bool empty = true;
+        for (const std::string &c : rows.back()) empty &= c.find_first_not_of(" \t") == std::string::npos;
+        if (!empty) break;
+        rows.pop_back();
+    }
+    return rows;
+}
+
+void tablePaste(NSString *pasted) {
+    try {
+        std::vector<std::vector<std::string>> rows = pastedCells(ADIFStd(pasted));
+        if (rows.empty()) {
+            [table.w setStatus:@"Nothing to paste." severity:1];
+            return;
+        }
+        // A heading row of field names (as Copy writes it) places each column by name.
+        bool header = rows.size() > 1;
+        size_t named = 0;
+        for (const std::string &c : rows[0]) {
+            std::string f = upperName(c);
+            if (f.empty()) continue;
+            bool known = adif::findField(f) || std::find(table.all.begin(), table.all.end(), f) != table.all.end() ||
+                         f.rfind("APP_", 0) == 0;
+            header &= known;
+            named += known;
+        }
+        header &= named > 0;
+        std::vector<std::string> fields;
+        if (header) {
+            for (const std::string &c : rows[0]) fields.push_back(upperName(c));
+            rows.erase(rows.begin());
+        } else {  // else column by column from the active cell, as shown
+            std::vector<size_t> order = [table.w columnOrder];
+            auto it = std::find(order.begin(), order.end(), (size_t)std::max<NSInteger>(table.w.activeColumn, 1));
+            for (; it != order.end(); ++it)
+                if (*it >= 1 && *it <= table.columns.size()) fields.push_back(table.columns[*it - 1]);
+        }
+        if (fields.empty()) {
+            [table.w setStatus:@"Click the cell to paste into first." severity:1];
+            return;
+        }
+        // From the first selected row down; rows past the end of the log become new QSOs.
+        std::vector<NSInteger> shown = [table.w shownRows], sel = tableSelection();
+        size_t anchor = shown.size();
+        if (!sel.empty()) anchor = (size_t)(std::find(shown.begin(), shown.end(), sel.front()) - shown.begin());
+        std::vector<adif::CellChange> changes;
+        std::vector<std::vector<std::pair<std::string, std::string>>> added;
+        size_t updated = 0, ignored = 0;
+        for (size_t i = 0; i < rows.size(); ++i) {
+            const std::vector<std::string> &cells = rows[i];
+            if (cells.size() > fields.size()) ignored = std::max(ignored, cells.size() - fields.size());
+            size_t at = anchor + i;
+            if (at < shown.size()) {
+                int group = table.recs[(size_t)shown[at]].group;
+                for (size_t j = 0; j < cells.size() && j < fields.size(); ++j)
+                    if (!fields[j].empty()) changes.push_back({group, fields[j], adif::cellValue(fields[j], cells[j])});
+                ++updated;
+            } else {
+                std::vector<std::pair<std::string, std::string>> rec;
+                for (size_t j = 0; j < cells.size() && j < fields.size(); ++j) {
+                    std::string v = fields[j].empty() ? "" : adif::cellValue(fields[j], cells[j]);
+                    if (!v.empty()) rec.emplace_back(fields[j], v);
+                }
+                if (!rec.empty()) added.push_back(rec);
+            }
+        }
+        if (!tableChange(changes, {}, added) && changes.empty() && added.empty()) return;
+        std::string st = "Pasted " + plural(rows.size(), "row") + ": " + plural(updated, "record") + " changed" +
+                         (added.empty() ? "" : ", " + plural(added.size(), "new record")) + " (one undo step)." +
+                         (ignored ? " " + plural(ignored, "column") + " past the last one left out." : "");
+        [table.w setStatus:ADIFString(st) severity:ignored ? 1 : -1];
+    } catch (...) {
+        [table.w setStatus:@"Something went wrong pasting." severity:2];
+    }
+}
+
+void tableFillDown() {
+    std::vector<NSInteger> rows = tableSelection();
+    std::string field = tableField(table.w.activeColumn);
+    if (rows.size() < 2 || field.empty()) {
+        [table.w setStatus:@"Select two or more rows and click the column: the first row's value is copied down to the others."
+                  severity:1];
+        return;
+    }
+    const std::vector<std::string> &first = table.cells[(size_t)rows[0]];
+    std::string value = adif::cellValue(field, (size_t)table.w.activeColumn < first.size() ? first[(size_t)table.w.activeColumn] : "");
+    std::vector<adif::CellChange> changes;
+    for (size_t i = 1; i < rows.size(); ++i) changes.push_back({table.recs[(size_t)rows[i]].group, field, value});
+    if (tableChange(changes, {}, {}))
+        [table.w setStatus:ADIFString("Filled " + field + (value.empty() ? " (empty)" : " = " + value) + " down " +
+                                      plural(rows.size() - 1, "record") + " (one undo step).")
+                  severity:-1];
+}
+
+void tableClearCells() {
+    std::vector<NSInteger> rows = tableSelection();
+    std::string field = tableField(table.w.activeColumn);
+    if (rows.empty() || field.empty()) {
+        [table.w setStatus:@"Click a cell to clear (or select rows and click a column)." severity:1];
+        return;
+    }
+    std::vector<adif::CellChange> changes;
+    for (NSInteger row : rows) changes.push_back({table.recs[(size_t)row].group, field, ""});
+    if (tableChange(changes, {}, {}))
+        [table.w setStatus:ADIFString("Removed " + field + " from " + plural(rows.size(), "record") + " (one undo step).")
+                  severity:-1];
+}
+
+void tableDeleteRows() {
+    std::vector<NSInteger> rows = tableSelection();
+    if (rows.empty()) {
+        [table.w setStatus:@"Select the rows to delete." severity:1];
+        return;
+    }
+    std::vector<int> groups;
+    for (NSInteger row : rows) groups.push_back(table.recs[(size_t)row].group);
+    if (tableChange({}, groups, {}))
+        [table.w setStatus:ADIFString("Deleted " + plural(rows.size(), "record") + " (one undo step: Command-Z brings them back).")
+                  severity:-1];
+}
+
+// A new QSO at the end: today's UTC date and time and the station's fields from
+// the last record (as New QSO carries them over); then its CALL cell is edited.
+void tableAddRow() {
+    try {
+        NppHandle h = scintilla();
+        const adif::LintResult &r = lint(h);
+        std::vector<std::pair<std::string, std::string>> fields;
+        for (const adif::QsoField &q : adif::newQsoTemplate(adifhost::text(h), r.model, utcNow("%Y%m%d"), utcNow("%H%M%S")))
+            if (!q.value.empty()) fields.emplace_back(q.name, q.value);
+        if (fields.empty()) return;
+        if (!tableChange({}, {}, {fields})) return;
+        NSInteger last = (NSInteger)table.recs.size() - 1;
+        auto call = std::find(table.columns.begin(), table.columns.end(), "CALL");
+        [table.w setStatus:@"Added a QSO at the end with today's UTC date and time and your station's fields: type its CALL."
+                  severity:-1];
+        if (last >= 0 && call != table.columns.end())
+            [table.w beginEditingRow:last column:(size_t)(call - table.columns.begin()) + 1];
+    } catch (...) {
+    }
+}
+
+void tableShowAddField() {
+    if (!table.addRow) return;
+    NSMutableArray *names = [NSMutableArray array];
+    try {
+        NppHandle h = scintilla();
+        for (const std::string &f : adif::fieldNameChoices(lint(h).model, false))
+            if (std::find(table.columns.begin(), table.columns.end(), f) == table.columns.end()) [names addObject:ADIFString(f)];
+    } catch (...) {
+    }
+    [table.addName removeAllItems];
+    [table.addName addItemsWithObjectValues:names];
+    table.addName.stringValue = @"";
+    table.addRow.hidden = NO;
+    [table.w.window makeFirstResponder:table.addName];
+}
+
+void tableAddField() {
+    std::string f = upperName(ADIFStd(table.addName.stringValue));
+    while (!f.empty() && f.back() == ' ') f.pop_back();
+    const adif::FieldDef *d = adif::findField(f);
+    if (f.empty() || (!(d && !d->header) && f.rfind("APP_", 0) != 0 &&
+                      std::find(table.all.begin(), table.all.end(), f) == table.all.end())) {
+        [table.w setStatus:ADIFString((f.empty() ? std::string("Type") : f + " is not a QSO field: choose") +
+                                      " an ADIF field to add.")
+                  severity:2];
+        return;
+    }
+    if (std::find(table.extra.begin(), table.extra.end(), f) == table.extra.end()) table.extra.push_back(f);
+    std::set<std::string> hid = tableHidden();
+    if (hid.erase(f)) {
+        std::string list;
+        for (const std::string &x : hid) list += (list.empty() ? "" : ",") + x;
+        setSetting("tableHidden", list);
+    }
+    table.addRow.hidden = YES;
+    tableRefresh();
+    auto it = std::find(table.columns.begin(), table.columns.end(), f);
+    if (it != table.columns.end()) table.w.activeColumn = (NSInteger)(it - table.columns.begin()) + 1;
+    [table.w.window makeFirstResponder:nil];
+    [table.w setStatus:ADIFString("Added the column " + f + ": select a row and type its value (or paste a column of values).")
+              severity:-1];
+}
+
+// Remove a column's field from every record (one undo step).
+void tableRemoveField(NSInteger column) {
+    std::string field = tableField(column >= 1 ? column : table.w.activeColumn);
+    if (field.empty()) {
+        [table.w setStatus:@"Right-click the heading of the column to remove." severity:1];
+        return;
+    }
+    std::vector<adif::CellChange> changes;
+    for (const adif::Record &rec : table.recs)
+        if (rec.has(field)) changes.push_back({rec.group, field, ""});
+    table.extra.erase(std::remove(table.extra.begin(), table.extra.end(), field), table.extra.end());
+    if (changes.empty()) {
+        tableRefresh();
+        [table.w setStatus:ADIFString("No record has " + field + ".") severity:-1];
+        return;
+    }
+    if (tableChange(changes, {}, {}))
+        [table.w setStatus:ADIFString("Removed " + field + " from " + plural(changes.size(), "record") + " (one undo step).")
+                  severity:-1];
 }
 
 // Groups (DocModel indices) of the rows selected in the Log Table, when it shows the active log.
@@ -2182,6 +2485,48 @@ void cmdLogTable() {
             if (table.buffer == buffer() && (size_t)row < table.starts.size()) goTo(scintilla(), table.starts[(size_t)row], true);
         };
         w.onEditCell = ^(NSInteger row, size_t column, NSString *text) { tableEdit(row, column, text); };
+        // A spreadsheet: keyboard editing, copy and paste, fill down, rows and columns.
+        w.spreadsheet = YES;
+        w.onCopy = ^{ tableCopy(); };
+        w.onPaste = ^(NSString *text) { tablePaste(text); };
+        w.onFillDown = ^{ tableFillDown(); };
+        w.onClearCells = ^{ tableClearCells(); };
+        w.onDeleteRows = ^{ tableDeleteRows(); };
+        w.onHeaderMenuOpen = ^(NSInteger column) {
+            table.menuColumn = column;
+            std::string field = tableField(column);
+            table.removeItem.title = field.empty() ? @"Remove Field from Every Record"
+                                                   : ADIFString("Remove " + field + " from Every Record");
+            table.removeItem.enabled = !field.empty();
+        };
+        table.addName = ADIFComboBox(@[], 200);
+        table.addName.placeholderString = @"e.g. RST_SENT";
+        NSButton *addOk = [NSButton buttonWithTitle:@"Add Column" target:nil action:nil];
+        NSButton *addCancel = [NSButton buttonWithTitle:@"Cancel" target:nil action:nil];
+        ADIFOnAction(addOk, ^{ tableAddField(); });
+        ADIFOnAction(addCancel, ^{ table.addRow.hidden = YES; });
+        table.addRow = [w addOptionRow:@[ ADIFLabel(@"Add field:"), table.addName, addOk, addCancel ]];
+        table.addRow.hidden = YES;
+        NSMenu *rowMenu = [[NSMenu alloc] initWithTitle:@"Log Table"];
+        NSString *back = [NSString stringWithFormat:@"%C", (unichar)NSBackspaceCharacter];
+        auto rowItem = [&](NSString *title, NSString *key, NSEventModifierFlags mods, void (^block)(void)) {
+            NSMenuItem *item = [rowMenu addItemWithTitle:title action:nil keyEquivalent:key];
+            item.keyEquivalentModifierMask = mods;
+            ADIFBlockMenuItem(item, block);
+        };
+        rowItem(@"Copy", @"c", NSEventModifierFlagCommand, ^{ tableCopy(); });
+        rowItem(@"Paste", @"v", NSEventModifierFlagCommand, ^{
+            NSString *text = [NSPasteboard.generalPasteboard stringForType:NSPasteboardTypeString];
+            if (text) tablePaste(text);
+        });
+        rowItem(@"Fill Down", @"d", NSEventModifierFlagCommand, ^{ tableFillDown(); });
+        rowItem(@"Clear Cells", back, 0, ^{ tableClearCells(); });
+        rowItem(@"Delete Rows", back, NSEventModifierFlagCommand, ^{ tableDeleteRows(); });
+        [rowMenu addItem:NSMenuItem.separatorItem];
+        rowItem(@"Add Row", @"", 0, ^{ tableAddRow(); });
+        rowItem(@"Add Field...", @"", 0, ^{ tableShowAddField(); });
+        rowItem(@"Remove This Column's Field from Every Record", @"", 0, ^{ tableRemoveField(-1); });
+        [w setRowMenu:rowMenu];
         w.onSortChanged = ^(NSInteger column, BOOL ascending) {
             std::string field = column == 0 ? "#" : column > 0 && (size_t)column <= table.columns.size() ? table.columns[(size_t)column - 1] : "";
             setSetting("tableSort", field.empty() ? "" : field + (ascending ? ":a" : ":d"));
@@ -2192,9 +2537,11 @@ void cmdLogTable() {
             return adif::compareFieldValues(table.columns[column - 1], a, b);
         };
         table.menu = [[NSMenu alloc] initWithTitle:@"Columns"];
+        table.menu.autoenablesItems = NO;  // the Remove item is enabled for a column's heading only
         [w setHeaderMenu:table.menu];
         [w addButton:@"Bulk Edit Selected..." trailing:NO action:^{ openBulkEdit(false, true); }];
         [w addButton:@"Organize Log..." trailing:NO action:^{ openOrganizeFromTable(); }];
+        [w addButton:@"Add Row" trailing:NO action:^{ tableAddRow(); }];
         [w addButton:@"Export CSV..." trailing:NO action:^{
             std::vector<adif::Record> shown;
             for (NSInteger row : [table.w shownRows])

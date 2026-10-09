@@ -11,6 +11,15 @@ Versions before 0.8.0 were development builds and were not published.
 
 ### Added
 
+- The **Log Table edits like a spreadsheet**. Click a cell and type, or press Return; Tab,
+  Shift-Tab and Return move on, Esc cancels, and Left and Right move the active cell.
+  Command-C copies the selected rows as tab-separated text with a heading row of field
+  names (for Numbers or Excel); Command-V pastes cells, by field name when the text has
+  that heading row, with rows past the end becoming new QSOs. Command-D fills down, Delete
+  clears a field, Command-Delete deletes rows, **Add Row** appends a QSO with today's UTC
+  date and time and the station's fields, and the heading menu can **Add Field…** as a new
+  column or **Remove** a field from every record. A right-click menu on the rows offers
+  the same. Each change is one undo step in the `.adi` file.
 - **Sort and Organize…**: sort the records by up to three fields (ascending or descending;
   bands by frequency, dates and times in time order, numbers by value), and give every
   record the same field order without changing any data. One undo step; the choices are

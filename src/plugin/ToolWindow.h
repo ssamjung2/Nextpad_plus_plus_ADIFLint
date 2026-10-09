@@ -36,7 +36,7 @@ void ADIFOnAction(NSControl *control, void (^block)(void));
 // The same for a menu item.
 void ADIFBlockMenuItem(NSMenuItem *item, void (^block)(void));
 
-@interface ADIFToolWindow : NSObject <NSTableViewDataSource, NSTableViewDelegate, NSWindowDelegate>
+@interface ADIFToolWindow : NSObject <NSTableViewDataSource, NSTableViewDelegate, NSWindowDelegate, NSTextFieldDelegate, NSMenuDelegate>
 
 @property(nonatomic, readonly) NSPanel *window;
 @property(nonatomic, copy) void (^onActivateRow)(NSInteger row);  // double-click
@@ -89,6 +89,24 @@ void ADIFBlockMenuItem(NSMenuItem *item, void (^block)(void));
 - (void)setSortColumn:(NSInteger)column ascending:(BOOL)ascending;  // -1: unsorted
 - (void)setHeaderMenu:(NSMenu *)menu;  // the column headings' right-click menu
 - (std::vector<size_t>)columnOrder;     // the columns as shown, left to right (headings can be dragged)
+
+// ── Spreadsheet mode (the Log Table) ──
+// An active cell in the selected rows (click a cell, or Left and Right arrows);
+// Return or typing edits it, Tab and Shift-Tab move along the row while editing,
+// Return moves down, Esc cancels; Copy, Paste, Delete (clear), Command-Delete
+// (delete rows) and Command-D (fill down) go to the blocks below.
+@property(nonatomic) BOOL spreadsheet;
+@property(nonatomic, copy) void (^onCopy)(void);
+@property(nonatomic, copy) void (^onPaste)(NSString *text);
+@property(nonatomic, copy) void (^onClearCells)(void);
+@property(nonatomic, copy) void (^onDeleteRows)(void);
+@property(nonatomic, copy) void (^onFillDown)(void);
+// The heading menu is about to open over this column (-1: none).
+@property(nonatomic, copy) void (^onHeaderMenuOpen)(NSInteger column);
+@property(nonatomic) NSInteger activeColumn;            // a column index, -1 for none
+- (void)beginEditingRow:(NSInteger)row column:(size_t)column;  // model row, editable column
+- (void)selectRows:(const std::vector<NSInteger> &)rows;       // model rows
+- (void)setRowMenu:(NSMenu *)menu;                             // the rows' right-click menu
 
 // Show a monospaced, read-only report instead of the table.
 - (void)setText:(NSString *)text;

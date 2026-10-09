@@ -17,7 +17,7 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
 
 | New QSO, filled from a POTA spot | Log Table |
 |---|---|
-| ![New QSO window filled from a POTA spot: station fields carried over, the park in SIG_INFO, and a lookup line with the country and "US-12593: a new park!"](docs/images/new-qso-spot.png) | ![Log Table: records with readable dates and times, sortable and editable](docs/images/log-table.png) |
+| ![New QSO window filled from a POTA spot: station fields carried over, the park in SIG_INFO, and a lookup line with the country and "US-12593: a new park!"](docs/images/new-qso-spot.png) | ![Log Table: records with readable dates and times, sortable and editable like a spreadsheet, with Add Row and Organize Log buttons](docs/images/log-table.png) |
 | **Activation Tracker** | **Upload to QRZ.com Logbook** |
 | ![Activation Tracker: a POTA park-day with 10 QSOs, activated](docs/images/activation-tracker.png) | ![Upload window: QSOs to send, one that can't be sent in red, nothing sent until Upload](docs/images/upload-qrz.png) |
 
@@ -46,8 +46,10 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
   to fill New QSO.
 
 **Log tools**
-- A sortable, filterable, editable **Log Table**, a **Log Summary**, and **Worked Before**
-  across a folder of logs.
+- A sortable, filterable **Log Table** that edits like a spreadsheet: type into cells,
+  copy and paste to and from Numbers or Excel, fill down, add and delete rows, and add or
+  remove a field as a column. Plus a **Log Summary** and **Worked Before** across a folder
+  of logs.
 - **Activation Tracker** for POTA, WWFF and SOTA, each with its own rule, and **Export
   Activation Logs** with each program's file names.
 - **Sort and Organize**: sort the records by any fields (e.g. band, then call, then date),
@@ -135,7 +137,7 @@ shortcuts, so assign your own in Nextpad++'s Shortcut Mapper.
 |---|---|
 | New QSO… | Log contacts one after another |
 | Spots (POTA, WWFF)… | Activators spotted now; pick one to fill New QSO |
-| Log Table… | Sortable, filterable, editable table of the log |
+| Log Table… | The log as a spreadsheet: sort, filter, edit, copy and paste, add and delete rows and columns |
 | Activation Tracker (POTA, WWFF, SOTA)… | Activations counted by each program's rule |
 | Worked Before… | Search a folder of logs for a call |
 | Log Summary… | Counts by band, mode, day, entity and park; confirmations and uploads |

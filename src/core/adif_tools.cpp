@@ -1039,24 +1039,32 @@ std::vector<DupeSet> findDuplicates(std::string_view text, const DocModel &m, co
 
 std::vector<TextEdit> duplicateEdits(std::string_view text, const DocModel &m, const std::vector<DupeSet> &sets, bool fill,
                                      LengthUnit unit, bool utf8) {
-    std::vector<std::pair<size_t, size_t>> ranges;
+    std::vector<int> removed;
     std::vector<TextEdit> edits;
     for (const DupeSet &d : sets) {
-        for (int gi : d.remove) {
-            if (gi < 0 || (size_t)gi >= m.groups.size()) continue;
-            const ModelGroup &g = m.groups[(size_t)gi];
-            size_t b = groupStart(m, g), e = groupEnd(m, g);
-            size_t after = e;
-            while (after < text.size() && isBlankChar(text[after])) ++after;
-            if (after < text.size()) {
-                e = after;  // the record and the blank run after it
-            } else {
-                while (b > 0 && isBlankChar(text[b - 1])) --b;  // last record: the blank run before it
-            }
-            ranges.emplace_back(b, e);
-        }
+        removed.insert(removed.end(), d.remove.begin(), d.remove.end());
         if (fill && !d.fill.empty() && d.keep >= 0 && (size_t)d.keep < m.groups.size())
             edits.push_back(insertFields(text, m, m.groups[(size_t)d.keep], d.fill, unit, utf8));
+    }
+    for (const TextEdit &e : removeRecordsEdits(text, m, removed)) edits.push_back(e);
+    sortEdits(edits);
+    return edits;
+}
+
+std::vector<TextEdit> removeRecordsEdits(std::string_view text, const DocModel &m, const std::vector<int> &groups) {
+    std::vector<std::pair<size_t, size_t>> ranges;
+    for (int gi : groups) {
+        if (gi < 0 || (size_t)gi >= m.groups.size() || m.groups[(size_t)gi].header) continue;
+        const ModelGroup &g = m.groups[(size_t)gi];
+        size_t b = groupStart(m, g), e = groupEnd(m, g);
+        size_t after = e;
+        while (after < text.size() && isBlankChar(text[after])) ++after;
+        if (after < text.size()) {
+            e = after;  // the record and the blank run after it
+        } else {
+            while (b > 0 && isBlankChar(text[b - 1])) --b;  // last record: the blank run before it
+        }
+        ranges.emplace_back(b, e);
     }
     std::sort(ranges.begin(), ranges.end());
     std::vector<std::pair<size_t, size_t>> merged;
@@ -1064,9 +1072,87 @@ std::vector<TextEdit> duplicateEdits(std::string_view text, const DocModel &m, c
         if (!merged.empty() && r.first <= merged.back().second) merged.back().second = std::max(merged.back().second, r.second);
         else merged.push_back(r);
     }
-    for (const auto &r : merged) edits.push_back(TextEdit{r.first, r.second, std::string()});
+    std::vector<TextEdit> edits;
+    for (auto &r : merged) {
+        // Removing up to the last record: the blank run before goes too, the end of the file stays.
+        if (isBlankText(text.substr(r.second)))
+            while (r.first > 0 && isBlankChar(text[r.first - 1])) --r.first;
+        edits.push_back(TextEdit{r.first, r.second, std::string()});
+    }
+    return edits;
+}
+
+// ── Spreadsheet editing ─────────────────────────────────────────────────────
+
+std::string cellValue(std::string_view field, std::string_view shown) {
+    std::string v = trim(shown);
+    const FieldDef *d = findField(field);
+    if (d && (d->type == DataType::Date || d->type == DataType::Time)) {
+        std::string digits;
+        bool other = false;
+        for (char c : v) {
+            if (c >= '0' && c <= '9') digits.push_back(c);
+            else if (c != '-' && c != '/' && c != ':' && c != '.') other = true;
+        }
+        if (!other) return digits;  // 2026-10-06 -> 20261006, 22:30 -> 2230
+    }
+    return v;
+}
+
+std::vector<TextEdit> cellEdits(std::string_view text, const DocModel &m, const std::vector<CellChange> &changes,
+                                LengthUnit unit, bool utf8) {
+    // Per record, per field: the last change wins; fields in the order first changed.
+    std::map<int, std::vector<std::pair<std::string, std::string>>> byGroup;
+    for (const CellChange &c : changes) {
+        if (c.group < 0 || (size_t)c.group >= m.groups.size() || m.groups[(size_t)c.group].header || c.field.empty()) continue;
+        std::string field = upperAscii(c.field);
+        auto &list = byGroup[c.group];
+        auto it = std::find_if(list.begin(), list.end(), [&](const auto &kv) { return kv.first == field; });
+        if (it != list.end()) it->second = c.value;
+        else list.emplace_back(field, c.value);
+    }
+    std::vector<TextEdit> edits;
+    for (const auto &kv : byGroup) {
+        const ModelGroup &g = m.groups[(size_t)kv.first];
+        std::vector<std::pair<std::string, std::string>> added;
+        for (const auto &fv : kv.second) {
+            int found = -1;
+            for (size_t i = 0; i < g.fieldCount && found < 0; ++i)
+                if (equalsNoCase(fieldName(text, m.fields[g.firstField + i]), fv.first)) found = (int)i;
+            if (found >= 0 && fv.second.empty()) edits.push_back(removeField(text, m, g, (size_t)found));
+            else if (found >= 0) {
+                if (fieldValue(text, m.fields[g.firstField + (size_t)found]) != fv.second)
+                    edits.push_back(setFieldValue(text, m.fields[g.firstField + (size_t)found], fv.second, unit, utf8));
+            } else if (!fv.second.empty()) {
+                added.push_back(fv);
+            }
+        }
+        if (!added.empty()) edits.push_back(insertFields(text, m, g, added, unit, utf8));
+    }
     sortEdits(edits);
     return edits;
+}
+
+std::string toTsv(const std::vector<std::vector<std::string>> &rows) {
+    std::string out;
+    for (const auto &row : rows) {
+        for (size_t i = 0; i < row.size(); ++i) {
+            if (i) out += '\t';
+            const std::string &v = row[i];
+            if (v.find_first_of("\t\"\r\n") != std::string::npos) {
+                out += '"';
+                for (char c : v) {
+                    if (c == '"') out += '"';
+                    out += c;
+                }
+                out += '"';
+            } else {
+                out += v;
+            }
+        }
+        out += "\r\n";
+    }
+    return out;
 }
 
 // ── Merging ─────────────────────────────────────────────────────────────────

@@ -2263,6 +2263,176 @@ int main(int argc, char **argv) {
             }
         }
 
+        // ── Log Table as a spreadsheet ──
+        {
+            NSString *savedClipboard = [NSPasteboard.generalPasteboard stringForType:NSPasteboardTypeString];
+            H.doc = "grid\n<ADIF_VER:5>3.1.7\n<EOH>\n"
+                    "<CALL:4>K1AA <QSO_DATE:8>20261006 <TIME_ON:4>2200 <BAND:3>20m <MODE:2>CW <STATION_CALLSIGN:4>KW9D <EOR>\n"
+                    "<CALL:4>K1BB <QSO_DATE:8>20261006 <TIME_ON:4>2205 <BAND:3>20m <MODE:2>CW <STATION_CALLSIGN:4>KW9D <EOR>\n"
+                    "<CALL:4>K1CC <QSO_DATE:8>20261006 <TIME_ON:4>2210 <BAND:3>40m <MODE:3>SSB <STATION_CALLSIGN:4>KW9D <EOR>\n";
+            H.path = "/tmp/grid.adi";
+            H.pos = 0;
+            notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+            pump(0.5);
+            run("Log Table...");
+            NSWindow *gw = windowTitled(@"Log Table");
+            NSTableView *gt = gw ? findTable(gw.contentView) : nil;
+            id tw = gt.delegate;
+            auto has = [](const std::string &x) { return H.doc.find(x) != std::string::npos; };
+            auto colOf = [&](NSString *title) -> NSInteger {
+                for (NSTableColumn *c in gt.tableColumns)
+                    if ([c.title isEqualToString:title]) return c.identifier.integerValue;
+                return -1;
+            };
+            auto shownCol = [&](NSString *title) { return [gt columnWithIdentifier:[NSString stringWithFormat:@"%ld", (long)colOf(title)]]; };
+            auto key = [&](unsigned short code, NSString *chars, NSEventModifierFlags mods) {
+                NSEvent *e = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:mods timestamp:0
+                                          windowNumber:gw.windowNumber context:nil characters:chars charactersIgnoringModifiers:chars
+                                             isARepeat:NO keyCode:code];
+                [gt keyDown:e];
+            };
+            // The cell being edited: the field editor's delegate (a view-based table has no editedRow).
+            auto editing = [&]() -> NSTextField * {
+                id fr = gw.firstResponder;
+                if (![fr isKindOfClass:NSTextView.class]) return nil;
+                id f = ((NSTextView *)fr).delegate;
+                return [f isKindOfClass:NSTextField.class] && [(NSView *)f isDescendantOf:gt] ? (NSTextField *)f : nil;
+            };
+            auto editedRow = [&]() { return editing() ? [gt rowForView:editing()] : (NSInteger)-1; };
+            auto editedCol = [&]() { return editing() ? [gt columnForView:editing()] : (NSInteger)-1; };
+            auto editor = [&]() { return editing() ? (NSTextView *)gw.firstResponder : (NSTextView *)nil; };
+            auto command = [&](SEL sel) {  // a key pressed while a cell is edited
+                NSTextField *field = editing();
+                return field ? (BOOL)[tw control:field textView:editor() doCommandBySelector:sel] : NO;
+            };
+            auto menuItem = [&](NSMenu *menu, NSString *title) {
+                NSInteger i = [menu indexOfItemWithTitle:title];
+                CHECK(i >= 0, "menu item %s", title.UTF8String);
+                if (i >= 0) [menu performActionForItemAtIndex:i];
+                pump(0.1);
+            };
+            auto select = [&](std::vector<NSInteger> rows) {
+                NSMutableIndexSet *set = [NSMutableIndexSet indexSet];
+                for (NSInteger r : rows) [set addIndex:(NSUInteger)r];
+                [gt selectRowIndexes:set byExtendingSelection:NO];
+            };
+            CHECK(gt && [tw valueForKey:@"spreadsheet"] && [[tw valueForKey:@"spreadsheet"] boolValue], "the Log Table is a spreadsheet");
+            if (gt) {
+                // Return edits the active cell; Tab saves and edits the next cell; Return saves and moves down.
+                select({0});
+                [tw setValue:@(colOf(@"CALL")) forKey:@"activeColumn"];
+                int undo = H.undoActions;
+                key(36, @"\r", 0);
+                CHECK(editedRow() == 0 && editedCol() == shownCol(@"CALL"), "Return edits CALL (%ld, %ld)", (long)editedRow(),
+                      (long)editedCol());
+                editor().string = @"k1ax";
+                CHECK(command(@selector(insertTab:)) && has("<CALL:4>k1ax <QSO_DATE") && editedCol() == shownCol(@"BAND"),
+                      "Tab saved CALL and edits BAND:\n%s", H.doc.c_str());
+                editor().string = @"17m";
+                CHECK(command(@selector(insertNewline:)) && has("<BAND:3>17m <MODE:2>CW <STATION_CALLSIGN:4>KW9D <EOR>\n<CALL:4>K1BB") &&
+                          editedRow() == -1 && gt.selectedRow == 1 && H.undoActions == undo + 2,
+                      "Return saved BAND and moved down; one undo step per cell");
+                // Typing starts editing the active cell with the character; Esc puts the value back.
+                key(18, @"1", 0);
+                CHECK(editedRow() == 1 && [editor().string isEqualToString:@"1"], "typing starts editing");
+                CHECK(command(@selector(cancelOperation:)) && editedRow() == -1 &&
+                          has("<CALL:4>K1BB <QSO_DATE:8>20261006 <TIME_ON:4>2205 <BAND:3>20m"),
+                      "Esc leaves BAND as it was");
+                snapshot(gw, "log-table-grid");
+
+                // Fill Down: the first selected row's MODE to the others.
+                select({0, 1, 2});
+                [tw setValue:@(colOf(@"MODE")) forKey:@"activeColumn"];
+                menuItem(gt.menu, @"Fill Down");
+                CHECK(has("<CALL:4>K1CC <QSO_DATE:8>20261006 <TIME_ON:4>2210 <BAND:3>40m <MODE:2>CW"), "MODE filled down:\n%s", H.doc.c_str());
+
+                // Copy: the selected rows with a heading row, tab-separated, dates and times readable.
+                select({0, 1});
+                menuItem(gt.menu, @"Copy");
+                NSString *copied = [NSPasteboard.generalPasteboard stringForType:NSPasteboardTypeString];
+                CHECK([copied hasPrefix:@"QSO_DATE\tTIME_ON\tCALL\tBAND\tMODE\tSTATION_CALLSIGN\r\n2026-10-06\t22:00\tk1ax\t17m\tCW\tKW9D\r\n"],
+                      "copied:\n%s", copied.UTF8String);
+
+                // Paste with a heading row and nothing selected: new QSOs at the end.
+                [NSPasteboard.generalPasteboard clearContents];
+                [NSPasteboard.generalPasteboard setString:@"CALL\tQSO_DATE\tTIME_ON\tBAND\tMODE\r\nN0NEW\t2026-10-07\t01:15\t40m\tSSB\r\n"
+                                                  forType:NSPasteboardTypeString];
+                [gt deselectAll:nil];
+                undo = H.undoActions;
+                menuItem(gt.menu, @"Paste");
+                CHECK(has("<CALL:5>N0NEW <QSO_DATE:8>20261007 <TIME_ON:4>0115 <BAND:3>40m <MODE:3>SSB <EOR>") && H.undoActions == undo + 1,
+                      "pasted rows become new QSOs:\n%s", H.doc.c_str());
+                // Paste a block of cells from the active cell down.
+                [NSPasteboard.generalPasteboard clearContents];
+                [NSPasteboard.generalPasteboard setString:@"15m\tFT8\r\n10m\tSSB\r\n" forType:NSPasteboardTypeString];
+                select({1});
+                [tw setValue:@(colOf(@"BAND")) forKey:@"activeColumn"];
+                menuItem(gt.menu, @"Paste");
+                CHECK(has("<CALL:4>K1BB <QSO_DATE:8>20261006 <TIME_ON:4>2205 <BAND:3>15m <MODE:3>FT8") &&
+                          has("<CALL:4>K1CC <QSO_DATE:8>20261006 <TIME_ON:4>2210 <BAND:3>10m <MODE:3>SSB"),
+                      "a block pasted into BAND and MODE of two rows:\n%s", H.doc.c_str());
+
+                // Delete clears the active cell; Command-Delete deletes the rows.
+                select({2});
+                [tw setValue:@(colOf(@"STATION_CALLSIGN")) forKey:@"activeColumn"];
+                key(51, @"\x7f", 0);
+                CHECK(has("<BAND:3>10m <MODE:3>SSB <EOR>"), "Delete removed STATION_CALLSIGN from K1CC:\n%s", H.doc.c_str());
+                NSInteger newRow = -1;
+                for (NSInteger r = 0; r < [gt.dataSource numberOfRowsInTableView:gt]; ++r)
+                    if ([cell(gt, r, [NSString stringWithFormat:@"%ld", (long)colOf(@"CALL")]) isEqualToString:@"N0NEW"]) newRow = r;
+                select({newRow});
+                key(51, @"\x7f", NSEventModifierFlagCommand);
+                CHECK(!has("N0NEW") && has("K1CC"), "Command-Delete deleted N0NEW only");
+
+                // Add Row: today's date and time, the station's fields, and CALL being edited.
+                [findButton(gw.contentView, @"Add Row") performClick:nil];
+                pump(0.1);
+                CHECK(editedCol() == shownCol(@"CALL") && has("<QSO_DATE:8>" + utcDate()), "Add Row: a new QSO, CALL edited (%ld)",
+                      (long)editedCol());
+                if (editedRow() >= 0) {
+                    editor().string = @"W9NEW";
+                    command(@selector(insertNewline:));
+                }
+                // The last record had STATION_CALLSIGN cleared above, so BAND and MODE are what carry over.
+                size_t w9 = H.doc.find("<CALL:5>W9NEW");
+                size_t w9b = w9 == std::string::npos ? 0 : H.doc.rfind("\n", w9) + 1;
+                CHECK(w9 != std::string::npos &&
+                          H.doc.compare(w9b, std::string("<QSO_DATE:8>" + utcDate()).size(), "<QSO_DATE:8>" + utcDate()) == 0 &&
+                          H.doc.find("<BAND:3>10m <MODE:3>SSB", w9b) < w9,
+                      "the new QSO: today's date, BAND and MODE carried from the last record, CALL typed:\n%s", H.doc.c_str());
+
+                // Add a field as a column, fill one cell, then remove the field from every record.
+                menuItem(gt.headerView.menu, @"Add Field...");
+                NSMutableArray *combos = [NSMutableArray array];
+                collect(gw.contentView, NSComboBox.class, combos);
+                NSComboBox *addName = nil;
+                for (NSComboBox *c in combos)
+                    if ([c.placeholderString isEqualToString:@"e.g. RST_SENT"]) addName = c;
+                CHECK(addName && !addName.superview.hidden, "Add field row shown");
+                addName.stringValue = @"rst_sent";
+                [findButton(gw.contentView, @"Add Column") performClick:nil];
+                pump(0.1);
+                CHECK(colOf(@"RST_SENT") > 0 && [[tw valueForKey:@"activeColumn"] integerValue] == colOf(@"RST_SENT"),
+                      "RST_SENT column added and active");
+                select({0});
+                key(36, @"\r", 0);
+                editor().string = @"599";
+                command(@selector(insertNewline:));
+                CHECK(has("<CALL:4>k1ax") && has("<RST_SENT:3>599 <EOR>"), "RST_SENT typed into the new column:\n%s", H.doc.c_str());
+                void (^menuOpen)(NSInteger) = [tw valueForKey:@"onHeaderMenuOpen"];
+                menuOpen(colOf(@"RST_SENT"));
+                menuItem(gt.headerView.menu, @"Remove RST_SENT from Every Record");
+                CHECK(!has("RST_SENT") && colOf(@"RST_SENT") < 0, "RST_SENT removed from every record");
+                [gw.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(gw.contentView) == 0, "Log Table controls do not overlap (%d)", overlaps(gw.contentView));
+                run("Validate Now");
+                CHECK(H.tip.find("0 errors") != std::string::npos, "the log is clean after all that: %s", H.tip.c_str());
+                [gw orderOut:nil];
+            }
+            [NSPasteboard.generalPasteboard clearContents];
+            if (savedClipboard) [NSPasteboard.generalPasteboard setString:savedClipboard forType:NSPasteboardTypeString];
+        }
+
         CHECK(messageProc(0, 0, 0) == TRUE, "messageProc answers");
         notify(NPPN_SHUTDOWN);
 

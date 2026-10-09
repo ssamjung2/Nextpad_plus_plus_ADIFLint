@@ -165,21 +165,51 @@ band and mode filters and a search box.
 
 ## Log Table, Summary and Worked Before
 
-**Log Table…** shows every record in a table with a filter box. Dates and times read as
-2026-10-06 and 22:30.
+**Log Table…** shows every record in a table with a filter box, in its own window, and
+edits like a spreadsheet. Dates and times read as 2026-10-06 and 22:30. The `.adi` file
+stays the document: every change is written into it as one undo step (Command-Z in the
+editor), each field with its length, and an uploaded QSO whose data changes becomes M (see
+[Uploading](#uploading)).
 
 - Click a heading to sort; the sort is remembered. Bands sort by frequency (160m before
   20m), dates and times in time order, numbers by value, and empty cells last.
 - Selecting a row shows that record in the editor; double-clicking the # goes there.
-- Double-click a value to edit it. The field is written back with its length (an empty
-  value removes it; dates and times may be typed either way), and an uploaded QSO becomes
-  M (see [Uploading](#uploading)).
-- Right-click the headings to choose the columns shown.
+- Right-click the headings to choose the columns shown; drag a heading to move a column.
+
+Editing:
+
+- **Click a cell** to make it the active cell (highlighted); Left and Right move it along
+  the row. **Type** to replace its value, or press **Return** (or double-click) to edit
+  it. While editing, **Tab** and **Shift-Tab** save and move to the next or previous
+  cell, **Return** saves and moves down, and **Esc** cancels.
+- An empty value removes the field from the record. Dates and times may be typed as shown
+  (2026-10-06, 22:30) or as ADIF writes them (20261006, 2230).
+- **Delete** removes the active column's field from the selected rows; **Command-Delete**
+  deletes the selected rows.
+- **Command-D** (Fill Down) copies the first selected row's value in the active column to
+  the other selected rows.
+- **Command-C** copies the selected rows as tab-separated text, with a heading row of field
+  names, ready for Numbers or Excel. **Command-V** pastes: text with a heading row of field
+  names puts each column into its field; other text fills cells from the active cell
+  rightwards, starting at the first selected row. Rows pasted past the end of the log (or
+  with no row selected) become new QSOs.
+- **Add Row** appends a QSO with today's UTC date and time and the station fields New QSO
+  would carry over from the last record, and starts editing its CALL.
+- Right-click the headings and choose **Add Field…** to add a column for any ADIF field
+  (one no record has yet starts empty, ready to fill in or paste into), or **Remove
+  *FIELD* from Every Record** to delete the field under the pointer from the whole log.
+- Right-click a row for the same commands: Copy, Paste, Fill Down, Clear Cells, Delete
+  Rows, Add Row, Add Field… and Remove This Column's Field from Every Record.
+- Editing needs the log the table shows to be the active document, writable, and free of
+  structural errors (run Fix Lengths first if needed); otherwise the table says why and
+  changes nothing.
+
+Buttons:
+
 - **Organize Log…** opens [Sort and Organize](#sort-and-organize) with the table's sort
-  and its columns as shown (drag a heading to move a column), so the file can take the
-  order you see.
+  and its columns as shown, so the file can take the order you see.
 - **Bulk Edit Selected…** edits the selected rows, and **Export CSV…** saves the rows
-  shown. The table follows your edits.
+  shown. The table follows your edits, in the table or in the editor.
 
 **Log Summary…** reports records, calls, date range, QSOs per band, mode and UTC day,
 DXCC entities, states, grids, parks activated and parks worked (a hunter's tally), and how

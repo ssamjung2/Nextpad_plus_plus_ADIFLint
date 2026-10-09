@@ -220,6 +220,30 @@ MergePlan planMerge(std::string_view target, const DocModel &targetModel, std::s
 std::string mergedRecords(std::string_view source, const DocModel &sourceModel, const std::vector<int> &groups,
                           Layout layout, std::string_view eol, LengthUnit unit, bool utf8);
 
+// ── Spreadsheet editing (the Log Table) ─────────────────────────────────────
+
+struct CellChange {
+    int group = -1;     // the record (DocModel group)
+    std::string field;  // upper case
+    std::string value;  // empty: remove the field
+};
+// What to write for a value typed or pasted into a table cell: a date shown as
+// 2026-10-06 or 2026/10/06 is written 20261006, a time shown as 22:30 or
+// 22:30:15 is written 2230 or 223015; anything else is trimmed.
+std::string cellValue(std::string_view field, std::string_view shown);
+// Edits setting each record's fields: a field the record has gets the new value
+// (or is removed when the value is empty), a new one is added before <EOR>, and
+// the last change to a field wins. Sorted and non-overlapping, one record's
+// changes never overlapping another's.
+std::vector<TextEdit> cellEdits(std::string_view text, const DocModel &m, const std::vector<CellChange> &changes,
+                                LengthUnit unit, bool utf8);
+// Edits removing these records, each with the blank run after it (the last
+// record: the blank run before it). Sorted and non-overlapping.
+std::vector<TextEdit> removeRecordsEdits(std::string_view text, const DocModel &m, const std::vector<int> &groups);
+// Tab-separated rows for a spreadsheet (Numbers, Excel): a value with a tab,
+// quote or line break is quoted, quotes doubled; lines end in CR LF.
+std::string toTsv(const std::vector<std::vector<std::string>> &rows);
+
 // ── CSV ─────────────────────────────────────────────────────────────────────
 
 // RFC 4180: a header row of field names, CRLF line ends, values with a comma,

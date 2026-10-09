@@ -1459,6 +1459,44 @@ static void testFormats() {
           "counts and end");
 }
 
+static void testGridEdits() {
+    CHECK(cellValue("QSO_DATE", "2026-10-06") == "20261006" && cellValue("QSO_DATE", "2026/10/06") == "20261006" &&
+              cellValue("TIME_ON", "22:30") == "2230" && cellValue("TIME_ON", " 22:30:15 ") == "223015" &&
+              cellValue("QSO_DATE", "6 Oct") == "6 Oct" && cellValue("CALL", " K1AB ") == "K1AB" && cellValue("NAME", "a-b") == "a-b",
+          "cell values");
+    std::string t = std::string(kHeader) +
+                    "<CALL:4>K1AA <QSO_DATE:8>20261006 <TIME_ON:4>2230 <BAND:3>20m <MODE:2>CW <EOR>\n"
+                    "<CALL:4>K1BB\n<QSO_DATE:8>20261006\n<TIME_ON:4>2231\n<BAND:3>40m\n<MODE:3>SSB\n<EOR>\n"
+                    "<CALL:4>K1CC <QSO_DATE:8>20261006 <TIME_ON:4>2232 <BAND:3>20m <MODE:2>CW <EOR>\n";
+    LintResult r = lintModel(t);
+    auto group = [&](int record) {
+        int n = 0;
+        for (size_t i = 0; i < r.model.groups.size(); ++i)
+            if (!r.model.groups[i].header && ++n == record) return (int)i;
+        return -1;
+    };
+    std::vector<CellChange> ch = {{group(1), "MODE", "SSB"},     {group(1), "RST_SENT", "59"}, {group(1), "RST_RCVD", "57"},
+                                  {group(1), "MODE", "FT8"},     {group(2), "BAND", ""},       {group(2), "FREQ", "7.074"},
+                                  {group(3), "CALL", "K1CC/P"},  {group(3), "COMMENT", ""}};
+    std::string out = applyTextEdits(t, cellEdits(t, r.model, ch, LengthUnit::Bytes, true));
+    CHECK(out.find("<CALL:4>K1AA <QSO_DATE:8>20261006 <TIME_ON:4>2230 <BAND:3>20m <MODE:3>FT8 <RST_SENT:2>59 <RST_RCVD:2>57 <EOR>") !=
+                  std::string::npos &&
+              out.find("<CALL:4>K1BB\n<QSO_DATE:8>20261006\n<TIME_ON:4>2231\n<MODE:3>SSB\n<FREQ:5>7.074\n<EOR>") != std::string::npos &&
+              out.find("<CALL:6>K1CC/P <QSO_DATE:8>20261006") != std::string::npos && lint(out).errors == 0,
+          "set, last change wins, remove, add in the record's layout, nothing for an absent empty field:\n%s", out.c_str());
+    CHECK(cellEdits(t, r.model, {{group(1), "CALL", "K1AA"}}, LengthUnit::Bytes, true).empty(), "an unchanged value makes no edit");
+    std::string del = applyTextEdits(t, removeRecordsEdits(t, r.model, {group(2), group(3)}));
+    CHECK(del == std::string(kHeader) + "<CALL:4>K1AA <QSO_DATE:8>20261006 <TIME_ON:4>2230 <BAND:3>20m <MODE:2>CW <EOR>\n",
+          "records 2 and 3 removed with their blank runs:\n[%s]", del.c_str());
+    std::string mid = applyTextEdits(t, removeRecordsEdits(t, r.model, {group(2)}));
+    CHECK(mid.find("<EOR>\n<CALL:4>K1CC") != std::string::npos && mid.find("K1BB") == std::string::npos, "a middle record removed");
+    std::string tsv = toTsv({{"CALL", "NAME", "COMMENT"}, {"K1AA", "Bob \"Rob\" Smith", "line1\r\nline2"}, {"K1BB", "a\tb", ""}});
+    CHECK(tsv == "CALL\tNAME\tCOMMENT\r\nK1AA\t\"Bob \"\"Rob\"\" Smith\"\t\"line1\r\nline2\"\r\nK1BB\t\"a\tb\"\t\r\n", "TSV:\n%s", tsv.c_str());
+    std::vector<std::vector<std::string>> back = parseCsv(tsv);
+    CHECK(back.size() == 3 && back[1][1] == "Bob \"Rob\" Smith" && back[1][2] == "line1\r\nline2" && back[2][1] == "a\tb",
+          "TSV reads back with the CSV parser");
+}
+
 static void testOrganize() {
     // Comparisons: bands by frequency, times with or without seconds or colons, numbers by value, calls naturally.
     CHECK(compareFieldValues("BAND", "160m", "20m") < 0 && compareFieldValues("BAND", "2m", "70cm") < 0 &&
@@ -1763,6 +1801,7 @@ int main(int argc, char **argv) {
     testFormats();
     testImport();
     testOrganize();
+    testGridEdits();
     if (argc > 1) testOfficialFile(argv[1]);
     else std::printf("note: official test file not given; skipping\n");
     std::printf("%d/%d checks passed\n", gChecks - gFailures, gChecks);

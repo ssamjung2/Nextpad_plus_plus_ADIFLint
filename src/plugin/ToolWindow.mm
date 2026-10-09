@@ -88,6 +88,45 @@ void ADIFBlockMenuItem(NSMenuItem *item, void (^block)(void)) {
     item.action = @selector(fire:);
 }
 
+// What the table asks of its window in spreadsheet mode.
+@interface ADIFToolWindow (Grid)
+- (BOOL)gridKeyDown:(NSEvent *)event;
+- (BOOL)gridKeyEquivalent:(NSEvent *)event;
+- (BOOL)gridActive;
+@end
+
+// The table: in spreadsheet mode, keys and the Edit menu's Copy, Paste and
+// Delete go to the window; otherwise it is a plain NSTableView.
+@interface ADIFGridTable : NSTableView
+@property(nonatomic, weak) ADIFToolWindow *owner;
+@end
+
+@implementation ADIFGridTable
+- (void)keyDown:(NSEvent *)event {
+    if (![self.owner gridKeyDown:event]) [super keyDown:event];
+}
+- (BOOL)performKeyEquivalent:(NSEvent *)event {
+    if (self.window.firstResponder == self && [self.owner gridKeyEquivalent:event]) return YES;
+    return [super performKeyEquivalent:event];
+}
+- (void)copy:(id)sender {
+    if (self.owner.gridActive && self.owner.onCopy) self.owner.onCopy();
+}
+- (void)paste:(id)sender {
+    NSString *text = [NSPasteboard.generalPasteboard stringForType:NSPasteboardTypeString];
+    if (self.owner.gridActive && self.owner.onPaste && text) self.owner.onPaste(text);
+}
+- (void)delete:(id)sender {
+    if (self.owner.gridActive && self.owner.onClearCells) self.owner.onClearCells();
+}
+- (BOOL)validateUserInterfaceItem:(id<NSValidatedUserInterfaceItem>)item {
+    SEL a = item.action;
+    if (a == @selector(copy:) || a == @selector(paste:) || a == @selector(delete:)) return self.owner.gridActive;
+    if ([NSTableView instancesRespondToSelector:@selector(validateUserInterfaceItem:)]) return [super validateUserInterfaceItem:item];
+    return [self respondsToSelector:a];
+}
+@end
+
 // Numbers compare as numbers ("7.074" < "14.074"); otherwise digit runs compare
 // by value and letters case-insensitively ("K1ABC" < "K10ABC").
 int ADIFNaturalCompare(const std::string &a, const std::string &b) { return adif::naturalCompare(a, b); }
@@ -118,6 +157,13 @@ static bool containsNoCase(const std::string &hay, const std::string &upperNeedl
     std::vector<std::string> _keys;  // per model row, or empty
     std::vector<size_t> _editable;   // editable column indexes
     bool _quiet;                     // a selection change made here, not by the user
+    // Rows that arrived while a cell was being edited: shown when the edit ends.
+    bool _pending;
+    std::vector<std::vector<std::string>> _pendingRows;
+    std::vector<int> _pendingSeverities;
+    std::vector<std::string> _pendingKeys;
+    std::vector<bool> _pendingTicks;
+    BOOL _pendingKeep;
     std::vector<NSInteger> _shown;  // display order -> model row
     std::string _filter;            // upper case
     NSMutableArray *_actions;       // button blocks, by tag
@@ -163,7 +209,11 @@ static bool containsNoCase(const std::string &hay, const std::string &upperNeedl
     [_status setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
                                       forOrientation:NSLayoutConstraintOrientationHorizontal];
 
-    _table = [[NSTableView alloc] initWithFrame:NSZeroRect];
+    ADIFGridTable *grid = [[ADIFGridTable alloc] initWithFrame:NSZeroRect];
+    grid.owner = self;
+    _table = grid;
+    _activeColumn = -1;
+    _table.action = @selector(cellClicked:);
     _table.dataSource = self;
     _table.delegate = self;
     _table.usesAlternatingRowBackgroundColors = YES;
@@ -301,6 +351,16 @@ static bool containsNoCase(const std::string &hay, const std::string &upperNeedl
            keys:(const std::vector<std::string> &)keys
           ticks:(const std::vector<bool> &)ticks
       keepTicks:(BOOL)keepTicks {
+    if ([self editedCell]) {  // don't end the user's edit: show these when it ends
+        _pending = true;
+        _pendingRows = rows;
+        _pendingSeverities = severities;
+        _pendingKeys = keys;
+        _pendingTicks = ticks;
+        _pendingKeep = keepTicks;
+        return;
+    }
+    _pending = false;
     // What was selected and ticked, by key.
     std::set<std::string> selectedKeys;
     std::map<std::string, bool> oldTicks;
@@ -456,6 +516,13 @@ static bool containsNoCase(const std::string &hay, const std::string &upperNeedl
     f.selectable = editable;
     f.target = editable ? self : nil;
     f.action = editable ? @selector(cellEdited:) : nil;
+    // Spreadsheet mode: Tab, Return and Esc while editing come here, a click elsewhere
+    // saves the edit, and the active cell of the selected rows is highlighted.
+    f.delegate = editable && _spreadsheet ? self : nil;
+    ((NSTextFieldCell *)f.cell).sendsActionOnEndEditing = editable && _spreadsheet;
+    bool active = _spreadsheet && (NSInteger)col == _activeColumn && [_table isRowSelected:row];
+    f.drawsBackground = active;
+    f.backgroundColor = active ? [NSColor.controlAccentColor colorWithAlphaComponent:0.3] : NSColor.clearColor;
     f.stringValue = col < cells.size() ? ADIFString(cells[col]) : @"";
     f.toolTip = f.stringValue.length > 24 ? f.stringValue : nil;
     f.textColor = ADIFSeverityColor(model < _severity.size() ? _severity[model] : -1);
@@ -486,6 +553,7 @@ static bool containsNoCase(const std::string &hay, const std::string &upperNeedl
 
 - (void)setHeaderMenu:(NSMenu *)menu {
     _table.headerView.menu = menu;
+    menu.delegate = self;  // menuNeedsUpdate: reports the column under the pointer
 }
 
 - (void)setEditableColumns:(const std::vector<size_t> &)columns {
@@ -500,13 +568,250 @@ static bool containsNoCase(const std::string &hay, const std::string &upperNeedl
     NSInteger model = _shown[(size_t)row];
     const std::vector<std::string> &cells = _rows[(size_t)model];
     std::string now = col < cells.size() ? cells[col] : std::string();
-    if (ADIFStd(sender.stringValue) == now) return;  // unchanged
+    if (ADIFStd(sender.stringValue) == now) {  // unchanged
+        [self showPendingRows];
+        return;
+    }
     if (self.onEditCell) self.onEditCell(model, col, sender.stringValue);
+    [self showPendingRows];
+}
+
+// The table cell being edited, or nil. (A view-based table doesn't set editedRow:
+// the field editor's delegate is the cell's text field.)
+- (NSTextField *)editedCell {
+    id responder = _window.firstResponder;
+    if (![responder isKindOfClass:NSTextView.class]) return nil;
+    id field = ((NSTextView *)responder).delegate;
+    if ([field isKindOfClass:NSTextField.class] && [(NSView *)field isDescendantOf:_table]) return field;
+    return nil;
+}
+
+- (void)showPendingRows {
+    if (!_pending || [self editedCell]) return;
+    _pending = false;
+    std::vector<std::vector<std::string>> rows = std::move(_pendingRows);
+    std::vector<int> severities = std::move(_pendingSeverities);
+    std::vector<std::string> keys = std::move(_pendingKeys);
+    std::vector<bool> ticks = std::move(_pendingTicks);
+    [self setRows:rows severities:severities keys:keys ticks:ticks keepTicks:_pendingKeep];
 }
 
 - (void)tableViewSelectionDidChange:(NSNotification *)notification {
+    if (_spreadsheet) [self refreshVisibleRows];  // the active cell follows the selection
     if (_quiet) return;
     if (self.onSelectionChanged) self.onSelectionChanged();
+}
+
+// ── Spreadsheet mode ────────────────────────────────────────────────────────
+
+- (BOOL)gridActive {
+    return _spreadsheet && _window.isVisible;
+}
+
+- (void)refreshVisibleRows {
+    NSRange visible = [_table rowsInRect:_table.visibleRect];
+    if (!visible.length) return;
+    [_table reloadDataForRowIndexes:[NSIndexSet indexSetWithIndexesInRange:visible]
+                      columnIndexes:[NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, (NSUInteger)_table.numberOfColumns)]];
+}
+
+- (bool)isEditableColumn:(NSInteger)column {
+    return column >= 0 && std::find(_editable.begin(), _editable.end(), (size_t)column) != _editable.end();
+}
+
+- (void)setActiveColumn:(NSInteger)column {
+    _activeColumn = column;
+    [self refreshVisibleRows];
+}
+
+// The editable columns as shown, left to right.
+- (std::vector<NSInteger>)editableColumnsShown {
+    std::vector<NSInteger> out;
+    for (size_t c : [self columnOrder])
+        if ([self isEditableColumn:(NSInteger)c]) out.push_back((NSInteger)c);
+    return out;
+}
+
+// The editable column `step` places from the active one (wrapping at the ends: false).
+- (NSInteger)columnBeside:(int)step {
+    std::vector<NSInteger> cols = [self editableColumnsShown];
+    if (cols.empty()) return -1;
+    auto it = std::find(cols.begin(), cols.end(), _activeColumn);
+    if (it == cols.end()) return cols.front();
+    long i = (long)(it - cols.begin()) + step;
+    return i < 0 || i >= (long)cols.size() ? _activeColumn : cols[(size_t)i];
+}
+
+- (void)cellClicked:(id)sender {
+    if (!_spreadsheet) return;
+    NSInteger column = _table.clickedColumn;
+    if (column < 0) return;
+    NSTableColumn *c = _table.tableColumns[(NSUInteger)column];
+    if ([c.identifier isEqualToString:@"__use"]) return;
+    NSInteger model = c.identifier.integerValue;
+    if ([self isEditableColumn:model]) self.activeColumn = model;
+}
+
+- (void)beginEditingRow:(NSInteger)row column:(size_t)column {
+    [self beginEditingRow:row column:column text:nil];
+}
+
+// Start editing a cell; with `text`, it replaces what is there (typing into a cell).
+- (void)beginEditingRow:(NSInteger)row column:(size_t)column text:(NSString *)text {
+    if (![self isEditableColumn:(NSInteger)column]) return;
+    NSInteger shown = -1;
+    for (size_t i = 0; i < _shown.size(); ++i)
+        if (_shown[i] == row) shown = (NSInteger)i;
+    NSInteger col = [_table columnWithIdentifier:[NSString stringWithFormat:@"%zu", column]];
+    if (shown < 0 || col < 0) return;
+    _activeColumn = (NSInteger)column;
+    if (!([_table isRowSelected:shown] && _table.numberOfSelectedRows == 1))
+        [_table selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)shown] byExtendingSelection:NO];
+    [_table scrollRowToVisible:shown];
+    [_table scrollColumnToVisible:col];
+    [_table editColumn:col row:shown withEvent:nil select:YES];
+    if (text.length && [self editedCell])
+        [(NSTextView *)_window.firstResponder insertText:text replacementRange:NSMakeRange(NSNotFound, 0)];
+}
+
+- (void)selectRows:(const std::vector<NSInteger> &)rows {
+    NSMutableIndexSet *set = [NSMutableIndexSet indexSet];
+    for (size_t i = 0; i < _shown.size(); ++i)
+        if (std::find(rows.begin(), rows.end(), _shown[i]) != rows.end()) [set addIndex:i];
+    [_table selectRowIndexes:set byExtendingSelection:NO];
+    if (set.count) [_table scrollRowToVisible:(NSInteger)set.firstIndex];
+}
+
+- (void)setRowMenu:(NSMenu *)menu {
+    _table.menu = menu;
+}
+
+// The model row of the lead selected row, or -1.
+- (NSInteger)leadRow {
+    NSInteger r = _table.selectedRow;
+    return r >= 0 && (size_t)r < _shown.size() ? _shown[(size_t)r] : -1;
+}
+
+- (BOOL)gridKeyDown:(NSEvent *)event {
+    if (!_spreadsheet) return NO;
+    NSEventModifierFlags mods = event.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption);
+    if (_activeColumn < 0 || ![self isEditableColumn:_activeColumn]) _activeColumn = [self columnBeside:0];
+    NSInteger lead = [self leadRow];
+    switch (event.keyCode) {
+        case 36:   // Return
+        case 76:   // Enter
+            if (lead >= 0 && _activeColumn >= 0) [self beginEditingRow:lead column:(size_t)_activeColumn];
+            return YES;
+        case 48:   // Tab
+            self.activeColumn = [self columnBeside:(event.modifierFlags & NSEventModifierFlagShift) ? -1 : 1];
+            return YES;
+        case 123:  // Left
+            self.activeColumn = [self columnBeside:-1];
+            return YES;
+        case 124:  // Right
+            self.activeColumn = [self columnBeside:1];
+            return YES;
+        case 51:   // Delete
+        case 117:  // Forward delete
+            if (mods & NSEventModifierFlagCommand) {
+                if (self.onDeleteRows) self.onDeleteRows();
+            } else if (self.onClearCells) {
+                self.onClearCells();
+            }
+            return YES;
+        default: break;
+    }
+    // Typing a character starts editing the active cell with it.
+    NSString *chars = event.characters;
+    if (!mods && chars.length && lead >= 0 && _activeColumn >= 0) {
+        unichar c = [chars characterAtIndex:0];
+        if (c >= 0x20 && c != 0x7f && !(c >= 0xF700 && c <= 0xF8FF)) {
+            [self beginEditingRow:lead column:(size_t)_activeColumn text:chars];
+            return YES;
+        }
+    }
+    return NO;
+}
+
+- (BOOL)gridKeyEquivalent:(NSEvent *)event {
+    if (!_spreadsheet) return NO;
+    NSEventModifierFlags mods = event.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagControl |
+                                                       NSEventModifierFlagOption | NSEventModifierFlagShift);
+    if (mods != NSEventModifierFlagCommand) return NO;
+    NSString *key = event.charactersIgnoringModifiers.lowercaseString;
+    if ([key isEqualToString:@"c"]) {
+        if (self.onCopy) self.onCopy();
+        return YES;
+    }
+    if ([key isEqualToString:@"v"]) {
+        NSString *text = [NSPasteboard.generalPasteboard stringForType:NSPasteboardTypeString];
+        if (self.onPaste && text) self.onPaste(text);
+        return YES;
+    }
+    if ([key isEqualToString:@"d"]) {
+        if (self.onFillDown) self.onFillDown();
+        return YES;
+    }
+    if (event.keyCode == 51 || event.keyCode == 117) {
+        if (self.onDeleteRows) self.onDeleteRows();
+        return YES;
+    }
+    return NO;
+}
+
+// While a cell is edited: Tab and Shift-Tab save it and edit the next cell in the
+// row, Return saves it and moves down, Esc puts the value back.
+- (BOOL)control:(NSControl *)control textView:(NSTextView *)textView doCommandBySelector:(SEL)command {
+    if (!_spreadsheet) return NO;
+    bool tab = command == @selector(insertTab:), back = command == @selector(insertBacktab:);
+    bool enter = command == @selector(insertNewline:) || command == @selector(insertLineBreak:);
+    bool cancel = command == @selector(cancelOperation:);
+    if (!tab && !back && !enter && !cancel) return NO;
+    NSInteger shown = [_table rowForView:control], column = [_table columnForView:control];
+    if (shown < 0 || (size_t)shown >= _shown.size() || column < 0) return NO;
+    NSInteger model = _shown[(size_t)shown];
+    size_t col = (size_t)_table.tableColumns[(NSUInteger)column].identifier.integerValue;
+    NSString *text = [textView.string copy];
+    [control abortEditing];
+    [_window makeFirstResponder:_table];
+    if (cancel) {
+        [self showPendingRows];
+        [self refreshVisibleRows];
+        return YES;
+    }
+    const std::vector<std::string> &cells = _rows[(size_t)model];
+    std::string now = col < cells.size() ? cells[col] : std::string();
+    // A field edit keeps the records in their order, so the model row stays the same.
+    if (ADIFStd(text) != now && self.onEditCell) self.onEditCell(model, col, text);
+    [self showPendingRows];
+    if (enter) {
+        // Down one row, same column, not editing.
+        for (size_t i = 0; i < _shown.size(); ++i)
+            if (_shown[i] == model && i + 1 < _shown.size()) {
+                [_table selectRowIndexes:[NSIndexSet indexSetWithIndex:i + 1] byExtendingSelection:NO];
+                [_table scrollRowToVisible:(NSInteger)i + 1];
+            }
+        _activeColumn = (NSInteger)col;
+        [self refreshVisibleRows];
+        return YES;
+    }
+    _activeColumn = (NSInteger)col;
+    NSInteger next = [self columnBeside:tab ? 1 : -1];
+    [self beginEditingRow:model column:(size_t)next];
+    return YES;
+}
+
+// The heading menu opens: say over which column.
+- (void)menuNeedsUpdate:(NSMenu *)menu {
+    if (menu != _table.headerView.menu || !self.onHeaderMenuOpen) return;
+    NSPoint p = [_table.headerView convertPoint:[_window mouseLocationOutsideOfEventStream] fromView:nil];
+    NSInteger c = [_table.headerView columnAtPoint:p];
+    NSInteger model = -1;
+    if (c >= 0) {
+        NSTableColumn *col = _table.tableColumns[(NSUInteger)c];
+        if (![col.identifier isEqualToString:@"__use"]) model = col.identifier.integerValue;
+    }
+    self.onHeaderMenuOpen(model);
 }
 
 - (void)toggleRow:(NSButton *)sender {
