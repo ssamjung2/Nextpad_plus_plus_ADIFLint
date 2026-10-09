@@ -1,6 +1,5 @@
 #include "adif_formats.h"
 
-#include "adif_radio.h"
 #include "adif_spec.h"
 
 #include <cmath>

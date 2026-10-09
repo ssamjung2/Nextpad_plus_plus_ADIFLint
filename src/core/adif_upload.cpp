@@ -264,9 +264,10 @@ bool parseQrzFetch(std::string_view body, QrzReply *reply, std::string *adif) {
     return !r.result.empty();
 }
 
-std::string qrzFetchBody(std::string_view key, long long afterLogid, int max) {
-    return "KEY=" + formEncode(key) + "&ACTION=FETCH&OPTION=" +
-           formEncode("STATUS:CONFIRMED,MAX:" + std::to_string(max) + ",AFTERLOGID:" + std::to_string(afterLogid));
+std::string qrzFetchBody(std::string_view key, long long afterLogid, int max, std::string_view between) {
+    std::string option = between.empty() ? std::string() : "BETWEEN:" + std::string(between) + ",";
+    option += "MAX:" + std::to_string(max) + ",AFTERLOGID:" + std::to_string(afterLogid);
+    return "KEY=" + formEncode(key) + "&ACTION=FETCH&OPTION=" + formEncode(option);
 }
 
 std::string eqslInboxLink(std::string_view html, std::string *error) {

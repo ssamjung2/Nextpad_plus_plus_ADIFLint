@@ -1,1 +1,3 @@
-RESULT=OK&COUNT=1&ADIF=&lt;call:4&gt;K1AE &lt;qso_date:8&gt;20261006 &lt;time_on:4&gt;2255 &lt;band:3&gt;20m &lt;mode:3&gt;SSB &lt;app_qrzlog_status:1&gt;C &lt;app_qrzlog_qsldate:8&gt;20261007 &lt;app_qrzlog_logid:4&gt;1001 &lt;eor&gt;
+RESULT=OK&COUNT=3&ADIF=&lt;call:4&gt;K1AE &lt;qso_date:8&gt;20261006 &lt;time_on:4&gt;2255 &lt;band:3&gt;20m &lt;mode:3&gt;SSB &lt;app_qrzlog_status:1&gt;C &lt;app_qrzlog_qsldate:8&gt;20261007 &lt;app_qrzlog_logid:4&gt;1001 &lt;eor&gt;
+&lt;call:4&gt;K1AD &lt;qso_date:8&gt;20261006 &lt;time_on:4&gt;2250 &lt;band:3&gt;20m &lt;mode:3&gt;SSB &lt;app_qrzlog_status:1&gt;N &lt;app_qrzlog_logid:4&gt;1002 &lt;eor&gt;
+&lt;call:5&gt;W8NEW &lt;qso_date:8&gt;20261006 &lt;time_on:4&gt;2310 &lt;band:3&gt;20m &lt;mode:3&gt;SSB &lt;station_callsign:4&gt;KW9D &lt;my_gridsquare:4&gt;EN52 &lt;gridsquare:4&gt;EN61 &lt;rst_sent:2&gt;59 &lt;rst_rcvd:2&gt;57 &lt;app_qrzlog_status:1&gt;N &lt;app_qrzlog_logid:4&gt;1003 &lt;eor&gt;

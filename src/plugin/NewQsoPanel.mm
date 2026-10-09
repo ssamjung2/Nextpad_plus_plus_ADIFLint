@@ -32,9 +32,9 @@ static NSColor *severityColor(int severity) {
     ADIFFlippedView *_document;
     NSGridView *_grid;
     NSLayoutConstraint *_scrollHeight;
-    NSButton *_currentTime, *_log, *_close, *_fields, *_radio, *_follow, *_spots;
-    NSTextField *_radioStatus, *_lookupInfo;
-    NSStackView *_radioRow, *_lookupRow;
+    NSButton *_currentTime, *_log, *_close, *_fields, *_spots;
+    NSTextField *_lookupInfo;
+    NSStackView *_lookupRow;
     NSPopUpButton *_lookup;
     NSTimer *_timer;
     std::vector<ADIFQsoRow> _rows;
@@ -111,21 +111,6 @@ static NSColor *severityColor(int severity) {
     _spots.toolTip = @"POTA and WWFF activators spotted now: pick one to fill CALL, FREQ, MODE and their reference";
     _spots.translatesAutoresizingMaskIntoConstraints = NO;
 
-    _radio = [NSButton buttonWithTitle:@"From Radio" target:self action:@selector(radioPressed:)];
-    _radio.toolTip = @"Read FREQ and MODE from the radio through Hamlib rigctld or flrig (see Settings)";
-    _follow = [NSButton checkboxWithTitle:@"Follow the radio" target:self action:@selector(followChanged:)];
-    _follow.toolTip = @"Update FREQ, BAND and MODE whenever the radio changes";
-    _radioStatus = [NSTextField labelWithString:@""];
-    _radioStatus.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
-    _radioStatus.textColor = NSColor.secondaryLabelColor;
-    _radioStatus.lineBreakMode = NSLineBreakByTruncatingTail;
-    [_radioStatus setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
-                                           forOrientation:NSLayoutConstraintOrientationHorizontal];
-    _radioRow = [NSStackView stackViewWithViews:@[ _radio, _follow, _radioStatus ]];
-    _radioRow.spacing = 8;
-    _radioRow.alignment = NSLayoutAttributeCenterY;
-    _radioRow.translatesAutoresizingMaskIntoConstraints = NO;
-
     _lookup = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [_lookup addItemsWithTitles:@[ @"Off", @"Country data", @"QRZ.com", @"HamQTH" ]];
     _lookup.target = self;
@@ -145,7 +130,7 @@ static NSColor *severityColor(int severity) {
     _lookupRow.alignment = NSLayoutAttributeCenterY;
     _lookupRow.translatesAutoresizingMaskIntoConstraints = NO;
 
-    for (NSView *v in @[ _target, _scroll, _currentTime, _radioRow, _lookupRow, _lookupInfo, _note, _summary, _log, _close, _fields, _spots ])
+    for (NSView *v in @[ _target, _scroll, _currentTime, _lookupRow, _lookupInfo, _note, _summary, _log, _close, _fields, _spots ])
         [root addSubview:v];
     const CGFloat m = 12;
     _scrollHeight = [_scroll.heightAnchor constraintEqualToConstant:300];
@@ -164,10 +149,7 @@ static NSColor *severityColor(int severity) {
         [_document.topAnchor constraintEqualToAnchor:_scroll.contentView.topAnchor],
         [_currentTime.topAnchor constraintEqualToAnchor:_scroll.bottomAnchor constant:8],
         [_currentTime.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
-        [_radioRow.topAnchor constraintEqualToAnchor:_currentTime.bottomAnchor constant:6],
-        [_radioRow.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
-        [_radioRow.trailingAnchor constraintLessThanOrEqualToAnchor:root.trailingAnchor constant:-m],
-        [_lookupRow.topAnchor constraintEqualToAnchor:_radioRow.bottomAnchor constant:6],
+        [_lookupRow.topAnchor constraintEqualToAnchor:_currentTime.bottomAnchor constant:6],
         [_lookupRow.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
         [_lookupRow.trailingAnchor constraintLessThanOrEqualToAnchor:root.trailingAnchor constant:-m],
         [_lookupInfo.topAnchor constraintEqualToAnchor:_lookupRow.bottomAnchor constant:4],
@@ -328,22 +310,6 @@ static NSColor *severityColor(int severity) {
     if (self.onSpots) self.onSpots();
 }
 
-- (void)radioPressed:(id)sender {
-    if (self.onRadio) self.onRadio();
-}
-
-- (void)followChanged:(id)sender {
-    if (self.onFollowRadio) self.onFollowRadio(self.followRadio);
-}
-
-- (BOOL)followRadio {
-    return _follow.state == NSControlStateValueOn;
-}
-
-- (void)setFollowRadio:(BOOL)follow {
-    _follow.state = follow ? NSControlStateValueOn : NSControlStateValueOff;
-}
-
 - (void)lookupChanged:(id)sender {
     if (self.onLookupChanged) self.onLookupChanged(self.lookupSource);
 }
@@ -364,12 +330,6 @@ static NSColor *severityColor(int severity) {
 
 - (BOOL)hasField:(const std::string &)name {
     return [self indexOf:name] >= 0;
-}
-
-- (void)setRadioStatus:(NSString *)text severity:(int)severity {
-    _radioStatus.stringValue = text ?: @"";
-    _radioStatus.toolTip = text;
-    _radioStatus.textColor = severityColor(severity);
 }
 
 - (void)setTarget:(const std::string &)documentName {

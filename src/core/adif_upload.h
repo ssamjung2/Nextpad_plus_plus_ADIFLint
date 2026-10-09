@@ -87,8 +87,9 @@ EqslReply parseEqslReply(std::string_view html);
 // ADIF=, HTML entities decoded; QRZ's docs don't say how it is encoded, and
 // Wavelog decodes it this way). False when there is no RESULT.
 bool parseQrzFetch(std::string_view body, QrzReply *reply, std::string *adif);
-// The FETCH request for confirmed records from `afterLogid` on, `max` at a time.
-std::string qrzFetchBody(std::string_view key, long long afterLogid, int max);
+// The FETCH request for records from `afterLogid` on, `max` at a time; with
+// `between` ("2026-10-06+2026-10-07"), only QSOs on those dates.
+std::string qrzFetchBody(std::string_view key, long long afterLogid, int max, std::string_view between = {});
 // &lt; &gt; &amp; &quot; &#39; &#NN; decoded.
 std::string htmlDecode(std::string_view s);
 

@@ -1,7 +1,6 @@
 #include "adif_tools.h"
 
 #include "adif_enrich.h"
-#include "adif_radio.h"
 #include "adif_geo.h"
 #include "adif_spec.h"
 
@@ -1224,6 +1223,27 @@ std::vector<PotaFile> potaExport(std::string_view text, const DocModel &m, std::
         f.name = name;
     }
     return out;
+}
+
+std::string hzToMHz(std::string_view hz) {
+    std::string d = trim(hz);
+    size_t dot = d.find('.');
+    bool roundUp = false;
+    if (dot != std::string::npos) {  // "14074000.000000": a fraction of a hertz, rounded
+        std::string frac = d.substr(dot + 1);
+        for (char c : frac)
+            if (c < '0' || c > '9') return "";
+        roundUp = !frac.empty() && frac[0] >= '5';
+        d.resize(dot);
+    }
+    if (d.empty() || d.size() > 15) return "";
+    for (char c : d)
+        if (c < '0' || c > '9') return "";
+    unsigned long long v = std::strtoull(d.c_str(), nullptr, 10) + (roundUp ? 1 : 0);
+    std::string whole = std::to_string(v / 1000000), frac = std::to_string(v % 1000000);
+    frac = std::string(6 - frac.size(), '0') + frac;
+    while (frac.size() > 3 && frac.back() == '0') frac.pop_back();
+    return whole + "." + frac;
 }
 
 std::string khzToMHz(std::string_view kHz) {

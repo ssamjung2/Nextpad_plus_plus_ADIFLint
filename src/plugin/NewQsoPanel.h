@@ -24,10 +24,7 @@ struct ADIFQsoRow {
 @property(nonatomic, copy) void (^onChange)(void);  // any value edited
 @property(nonatomic, copy) void (^onLog)(void);     // Log QSO pressed
 @property(nonatomic, copy) void (^onCustomize)(void);  // Fields... pressed
-@property(nonatomic, copy) void (^onRadio)(void);      // From Radio pressed
-@property(nonatomic, copy) void (^onFollowRadio)(BOOL follow);  // Follow the radio ticked or unticked
-@property(nonatomic, copy) void (^onSpots)(void);      // POTA Spots... pressed
-@property(nonatomic) BOOL followRadio;
+@property(nonatomic, copy) void (^onSpots)(void);      // Spots... pressed
 // Look up the call as you type: 0 off, 1 country data (offline), 2 QRZ.com, 3 HamQTH.
 @property(nonatomic) NSInteger lookupSource;
 @property(nonatomic, copy) void (^onLookupChanged)(NSInteger source);
@@ -44,7 +41,6 @@ struct ADIFQsoRow {
 - (void)setSummary:(const std::string &)text severity:(int)severity;
 - (void)setTarget:(const std::string &)documentName;
 - (void)setNote:(NSString *)note;  // e.g. station fields copied from the last record
-- (void)setRadioStatus:(NSString *)text severity:(int)severity;  // -1 plain, 0 note, 1 warning, 2 error
 - (void)setLookupInfo:(NSString *)text severity:(int)severity;   // what the lookup found, distance, park history
 - (BOOL)hasField:(const std::string &)name;
 - (void)refreshTime;  // put the current UTC date and time in QSO_DATE/TIME_ON

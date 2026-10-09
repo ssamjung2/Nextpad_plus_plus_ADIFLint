@@ -53,7 +53,7 @@ NSString *ADIFSourceCredentialHelp(ADIFSource source) {
         case ADIFSourceHamQTH:
             return @"Your HamQTH.com username and password (a free account).";
         case ADIFSourceQRZLogbook:
-            return @"The API access key from your QRZ.com Logbook's settings, for Upload to QRZ.com Logbook. Each "
+            return @"The API access key from your QRZ.com Logbook's settings, for Upload to and Import from QRZ.com Logbook. Each "
                    @"logbook (callsign) has its own key; QSOs go to the logbook the key belongs to.";
         case ADIFSourceClubLog:
             return @"The email address of your Club Log account and an Application Password (Club Log: Settings > App "
@@ -73,7 +73,7 @@ NSString *ADIFSourceCredentialHelp(ADIFSource source) {
         case ADIFSourceCountryData: return @"";
         case ADIFSourceLoTW:
             return @"Your LoTW website username (not always your callsign) and password, not your TQSL certificate "
-                   @"password. LoTW's report API receives them in an HTTPS request.";
+                   @"password, for Import from LoTW. LoTW's report API receives them in an HTTPS request.";
     }
     return @"";
 }
@@ -427,7 +427,12 @@ static NSString *lotwText(NSData *body) {
     return text;
 }
 
-void ADIFFetchLotwReport(NSString *startDate, NSString *endDate, void (^done)(NSString *adif, NSString *error)) {
+// LoTW lotwreport.adi (lotw.arrl.org/lotw-help/developer-query-qsos-qsls/, read
+// 2026-10-08): qso_qsl=no returns your uploaded QSO records, each with QSL_RCVD;
+// qso_qsorxsince must be given (left out, LoTW uses the last query's date and
+// returns only newer records); qso_withown adds STATION_CALLSIGN, qso_mydetail
+// your station's details, qso_qsldetail the confirming station's.
+static void lotwDownload(NSString *from, NSString *to, void (^done)(NSString *adif, NSString *error)) {
     NSString *const kBadLogin = @"LoTW did not return a report. Check your LoTW username and password in Settings.";
     if (NSString *dir = fakeDir()) {
         NSData *body = ADIFSavedAccount(ADIFSourceLoTW)
@@ -439,8 +444,13 @@ void ADIFFetchLotwReport(NSString *startDate, NSString *endDate, void (^done)(NS
         });
         return;
     }
-    NSURL *url = lotwURL([NSString stringWithFormat:@"qso_query=1&qso_qsl=yes&qso_qsldetail=yes&qso_startdate=%@&qso_enddate=%@",
-                                                    encode(startDate), encode(endDate)]);
+    NSMutableString *query = [NSMutableString
+        stringWithString:@"qso_query=1&qso_qsl=no&qso_qsorxsince=1900-01-01&qso_withown=yes&qso_mydetail=yes&qso_qsldetail=yes"];
+    if (from.length == 8 && to.length == 8)
+        [query appendFormat:@"&qso_startdate=%@-%@-%@&qso_enddate=%@-%@-%@", [from substringToIndex:4],
+                            [from substringWithRange:NSMakeRange(4, 2)], [from substringFromIndex:6], [to substringToIndex:4],
+                            [to substringWithRange:NSMakeRange(4, 2)], [to substringFromIndex:6]];
+    NSURL *url = lotwURL(query);
     if (!url) {
         dispatch_async(dispatch_get_main_queue(), ^{ done(nil, @"No LoTW account. Add one in Settings."); });
         return;
@@ -675,7 +685,7 @@ void ADIFEqslUpload(NSString *agent, NSString *adiFile, NSString *fileName, void
 
 NSString *ADIFTqslPassword(void) { return ADIFHasSecret(ADIFSourceTqsl) ? savedSecret(ADIFSourceTqsl) : nil; }
 
-// ── Confirmations ───────────────────────────────────────────────────────────
+// ── Your QSOs from LoTW, QRZ.com Logbook and eQSL (Import) ──────────────────
 
 static NSString *fakeText(NSString *relative) {
     NSData *d = [NSData dataWithContentsOfFile:[fakeDir() stringByAppendingPathComponent:relative]];
@@ -683,14 +693,14 @@ static NSString *fakeText(NSString *relative) {
 }
 
 // One FETCH page; then the next from the highest APP_QRZLOG_LOGID + 1, until a short page.
-static void qrzFetchPage(NSString *agent, NSString *key, long long after, NSMutableString *all, int pages,
+static void qrzFetchPage(NSString *agent, NSString *key, std::string between, long long after, NSMutableString *all, int pages,
                          void (^done)(NSString *adif, NSString *error)) {
     const int kMax = 250;
     NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:kQrzLogbookApi]];
     r.HTTPMethod = @"POST";
     [r setValue:@"application/x-www-form-urlencoded" forHTTPHeaderField:@"Content-Type"];
     [r setValue:agent forHTTPHeaderField:@"User-Agent"];
-    std::string body = adif::qrzFetchBody(key.UTF8String ?: "", after, kMax);
+    std::string body = adif::qrzFetchBody(key.UTF8String ?: "", after, kMax, between);
     r.HTTPBody = [NSData dataWithBytes:body.data() length:body.size()];
     httpExchange(r, ^(NSInteger status, NSData *data, NSString *error) {
         if (error || status != 200) {
@@ -728,11 +738,14 @@ static void qrzFetchPage(NSString *agent, NSString *key, long long after, NSMuta
             done(all, nil);
             return;
         }
-        qrzFetchPage(agent, key, highest + 1, all, pages + 1, done);
+        qrzFetchPage(agent, key, between, highest + 1, all, pages + 1, done);
     });
 }
 
-void ADIFFetchQrzConfirmed(NSString *agent, void (^done)(NSString *adif, NSString *error)) {
+// QRZ.com Logbook FETCH (www.qrz.com/docs/logbook/QRZLogbookAPI.html, updated
+// 2025-03-07): every record (STATUS:ALL is the default), or those BETWEEN two
+// QSO dates, 250 at a time.
+static void qrzDownload(NSString *agent, NSString *from, NSString *to, void (^done)(NSString *adif, NSString *error)) {
     if (ADIFLookupFakeMode()) {
         NSString *body = fakeText(@"qrzlog/fetch.txt");
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -748,10 +761,18 @@ void ADIFFetchQrzConfirmed(NSString *agent, void (^done)(NSString *adif, NSStrin
         dispatch_async(dispatch_get_main_queue(), ^{ done(nil, @"No QRZ.com Logbook API key yet. Add it in Settings."); });
         return;
     }
-    qrzFetchPage(agent, key, 0, [NSMutableString string], 1, done);
+    std::string between;
+    if (from.length == 8 && to.length == 8) {
+        std::string f = from.UTF8String, t = to.UTF8String;
+        between = f.substr(0, 4) + "-" + f.substr(4, 2) + "-" + f.substr(6) + "+" + t.substr(0, 4) + "-" + t.substr(4, 2) + "-" + t.substr(6);
+    }
+    qrzFetchPage(agent, key, between, 0, [NSMutableString string], 1, done);
 }
 
-void ADIFFetchEqslInbox(NSString *agent, void (^done)(NSString *adif, NSString *error)) {
+// eQSL DownloadInBox (www.eqsl.cc/qslcard/DownloadInBox.txt, revised 2025-10-12):
+// the eQSLs other stations sent you, optionally for QSO dates LimitDateLo to
+// LimitDateHi (MM/DD/YYYY).
+static void eqslDownload(NSString *agent, NSString *from, NSString *to, void (^done)(NSString *adif, NSString *error)) {
     if (ADIFLookupFakeMode()) {
         NSString *adif = fakeText(@"eqsl/inbox.adi");
         dispatch_async(dispatch_get_main_queue(), ^{ done(adif, adif ? nil : @"no test InBox"); });
@@ -763,8 +784,16 @@ void ADIFFetchEqslInbox(NSString *agent, void (^done)(NSString *adif, NSString *
         return;
     }
     // DownloadInBox takes the login in the address (over HTTPS); that is how eQSL documents it.
-    NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"https://www.eQSL.cc/qslcard/DownloadInBox.cfm?UserName=%@&Password=%@",
-                                                                 encode(user), encode(password)]];
+    NSMutableString *address = [NSMutableString stringWithFormat:@"https://www.eQSL.cc/qslcard/DownloadInBox.cfm?UserName=%@&Password=%@",
+                                                                 encode(user), encode(password)];
+    if (from.length == 8 && to.length == 8) {
+        auto us = ^(NSString *d) {  // YYYYMMDD -> MM/DD/YYYY
+            return [NSString stringWithFormat:@"%@/%@/%@", [d substringWithRange:NSMakeRange(4, 2)], [d substringFromIndex:6],
+                                              [d substringToIndex:4]];
+        };
+        [address appendFormat:@"&LimitDateLo=%@&LimitDateHi=%@", encode(us(from)), encode(us(to))];
+    }
+    NSURL *url = [NSURL URLWithString:address];
     NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:url];
     [r setValue:agent forHTTPHeaderField:@"User-Agent"];
     httpExchange(r, ^(NSInteger status, NSData *data, NSString *error) {
@@ -790,6 +819,15 @@ void ADIFFetchEqslInbox(NSString *agent, void (^done)(NSString *adif, NSString *
             else done(text(adi), nil);
         });
     });
+}
+
+void ADIFDownloadSiteQsos(adif::ImportSite site, NSString *from, NSString *to, void (^done)(NSString *adif, NSString *error)) {
+    NSString *agent = [NSString stringWithFormat:@"ADIFLint/%s", ADIFLINT_VERSION];
+    switch (site) {
+        case adif::ImportSite::LoTW: lotwDownload(from, to, done); return;
+        case adif::ImportSite::QRZLogbook: qrzDownload(agent, from, to, done); return;
+        case adif::ImportSite::EQSL: eqslDownload(agent, from, to, done); return;
+    }
 }
 
 void ADIFFetchWwffSpots(NSString *agent, void (^done)(NSArray<NSDictionary *> *spots, NSString *error)) {

@@ -11,6 +11,7 @@ saved to disk until you save the file.
 - [Activations: POTA, WWFF and SOTA](#activations-pota-wwff-and-sota)
 - [Editing the whole log](#editing-the-whole-log)
 - [Importing and exporting](#importing-and-exporting)
+- [Importing from LoTW, QRZ.com Logbook and eQSL](#importing-from-lotw-qrzcom-logbook-and-eqsl)
 - [Uploading](#uploading)
 - [Enrich](#enrich)
 - [Settings](#settings)
@@ -126,19 +127,6 @@ its description in the ADIF specification (hover a row for the full text).
   don't list are still copied from the last record: STATION_CALLSIGN, OPERATOR,
   OWNER_CALLSIGN, TX_PWR and the MY_ fields. The window names them, for example "Also
   written, from the last record: MY_SIG_INFO US-7929".
-
-### Reading the radio
-
-**From Radio** reads the frequency and mode through Hamlib's `rigctld` or through flrig
-(set up under Settings → Radio). FREQ is written in MHz and BAND follows. MODE and SUBMODE
-come from the radio's mode: USB or LSB → SSB with that sideband; CW, RTTY, AM and FM as
-they are; C4FM and D-STAR → DIGITALVOICE. For a data mode (PKTUSB, DATA-U, USB-D…) MODE is
-left to you, since only the program decoding it knows it is FT8.
-
-**Follow the radio** reads it every 2 seconds and updates the fields when the radio
-changes. Only queries are sent (rigctld `get_freq` and `get_mode`; flrig `rig.get_xcvr`,
-`rig.get_vfo` and `rig.get_mode`): nothing keys or tunes the radio. flrig answers
-14.070 MHz USB when it has no radio, so ADIF Lint checks `rig.get_xcvr` first.
 
 ### Looking up the call
 
@@ -286,6 +274,53 @@ have more errors afterwards; nothing changes until **Apply**.
   an exchange shows `-`, and the window says how many do. Check the contest's own template
   before submitting.
 
+## Importing from LoTW, QRZ.com Logbook and eQSL
+
+**Import from LoTW… / QRZ.com Logbook… / eQSL…** download the QSOs a site holds for you
+and compare them with the open log. Choose **QSOs on the log's dates** (all of them for an
+empty log) or **All your QSOs**, press **Download**, and review the list. Nothing changes
+until **Apply**, which is one undo step.
+
+- **add**: a QSO the log doesn't have. It becomes a new record in the log's layout, and the
+  log is then sorted by date and time if you like.
+- **update**: a QSO the log has. The record gains the site's status and confirmation and
+  the details that come with it: only fields it lacks, except that a confirmation upgrades
+  a status that says it hasn't happened (LOTW_QSL_RCVD or EQSL_QSL_RCVD N, R, Q or I
+  becomes Y; APP_QRZLOG_STATUS becomes C).
+- **in log**: nothing to add. These rows are listed when you tick **Also list QSOs already
+  in the log**.
+- Downloaded QSOs are matched the way LoTW matches QSLs: the same call and band, start
+  times within 30 minutes, and the same mode or mode group (CW, phone, data). Each
+  downloaded QSO matches at most one record: the same mode first, then the closest time.
+- A record whose QSO data changes (for example, a state that comes with a confirmation)
+  and was already uploaded gets QRZ.com and Club Log status M, as with any edit.
+
+What each site gives:
+
+- **LoTW** (your LoTW website login): every QSO you uploaded, confirmed or not
+  ([LoTW query interface](https://lotw.arrl.org/lotw-help/developer-query-qsos-qsls/)). A new
+  record gets the call, date, time, band, frequency, mode, propagation mode and satellite,
+  STATION_CALLSIGN and your MY_ details as you uploaded them, LOTW_QSL_SENT=Y with the date
+  LoTW received the QSO, and, when it is confirmed, LOTW_QSL_RCVD=Y, LOTW_QSLRDATE and the
+  other station's DXCC, country, continent, zones, IOTA, grid, state and county. A matched
+  record gains the same status, confirmation and details.
+- **QRZ.com Logbook** (your logbook API key; QRZ.com requires an XML subscription or higher
+  to download): every record in your logbook, or those on the log's dates, 250 at a time
+  ([QRZ Logbook API](https://www.qrz.com/docs/logbook/QRZLogbookAPI.html)). A new record is
+  the ADIF you uploaded, without QRZ.com's own APP_QRZLOG fields, with
+  QRZCOM_QSO_UPLOAD_STATUS=Y. A matched record gains QRZCOM_QSO_UPLOAD_STATUS=Y and, when
+  QRZ.com shows it confirmed, APP_QRZLOG_STATUS=C, APP_QRZLOG_QSLDATE,
+  QRZCOM_QSO_DOWNLOAD_STATUS=Y and today's date.
+- **eQSL** (your eQSL login): eQSL documents only its InBox for programs, the eQSLs other
+  stations sent you, written from their side
+  ([DownloadInBox](https://www.eqsl.cc/qslcard/DownloadInBox.txt)). A matched record gains
+  EQSL_QSL_RCVD=Y, EQSL_QSLRDATE and the grid the other station sent. A QSO your log lacks
+  is offered with the call, date, time, band, mode, propagation mode, the report you
+  received (their RST_SENT) and the confirmation, but not ticked: eQSL warns that the InBox
+  is not your log, so check such a QSO before adding it.
+- Club Log documents no way for programs to download QSOs or confirmations, so there is no
+  Import from Club Log.
+
 ## Uploading
 
 **Upload to QRZ.com Logbook… / LoTW (TQSL)… / Club Log… / eQSL…** list the QSOs not yet
@@ -300,7 +335,7 @@ unticked while you edit the log.
   skipped; M (modified since upload) is sent again; a QSL status of I is skipped.
 - **Changing an uploaded QSO:** its QRZCOM_QSO_UPLOAD_STATUS and CLUBLOG_QSO_UPLOAD_STATUS
   of Y become M, as ADIF prescribes, so the next upload sends the change (to QRZ.com with
-  OPTION=REPLACE). Bulk Edit, Time Shift, Enrich, Remove Duplicates and the Log Table do
+  OPTION=REPLACE). Bulk Edit, Time Shift, Enrich, Import, Remove Duplicates and the Log Table do
   this in the same undo step; typing, autocomplete and the Record Panel do it once the log
   reads cleanly again, as its own undo step. Changes to QSL and upload fields themselves
   don't count.
@@ -324,54 +359,42 @@ unticked while you edit the log.
 
 ## Enrich
 
-**Enrich from …** (one menu item per source) adds fields a record lacks: NAME, QTH,
-STATE, CNTY, GRIDSQUARE, DXCC and COUNTRY, CQZ, ITUZ, IOTA, CONT, optionally LAT and LON,
-and confirmations. Every proposed change is listed for review; nothing changes until you
-press **Apply**.
+**Enrich from QRZ.com… / HamQTH… / Country Data…** add fields a record lacks: NAME, QTH,
+STATE, CNTY, GRIDSQUARE, DXCC and COUNTRY, CQZ, ITUZ, IOTA, CONT and, optionally, LAT and
+LON. Every proposed change is listed for review; nothing changes until you press
+**Apply**. Confirmations from LoTW, QRZ.com Logbook and eQSL come in through
+[Import](#importing-from-lotw-qrzcom-logbook-and-eqsl).
 
 - **QRZ.com** (XML interface): grid, county and zones need a QRZ XML Logbook Data
   subscription; without one QRZ returns only a few fields, and the window says so.
   Coordinates QRZ only estimated from the entity or state are not used.
 - **HamQTH:** a free account; its data is credited in the window.
-- **LoTW Confirmations:** downloads your confirmed QSOs for the log's date range and
-  matches them the way LoTW does: same call and band, the same mode or mode group, start
-  times within 30 minutes. It adds the other station's grid, state, county and zones as
-  they certified them for that QSO, and sets LOTW_QSL_RCVD=Y and LOTW_QSLRDATE.
-- **QRZ.com Logbook Confirmations:** downloads the QSOs your logbook shows as confirmed
-  (with your logbook API key, 250 at a time), matched the same way, and sets
-  APP_QRZLOG_STATUS=C, APP_QRZLOG_QSLDATE, QRZCOM_QSO_DOWNLOAD_STATUS=Y and its date.
-- **eQSL Confirmations:** downloads your eQSL InBox and sets EQSL_QSL_RCVD=Y and
-  EQSL_QSLRDATE for each QSO it matches, plus the grid the other station sent.
 - **Country Data:** offline, from the call's prefix: DXCC, COUNTRY, CQZ, ITUZ and CONT.
   Portable calls use the prefix part (`VE3/K1ABC` is Canada; `/P`, `/M`, `/QRP` and a
   call-area digit are ignored), and `/MM` and `/AM` get no entity.
 
 Rules for every source:
 
-- Only fields a record lacks are filled; existing values are never replaced. The one
-  exception is LOTW_QSL_RCVD, where N, R, Q or I becomes Y when LoTW confirms the QSO.
+- Only fields a record lacks are filled; existing values are never replaced.
 - COUNTRY comes from ADIF's own DXCC entity table ("UNITED STATES OF AMERICA"), so it
   matches LoTW and ADIF.
 - Callbooks give a station's home data. For portable calls (`K1ABC/P`, `VE3/K1ABC`) and
   records with SIG_INFO, POTA_REF, SOTA_REF or WWFF_REF, where the station was elsewhere,
-  only the name is added (untick the option to change that). Confirmations describe each
-  QSO, so they are always used.
+  only the name is added (untick the option to change that). Country data comes from the
+  call itself, so it is always used.
 - Accented names are transliterated to ASCII ("Jürg" → "Jurg"), since ADI is ASCII.
 - If you edit a record after Find Data, its changes are skipped rather than applied to the
   wrong place.
-- Club Log has no documented way for programs to download confirmations, so it isn't a
-  source.
 
 ## Settings
 
-**Settings…** has three parts.
+**Settings…** has two parts.
 
-- **Radio:** rigctld or flrig, host and port (defaults 4532 and 12345). **Test** reports
-  what New QSO would log.
 - **Country Data:** the AD1C country file in use. **Update** downloads the newest Big CTY
   release from country-files.com into the plugin config folder.
-- **Accounts**, one section each: QRZ.com, HamQTH and LoTW (username and password, for
-  Enrich); QRZ.com Logbook (API key); Club Log (email and Application Password) and Club
+- **Accounts**, one section each: QRZ.com and HamQTH (username and password, for Enrich
+  and New QSO's lookup); LoTW (your LoTW website login, for Import); QRZ.com Logbook (API
+  key); Club Log (email and Application Password) and Club
   Log API key; eQSL (username and password); and the TQSL certificate password. **Save**
   stores them, **Test Sign-In** tries them where the service allows it (for QRZ.com it also
   shows the XML subscription end date), and **Remove** deletes them.
@@ -380,8 +403,8 @@ Where things are kept:
 
 - **Credentials** only in your macOS Keychain, as items named "ADIF Lint: QRZ.com",
   "ADIF Lint: LoTW" and so on; never in a file. A saved password is never shown again.
-- **Settings** (menu toggles, New QSO fields, radio, folders, table columns and sort, the
-  last time zone and program) in `ADIFLint.ini`, and a downloaded country file in
+- **Settings** (menu toggles, New QSO fields and lookup, folders, table columns and sort,
+  the last time zone and program) in `ADIFLint.ini`, and a downloaded country file in
   `ADIFLint-cty.csv`, both in Nextpad++'s plugin config folder
   (`~/Library/Application Support/Nextpad++/plugins/Config/`). They survive plugin updates.
 - **The installed country file** beside the plugin, in
@@ -435,17 +458,19 @@ The log tools work on one file and never change it.
   listed). DARC_DOK and COUNTRY are not checked against a list, and SOTA references get a
   loose check because the specification's definition is loose.
 - Trailing spaces inside data are legal, so a length that includes one is not flagged.
-- Enrich, the uploads, confirmations and spots were tested against saved sample replies
-  and stand-in servers, and the radio against stand-in rigctld and flrig servers, not the
-  live services. The POTA spot format was checked against the live feed on 2026-10-07.
+- Enrich, Import, the uploads and spots were tested against saved sample replies and a
+  stand-in TQSL, not the live services. The POTA spot format was checked against the live
+  feed on 2026-10-07.
 - TQSL must have the Station Location set up. A certificate password saved in Settings is
   passed on TQSL's command line (the only way TQSL takes it in batch mode), where other
   programs on your Mac could see it while TQSL runs.
 - No SOTA spots: the SOTA API's terms don't allow software written with AI tools without
   the SOTA team's approval. SOTA tracking and export work offline.
-- Confirmations are matched like LoTW (same call and band, mode or mode group, within 30
-  minutes). QRZ.com doesn't document how FETCH encodes its ADIF; it is decoded as HTML
-  entities.
+- Imported QSOs are matched like LoTW (same call and band, mode or mode group, within 30
+  minutes), so two QSOs with the same station on the same band within half an hour can be
+  paired the wrong way round; check the list before Apply. QRZ.com doesn't document how
+  FETCH encodes its ADIF or that '_' in a call stands for '/'; both are handled as other
+  loggers handle them.
 - The country file installed with the plugin is the 2026-09-15 release; press Update in
   Settings for the newest. Prefix rules give the usual entity; special cases are right
   only when the file lists the exact call.

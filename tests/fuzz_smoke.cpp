@@ -9,9 +9,9 @@
 #include "adif_edit.h"
 #include "adif_formats.h"
 #include "adif_geo.h"
+#include "adif_import.h"
 #include "adif_lint.h"
 #include "adif_programs.h"
-#include "adif_radio.h"
 #include "adif_tools.h"
 #include "adif_upload.h"
 
@@ -88,6 +88,18 @@ static void checkModel(const std::string &text, const LintResult &r, std::mt1993
         programExport(p, text, m, "K1AB", "0", "20260101 000000", "\n", LengthUnit::Bytes, true, "20260101");
     }
     toCabrillo(recs, CabrilloOptions());
+    // Any document read as a site's download, and planned against itself.
+    for (ImportSite site : {ImportSite::LoTW, ImportSite::QRZLogbook, ImportSite::EQSL}) {
+        std::vector<SiteQso> qsos = siteQsos(site, text, m, "20260101");
+        std::vector<ImportItem> items = planImport(text, m, qsos, site);
+        std::vector<size_t> all;
+        for (size_t i = 0; i < qsos.size(); ++i) all.push_back(i);
+        if (items.size() != qsos.size()) {
+            std::printf("FAIL import: %zu items for %zu QSOs\n", items.size(), qsos.size());
+            ++gFailures;
+        }
+        importedRecords(qsos, all, Layout::RecordPerLine, "\n", LengthUnit::Bytes, true);
+    }
     // Rows without a QSO field (a header read as a record) are dropped; nothing is invented.
     CsvImport back = importCsv(toCsv(recs, tableColumns(recs)));
     if (back.records.size() > recs.size()) {
@@ -200,13 +212,8 @@ int main(int argc, char **argv) {
         if (gFailures) break;
     }
 
-    // Network replies (radio programs, QRZ, eQSL, POTA spots) are untrusted too.
+    // Network replies (QRZ, eQSL, POTA spots), CSV and country files are untrusted too.
     const std::vector<std::string> replies = {
-        "get_freq:\nFrequency: 14074000\nRPRT 0\nget_mode:\nMode: PKTUSB\nPassband: 3000\nRPRT 0\n",
-        "HTTP/1.1 200 OK\r\nContent-length: 87\r\n\r\n<?xml version=\"1.0\"?><methodResponse><params><param><value><string>USB"
-        "</string></value></param></params></methodResponse>",
-        "<methodResponse><fault><value><struct><member><name>faultString</name><value><string>x&amp;y</string></value>"
-        "</member></struct></value></fault></methodResponse>",
         "RESULT=FAIL&REASON=Unable%20to%20add%20QSO:%20duplicate&COUNT=0",
         "Result: 1 out of 2 records added<BR>Warning: Y=2026 M=10 D=06 Bad record: Duplicate<BR>Error: down<BR>",
         "RESULT=OK&COUNT=1&ADIF=&lt;call:4&gt;K1AE &lt;qso_date:8&gt;20261006 &#60;eor&#x3e; &amp;&#;&#99999999;",
@@ -228,17 +235,11 @@ int main(int argc, char **argv) {
                 case 3: t = t.substr(0, at); break;
             }
         }
-        std::string v, f, body;
-        int status = 0;
-        parseRigctld(t);
-        xmlRpcValue(t, &v, &f);
-        httpResponse(t, &status, &body);
         parseQrzReply(t);
         parseEqslReply(t);
         formDecode(t);
         hzToMHz(t.substr(0, 20));
         khzToMHz(t.substr(0, 20));
-        mapRigMode(t.substr(0, 12));
         spotFields(t.substr(0, 12), t.substr(0, 10), t.substr(0, 6), t.substr(0, 12));
         QrzReply qr;
         std::string page;

@@ -1,13 +1,12 @@
-// Enriching a log with data from callbooks (QRZ.com XML, HamQTH) and from LoTW
-// confirmations. Pure C++17: the plugin fetches and parses the responses, this
+// Enriching a log with data from callbooks (QRZ.com XML, HamQTH) and country
+// data, and the rules Import (adif_import.h) shares: which changes to offer and
+// how to edit. Pure C++17: the plugin fetches and parses the responses, this
 // code turns them into ADIF fields, decides what to offer, and builds the edits.
 //
 // Sources and their fields (checked 2026-10-07):
 //   QRZ.com XML interface 1.34, https://www.qrz.com/XML/current_spec.html
 //   HamQTH XML API 2.8, https://www.hamqth.com/developers.php
-//   LoTW lotwreport.adi, https://lotw.arrl.org/lotw-help/developer-query-qsos-qsls/
-//   LoTW match rule (same band, mode or mode group, within 30 minutes),
-//     https://lotw.arrl.org/lotw-help/key-concepts/
+//   LoTW mode groups (CW, phone, data), https://lotw.arrl.org/lotw-help/key-concepts/
 #pragma once
 
 #include "adif_edit.h"
@@ -37,6 +36,11 @@ bool isLocationField(std::string_view field);
 // Decimal degrees -> ADIF Location "XDDD MM.MMM" (§II.B), e.g. 34.23456 -> "N034 14.074".
 std::string adifLocation(double degrees, bool latitude);
 
+// QSO_DATE + TIME_ON -> minutes since 1970, or -1 when malformed.
+long qsoMinutes(std::string_view date, std::string_view time);
+// LoTW's mode groups: 0 CW, 1 phone (SSB, AM, FM, DIGITALVOICE), 2 everything else (data).
+int modeGroup(std::string_view mode);
+
 struct EnrichChange {
     int group = -1;         // index into DocModel::groups
     int record = 0;         // 1-based record number, for display
@@ -51,7 +55,7 @@ struct EnrichChange {
 
 struct EnrichOptions {
     std::vector<std::string> fields;      // ADIF fields that may be filled
-    bool perQsoData = false;              // LoTW: the data describes this QSO, not the station's home
+    bool perQsoData = false;              // the data describes this QSO (an import, the prefix), not the station's home
     bool skipLocationAwayFromHome = true; // callbooks: no location for portable calls or park-to-park records
     bool proposeReplacements = false;     // also offer (unticked) values that differ from the record's
 };
@@ -63,25 +67,6 @@ bool awayFromHome(std::string_view text, const DocModel &m, const ModelGroup &g)
 // Offer changes for one record (DocModel group) from the data found for it.
 void proposeChanges(std::string_view text, const DocModel &m, int group, const FieldMap &data, const EnrichOptions &opt,
                     const std::string &note, std::vector<EnrichChange> &out);
-
-// LoTW: match the log's records to the confirmed QSOs in a lotwreport.adi
-// download (same CALL and BAND, start times within 30 minutes, exact mode
-// preferred over the same mode group, then the closest time). Returns, per log
-// group index, the confirmation's fields: GRIDSQUARE, STATE, CNTY, CQZ, ITUZ,
-// DXCC, COUNTRY, IOTA when present, LOTW_QSL_RCVD=Y and LOTW_QSLRDATE.
-std::map<int, FieldMap> matchLotw(std::string_view logText, const DocModel &log, std::string_view report,
-                                  const DocModel &reportModel);
-// eQSL InBox download (www.eqsl.cc/qslcard/DownloadInBox.txt, revised
-// 2025-10-12): incoming eQSLs, matched the same way. Offers EQSL_QSL_RCVD=Y,
-// EQSL_QSLRDATE and the sender's GRIDSQUARE.
-std::map<int, FieldMap> matchEqslInbox(std::string_view logText, const DocModel &log, std::string_view inbox,
-                                       const DocModel &inboxModel);
-// QRZ.com Logbook FETCH STATUS:CONFIRMED records, matched the same way (QRZ
-// writes '/' in calls as '_'). A confirmed record carries QRZ's own
-// APP_QRZLOG_STATUS=C and APP_QRZLOG_QSLDATE; offers those, and
-// QRZCOM_QSO_DOWNLOAD_STATUS=Y with QRZCOM_QSO_DOWNLOAD_DATE=`today`.
-std::map<int, FieldMap> matchQrzConfirmed(std::string_view logText, const DocModel &log, std::string_view fetched,
-                                          const DocModel &fetchedModel, std::string_view today);
 
 // Edits for the accepted changes, against the text the model came from: new
 // fields go in one insertion at each record's end (matching its separator),

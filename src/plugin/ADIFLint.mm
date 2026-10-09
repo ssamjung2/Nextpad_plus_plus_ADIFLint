@@ -1,7 +1,7 @@
 // ADIF Lint — a Nextpad++ (macOS) plugin for ADIF 3.1.7 .adi log files:
 // validation as you type, length repair, syntax colouring, reformatting,
-// autocomplete, a record panel, a New QSO window (radio, lookup, spots),
-// Enrich (callbooks, confirmations, country data), log tools (table, summary,
+// autocomplete, a record panel, a New QSO window (lookup, spots),
+// Enrich (callbooks, country data), Import (LoTW, QRZ.com Logbook, eQSL), log tools (table, summary,
 // POTA/WWFF/SOTA tracker and export, worked before, bulk edit, time shift,
 // sort, duplicates, merge, CSV, Cabrillo) and uploads.
 //
@@ -39,14 +39,13 @@
 #import "NewQsoPanel.h"
 #import "PluginHost.h"
 #import "QsoFieldsPanel.h"
-#import "Radio.h"
 #import "RecordPanel.h"
 #import "SettingsPanel.h"
+#import "Imports.h"
 #import "Uploads.h"
 #include "adif_edit.h"
 #include "adif_enrich.h"
 #include "adif_lint.h"
-#include "adif_radio.h"
 #include "adif_spec.h"
 #include "adif_tools.h"
 #include "adif_upload.h"
@@ -85,7 +84,11 @@ enum {
     kCmdSort,
     kCmdDupes,
     kCmdMerge,
+    kSepImport,
     kCmdImportCsv,
+    kCmdImportLotw,
+    kCmdImportQrzLog,
+    kCmdImportEqsl,
     kSepTools1,
     kCmdExportCsv,
     kCmdExportPota,
@@ -98,9 +101,6 @@ enum {
     kSepTools2,
     kCmdEnrichQrz,
     kCmdEnrichHamQth,
-    kCmdEnrichLotw,
-    kCmdEnrichQrzLog,
-    kCmdEnrichEqsl,
     kCmdEnrichCountry,
     kSep0,
     kCmdValidate,
@@ -202,7 +202,6 @@ static struct {
         size_t next = 0, notFound = 0, failed = 0;
         std::string firstError;
         std::map<std::string, adif::FieldMap> found;
-        std::string report;  // LoTW, QRZ.com Logbook or eQSL download
         std::vector<adif::EnrichChange> changes;
         ADIFCallbookClient *client = nil;
     } enrich;
@@ -226,13 +225,6 @@ static struct {
         NSInteger clientSource = -1;
         int64_t token = 0;
     } lookup;
-
-    // Radio for New QSO (rigctld or flrig)
-    struct {
-        bool busy = false;
-        std::string lastHz, lastMode;  // the last reading applied, so Follow only writes changes
-        NSTimer *timer = nil;
-    } radio;
 } g;
 
 // ── Host and Scintilla helpers ──────────────────────────────────────────────
@@ -313,7 +305,9 @@ static void loadSettings() {
             std::string key = line.substr(0, eq);
             static const std::set<std::string> kOwn = {"autoValidate", "colour", "autocomplete", "countCharacters",
                                                        "recordPanel", "qsoCarryHidden", "qsoFields"};
-            if (!kOwn.count(key)) g.extra[key] = line.substr(eq + 1);
+            // Radio settings from earlier versions (the radio connection was removed): dropped on the next save.
+            static const std::set<std::string> kGone = {"radioKind", "radioHost", "radioPort", "radioFollow"};
+            if (!kOwn.count(key) && !kGone.count(key)) g.extra[key] = line.substr(eq + 1);
         }
         flag("autoValidate", g.autoValidate);
         flag("colour", g.colour);
@@ -627,6 +621,7 @@ static const adif::LintResult &validateNow(NppHandle h, bool showDiagnostics = t
     refreshPanel();
     logtools::documentChanged();
     uploads::documentChanged();
+    imports::documentChanged();
     return r;
 }
 
@@ -678,6 +673,7 @@ static void runScheduled() {
             refreshPanel();
             logtools::documentChanged();
             uploads::documentChanged();
+            imports::documentChanged();
             return;
         }
         if (sci(h, SCI_GETLENGTH) > kAutoValidateMaxBytes && !g.manualBuffers.count(currentBuffer())) return;
@@ -1574,9 +1570,6 @@ static void logQso() {
 
 static void openQsoFields();
 static void showQsoRows(NppHandle h, const adif::LintResult &r);
-static void radioFollow(bool on);
-static void qsoReadRadio(bool manual);
-static ADIFRadioKind radioKind();
 static void runLookup();
 static void scheduleLookup();
 
@@ -1637,17 +1630,7 @@ static void showQsoRows(NppHandle h, const adif::LintResult &r) {
         }
         g.qso.onLog = ^{ logQso(); };
         g.qso.onCustomize = ^{ openQsoFields(); };
-        g.qso.onRadio = ^{ qsoReadRadio(true); };
-        g.qso.onFollowRadio = ^(BOOL on) {
-            adifhost::setSetting("radioFollow", on ? "1" : "0");
-            if (on && radioKind() == ADIFRadioNone) {
-                [g.qso setRadioStatus:@"No radio set up: choose rigctld or flrig in Settings." severity:1];
-                openSettings(-2);
-            }
-            radioFollow(on);
-        };
         g.qso.onSpots = ^{ logtools::cmdPotaSpots(); };
-        g.qso.followRadio = adifhost::setting("radioFollow") == "1";
     }
     g.qso.timeDigits = timeDigits;
     g.qsoMode = mode;
@@ -1694,87 +1677,10 @@ static void openQsoFields() {
     }
 }
 
-// ── Radio ───────────────────────────────────────────────────────────────────
-
-static ADIFRadioKind radioKind() { return ADIFRadioKindFromSetting(adifhost::setting("radioKind")); }
-static NSString *radioHost() {
-    std::string h = adifhost::setting("radioHost");
-    return h.empty() ? @"127.0.0.1" : @(h.c_str());
-}
-static int radioPort() {
-    int p = std::atoi(adifhost::setting("radioPort").c_str());
-    return p > 0 && p < 65536 ? p : ADIFRadioDefaultPort(radioKind());
-}
-
 static bool qsoHasField(const char *name) {
     for (const adif::QsoField &q : g.qsoFields)
         if (q.name == name) return true;
     return false;
-}
-
-// "14.074 MHz USB (FTX-1)": what the radio said, for status lines.
-static std::string describeReading(const ADIFRadioReading &r) {
-    std::string mhz = adif::hzToMHz(r.hz);
-    std::string s = (mhz.empty() ? r.hz : mhz + " MHz") + " " + r.rigMode;
-    if (!r.rigName.empty()) s += " (" + r.rigName + ")";
-    return s;
-}
-
-// Read the radio into New QSO. `manual`: From Radio was pressed (always write, report errors loudly).
-static void qsoReadRadio(bool manual) {
-    if (radioKind() == ADIFRadioNone) {
-        if (manual) {
-            [g.qso setRadioStatus:@"No radio set up: choose rigctld or flrig in Settings." severity:1];
-            openSettings(-2);
-        }
-        return;
-    }
-    if (g.radio.busy) return;
-    g.radio.busy = true;
-    ADIFReadRadio(radioKind(), radioHost(), radioPort(), ^(const ADIFRadioReading &r, NSString *error) {
-        g.radio.busy = false;
-        if (!qsoVisible()) return;
-        if (error) {
-            [g.qso setRadioStatus:[@"Radio: " stringByAppendingString:error] severity:manual ? 2 : 1];
-            g.radio.lastHz.clear();
-            g.radio.lastMode.clear();
-            return;
-        }
-        adif::RigMode m = adif::mapRigMode(r.rigMode);
-        std::string mhz = adif::hzToMHz(r.hz);
-        bool changed = manual || r.hz != g.radio.lastHz || r.rigMode != g.radio.lastMode;
-        g.radio.lastHz = r.hz;
-        g.radio.lastMode = r.rigMode;
-        if (changed) {
-            if (!mhz.empty()) {
-                if (qsoHasField("FREQ")) [g.qso setValue:mhz forField:"FREQ"];
-                std::string band = adif::bandForFrequency(mhz);
-                if (!band.empty()) [g.qso setValue:band forField:"BAND"];
-            }
-            if (!m.data && !m.mode.empty()) {
-                [g.qso setValue:m.mode forField:"MODE"];
-                [g.qso setValue:m.submode forField:"SUBMODE"];
-            }
-            scheduleQsoCheck();
-        }
-        std::string status = "Radio: " + describeReading(r);
-        if (m.data) status += ". A data mode: set MODE (e.g. FT8) yourself.";
-        else if (m.mode.empty()) status += ". Unknown mode: MODE left as it is.";
-        [g.qso setRadioStatus:@(status.c_str()) severity:-1];
-    });
-}
-
-static void radioFollow(bool on) {
-    [g.radio.timer invalidate];
-    g.radio.timer = nil;
-    if (!on) return;
-    g.radio.timer = [NSTimer timerWithTimeInterval:2.0
-                                           repeats:YES
-                                             block:^(NSTimer *t) {
-                                                 if (qsoVisible() && g.qso.followRadio) qsoReadRadio(false);
-                                             }];
-    [[NSRunLoop mainRunLoop] addTimer:g.radio.timer forMode:NSRunLoopCommonModes];
-    qsoReadRadio(false);
 }
 
 // ── New QSO: call lookup, distance, hunting history ─────────────────────────
@@ -1938,8 +1844,8 @@ static void useSpot(const std::vector<std::pair<std::string, std::string>> &fiel
             submode |= f.first == "SUBMODE";
         }
         if (mode && !submode) [g.qso setValue:"" forField:"SUBMODE"];  // a CW spot must not keep an earlier USB
-        g.radio.lastHz.clear();  // Follow writes the radio's frequency again once you tune to the spot
         scheduleQsoCheck();
+        scheduleLookup();  // the spot's call and park: country, distance and the park's history
         [g.qso show];
         [g.qso focusField:"RST_RCVD"];
     } catch (...) {
@@ -1960,16 +1866,9 @@ static void cmdNewQso() {
         loadQsoRows(h, r, false);
         [g.qso setTarget:documentName()];
         [g.qso setSummary:"" severity:-1];
-        [g.qso setRadioStatus:radioKind() == ADIFRadioNone
-                                  ? @"No radio set up (Settings)."
-                                  : [NSString stringWithFormat:@"Radio: %@ at %@:%d", ADIFRadioKindName(radioKind()), radioHost(), radioPort()]
-                     severity:-1];
         [g.qso show];
         [g.qso focusField:"CALL"];
         scheduleQsoCheck();
-        g.radio.lastHz.clear();
-        g.radio.lastMode.clear();
-        if (g.qso.followRadio && radioKind() != ADIFRadioNone) radioFollow(true);
     } catch (...) {
     }
 }
@@ -1980,7 +1879,6 @@ static bool enrichVisible() { return g.enrich.panel && g.enrich.panel.window.vis
 
 // Confirmation downloads and the country file describe each QSO; callbooks give a station's home.
 static bool perQsoSource(ADIFSource s) { return s != ADIFSourceQRZ && s != ADIFSourceHamQTH; }
-static bool reportSource(ADIFSource s) { return s == ADIFSourceLoTW || s == ADIFSourceQRZLogbook || s == ADIFSourceEQSL; }
 
 static void enrichUpdateAccount() {
     ADIFSource src = (ADIFSource)g.enrich.panel.source;
@@ -2001,30 +1899,8 @@ static void enrichUpdateAccount() {
 static void openSettings(NSInteger source) {
     if (!g.settings) {
         g.settings = [[ADIFSettingsPanel alloc] init];
-        g.settings.onRadioSave = ^(NSInteger kind, NSString *host, int port) {
-            adifhost::setSetting("radioKind", ADIFRadioKindSetting((ADIFRadioKind)kind));
-            adifhost::setSetting("radioHost", host.UTF8String ?: "");
-            adifhost::setSetting("radioPort", std::to_string(port));
-            g.radio.lastHz.clear();
-            if (qsoVisible() && g.qso.followRadio) radioFollow(kind != 0);
-        };
         g.settings.onCountryUpdate = ^{
             ADIFUpdateCountryData(^(BOOL ok, NSString *message) { [g.settings setCountryStatus:message ok:ok]; });
-        };
-        g.settings.onRadioTest = ^(NSInteger kind, NSString *host, int port) {
-            ADIFReadRadio((ADIFRadioKind)kind, host, port, ^(const ADIFRadioReading &r, NSString *error) {
-                if (error) {
-                    [g.settings setRadioStatus:error ok:NO];
-                    return;
-                }
-                adif::RigMode m = adif::mapRigMode(r.rigMode);
-                std::string mhz = adif::hzToMHz(r.hz);
-                std::string s = "Connected: " + describeReading(r) + ". New QSO would log " +
-                                (mhz.empty() ? std::string("no FREQ") : "FREQ " + mhz + " (" + adif::bandForFrequency(mhz) + ")") +
-                                (m.data ? ", MODE as you set it (data mode)." : m.mode.empty() ? ", MODE as you set it." : ", MODE " + m.mode +
-                                 (m.submode.empty() ? "" : " " + m.submode) + ".");
-                [g.settings setRadioStatus:@(s.c_str()) ok:YES];
-            });
         };
         g.settings.onChanged = ^(NSInteger changed) {
             // New credentials: sign in again on the next lookup.
@@ -2032,7 +1908,6 @@ static void openSettings(NSInteger source) {
             if (g.enrich.panel) enrichUpdateAccount();
         };
     }
-    [g.settings setRadioKind:radioKind() host:radioHost() port:radioPort()];
     [g.settings setCountryStatus:ADIFCountryDataStatus() ok:YES];
     [g.settings showSource:source];
 }
@@ -2080,23 +1955,7 @@ static void enrichFinish() {
         std::vector<int> scope = enrichScope(r.model);
         std::string note = ADIFSourceName(g.enrich.source).UTF8String;
         size_t matched = 0;
-        if (reportSource(g.enrich.source)) {
-            adif::LintOptions ro;
-            ro.buildModel = true;
-            const std::string &rep = g.enrich.report;
-            adif::LintResult report = adif::lint(rep, ro);
-            std::map<int, adif::FieldMap> m =
-                g.enrich.source == ADIFSourceLoTW       ? adif::matchLotw(text, r.model, rep, report.model)
-                : g.enrich.source == ADIFSourceEQSL     ? adif::matchEqslInbox(text, r.model, rep, report.model)
-                                                        : adif::matchQrzConfirmed(text, r.model, rep, report.model, utcNow("%Y%m%d"));
-            std::string why = std::string("Confirmed in ") + ADIFSourceName(g.enrich.source).UTF8String;
-            for (int gi : scope) {
-                auto it = m.find(gi);
-                if (it == m.end()) continue;
-                ++matched;
-                adif::proposeChanges(text, r.model, gi, it->second, opt, why, changes);
-            }
-        } else if (g.enrich.source == ADIFSourceCountryData) {
+        if (g.enrich.source == ADIFSourceCountryData) {
             const adif::CountryTable &countries = ADIFCountries();
             for (int gi : scope) {
                 adif::FieldMap f = adif::countryFields(countries, adif::groupValue(text, r.model, r.model.groups[(size_t)gi], "CALL"));
@@ -2121,10 +1980,7 @@ static void enrichFinish() {
         [g.enrich.panel setRows:rows];
 
         std::string status = g.enrich.cancelled ? "Stopped. " : "";
-        if (reportSource(g.enrich.source)) {
-            status += std::to_string(matched) + " of " + std::to_string(scope.size()) + " records are confirmed in " +
-                      ADIFSourceName(g.enrich.source).UTF8String + ". ";
-        } else if (g.enrich.source == ADIFSourceCountryData) {
+        if (g.enrich.source == ADIFSourceCountryData) {
             status += std::to_string(matched) + " of " + std::to_string(scope.size()) + " calls have a known prefix. ";
         } else {
             status += "Found " + std::to_string(g.enrich.found.size()) + " of " + std::to_string(g.enrich.calls.size()) + " calls";
@@ -2219,56 +2075,10 @@ static void enrichFind() {
         e.found.clear();
         e.changes.clear();
         e.calls.clear();
-        e.report.clear();
         [e.panel setRows:std::vector<ADIFEnrichRow>()];
         [e.panel setBusy:YES];
         if (e.source == ADIFSourceCountryData) {  // offline: nothing to wait for
             enrichFinish();
-            return;
-        }
-        NSString *agent = [NSString stringWithFormat:@"ADIFLint/%s", ADIFLINT_VERSION];
-        auto received = ^(NSString *adifText, NSString *error) {
-            if (!g.enrich.running) return;
-            if (error) {
-                enrichFail(error);
-                return;
-            }
-            g.enrich.report = adifText.UTF8String ?: "";
-            enrichFinish();
-        };
-        if (e.source == ADIFSourceQRZLogbook) {
-            [e.panel setStatus:@"Downloading your confirmed QSOs from QRZ.com Logbook..." severity:-1];
-            ADIFFetchQrzConfirmed(agent, received);
-            return;
-        }
-        if (e.source == ADIFSourceEQSL) {
-            [e.panel setStatus:@"Downloading your eQSL InBox..." severity:-1];
-            ADIFFetchEqslInbox(agent, received);
-            return;
-        }
-        if (e.source == ADIFSourceLoTW) {
-            std::string lo = "99999999", hi = "00000000";
-            for (int gi : scope) {
-                std::string d(adif::groupValue(text, r.model, r.model.groups[(size_t)gi], "QSO_DATE"));
-                if (d.size() != 8) continue;
-                lo = std::min(lo, d);
-                hi = std::max(hi, d);
-            }
-            if (lo > hi) {
-                enrichFail(@"These records have no QSO_DATE to ask LoTW about.");
-                return;
-            }
-            auto dashed = [](const std::string &d) { return d.substr(0, 4) + "-" + d.substr(4, 2) + "-" + d.substr(6, 2); };
-            [e.panel setStatus:@"Downloading your LoTW confirmations..." severity:-1];
-            ADIFFetchLotwReport(@(dashed(lo).c_str()), @(dashed(hi).c_str()), ^(NSString *adif, NSString *error) {
-                if (!g.enrich.running) return;
-                if (error) {
-                    enrichFail(error);
-                    return;
-                }
-                g.enrich.report = adif.UTF8String ?: "";
-                enrichFinish();
-            });
             return;
         }
         std::set<std::string> unique;
@@ -2353,9 +2163,6 @@ static void openEnrich(ADIFSource source) {
         if (g.enrich.panel.source != source || !g.enrich.panel.window.visible) {
             NSString *title = source == ADIFSourceQRZ          ? @"Enrich from QRZ.com"
                               : source == ADIFSourceHamQTH     ? @"Enrich from HamQTH"
-                              : source == ADIFSourceLoTW       ? @"Enrich from LoTW Confirmations"
-                              : source == ADIFSourceQRZLogbook ? @"Enrich from QRZ.com Logbook Confirmations"
-                              : source == ADIFSourceEQSL       ? @"Enrich from eQSL Confirmations"
                                                                : @"Enrich from Country Data";
             [g.enrich.panel setSource:source title:title];
             g.enrich.client = nil;
@@ -2371,9 +2178,6 @@ static void openEnrich(ADIFSource source) {
 
 static void cmdEnrichQrz() { openEnrich(ADIFSourceQRZ); }
 static void cmdEnrichHamQth() { openEnrich(ADIFSourceHamQTH); }
-static void cmdEnrichLotw() { openEnrich(ADIFSourceLoTW); }
-static void cmdEnrichQrzLog() { openEnrich(ADIFSourceQRZLogbook); }
-static void cmdEnrichEqsl() { openEnrich(ADIFSourceEQSL); }
 static void cmdEnrichCountry() { openEnrich(ADIFSourceCountryData); }
 
 // ── Commands: settings and about ────────────────────────────────────────────
@@ -2429,12 +2233,12 @@ static void cmdAbout() {
             @"Checks and edits ADIF %s (%s) .adi amateur-radio logs: problems marked as you type (red error, "
             @"orange warning, blue note; hover to read), Fix Lengths, syntax colouring, Reformat, autocomplete and "
             @"the Record Panel.\n\n"
-            @"Logging and log tools: New QSO with radio, callsign lookup and POTA/WWFF spots; Log Table, Summary, "
+            @"Logging and log tools: New QSO with callsign lookup and POTA/WWFF spots; Log Table, Summary, "
             @"Activation Tracker and export for POTA, WWFF and SOTA; Worked Before; Bulk Edit and Time Shift; "
             @"duplicates, merge, CSV and Cabrillo. Every change is one undo step.\n\n"
-            @"Online services: Enrich from QRZ.com, HamQTH, LoTW, QRZ.com Logbook and eQSL; uploads to QRZ.com "
-            @"Logbook, LoTW (TQSL), Club Log and eQSL, sent only when you press Upload. Accounts stay in your macOS "
-            @"Keychain.\n\n"
+            @"Online services: import your QSOs and confirmations from LoTW, QRZ.com Logbook and eQSL; enrich from "
+            @"QRZ.com, HamQTH or offline country data; upload to QRZ.com Logbook, LoTW (TQSL), Club Log and eQSL, sent "
+            @"only when you press Upload. Accounts stay in your macOS Keychain.\n\n"
             @"Free software under the GNU GPL v3. Country data by Jim Reisert AD1C (MIT licence).",
             adif::kSpecVersion, adif::kSpecDate];
     [alert addButtonWithTitle:@"OK"];
@@ -2501,7 +2305,11 @@ extern "C" NPP_EXPORT void setInfo(NppData data) {
     setItem(kCmdSort, "Sort Records by Date and Time", logtools::cmdSortByTime);
     setItem(kCmdDupes, "Remove Duplicates...", logtools::cmdRemoveDuplicates);
     setItem(kCmdMerge, "Merge Another Log...", logtools::cmdMergeLog);
+    setItem(kSepImport, "", nullptr);
     setItem(kCmdImportCsv, "Import CSV...", logtools::cmdImportCsv);
+    setItem(kCmdImportLotw, "Import from LoTW...", imports::cmdImportLotw);
+    setItem(kCmdImportQrzLog, "Import from QRZ.com Logbook...", imports::cmdImportQrzLogbook);
+    setItem(kCmdImportEqsl, "Import from eQSL...", imports::cmdImportEqsl);
     setItem(kSepTools1, "", nullptr);
     setItem(kCmdExportCsv, "Export CSV...", logtools::cmdExportCsv);
     setItem(kCmdExportPota, "Export Activation Logs...", logtools::cmdExportPota);
@@ -2514,9 +2322,6 @@ extern "C" NPP_EXPORT void setInfo(NppData data) {
     setItem(kSepTools2, "", nullptr);
     setItem(kCmdEnrichQrz, "Enrich from QRZ.com...", cmdEnrichQrz);
     setItem(kCmdEnrichHamQth, "Enrich from HamQTH...", cmdEnrichHamQth);
-    setItem(kCmdEnrichLotw, "Enrich from LoTW Confirmations...", cmdEnrichLotw);
-    setItem(kCmdEnrichQrzLog, "Enrich from QRZ.com Logbook Confirmations...", cmdEnrichQrzLog);
-    setItem(kCmdEnrichEqsl, "Enrich from eQSL Confirmations...", cmdEnrichEqsl);
     setItem(kCmdEnrichCountry, "Enrich from Country Data...", cmdEnrichCountry);
     setItem(kSep0, "", nullptr);
     setItem(kCmdValidate, "Validate Now", cmdValidate);
@@ -2588,6 +2393,7 @@ extern "C" NPP_EXPORT void beNotified(SCNotification *n) {
                 if (enrichVisible() && !g.enrich.running) [g.enrich.panel setTarget:documentName()];
                 logtools::bufferActivated();
                 uploads::documentChanged();
+                imports::documentChanged();
                 break;
             case NPPN_DARKMODECHANGED:
                 for (NppHandle h : {nppData._scintillaMainHandle, nppData._scintillaSecondHandle}) styleIndicators(h);

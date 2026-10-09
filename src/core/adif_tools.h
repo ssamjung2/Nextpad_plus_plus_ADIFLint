@@ -268,6 +268,9 @@ std::vector<PotaFile> potaExport(std::string_view text, const DocModel &m, std::
 std::vector<std::pair<std::string, std::string>> spotFields(std::string_view activator, std::string_view kHz,
                                                             std::string_view mode, std::string_view reference);
 // "14059.1" (kHz) -> "14.0591" (MHz); empty when not a number.
+// "14074000" (Hz) -> "14.074" (ADIF FREQ is in MHz); a decimal part is rounded
+// ("14074000.000000"). Empty when not a number.
+std::string hzToMHz(std::string_view hz);
 std::string khzToMHz(std::string_view kHz);
 
 // ── Worked before ───────────────────────────────────────────────────────────

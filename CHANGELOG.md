@@ -11,13 +11,31 @@ Versions before 0.8.0 were development builds and were not published.
 
 ### Added
 
+- **Import from LoTW…, Import from QRZ.com Logbook…, Import from eQSL…**, grouped with
+  Import CSV: download your QSOs from the site, add the ones the log lacks, and add the
+  confirmation and its details to the ones it has, after a review (one undo step). LoTW
+  returns every QSO you uploaded, confirmed or not; QRZ.com Logbook every record; eQSL its
+  InBox, whose QSOs the log lacks are offered but not ticked, since they are the other
+  station's records.
 - [User guide](docs/USER_GUIDE.md), [CONTRIBUTING.md](CONTRIBUTING.md) and
   [SECURITY.md](SECURITY.md); the README is rewritten as an overview, with this changelog
   kept separately.
 
 ### Changed
 
+- The confirmation sources leave Enrich: **Enrich from LoTW Confirmations…**, **QRZ.com
+  Logbook Confirmations…** and **eQSL Confirmations…** are replaced by the Import commands.
+  Enrich keeps QRZ.com, HamQTH and Country Data.
+- A confirmation from eQSL or QRZ.com Logbook upgrades a status that says it hasn't
+  happened (EQSL_QSL_RCVD N, R, Q or I becomes Y; APP_QRZLOG_STATUS becomes C), as LoTW's
+  already did.
+- Using a spot runs New QSO's lookup, so the country and the park's history show at once.
 - The About box describes the current features and links to the project page.
+
+### Removed
+
+- The radio connection: **From Radio**, **Follow the radio** and Settings → Radio
+  (Hamlib `rigctld` and flrig). The old radio settings are dropped from `ADIFLint.ini`.
 
 ## [0.8.0] - 2026-10-08
 

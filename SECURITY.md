@@ -18,12 +18,10 @@ supported.
   written to `ADIFLint.ini`, to logs or to any other file, and a saved password is never
   shown again. Settings → Remove deletes them.
 - **Network requests** use HTTPS and go only to the service you chose, when you ask:
-  Enrich, Upload, Test Sign-In, a callbook lookup you turned on in New QSO, an open Spots
-  window, or Settings → Country Data → Update. The README lists every address. The
+  Enrich, Import, Upload, Test Sign-In, a callbook lookup you turned on in New QSO, an open
+  Spots window, or Settings → Country Data → Update. The README lists every address. The
   QRZ.com sign-in is sent as a POST; HamQTH's sign-in, LoTW's report API and eQSL's
   DownloadInBox take the login in the HTTPS address, as those services document it.
-- **Radio control** connects only to the rigctld or flrig host and port you set, and only
-  reads the frequency and mode; it never keys or tunes the radio.
 - **Programs run**: TQSL, which you choose, for LoTW uploads (with the certificate
   password on its command line when you save one, where other programs on your Mac could
   see it while TQSL runs), and `/usr/bin/unzip` to unpack a downloaded country file.

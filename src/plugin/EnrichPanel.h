@@ -1,4 +1,4 @@
-// The Enrich window for one source (QRZ.com, HamQTH or LoTW, chosen by the menu
+// The Enrich window for one source (QRZ.com, HamQTH or Country Data, chosen by the menu
 // command that opens it): the account in use, which fields to fill, progress,
 // and a review table of proposed changes. AppKit only; ADIFLint.mm runs the
 // lookups and applies the accepted changes.

@@ -16,8 +16,7 @@
     NSMutableArray<NSTextField *> *_user;    // per source; hidden for API-key sources
     NSMutableArray<NSSecureTextField *> *_secret;
     NSMutableArray<NSTextField *> *_status;
-    NSPopUpButton *_radioKind;
-    NSTextField *_radioHost, *_radioPort, *_radioStatus, *_countryStatus;
+    NSTextField *_countryStatus;
     NSButton *_countryUpdate;
     NSScrollView *_scroll;
 }
@@ -50,18 +49,11 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     _window.delegate = self;
 
     NSMutableArray<NSView *> *views = [NSMutableArray array];
-    [views addObject:[self radioSection]];
-    for (NSView *section in @[ [self countrySection] ]) {
-        NSBox *line = [[NSBox alloc] init];
-        line.boxType = NSBoxSeparator;
-        [line.widthAnchor constraintEqualToConstant:kTextWidth].active = YES;
-        [views addObject:line];
-        [views addObject:section];
-    }
-    NSBox *radioLine = [[NSBox alloc] init];
-    radioLine.boxType = NSBoxSeparator;
-    [radioLine.widthAnchor constraintEqualToConstant:kTextWidth].active = YES;
-    [views addObject:radioLine];
+    [views addObject:[self countrySection]];
+    NSBox *countryLine = [[NSBox alloc] init];
+    countryLine.boxType = NSBoxSeparator;
+    [countryLine.widthAnchor constraintEqualToConstant:kTextWidth].active = YES;
+    [views addObject:countryLine];
     [views addObject:wrapping(@"Accounts and API keys for the online services. They are saved in your macOS Keychain "
                               @"(items named \"ADIF Lint: ...\"), never in a file, and a saved password is never shown "
                               @"here.",
@@ -116,48 +108,6 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     return self;
 }
 
-- (NSView *)radioSection {
-    NSTextField *title = [NSTextField labelWithString:@"Radio"];
-    title.font = [NSFont boldSystemFontOfSize:NSFont.systemFontSize + 1];
-    NSTextField *help = wrapping(@"New QSO can read FREQ and MODE from your radio through Hamlib's rigctld or through "
-                                 @"flrig, when one of them is running and connected to the radio. Only reads are sent: "
-                                 @"nothing here keys or tunes the radio. Defaults: rigctld port 4532, flrig port 12345.",
-                                 NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
-    _radioKind = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    [_radioKind addItemsWithTitles:@[ @"None", @"Hamlib rigctld", @"flrig" ]];
-    _radioKind.target = self;
-    _radioKind.action = @selector(radioKindChanged:);
-    _radioHost = [NSTextField textFieldWithString:@"127.0.0.1"];
-    _radioHost.placeholderString = @"127.0.0.1";
-    [_radioHost.widthAnchor constraintEqualToConstant:180].active = YES;
-    _radioPort = [NSTextField textFieldWithString:@""];
-    _radioPort.placeholderString = @"4532";
-    [_radioPort.widthAnchor constraintEqualToConstant:70].active = YES;
-    NSStackView *where = [NSStackView stackViewWithViews:@[ _radioHost, [NSTextField labelWithString:@"Port:"], _radioPort ]];
-    where.spacing = 8;
-    NSGridView *grid = [NSGridView gridViewWithViews:@[
-        @[ [NSTextField labelWithString:@"Program:"], _radioKind ],
-        @[ [NSTextField labelWithString:@"Host:"], where ],
-    ]];
-    grid.rowSpacing = 6;
-    grid.columnSpacing = 8;
-    grid.rowAlignment = NSGridRowAlignmentFirstBaseline;
-    [grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
-    [grid columnAtIndex:0].width = 80;
-    NSButton *save = [NSButton buttonWithTitle:@"Save" target:self action:@selector(radioSave:)];
-    NSButton *test = [NSButton buttonWithTitle:@"Test" target:self action:@selector(radioTest:)];
-    NSStackView *buttons = [NSStackView stackViewWithViews:@[ save, test ]];
-    buttons.spacing = 8;
-    _radioStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
-    NSStackView *section = [NSStackView stackViewWithViews:@[ title, help, grid, buttons, _radioStatus ]];
-    section.orientation = NSUserInterfaceLayoutOrientationVertical;
-    section.alignment = NSLayoutAttributeLeading;
-    section.spacing = 8;
-    [section setCustomSpacing:4 afterView:title];
-    section.identifier = @"settings.radio";
-    return section;
-}
-
 - (NSView *)countrySection {
     NSTextField *title = [NSTextField labelWithString:@"Country Data"];
     title.font = [NSFont boldSystemFontOfSize:NSFont.systemFontSize + 1];
@@ -186,51 +136,6 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     _countryUpdate.enabled = YES;
     _countryStatus.stringValue = text ?: @"";
     _countryStatus.textColor = ok ? NSColor.secondaryLabelColor : NSColor.systemRedColor;
-}
-
-- (int)radioPortValue {
-    int port = _radioPort.intValue;
-    if (port <= 0 || port > 65535) port = _radioKind.indexOfSelectedItem == 2 ? 12345 : 4532;
-    return port;
-}
-
-- (void)radioKindChanged:(id)sender {
-    NSString *def = _radioKind.indexOfSelectedItem == 2 ? @"12345" : @"4532";
-    _radioPort.placeholderString = def;
-    if ([_radioPort.stringValue isEqualToString:@"4532"] || [_radioPort.stringValue isEqualToString:@"12345"])
-        _radioPort.stringValue = def;
-}
-
-- (void)setRadioKind:(NSInteger)kind host:(NSString *)host port:(int)port {
-    [_radioKind selectItemAtIndex:kind >= 0 && kind <= 2 ? kind : 0];
-    _radioHost.stringValue = host.length ? host : @"127.0.0.1";
-    _radioPort.stringValue = port > 0 ? [NSString stringWithFormat:@"%d", port] : @"";
-    _radioPort.placeholderString = kind == 2 ? @"12345" : @"4532";
-}
-
-- (void)setRadioStatus:(NSString *)text ok:(BOOL)ok {
-    _radioStatus.stringValue = text ?: @"";
-    _radioStatus.textColor = ok ? NSColor.secondaryLabelColor : NSColor.systemRedColor;
-}
-
-- (NSString *)radioHostValue {
-    NSString *h = [_radioHost.stringValue stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
-    return h.length ? h : @"127.0.0.1";
-}
-
-- (void)radioSave:(id)sender {
-    if (self.onRadioSave) self.onRadioSave(_radioKind.indexOfSelectedItem, [self radioHostValue], [self radioPortValue]);
-    [self setRadioStatus:_radioKind.indexOfSelectedItem == 0 ? @"Saved: no radio." : @"Saved." ok:YES];
-}
-
-- (void)radioTest:(id)sender {
-    if (self.onRadioSave) self.onRadioSave(_radioKind.indexOfSelectedItem, [self radioHostValue], [self radioPortValue]);
-    if (_radioKind.indexOfSelectedItem == 0) {
-        [self setRadioStatus:@"Choose rigctld or flrig first." ok:NO];
-        return;
-    }
-    [self setRadioStatus:@"Asking the radio..." ok:YES];
-    if (self.onRadioTest) self.onRadioTest(_radioKind.indexOfSelectedItem, [self radioHostValue], [self radioPortValue]);
 }
 
 - (NSView *)sectionFor:(ADIFSource)source {
@@ -302,11 +207,6 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
 - (void)showSource:(NSInteger)source {
     [self refresh];
     [_window makeKeyAndOrderFront:nil];
-    if (source == -2) {
-        [_window makeFirstResponder:_radioHost];
-        [_scroll.documentView scrollPoint:NSZeroPoint];
-        return;
-    }
     if (source == -3) {  // country data
         [_countryUpdate scrollRectToVisible:_countryUpdate.bounds];
         return;

@@ -6,7 +6,6 @@
 #include "adif_edit.h"
 #include "adif_enrich.h"
 #include "adif_lint.h"
-#include "adif_radio.h"
 #include "adif_spec.h"
 #include "adif_tools.h"
 #include "adif_upload.h"
@@ -14,6 +13,7 @@
 #include "adif_country.h"
 #include "adif_programs.h"
 #include "adif_formats.h"
+#include "adif_import.h"
 
 #include <algorithm>
 #include <cmath>
@@ -678,40 +678,6 @@ static void testEnrich() {
               std::string::npos,
           "portable record got only the name");
 
-    // LoTW: match confirmations by call, band, time window and mode.
-    std::string log = std::string(kHeader) +
-                      "<CALL:5>K1ABC <QSO_DATE:8>20261006 <TIME_ON:6>230000 <BAND:3>20m <MODE:3>SSB <LOTW_QSL_RCVD:1>N <EOR>\n"
-                      "<CALL:4>W1AW <QSO_DATE:8>20261006 <TIME_ON:4>2310 <BAND:3>40m <MODE:2>CW <EOR>\n"
-                      "<CALL:5>N0CAL <QSO_DATE:8>20261006 <TIME_ON:4>2320 <BAND:3>20m <MODE:3>FT8 <EOR>\n";
-    std::string report = "ARRL Logbook of the World Status Report\n<PROGRAMID:4>LoTW\n<APP_LoTW_NUMREC:1>3\n<eoh>\n"
-                         "<CALL:5>K1ABC <BAND:3>20M <MODE:3>SSB <QSO_DATE:8>20261006 <TIME_ON:6>232500 <QSL_RCVD:1>Y "
-                         "<QSLRDATE:8>20261010 <DXCC:3>291 <COUNTRY:24>UNITED STATES OF AMERICA <GRIDSQUARE:4>FN42 "
-                         "<STATE:2>MA <CNTY:11>MA,Franklin <CQZ:1>5 <ITUZ:1>8 <eor>\n"
-                         "<CALL:4>W1AW <BAND:3>20M <MODE:2>CW <QSO_DATE:8>20261006 <TIME_ON:6>231000 <QSL_RCVD:1>Y "
-                         "<QSLRDATE:8>20261010 <GRIDSQUARE:4>FN31 <eor>\n"
-                         "<CALL:5>N0CAL <BAND:3>20M <MODE:3>FT4 <QSO_DATE:8>20261006 <TIME_ON:6>232000 <QSL_RCVD:1>Y "
-                         "<QSLRDATE:8>20261011 <GRIDSQUARE:4>EN34 <eor>\n";
-    LintResult rl = lintModel(log), rr = lintModel(report);
-    std::map<int, FieldMap> m = matchLotw(log, rl.model, report, rr.model);
-    CHECK(m.count(1) && m[1]["GRIDSQUARE"] == "FN42" && m[1]["CNTY"] == "MA,Franklin" && m[1]["LOTW_QSLRDATE"] == "20261010",
-          "K1ABC matched within 30 minutes");
-    CHECK(!m.count(2), "W1AW not matched: different band");
-    CHECK(m.count(3) && m[3]["GRIDSQUARE"] == "EN34", "N0CAL matched: FT8 and FT4 are both data modes");
-    EnrichOptions lo;
-    lo.perQsoData = true;
-    lo.fields = {"GRIDSQUARE", "STATE", "CNTY", "DXCC", "COUNTRY", "CQZ", "ITUZ", "LOTW_QSL_RCVD", "LOTW_QSLRDATE"};
-    std::vector<EnrichChange> lc;
-    for (const auto &kv : m) proposeChanges(log, rl.model, kv.first, kv.second, lo, "LoTW", lc);
-    bool upgraded = false;
-    for (const EnrichChange &c : lc)
-        if (c.group == 1 && c.field == "LOTW_QSL_RCVD") upgraded = c.replace && c.accepted && c.current == "N" && c.value == "Y";
-    CHECK(upgraded, "LOTW_QSL_RCVD N -> Y offered and ticked");
-    std::vector<TextEdit> le = enrichmentEdits(log, rl.model, lc, LengthUnit::Bytes, true);
-    std::string lout = log;
-    for (auto it = le.rbegin(); it != le.rend(); ++it) lout = applyEdit(lout, *it);
-    LintResult rlo = lint(lout);
-    CHECK(rlo.errors == 0 && lout.find("<LOTW_QSL_RCVD:1>Y") != std::string::npos && lout.find("<LOTW_QSLRDATE:8>20261010") != std::string::npos,
-          "LoTW confirmation applied:\n%s", lout.c_str());
 }
 
 // Reformatting the official file must keep every field and marker, in order.
@@ -1157,9 +1123,9 @@ static void testWorkedBefore() {
     CHECK(workedSummary("K1AB", {}).empty(), "nothing worked");
 }
 
-// ── Radio ───────────────────────────────────────────────────────────────────
+// ── Frequencies ─────────────────────────────────────────────────────────────
 
-static void testRadio() {
+static void testFrequencies() {
     CHECK(hzToMHz("14074000") == "14.074" && hzToMHz("7000000") == "7.000" && hzToMHz("144390000") == "144.390" &&
               hzToMHz("14285500") == "14.2855" && hzToMHz("1840123") == "1.840123" && hzToMHz(" 5332000\n") == "5.332",
           "Hz to MHz: %s %s", hzToMHz("14285500").c_str(), hzToMHz("1840123").c_str());
@@ -1167,72 +1133,7 @@ static void testRadio() {
     CHECK(hzToMHz("").empty() && hzToMHz("14.07x").empty() && hzToMHz("-5").empty() && hzToMHz("abc").empty() &&
               hzToMHz(".5").empty(),
           "non-numbers");
-    CHECK(bandForFrequency(hzToMHz("14074000")) == "20m" && bandForFrequency(hzToMHz("50313000")) == "6m", "band from the radio");
-
-    // Every Hamlib mode token (rigctld(1), Hamlib 4.7.2) maps to a valid ADIF MODE/SUBMODE, or to data, or to nothing.
-    const EnumDef *modeEnum = findEnum("Mode"), *subEnum = findEnum("Submode");
-    for (const char *tok : {"USB", "LSB", "CW", "CWR", "RTTY", "RTTYR", "AM", "FM", "WFM", "AMS", "PKTLSB", "PKTUSB", "PKTFM",
-                            "ECSSUSB", "ECSSLSB", "FA", "SAM", "SAL", "SAH", "DSB",
-                            // flrig names as radios report them
-                            "CW-U", "CW-L", "CW-R", "RTTY-L", "RTTY-U", "DATA-U", "DATA-L", "DATA-FM", "USB-D", "LSB-D",
-                            "FM-N", "AM-N", "C4FM", "D-STAR", "DV", "PSK-U", "FSK", "D-U"}) {
-        RigMode r = mapRigMode(tok);
-        bool ok = r.data ? r.mode.empty()
-                         : (!r.mode.empty() && findEnumValue(*modeEnum, r.mode) &&
-                            (r.submode.empty() || findEnumValue(*subEnum, r.submode, r.mode)));
-        CHECK(ok, "%s -> %s/%s data=%d", tok, r.mode.c_str(), r.submode.c_str(), r.data);
-    }
-    auto is = [](const char *tok, const char *mode, const char *sub) {
-        RigMode r = mapRigMode(tok);
-        return !r.data && r.mode == mode && r.submode == sub;
-    };
-    CHECK(is("usb", "SSB", "USB") && is("LSB", "SSB", "LSB") && is("CWR", "CW", "") && is("RTTYR", "RTTY", "") &&
-              is("WFM", "FM", "") && is("FA", "FAX", "") && is("C4FM", "DIGITALVOICE", "C4FM") && is("D-STAR", "DIGITALVOICE", "DSTAR"),
-          "mode mapping");
-    CHECK(mapRigMode("PKTUSB").data && mapRigMode("DATA-U").data && mapRigMode("USB-D").data && !mapRigMode("USB").data,
-          "data modes");
-    CHECK(mapRigMode("").mode.empty() && mapRigMode("WIDGET").mode.empty() && !mapRigMode("WIDGET").data, "unknown names");
-
-    // rigctld Extended Response Protocol, as in the rigctld(1) examples.
-    std::vector<RigctldBlock> b = parseRigctld("get_freq:\nFrequency: 14074000\nRPRT 0\nget_mode:\nMode: USB\nPassband: 2400\nRPRT 0\n");
-    CHECK(b.size() == 2 && b[0].command == "get_freq" && b[0].values["Frequency"] == "14074000" && b[0].result == 0 &&
-              b[1].values["Mode"] == "USB" && b[1].values["Passband"] == "2400",
-          "two blocks");
-    b = parseRigctld("get_freq: currVFO\r\nFrequency: 7074000\r\nRPRT 0\r\nget_mode: currVFO\r\nRPRT -11\r\n");
-    CHECK(b.size() == 2 && b[0].values["Frequency"] == "7074000" && b[1].result == -11 && b[1].values.empty(),
-          "VFO echo and an error code");
-    CHECK(parseRigctld("get_freq:\nFrequency: 1").empty(), "an unfinished block is not returned");
-    CHECK(rigctldQuery(false) == "+\\get_freq\n+\\get_mode\n" && rigctldQuery(true).find("currVFO") != std::string::npos,
-          "queries");
-
-    // flrig XML-RPC (XmlRpc++ writes strings with or without <string>).
-    std::string v, fault;
-    CHECK(xmlRpcRequest("rig.get_vfo").find("<methodName>rig.get_vfo</methodName>") != std::string::npos, "request");
-    CHECK(xmlRpcValue("<?xml version=\"1.0\"?>\r\n<methodResponse><params><param>\r\n\t<value>14074000</value>\r\n"
-                      "</param></params></methodResponse>\r\n", &v, &fault) && v == "14074000",
-          "bare value");
-    CHECK(xmlRpcValue("<methodResponse><params><param><value><string>USB</string></value></param></params></methodResponse>", &v,
-                      &fault) && v == "USB",
-          "string value");
-    CHECK(xmlRpcValue("<methodResponse><params><param><value></value></param></params></methodResponse>", &v, &fault) && v.empty(),
-          "empty transceiver name");
-    CHECK(xmlRpcValue("<params><param><value>A&amp;B &lt;1&gt;</value></param></params>", &v, &fault) && v == "A&B <1>", "entities");
-    CHECK(!xmlRpcValue("<methodResponse><fault><value><struct><member><name>faultString</name><value><string>No such method"
-                       "</string></value></member></struct></value></fault></methodResponse>", &v, &fault) &&
-              fault == "No such method",
-          "fault");
-    CHECK(!xmlRpcValue("garbage", &v, &fault), "garbage");
-
-    int status = 0;
-    std::string body;
-    std::string post = httpPost("127.0.0.1", 12345, "<x/>");
-    CHECK(post.find("POST /RPC2 HTTP/1.1\r\n") == 0 && post.find("Content-Length: 4\r\n") != std::string::npos &&
-              post.substr(post.size() - 4) == "<x/>",
-          "POST");
-    CHECK(!httpResponse("HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\n12345", &status, &body), "incomplete body");
-    CHECK(httpResponse("HTTP/1.1 200 OK\r\nServer: XMLRPC++ 0.8\r\nContent-Type: text/xml\r\nContent-length: 5\r\n\r\nhello", &status,
-                       &body) && status == 200 && body == "hello",
-          "complete response");
+    CHECK(bandForFrequency(hzToMHz("14074000")) == "20m" && bandForFrequency(hzToMHz("50313000")) == "6m", "band from Hz");
 }
 
 // ── Uploads ─────────────────────────────────────────────────────────────────
@@ -1558,36 +1459,132 @@ static void testFormats() {
           "counts and end");
 }
 
-static void testConfirmations() {
+static void testImport() {
+    auto applied = [](const std::string &log, const LintResult &lr, const std::vector<ImportItem> &items,
+                      const std::vector<SiteQso> &qsos) {
+        std::vector<EnrichChange> changes;
+        std::vector<size_t> adds;
+        for (const ImportItem &i : items) {
+            if (i.kind == ImportItem::Kind::Update) changes.insert(changes.end(), i.changes.begin(), i.changes.end());
+            if (i.kind == ImportItem::Kind::Add && qsos[i.qso].problem.empty()) adds.push_back(i.qso);
+        }
+        std::string out = applyTextEdits(log, enrichmentEdits(log, lr.model, changes, LengthUnit::Bytes, true));
+        LintResult mr = lintModel(out);
+        size_t start = 0;
+        std::string records = importedRecords(qsos, adds, recordLayout(out, mr.model), "\n", LengthUnit::Bytes, true);
+        return applyTextEdits(out, {appendRecord(out, mr.model, records, "\n", &start)});
+    };
+    auto kind = [](const std::vector<ImportItem> &items, size_t q) { return items[q].kind; };
+
+    // LoTW (qso_qsl=no): your uploaded QSOs, confirmed or not.
     std::string log = std::string(kHeader) +
-                      "<CALL:4>K1AB <QSO_DATE:8>20261006 <TIME_ON:4>2230 <BAND:3>20m <MODE:3>SSB <EOR>\n"
-                      "<CALL:6>N0CX/P <QSO_DATE:8>20261006 <TIME_ON:4>2240 <BAND:3>40m <MODE:2>CW <EOR>\n";
-    LintResult lr = lintModel(log);
+                      "<CALL:5>K1ABC <QSO_DATE:8>20261006 <TIME_ON:6>230000 <BAND:3>20m <MODE:3>SSB <LOTW_QSL_RCVD:1>N <EOR>\n"
+                      "<CALL:4>W1AW <QSO_DATE:8>20261006 <TIME_ON:4>2310 <BAND:3>40m <MODE:2>CW <EOR>\n"
+                      "<CALL:5>N0CAL <QSO_DATE:8>20261006 <TIME_ON:4>2320 <BAND:3>20m <MODE:3>FT8 <EOR>\n";
+    std::string report =
+        "ARRL Logbook of the World Status Report\n<PROGRAMID:4>LoTW\n<APP_LoTW_LASTQSORX:19>2026-10-07 01:02:03\n<eoh>\n"
+        "<STATION_CALLSIGN:4>KW9D <CALL:5>K1ABC <BAND:3>20M <FREQ:8>14.25000 <MODE:3>SSB <QSO_DATE:8>20261006 <TIME_ON:6>232500 "
+        "<APP_LoTW_RXQSO:19>2026-10-07 01:02:03 <QSL_RCVD:1>Y <QSLRDATE:8>20261010 <DXCC:3>291 <COUNTRY:24>UNITED STATES OF AMERICA "
+        "<GRIDSQUARE:4>FN42 <STATE:2>MA <CNTY:11>MA,Franklin <CQZ:1>5 <ITUZ:1>8 <MY_GRIDSQUARE:4>EN52 <eor>\n"
+        "<STATION_CALLSIGN:4>KW9D <CALL:4>W1AW <BAND:3>20M <MODE:2>CW <QSO_DATE:8>20261006 <TIME_ON:6>231000 "
+        "<APP_LoTW_RXQSO:19>2026-10-07 01:02:03 <QSL_RCVD:1>N <MY_GRIDSQUARE:4>EN52 <eor>\n"
+        "<STATION_CALLSIGN:4>KW9D <CALL:5>N0CAL <BAND:3>20M <APP_LoTW_MODE:3>FT4 <QSO_DATE:8>20261006 <TIME_ON:6>232000 "
+        "<QSL_RCVD:1>Y <QSLRDATE:8>20261011 <GRIDSQUARE:4>EN34 <eor>\n"
+        "<STATION_CALLSIGN:4>KW9D <CALL:5>N0CAL <BAND:3>20M <MODE:3>FT8 <QSO_DATE:8>20261006 <TIME_ON:6>232100 <QSL_RCVD:1>N <eor>\n"
+        "<CALL:4>NOTM <BAND:3>20M <QSO_DATE:8>20261006 <TIME_ON:6>232200 <eor>\n"
+        "<APP_LoTW_EOF>\n";
+    LintResult rl = lintModel(log), rr = lintModel(report);
+    std::vector<SiteQso> lq = siteQsos(ImportSite::LoTW, report, rr.model, "20261012");
+    CHECK(lq.size() == 5, "5 LoTW records (%zu)", lq.size());
+    if (lq.size() == 5) {
+        CHECK(lq[0].confirmed && lq[0].update["LOTW_QSL_RCVD"] == "Y" && lq[0].update["LOTW_QSLRDATE"] == "20261010" &&
+                  lq[0].update["LOTW_QSL_SENT"] == "Y" && lq[0].update["LOTW_QSLSDATE"] == "20261007" &&
+                  lq[0].update["GRIDSQUARE"] == "FN42" && !lq[0].update.count("MY_GRIDSQUARE"),
+              "LoTW confirmation and the confirming station's details");
+        CHECK(!lq[1].confirmed && !lq[1].update.count("LOTW_QSL_RCVD") && !lq[1].update.count("GRIDSQUARE"), "unconfirmed: no QSL fields");
+        CHECK(lq[2].mode == "MFSK" && lq[2].problem.empty(), "APP_LoTW_MODE FT4 -> MFSK/FT4 (%s)", lq[2].mode.c_str());
+        CHECK(lq[4].problem == "no MODE", "a record without a mode can't be added: %s", lq[4].problem.c_str());
+        std::vector<ImportItem> items = planImport(log, rl.model, lq, ImportSite::LoTW);
+        CHECK(kind(items, 0) == ImportItem::Kind::Update && items[0].record == 1, "K1ABC matched record 1 (25 minutes apart)");
+        bool upgraded = false;
+        for (const EnrichChange &c : items[0].changes)
+            if (c.field == "LOTW_QSL_RCVD") upgraded = c.replace && c.accepted && c.current == "N" && c.value == "Y";
+        CHECK(upgraded, "LOTW_QSL_RCVD N -> Y offered and ticked");
+        CHECK(kind(items, 1) == ImportItem::Kind::Add, "W1AW on 20m is not the log's 40m QSO: added");
+        std::string out = applied(log, rl, items, lq);
+        LintResult ro = lint(out);
+        CHECK(ro.errors == 0 && out.find("<LOTW_QSL_RCVD:1>Y") != std::string::npos &&
+                  out.find("<CALL:4>W1AW <QSO_DATE:8>20261006 <TIME_ON:6>231000 <BAND:3>20M <MODE:2>CW <STATION_CALLSIGN:4>KW9D "
+                           "<MY_GRIDSQUARE:4>EN52 <LOTW_QSL_SENT:1>Y <LOTW_QSLSDATE:8>20261007 <EOR>") != std::string::npos,
+              "LoTW import applied:\n%s", out.c_str());
+    }
+
+    // The same mode beats the same mode group: N0CAL FT8 in LoTW matches the log's FT8, and the FT4 one is new.
+    {
+        std::vector<ImportItem> items = planImport(log, rl.model, lq, ImportSite::LoTW);
+        CHECK(lq.size() == 5 && items[3].kind == ImportItem::Kind::Update && items[2].kind == ImportItem::Kind::Add,
+              "exact mode wins: FT8 updates record 3, FT4 is added (%d %d)", lq.size() == 5 ? (int)items[3].kind : -1,
+              lq.size() == 5 ? (int)items[2].kind : -1);
+    }
+
+    // eQSL InBox: the sender's record; their RST_SENT is your RST_RCVD; offered to add, not ticked.
+    std::string elog = std::string(kHeader) +
+                       "<CALL:4>K1AB <QSO_DATE:8>20261006 <TIME_ON:4>2230 <BAND:3>20m <MODE:3>SSB <EQSL_QSL_RCVD:1>N <EOR>\n";
+    LintResult el = lintModel(elog);
     std::string inbox = "ADIF 3 Export from eQSL.cc\n<PROGRAMID:21>eQSL.cc DownloadInBox\n<ADIF_Ver:5>3.1.6\n<EOH>\n"
                         "<CALL:4>K1AB <QSO_DATE:8>20261006 <TIME_ON:4>2245 <BAND:3>20M <MODE:3>SSB <RST_SENT:2>59 <QSL_SENT:1>Y "
-                        "<QSL_SENT_VIA:1>E <GRIDSQUARE:6>FN31pr <EQSL_QSL_RCVD:1>Y <EQSL_QSLRDATE:8>20261007 <EOR>\n";
+                        "<QSL_SENT_VIA:1>E <GRIDSQUARE:6>FN31pr <EQSL_QSL_RCVD:1>Y <EQSL_QSLRDATE:8>20261007 <EOR>\n"
+                        "<CALL:4>W9NO <QSO_DATE:8>20261006 <TIME_ON:4>2250 <BAND:3>40M <MODE:2>CW <RST_SENT:3>579 "
+                        "<EQSL_QSL_RCVD:1>Y <EQSL_QSLRDATE:8>20261007 <EOR>\n";
     LintResult ir = lintModel(inbox);
-    std::map<int, FieldMap> e = matchEqslInbox(log, lr.model, inbox, ir.model);
-    CHECK(e.size() == 1 && e.begin()->second["EQSL_QSL_RCVD"] == "Y" && e.begin()->second["EQSL_QSLRDATE"] == "20261007" &&
-              e.begin()->second["GRIDSQUARE"] == "FN31pr",
-          "eQSL InBox matched (15 minutes apart)");
-    // QRZ FETCH reply: entities decoded; '_' in calls is '/'; only APP_QRZLOG_STATUS C counts.
-    std::string body = "RESULT=OK&COUNT=2&ADIF=&lt;call:6&gt;N0CX_P &lt;qso_date:8&gt;20261006 &lt;time_on:4&gt;2241 "
+    std::vector<SiteQso> eq = siteQsos(ImportSite::EQSL, inbox, ir.model, "20261012");
+    std::vector<ImportItem> ei = planImport(elog, el.model, eq, ImportSite::EQSL);
+    CHECK(eq.size() == 2 && ei[0].kind == ImportItem::Kind::Update && ei[1].kind == ImportItem::Kind::Add && !eq[1].addByDefault,
+          "eQSL: K1AB updated (15 minutes apart), W9NO offered unticked");
+    bool eqUp = false;
+    for (const EnrichChange &c : ei[0].changes) eqUp |= c.field == "EQSL_QSL_RCVD" && c.replace && c.current == "N";
+    CHECK(eqUp, "EQSL_QSL_RCVD N -> Y");
+    std::string eout = applied(elog, el, ei, eq);
+    CHECK(lint(eout).errors == 0 &&
+              eout.find("<CALL:4>W9NO <QSO_DATE:8>20261006 <TIME_ON:4>2250 <BAND:3>40M <MODE:2>CW <RST_RCVD:3>579 "
+                        "<EQSL_QSL_RCVD:1>Y <EQSL_QSLRDATE:8>20261007 <EOR>") != std::string::npos &&
+              eout.find("<RST_SENT") == std::string::npos,
+          "eQSL import applied:\n%s", eout.c_str());
+
+    // QRZ.com Logbook FETCH: entities decoded; '_' in calls is '/'; APP_QRZLOG_STATUS C is confirmed.
+    std::string qlog = std::string(kHeader) +
+                       "<CALL:4>K1AB <QSO_DATE:8>20261006 <TIME_ON:4>2230 <BAND:3>20m <MODE:3>SSB <EOR>\n"
+                       "<CALL:6>N0CX/P <QSO_DATE:8>20261006 <TIME_ON:4>2240 <BAND:3>40m <MODE:2>CW <EOR>\n";
+    LintResult ql = lintModel(qlog);
+    std::string body = "RESULT=OK&COUNT=3&ADIF=&lt;call:6&gt;N0CX_P &lt;qso_date:8&gt;20261006 &lt;time_on:4&gt;2241 "
                        "&lt;band:3&gt;40m &lt;mode:2&gt;CW &lt;app_qrzlog_status:1&gt;C &lt;app_qrzlog_qsldate:8&gt;20261008 "
                        "&lt;app_qrzlog_logid:9&gt;123456789 &lt;eor&gt;\n&lt;call:4&gt;K1AB &lt;qso_date:8&gt;20261006 "
-                       "&lt;time_on:4&gt;2230 &lt;band:3&gt;20m &lt;mode:3&gt;SSB &lt;app_qrzlog_status:1&gt;N &lt;eor&gt;\n";
+                       "&lt;time_on:4&gt;2230 &lt;band:3&gt;20m &lt;mode:3&gt;SSB &lt;app_qrzlog_status:1&gt;N &lt;eor&gt;\n"
+                       "&lt;call:4&gt;W2XY &lt;qso_date:8&gt;20261006 &lt;time_on:4&gt;2300 &lt;band:3&gt;20m &lt;mode:3&gt;FT4 "
+                       "&lt;station_callsign:4&gt;KW9D &lt;comment:5&gt;hello &lt;app_qrzlog_status:1&gt;N &lt;eor&gt;\n";
     QrzReply q;
     std::string adif;
-    CHECK(parseQrzFetch(body, &q, &adif) && q.result == "OK" && q.count == "2" && adif.find("<call:6>N0CX_P") == 0,
+    CHECK(parseQrzFetch(body, &q, &adif) && q.result == "OK" && q.count == "3" && adif.find("<call:6>N0CX_P") == 0,
           "FETCH parsed: %s", adif.substr(0, 40).c_str());
     LintResult fr = lintModel(adif);
-    std::map<int, FieldMap> m = matchQrzConfirmed(log, lr.model, adif, fr.model, "20261009");
-    CHECK(m.size() == 1 && m.begin()->first == 2 && m.begin()->second["APP_QRZLOG_STATUS"] == "C" &&
-              m.begin()->second["APP_QRZLOG_QSLDATE"] == "20261008" && m.begin()->second["QRZCOM_QSO_DOWNLOAD_STATUS"] == "Y" &&
-              m.begin()->second["QRZCOM_QSO_DOWNLOAD_DATE"] == "20261009",
-          "QRZ confirmed N0CX/P only");
-    CHECK(qrzFetchBody("AB-12", 7, 250) == "KEY=AB-12&ACTION=FETCH&OPTION=STATUS%3ACONFIRMED%2CMAX%3A250%2CAFTERLOGID%3A7",
-          "FETCH body");
+    std::vector<SiteQso> qq = siteQsos(ImportSite::QRZLogbook, adif, fr.model, "20261009");
+    std::vector<ImportItem> qi = planImport(qlog, ql.model, qq, ImportSite::QRZLogbook);
+    CHECK(qq.size() == 3 && qq[0].call == "N0CX/P" && qq[0].confirmed && qq[0].update["APP_QRZLOG_QSLDATE"] == "20261008" &&
+              qq[0].update["QRZCOM_QSO_DOWNLOAD_DATE"] == "20261009" && !qq[1].confirmed,
+          "QRZ records read");
+    CHECK(qi[0].kind == ImportItem::Kind::Update && qi[0].record == 2 && qi[1].kind == ImportItem::Kind::Update &&
+              qi[1].changes.size() == 1 && qi[1].changes[0].field == "QRZCOM_QSO_UPLOAD_STATUS" && qi[2].kind == ImportItem::Kind::Add,
+          "QRZ: N0CX/P confirmed, K1AB marked uploaded, W2XY added");
+    std::string qout = applied(qlog, ql, qi, qq);
+    CHECK(lint(qout).errors == 0 &&
+              qout.find("<CALL:4>W2XY <QSO_DATE:8>20261006 <TIME_ON:4>2300 <BAND:3>20m <MODE:4>MFSK <STATION_CALLSIGN:4>KW9D "
+                        "<COMMENT:5>hello <SUBMODE:3>FT4 <QRZCOM_QSO_UPLOAD_STATUS:1>Y <EOR>") != std::string::npos &&
+              qout.find("APP_QRZLOG_LOGID") == std::string::npos,
+          "QRZ import applied:\n%s", qout.c_str());
+    CHECK(qrzFetchBody("AB-12", 7, 250) == "KEY=AB-12&ACTION=FETCH&OPTION=MAX%3A250%2CAFTERLOGID%3A7" &&
+              qrzFetchBody("AB-12", 0, 250, "2026-10-06+2026-10-07") ==
+                  "KEY=AB-12&ACTION=FETCH&OPTION=BETWEEN%3A2026-10-06%2B2026-10-07%2CMAX%3A250%2CAFTERLOGID%3A0",
+          "FETCH body: %s", qrzFetchBody("AB-12", 0, 250, "2026-10-06+2026-10-07").c_str());
     CHECK(htmlDecode("&lt;a&gt; &amp;&#65;&#x42; &bogus; &") == "<a> &AB &bogus; &", "entities");
     std::string err;
     CHECK(eqslInboxLink("<HTML>Your ADIF log file has been built<BR><A HREF=\"../downloadedfiles/x123.adi\">.ADI file</A>"
@@ -1693,7 +1690,7 @@ int main(int argc, char **argv) {
     testCsv();
     testPota();
     testWorkedBefore();
-    testRadio();
+    testFrequencies();
     testSpots();
     testUpload();
     testReviewFixes();
@@ -1706,7 +1703,7 @@ int main(int argc, char **argv) {
     }
     testPrograms();
     testFormats();
-    testConfirmations();
+    testImport();
     if (argc > 1) testOfficialFile(argv[1]);
     else std::printf("note: official test file not given; skipping\n");
     std::printf("%d/%d checks passed\n", gChecks - gFailures, gChecks);

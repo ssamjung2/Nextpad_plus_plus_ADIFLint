@@ -111,6 +111,8 @@ long daysFromCivil(int y, int m, int d) {
     return era * 146097 + (long)doe - 719468;
 }
 
+}  // namespace
+
 // QSO_DATE + TIME_ON -> minutes since 1970, or -1 when malformed.
 long qsoMinutes(std::string_view date, std::string_view time) {
     if (date.size() != 8 || !allDigits(date) || (time.size() != 4 && time.size() != 6) || !allDigits(time)) return -1;
@@ -128,7 +130,6 @@ int modeGroup(std::string_view mode) {
     return 2;
 }
 
-}  // namespace
 
 // ── Mapping callbook data to ADIF fields ────────────────────────────────────
 
@@ -240,6 +241,17 @@ bool awayFromHome(std::string_view text, const DocModel &m, const ModelGroup &g)
 
 // ── Proposals ───────────────────────────────────────────────────────────────
 
+// A confirmation or download replaces a status that says it hasn't happened:
+// LOTW_QSL_RCVD and EQSL_QSL_RCVD N, R, Q or I become Y (V, verified, stays);
+// QRZCOM_QSO_DOWNLOAD_STATUS N or I becomes Y; APP_QRZLOG_STATUS becomes C.
+static bool upgradesStatus(const std::string &field, std::string_view current, std::string_view value) {
+    if (field == "LOTW_QSL_RCVD" || field == "EQSL_QSL_RCVD")
+        return equalsNoCase(value, "Y") && !equalsNoCase(current, "Y") && !equalsNoCase(current, "V");
+    if (field == "QRZCOM_QSO_DOWNLOAD_STATUS") return equalsNoCase(value, "Y") && !equalsNoCase(current, "Y");
+    if (field == "APP_QRZLOG_STATUS") return equalsNoCase(value, "C") && !equalsNoCase(current, "C");
+    return false;
+}
+
 void proposeChanges(std::string_view text, const DocModel &m, int group, const FieldMap &data, const EnrichOptions &opt,
                     const std::string &note, std::vector<EnrichChange> &out) {
     if (group < 0 || (size_t)group >= m.groups.size()) return;
@@ -258,7 +270,7 @@ void proposeChanges(std::string_view text, const DocModel &m, int group, const F
             out.push_back(std::move(c));
         } else if (equalsNoCase(current, it->second)) {
             continue;
-        } else if (field == "LOTW_QSL_RCVD" && !equalsNoCase(current, "Y") && !equalsNoCase(current, "V")) {
+        } else if (upgradesStatus(field, current, it->second)) {
             c.replace = true;  // a confirmation upgrades N/R/Q/I: always worth offering
             out.push_back(std::move(c));
         } else if (opt.proposeReplacements) {
@@ -267,118 +279,6 @@ void proposeChanges(std::string_view text, const DocModel &m, int group, const F
             out.push_back(std::move(c));
         }
     }
-}
-
-// ── LoTW ────────────────────────────────────────────────────────────────────
-
-namespace {
-
-struct Confirmation {
-    std::string band, mode;
-    long minutes;
-    FieldMap fields;
-};
-
-// Same CALL and BAND, start times within 30 minutes, the same mode preferred over the same mode group, then the closest time.
-std::map<int, FieldMap> matchConfirmations(std::string_view logText, const DocModel &log,
-                                           const std::map<std::string, std::vector<Confirmation>> &byCall) {
-    std::map<int, FieldMap> out;
-    for (size_t gi = 0; gi < log.groups.size(); ++gi) {
-        const ModelGroup &g = log.groups[gi];
-        if (g.header) continue;
-        auto it = byCall.find(upper(groupValue(logText, log, g, "CALL")));
-        if (it == byCall.end()) continue;
-        std::string band(groupValue(logText, log, g, "BAND")), mode(groupValue(logText, log, g, "MODE"));
-        long minutes = qsoMinutes(groupValue(logText, log, g, "QSO_DATE"), groupValue(logText, log, g, "TIME_ON"));
-        if (minutes < 0) continue;
-        const Confirmation *best = nullptr;
-        long bestDiff = 0;
-        bool bestExact = false;
-        for (const Confirmation &c : it->second) {
-            if (!equalsNoCase(c.band, band)) continue;
-            long diff = std::labs(c.minutes - minutes);
-            if (diff > 30) continue;
-            bool exact = equalsNoCase(c.mode, mode);
-            if (!exact && modeGroup(c.mode) != modeGroup(mode)) continue;
-            if (!best || (exact && !bestExact) || (exact == bestExact && diff < bestDiff)) {
-                best = &c;
-                bestDiff = diff;
-                bestExact = exact;
-            }
-        }
-        if (best) out[(int)gi] = best->fields;
-    }
-    return out;
-}
-
-void putDate(FieldMap &f, const char *name, std::string_view v) {
-    std::string d = trimmed(v);
-    if (d.size() == 8 && allDigits(d)) f[name] = d;
-}
-
-}  // namespace
-
-std::map<int, FieldMap> matchLotw(std::string_view logText, const DocModel &log, std::string_view report,
-                                  const DocModel &reportModel) {
-    std::map<std::string, std::vector<Confirmation>> byCall;
-    for (const ModelGroup &g : reportModel.groups) {
-        if (g.header) continue;
-        if (!equalsNoCase(groupValue(report, reportModel, g, "QSL_RCVD"), "Y")) continue;  // not confirmed
-        std::string call = upper(groupValue(report, reportModel, g, "CALL"));
-        long minutes = qsoMinutes(groupValue(report, reportModel, g, "QSO_DATE"), groupValue(report, reportModel, g, "TIME_ON"));
-        if (call.empty() || minutes < 0) continue;
-        Confirmation c{std::string(groupValue(report, reportModel, g, "BAND")),
-                       std::string(groupValue(report, reportModel, g, "MODE")), minutes, {}};
-        for (const char *f : {"GRIDSQUARE", "STATE", "CNTY", "CQZ", "ITUZ", "DXCC", "COUNTRY", "IOTA"}) {
-            std::string v = trimmed(groupValue(report, reportModel, g, f));
-            if (!v.empty() && printableAscii(v)) c.fields[f] = v;
-        }
-        c.fields["LOTW_QSL_RCVD"] = "Y";
-        putDate(c.fields, "LOTW_QSLRDATE", groupValue(report, reportModel, g, "QSLRDATE"));
-        byCall[call].push_back(std::move(c));
-    }
-    return matchConfirmations(logText, log, byCall);
-}
-
-std::map<int, FieldMap> matchEqslInbox(std::string_view logText, const DocModel &log, std::string_view inbox,
-                                       const DocModel &inboxModel) {
-    std::map<std::string, std::vector<Confirmation>> byCall;
-    for (const ModelGroup &g : inboxModel.groups) {
-        if (g.header) continue;
-        std::string call = upper(groupValue(inbox, inboxModel, g, "CALL"));
-        long minutes = qsoMinutes(groupValue(inbox, inboxModel, g, "QSO_DATE"), groupValue(inbox, inboxModel, g, "TIME_ON"));
-        if (call.empty() || minutes < 0) continue;
-        Confirmation c{std::string(groupValue(inbox, inboxModel, g, "BAND")), std::string(groupValue(inbox, inboxModel, g, "MODE")),
-                       minutes, {}};
-        c.fields["EQSL_QSL_RCVD"] = "Y";  // every InBox record is an eQSL received
-        putDate(c.fields, "EQSL_QSLRDATE", groupValue(inbox, inboxModel, g, "EQSL_QSLRDATE"));
-        std::string grid = trimmed(groupValue(inbox, inboxModel, g, "GRIDSQUARE"));
-        if (grid.size() >= 4 && printableAscii(grid)) c.fields["GRIDSQUARE"] = grid;
-        byCall[call].push_back(std::move(c));
-    }
-    return matchConfirmations(logText, log, byCall);
-}
-
-std::map<int, FieldMap> matchQrzConfirmed(std::string_view logText, const DocModel &log, std::string_view fetched,
-                                          const DocModel &fetchedModel, std::string_view today) {
-    std::map<std::string, std::vector<Confirmation>> byCall;
-    for (const ModelGroup &g : fetchedModel.groups) {
-        if (g.header) continue;
-        if (!equalsNoCase(trimmed(groupValue(fetched, fetchedModel, g, "APP_QRZLOG_STATUS")), "C")) continue;
-        std::string call = upper(groupValue(fetched, fetchedModel, g, "CALL"));
-        for (char &ch : call)
-            if (ch == '_') ch = '/';
-        long minutes = qsoMinutes(groupValue(fetched, fetchedModel, g, "QSO_DATE"), groupValue(fetched, fetchedModel, g, "TIME_ON"));
-        if (call.empty() || minutes < 0) continue;
-        Confirmation c{std::string(groupValue(fetched, fetchedModel, g, "BAND")),
-                       std::string(groupValue(fetched, fetchedModel, g, "MODE")), minutes, {}};
-        c.fields["APP_QRZLOG_STATUS"] = "C";
-        putDate(c.fields, "APP_QRZLOG_QSLDATE", groupValue(fetched, fetchedModel, g, "APP_QRZLOG_QSLDATE"));
-        c.fields["QRZCOM_QSO_DOWNLOAD_STATUS"] = "Y";
-        putDate(c.fields, "QRZCOM_QSO_DOWNLOAD_DATE", today);
-        byCall[call].push_back(std::move(c));
-    }
-    return matchConfirmations(logText, log, byCall);
 }
 
 // ── Edits ───────────────────────────────────────────────────────────────────

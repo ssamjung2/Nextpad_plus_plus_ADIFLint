@@ -17,7 +17,7 @@ static NSColor *severityColor(int severity) {
 }
 
 // The fields the window offers, and which sources provide them: bit (1 << ADIFSource):
-// 0 QRZ.com, 1 HamQTH, 2 LoTW, 3 QRZ.com Logbook, 6 eQSL, 8 Country Data.
+// 0 QRZ.com, 1 HamQTH, 8 Country Data.
 struct FieldOption {
     NSString *label;
     std::vector<std::string> fields;
@@ -28,19 +28,15 @@ static const std::vector<FieldOption> &fieldOptions() {
     static const std::vector<FieldOption> options = {
         {@"Name", {"NAME"}, 0b011, true},
         {@"City (QTH)", {"QTH"}, 0b011, true},
-        {@"State", {"STATE"}, 0b111, true},
-        {@"County", {"CNTY"}, 0b111, true},
-        {@"Grid square", {"GRIDSQUARE"}, 0b1000111, true},
-        {@"Country and DXCC", {"DXCC", "COUNTRY"}, 0b100000111, true},
-        {@"CQ zone", {"CQZ"}, 0b100000111, true},
-        {@"ITU zone", {"ITUZ"}, 0b100000111, true},
-        {@"IOTA", {"IOTA"}, 0b111, true},
+        {@"State", {"STATE"}, 0b011, true},
+        {@"County", {"CNTY"}, 0b011, true},
+        {@"Grid square", {"GRIDSQUARE"}, 0b011, true},
+        {@"Country and DXCC", {"DXCC", "COUNTRY"}, 0b100000011, true},
+        {@"CQ zone", {"CQZ"}, 0b100000011, true},
+        {@"ITU zone", {"ITUZ"}, 0b100000011, true},
+        {@"IOTA", {"IOTA"}, 0b011, true},
         {@"Continent", {"CONT"}, 0b100000010, true},
         {@"Latitude and longitude", {"LAT", "LON"}, 0b011, false},
-        {@"LoTW confirmation", {"LOTW_QSL_RCVD", "LOTW_QSLRDATE"}, 0b100, true},
-        {@"QRZ.com confirmation", {"APP_QRZLOG_STATUS", "APP_QRZLOG_QSLDATE", "QRZCOM_QSO_DOWNLOAD_STATUS", "QRZCOM_QSO_DOWNLOAD_DATE"},
-         0b1000, true},
-        {@"eQSL confirmation", {"EQSL_QSL_RCVD", "EQSL_QSLRDATE"}, 0b1000000, true},
     };
     return options;
 }
@@ -222,7 +218,7 @@ static const std::vector<FieldOption> &fieldOptions() {
         b.enabled = (fieldOptions()[(size_t)b.tag].sources & bit) != 0;
         b.toolTip = b.enabled ? nil : [NSString stringWithFormat:@"%@ does not provide this.", ADIFSourceName((ADIFSource)self.source)];
     }
-    // Only callbooks give a home address; confirmations and the prefix describe each QSO.
+    // Only callbooks give a home address; the prefix describes each QSO.
     _skipAway.enabled = self.source == 0 || self.source == 1;
 }
 

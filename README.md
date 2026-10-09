@@ -3,9 +3,9 @@
 ADIF Lint is a [Nextpad++](https://nextpad.org) plugin for amateur-radio logs in
 [ADIF 3.1.7](https://www.adif.org/317/ADIF_317.htm) ADI format (`.adi`, `.adif`). It checks
 a log as you type and repairs its data lengths, and it adds what you need around a log:
-logging contacts with your radio, tools for POTA, WWFF and SOTA activations, filling in
-missing details from callbooks and confirmations, and uploading to QRZ.com, LoTW, Club Log
-and eQSL.
+logging contacts, tools for POTA, WWFF and SOTA activations, importing your QSOs and
+confirmations from LoTW, QRZ.com and eQSL, filling in missing details from callbooks, and
+uploading to QRZ.com, LoTW, Club Log and eQSL.
 
 Hand-editing an ADI file is risky: every field is written `<NAME:LENGTH>data`, so
 changing `W1AW` to `W1AW/P` without changing `4` to `6` silently truncates the call, and a
@@ -15,9 +15,9 @@ don't report either mistake. ADIF Lint marks them as you type and fixes them in 
 ADIF Lint is free software under the [GNU GPL v3](LICENSE). It is an independent project,
 not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
 
-| New QSO with the callsign lookup | Log Table |
+| New QSO, filled from a POTA spot | Log Table |
 |---|---|
-| ![New QSO window: fields carried over, a lookup line with country, distance and bearing](docs/images/new-qso-lookup.png) | ![Log Table: records with readable dates and times, sortable and editable](docs/images/log-table.png) |
+| ![New QSO window filled from a POTA spot: station fields carried over, the park in SIG_INFO, and a lookup line with the country and "US-12593: a new park!"](docs/images/new-qso-spot.png) | ![Log Table: records with readable dates and times, sortable and editable](docs/images/log-table.png) |
 | **Activation Tracker** | **Upload to QRZ.com Logbook** |
 | ![Activation Tracker: a POTA park-day with 10 QSOs, activated](docs/images/activation-tracker.png) | ![Upload window: QSOs to send, one that can't be sent in red, nothing sent until Upload](docs/images/upload-qrz.png) |
 
@@ -39,7 +39,6 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
 - **New QSO**: log contacts one after another, with your station's fields carried over,
   UTC date and time, live checks and duplicate warnings that follow POTA's park-to-park
   rule.
-- Frequency and mode from your radio through Hamlib `rigctld` or flrig (read-only).
 - Callsign lookup as you type: country, zones and continent offline, or name, QTH and grid
   from QRZ.com or HamQTH, with distance and bearing and what your logs say about the park.
 - POTA and WWFF spots, marked NEW when the park or reference isn't in your logs; pick one
@@ -56,8 +55,10 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
 - **Import CSV**, **Export CSV** and **Export Cabrillo**.
 
 **Online services**
-- **Enrich** missing fields from QRZ.com, HamQTH or offline country data, and add
-  confirmations from LoTW, QRZ.com Logbook and eQSL, after you review every change.
+- **Import** your QSOs from LoTW, QRZ.com Logbook or eQSL: QSOs the log lacks are added,
+  and the ones it has gain the site's confirmation and the details that come with it,
+  after you review every change.
+- **Enrich** missing fields from QRZ.com, HamQTH or offline country data.
 - **Upload** to QRZ.com Logbook, LoTW (through TQSL), Club Log and eQSL. Each window lists
   exactly what would be sent, nothing is sent until you press Upload, and the ADIF
   upload-status fields are kept up to date.
@@ -72,8 +73,7 @@ Every window and option is described in the [user guide](docs/USER_GUIDE.md).
 
 - macOS 11 or later, on Apple silicon or Intel (the plugin is universal).
 - Nextpad++ for Mac 1.1.2 or later.
-- Optional: TQSL for LoTW uploads; Hamlib `rigctld` or flrig for the radio; accounts with
-  the online services you use.
+- Optional: TQSL for LoTW uploads, and accounts with the online services you use.
 
 ## Install
 
@@ -115,8 +115,7 @@ To uninstall, quit Nextpad++ and delete the `ADIFLint` folder.
    to read it.
 2. **Plugins → ADIF Lint → Fix Lengths** repairs the lengths. **Validate Now** shows a
    summary.
-3. **New QSO…** starts logging. To fill FREQ and MODE from your radio, start `rigctld` or
-   flrig and set it up in **Settings… → Radio**.
+3. **New QSO…** starts logging.
 4. To use an online service, add your account in **Settings…** first.
 
 The source repository has [`examples/try-me.adi`](examples/try-me.adi), with one of each
@@ -141,10 +140,10 @@ shortcuts, so assign your own in Nextpad++'s Shortcut Mapper.
 | Remove Duplicates… | Find QSOs logged twice and remove them after review |
 | Merge Another Log… | Add another log's QSOs that this one doesn't have |
 | Import CSV… | Add a CSV file's rows to the log |
+| Import from LoTW… / QRZ.com Logbook… / eQSL… | Download your QSOs: add the ones the log lacks, confirm the ones it has |
 | Export CSV… / Export Activation Logs… / Export Cabrillo… | Save as CSV, as POTA, WWFF or SOTA upload files, or as a Cabrillo contest log |
 | Upload to QRZ.com Logbook… / LoTW (TQSL)… / Club Log… / eQSL… | List what would be sent, upload when you say so, mark it uploaded |
 | Enrich from QRZ.com… / HamQTH… | Fill missing station details from a callbook |
-| Enrich from LoTW / QRZ.com Logbook / eQSL Confirmations… | Add confirmations and the details they carry |
 | Enrich from Country Data… | Fill DXCC, country, zones and continent from the call's prefix, offline |
 | Validate Now | Check the current document and show a summary |
 | Fix Lengths | Correct every data length |
@@ -155,7 +154,7 @@ shortcuts, so assign your own in Nextpad++'s Shortcut Mapper.
 | Colour ADIF Syntax | Syntax colouring (on by default) |
 | Autocomplete Field Names and Values | `<` lists and automatic lengths (on by default) |
 | Count Lengths in Characters | Count lengths in UTF-8 characters instead of bytes |
-| Settings… | Radio, country data, and accounts for the online services |
+| Settings… | Country data, and accounts for the online services |
 | About ADIF Lint… | Version, licence and links |
 
 Every command that changes the log is one undo step, and nothing is saved until you save
@@ -170,10 +169,10 @@ HTTPS.
 |---|---|---|---|
 | QRZ.com XML | `xmldata.qrz.com` | Enrich from QRZ.com; New QSO lookup set to QRZ.com; Test Sign-In | Your username and password (POST), then the calls looked up |
 | HamQTH | `www.hamqth.com` | Enrich from HamQTH; New QSO lookup set to HamQTH; Test Sign-In | Your username and password, then the calls looked up |
-| LoTW | `lotw.arrl.org` | Enrich from LoTW Confirmations; Test Sign-In | Your username and password and the log's date range |
-| QRZ.com Logbook | `logbook.qrz.com` | Upload; Enrich from QRZ.com Logbook Confirmations; Test Sign-In | Your API key and the QSOs you upload |
+| LoTW | `lotw.arrl.org` | Import from LoTW; Test Sign-In | Your username and password and the log's date range |
+| QRZ.com Logbook | `logbook.qrz.com` | Upload; Import from QRZ.com Logbook; Test Sign-In | Your API key, the log's date range and the QSOs you upload |
 | Club Log | `clublog.org` | Upload to Club Log | Your email, Application Password, API key and the QSOs you upload |
-| eQSL | `www.eqsl.cc` | Upload to eQSL; Enrich from eQSL Confirmations | Your username and password and the QSOs you upload |
+| eQSL | `www.eqsl.cc` | Upload to eQSL; Import from eQSL | Your username and password, the log's date range and the QSOs you upload |
 | POTA | `api.pota.app` | The Spots window (POTA), every minute while it is open | Nothing but the request |
 | WWFF | `spots.wwff.co` | The Spots window (WWFF), every minute while it is open | Nothing but the request |
 | Country files | `www.country-files.com` | Settings → Country Data → Update | Nothing but the request |
@@ -182,8 +181,6 @@ HTTPS.
   a file, and a saved password is never shown again. HamQTH's sign-in, LoTW's report API
   and eQSL's DownloadInBox take the login in the HTTPS address, as those services document
   it.
-- **The radio** is reached only at the rigctld or flrig host and port you set (your own
-  Mac by default), with read-only queries: nothing keys or tunes it.
 - **TQSL** runs on your Mac for LoTW uploads. A certificate password you save is passed on
   its command line, where other programs on your Mac could see it while TQSL runs.
 - **Settings** are kept in `ADIFLint.ini` in Nextpad++'s plugin config folder
@@ -212,8 +209,8 @@ cd build && ctest --output-on-failure
 
 The tests check every validation rule against the ADIF specification and the official
 ADIF test file, fuzz the parsers, and drive the built plugin through every window against
-a simulated Nextpad++, with stand-in servers in place of the online services and the
-radio. [CONTRIBUTING.md](CONTRIBUTING.md) covers the build, the tests, the project layout
+a simulated Nextpad++, with saved sample replies in place of the online services.
+[CONTRIBUTING.md](CONTRIBUTING.md) covers the build, the tests, the project layout
 and the release steps.
 
 ## Limits
@@ -221,10 +218,13 @@ and the release steps.
 - Nextpad++ doesn't let plugins supply a lexer or write to the status bar, so colours are
   painted for the lines on screen, and summaries appear in a tip at the caret.
 - Only the active document is checked.
-- The online services and the radio were tested against stand-ins, not the live services.
+- The online services were tested against saved sample replies, not the live services.
 - No SOTA spots: the SOTA API's terms don't allow software written with AI tools without
   the SOTA team's approval. SOTA tracking and export work offline.
-- Club Log offers no documented way to download confirmations.
+- Club Log offers no documented way to download QSOs or confirmations, so there is no
+  Import from Club Log. eQSL documents only its InBox (the eQSLs others sent you), so Import
+  from eQSL offers the QSOs your log lacks without ticking them: they are the other
+  station's records.
 - ADX (XML) files are not handled.
 
 The [user guide](docs/USER_GUIDE.md#limits) lists the rest.

@@ -13,13 +13,15 @@
 
 #import <Foundation/Foundation.h>
 
+#include "adif_import.h"
+
 #include <map>
 #include <string>
 
 typedef NS_ENUM(NSInteger, ADIFSource) {
     ADIFSourceQRZ = 0,         // callbook (Enrich)
     ADIFSourceHamQTH = 1,      // callbook (Enrich)
-    ADIFSourceLoTW = 2,        // confirmations (Enrich)
+    ADIFSourceLoTW = 2,        // your QSOs and confirmations (Import)
     ADIFSourceQRZLogbook = 3,  // upload: the logbook's API key
     ADIFSourceClubLog = 4,     // upload: account email and Application Password
     ADIFSourceClubLogKey = 5,  // upload: Club Log API key for this program
@@ -62,11 +64,6 @@ typedef void (^ADIFCallbookDone)(BOOL found, const std::map<std::string, std::st
 @property(nonatomic, readonly) NSString *notice;  // a message from the service to show the user
 @end
 
-// Download confirmed QSOs with the QSLing station's details for QSO dates in
-// [start, end] (YYYY-MM-DD). Completion runs on the main queue with the ADIF
-// text, or an error.
-void ADIFFetchLotwReport(NSString *startDate, NSString *endDate, void (^done)(NSString *adif, NSString *error));
-
 // Current POTA activator spots from https://api.pota.app/spot/activator (a JSON
 // array of objects). In test mode, <ADIFLINT_FAKE_LOOKUP_DIR>/pota/spots.json.
 // Completion on the main queue: the objects (NSDictionary only) or an error.
@@ -85,13 +82,13 @@ void ADIFClubLogUpload(NSString *agent, NSString *callsign, NSString *adiFile, N
 // eQSL ImportADIF.cfm: the saved username and password; `reply` is the returned page.
 void ADIFEqslUpload(NSString *agent, NSString *adiFile, NSString *fileName, void (^done)(NSString *reply, NSString *error));
 
-// ── Confirmations, spots and data downloads (completion on the main queue) ──
+// ── Imports, spots and data downloads (completion on the main queue) ────────
 
-// QRZ.com Logbook: all records QRZ marks confirmed (FETCH STATUS:CONFIRMED, 250 at
-// a time), as one ADIF text. Test mode: <fake dir>/qrzlog/fetch.txt.
-void ADIFFetchQrzConfirmed(NSString *agent, void (^done)(NSString *adif, NSString *error));
-// eQSL InBox (incoming eQSLs) as ADIF. Test mode: <fake dir>/eqsl/inbox.adi.
-void ADIFFetchEqslInbox(NSString *agent, void (^done)(NSString *adif, NSString *error));
+// Your QSOs from a site, as one ADIF text, for QSO dates `from` to `to`
+// (YYYYMMDD; empty for all): LoTW (uploaded QSOs, confirmed or not), QRZ.com
+// Logbook (every record) or the eQSL InBox (eQSLs others sent you). Test mode:
+// <fake dir>/lotw/lotwreport.adi, qrzlog/fetch.txt, eqsl/inbox.adi.
+void ADIFDownloadSiteQsos(adif::ImportSite site, NSString *from, NSString *to, void (^done)(NSString *adif, NSString *error));
 // WWFF spots from https://spots.wwff.co/static/spots.json (WWFF asks for no more than
 // one fetch every 30 seconds). Test mode: <fake dir>/wwff/spots.json.
 void ADIFFetchWwffSpots(NSString *agent, void (^done)(NSArray<NSDictionary *> *spots, NSString *error));
