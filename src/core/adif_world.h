@@ -4,12 +4,15 @@
 // converted by tools/gen_world_outline.py) and a log's grids, parks and your locations.
 #pragma once
 
+#include "adif_country.h"
 #include "adif_lint.h"
+#include "adif_parks.h"
 #include "adif_tools.h"
 
 #include <array>
 #include <cstddef>
 #include <map>
+#include <set>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -68,6 +71,21 @@ std::map<int, std::vector<RingRef>> dxccRings(const std::vector<EntityPlace> &pl
 // A QSO confirmed by card, LoTW or eQSL: QSL_RCVD, LOTW_QSL_RCVD or EQSL_QSL_RCVD Y or V.
 bool isConfirmed(const Record &r);
 
+// Where a QSO counts on the Map's area layers (adif_worked resolves these): each from the
+// record's field, else where the QSO was, else the country data, and which of those it came from.
+enum class AreaFrom { None, Field, Location, CountryFile };
+struct QsoAreas {
+    std::string state;  // postal code; US QSOs only (DXCC 291, 6, 110)
+    AreaFrom stateFrom = AreaFrom::None;
+    std::string county;  // the Map's county ("WI,Dane")
+    AreaFrom countyFrom = AreaFrom::None;
+    bool countyUnmatched = false;  // CNTY was given but names no county the Map has
+    int cq = 0, itu = 0;
+    AreaFrom cqFrom = AreaFrom::None, ituFrom = AreaFrom::None;
+    int dxcc = 0;      // DXCC, else the country data's
+    std::string cont;  // CONT, else the country data's
+};
+
 struct MapQso {
     int group = -1, record = 0;  // DocModel group, 1-based record number
     std::string call, date, time, band, mode, grid;
@@ -88,6 +106,10 @@ struct MapQso {
     // POTA parks, as POTA's list writes them (potaListRef): the other station's (theirParks:
     // POTA_REF, else SIG_INFO) and yours (myParks: MY_POTA_REF, else MY_SIG_INFO).
     std::vector<std::string> potaHunted, potaActivated;
+    // The record's own place fields, as written (adif_worked resolves them with the location).
+    std::string state, cnty, cont, arrlSect;
+    int dxcc = 0, cqz = 0, ituz = 0;
+    QsoAreas areas;  // resolved
 };
 struct MapSquare {
     std::string grid;  // 4 characters, upper case ("FN31")
@@ -111,13 +133,28 @@ struct MapData {
     size_t records = 0, withoutGrid = 0;
     size_t unusedLatLon = 0;  // records whose LAT and LON were left out (MapQso::located)
 };
-// Which records the map shows: empty strings mean any.
+// Which records the map shows: empty means any. Within a kind any value matches; every kind
+// given must match.
 struct MapFilter {
     std::string band, mode;      // mode matches MODE or SUBMODE
     std::string from, to;        // QSO_DATE range, YYYYMMDD, both included
     int confirmed = 0;           // 0 all, 1 confirmed only, 2 not confirmed
+    std::set<std::string> continents;  // AF AN AS EU NA OC SA (QsoAreas::cont)
+    std::set<int> dxcc, cq, itu;
+    std::set<std::string> states, counties;  // postal codes; the Map's counties ("WI,Dane")
+    std::set<std::string> regions;           // adif_regions ids ("W9", "Census-Midwest", "ARRL-Central")
+    std::set<std::string> potaLocations;     // POTA locations ("US-WI"): QSOs with a park there
+    bool any() const;  // whether any place kind is given
 };
-MapData mapData(std::string_view text, const DocModel &m, const MapFilter &filter);
+// What mapData can use: the country data for DXCC, zones and continents by call, and POTA's
+// park list for parks' locations. Either may be null.
+struct MapContext {
+    const CountryTable *countries = nullptr;
+    const PotaParks *parks = nullptr;
+};
+MapData mapData(std::string_view text, const DocModel &m, const MapFilter &filter, const MapContext &context = {});
+// Whether a QSO (with its areas resolved) passes the filter's place kinds.
+bool placeMatches(const MapFilter &f, const MapQso &q, const PotaParks *parks);
 // The log's records on `band` and `mode` (empty: all; mode matches MODE or SUBMODE).
 MapData mapData(std::string_view text, const DocModel &m, std::string_view band, std::string_view mode);
 

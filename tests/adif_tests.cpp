@@ -18,6 +18,9 @@
 #include "adif_palette.h"
 #include "adif_detail.h"
 #include "adif_parks.h"
+#include "adif_worked.h"
+#include "adif_regions.h"
+#include "adif_sun.h"
 #include "adif_tools.h"
 #include "adif_upload.h"
 #include "adif_geo.h"
@@ -3174,6 +3177,123 @@ static void testWorld() {
     }
 }
 
+static void testWorked() {
+    // Even-odd: a square with a square hole.
+    std::vector<std::vector<std::pair<double, double>>> rings = {{{0, 0}, {10, 0}, {10, 10}, {0, 10}}, {{4, 4}, {6, 4}, {6, 6}, {4, 6}}};
+    CHECK(pointInRings(rings, 2, 2) && !pointInRings(rings, 5, 5) && !pointInRings(rings, 12, 5) && !pointInRings({}, 1, 1),
+          "inside a ring, not in its hole");
+    CHECK(countyKey("MO,St. Louis") == countyKey("MO,Saint Louis") && countyKey("IL,LaSalle") == countyKey("IL,La Salle") &&
+              countyKey("il,de witt") == countyKey("IL,DeWitt") && countyKey(" WI,Dane County ") == "WI,DANE" &&
+              countyKey("NM,Do\xc3\xb1""a Ana") == "NM,DONAANA" && countyKey("LA,Orleans Parish") == countyKey("LA,Orleans") &&
+              countyKey("Dane").empty() && countyKey("W,Dane").empty() && countyKey("WI,").empty(),
+          "county names reduce to one key");
+    const AreaIndex &counties = areaIndex(Overlay::UsCounties), &states = areaIndex(Overlay::UsStates);
+    CHECK(counties.byCounty("mo,st. louis") != AreaIndex::npos && counties.area(counties.byCounty("mo,st. louis")).name == "MO,Saint Louis" &&
+              counties.byCounty("WI,Nowhere") == AreaIndex::npos,
+          "a county found by how a log writes it");
+    CHECK(states.at(-89.40, 43.07) != AreaIndex::npos && states.area(states.at(-89.40, 43.07)).name == "WI" && states.at(-30, 40) == AreaIndex::npos &&
+              counties.area(counties.at(-89.40, 43.07, "WI,")).name == "WI,Dane" && counties.at(-89.40, 43.07, "IL,") == AreaIndex::npos,
+          "the state and county at a place (Madison: Wisconsin, Dane)");
+
+    QsoPlaceFacts f;  // Madison, by LAT/LON, logged with STATE IL and no zones
+    f.dxcc = 291, f.state = "IL", f.exact = true, f.lat = 43.07, f.lon = -89.40;
+    QsoAreas a = resolveAreas(f);
+    CHECK(a.state == "IL" && a.stateFrom == AreaFrom::Field, "STATE beats the location (%s)", a.state.c_str());
+    f.state.clear();
+    a = resolveAreas(f);
+    CHECK(a.state == "WI" && a.stateFrom == AreaFrom::Location && a.county == "WI,Dane" && a.countyFrom == AreaFrom::Location,
+          "no STATE: the state and county where it was");
+    f.cnty = "WI,Milwaukee";
+    a = resolveAreas(f);
+    CHECK(a.county == "WI,Milwaukee" && a.countyFrom == AreaFrom::Field && !a.countyUnmatched, "CNTY beats the location");
+    f.cnty = "WI,Atlantis";
+    a = resolveAreas(f);
+    CHECK(a.county == "WI,Dane" && a.countyUnmatched, "a CNTY the map lacks is counted, and the location is used");
+    QsoPlaceFacts dx;  // a German station logged with STATE NY (a callbook's US address?)
+    dx.dxcc = 230, dx.state = "NY", dx.exact = true, dx.lat = 52.5, dx.lon = 13.4, dx.ctyCq = 14, dx.ctyItu = 28;
+    a = resolveAreas(dx);
+    CHECK(a.state.empty() && a.county.empty() && a.cq == 14 && a.cqFrom == AreaFrom::Location && a.itu == 28,
+          "a non-US entity gets no state; its zones by location (CQ %d, ITU %d)", a.cq, a.itu);
+    QsoPlaceFacts z;
+    z.dxcc = 291, z.cqz = 3, z.exact = true, z.lat = 43.07, z.lon = -89.40, z.ctyCq = 5;
+    a = resolveAreas(z);
+    CHECK(a.cq == 3 && a.cqFrom == AreaFrom::Field, "CQZ beats the location");
+    z.cqz = 0;
+    a = resolveAreas(z);
+    CHECK(a.cq == 4 && a.cqFrom == AreaFrom::Location, "the CQ zone where it was (Madison: zone 4, not the country file's 5): %d", a.cq);
+    z.exact = false;
+    a = resolveAreas(z);
+    CHECK(a.cq == 5 && a.cqFrom == AreaFrom::CountryFile, "no place: the country file's zone");
+    QsoPlaceFacts g;  // squares: EN53 lies wholly in Wisconsin, EN52 straddles Wisconsin and Illinois
+    g.dxcc = 291, g.grid4 = "EN53";
+    a = resolveAreas(g);
+    CHECK(a.state == "WI" && a.stateFrom == AreaFrom::Location && a.county.empty() && a.cq == 4, "a square wholly in a state");
+    g.grid4 = "EN52";
+    a = resolveAreas(g);
+    CHECK(a.state.empty(), "a square across a state line gives no state");
+    CHECK(isUsEntity(291) && isUsEntity(6) && isUsEntity(110) && !isUsEntity(1), "US entities");
+
+    std::string log = "<CALL:4>W9AB<QSO_DATE:8>20260101<TIME_ON:4>1200<BAND:3>20m<MODE:2>CW<GRIDSQUARE:6>EN53dc<STATE:2>wi<CNTY:7>WI,dane"
+                      "<DXCC:3>291<CQZ:1>4<ARRL_SECT:3>wwi<EOR>\n"
+                      "<CALL:4>K1AB<QSO_DATE:8>20260101<TIME_ON:4>1300<BAND:3>20m<MODE:2>CW<GRIDSQUARE:4>EM12<EOR>\n"
+                      "<CALL:5>DL1AB<QSO_DATE:8>20260101<TIME_ON:4>1400<BAND:3>20m<MODE:2>CW<GRIDSQUARE:4>JO62<DXCC:3>230<CONT:2>EU<EOR>\n"
+                      "<CALL:4>N2AB<QSO_DATE:8>20260101<TIME_ON:4>1500<BAND:3>20m<MODE:2>CW<STATE:2>NY<ARRL_SECT:3>ENY<DXCC:3>291"
+                      "<POTA_REF:13>US-1234@US-NY<EOR>\n";
+    LintResult lr = lintModel(log);
+    MapData d = mapData(log, lr.model, "", "");
+    CHECK(d.qsos.size() == 4 && d.qsos[0].state == "WI" && d.qsos[0].cnty == "WI,dane" && d.qsos[0].dxcc == 291 && d.qsos[0].cqz == 4 &&
+              d.qsos[0].arrlSect == "WWI" && d.qsos[0].areas.state == "WI" && d.qsos[0].areas.county == "WI,Dane" &&
+              d.qsos[0].areas.countyFrom == AreaFrom::Field && d.qsos[0].areas.cq == 4 && d.qsos[1].areas.state == "TX" && d.qsos[1].areas.cq == 4 &&
+              d.qsos[2].areas.state.empty() && d.qsos[2].areas.cont == "EU" && d.qsos[3].areas.state == "NY",
+          "the map's QSOs with their areas (%s, %s)", d.qsos.size() > 1 ? d.qsos[1].areas.state.c_str() : "", d.qsos.size() ? d.qsos[0].areas.county.c_str() : "");
+    auto count = [&](MapFilter f) { return mapData(log, lr.model, f).qsos.size(); };
+    MapFilter mf;
+    mf.continents = {"EU"};
+    CHECK(count(mf) == 1, "filter by continent");
+    mf = {}, mf.states = {"WI", "TX"};
+    CHECK(count(mf) == 2 && mapData(log, lr.model, mf).records == 2, "filter by states");
+    mf = {}, mf.regions = {"W9"};
+    CHECK(count(mf) == 1, "filter by call area: W9 is IL, IN, WI");
+    mf = {}, mf.regions = {"ARRL-Hudson"};
+    CHECK(count(mf) == 1, "an ARRL division by the QSO's section (ENY is Hudson's; New York is split)");
+    mf = {}, mf.regions = {"ARRL-Atlantic"};
+    CHECK(count(mf) == 0, "New York's ENY isn't the Atlantic Division");
+    mf = {}, mf.regions = {"Census-South"};
+    CHECK(count(mf) == 1, "a census region (TX is South)");
+    mf = {}, mf.cq = {4}, mf.counties = {"WI,Dane"};
+    CHECK(count(mf) == 1, "filters of different kinds all apply");
+    mf = {}, mf.dxcc = {230, 291};
+    CHECK(count(mf) == 3, "the K1AB QSO has no DXCC without country data");
+    mf = {}, mf.potaLocations = {"US-NY"};
+    CHECK(count(mf) == 0, "a POTA location needs the park list");
+}
+
+static void testRegionsAndSun() {
+    CHECK(usRegions().size() == 12 + 13 + 15 && usRegion("W0") && usRegion("W0")->states.size() == 8 && !usRegion("W10"),
+          "US regions: 12 call areas, 4 census regions and 9 divisions, 15 ARRL divisions (%zu)", usRegions().size());
+    const UsRegion &w9 = *usRegion("W9"), &pacific = *usRegion("ARRL-Pacific"), &sw = *usRegion("ARRL-Southwestern");
+    CHECK(inUsRegion(w9, "wi", "") && !inUsRegion(w9, "MI", "") && !inUsRegion(w9, "", ""), "a call area by state");
+    CHECK(inUsRegion(pacific, "CA", "SCV") && !inUsRegion(sw, "CA", "SCV") && inUsRegion(sw, "CA", "lax") && !inUsRegion(pacific, "CA", "") &&
+              inUsRegion(pacific, "NV", ""),
+          "California counts for a division by its section only");
+    // JPL Horizons (DE441), read 2026-10-17: geocentric declination and the equation of time.
+    // 2026-06-21 12:00 UTC is 1782043200; 2026-12-21 12:00 UTC is 1797854400.
+    SunPosition june = sunAt(1782043200), dec = sunAt(1797854400);
+    CHECK(std::fabs(june.declination - 23.4379) < 0.02 && std::fabs(june.eqTime + 1.8175) < 0.1 && std::fabs(dec.declination + 23.4369) < 0.02 &&
+              std::fabs(dec.eqTime - 1.9333) < 0.1,
+          "the sun's declination and equation of time (%.4f, %.3f; %.4f, %.3f)", june.declination, june.eqTime, dec.declination, dec.eqTime);
+    CHECK(std::fabs(june.subLat - june.declination) < 1e-9 && std::fabs(june.subLon - 0.4544) < 0.05,
+          "where the sun is overhead (noon by the sun 1.8 minutes after 12:00 UTC: %.3f E)", june.subLon);
+    CHECK(std::fabs(solarElevation(june, june.subLat, june.subLon) - 90) < 1e-6 && std::fabs(solarElevation(june, -june.subLat, june.subLon + 180) + 90) < 1e-6,
+          "the sun overhead, and straight below on the far side");
+    std::vector<std::pair<double, double>> edge = sunCircle(june, 0, 10);
+    bool onEdge = edge.size() == 36;
+    for (const auto &p : edge) onEdge = onEdge && std::fabs(solarElevation(june, p.second, p.first)) < 0.01;
+    std::vector<std::pair<double, double>> civil = sunCircle(june, -6, 30);
+    for (const auto &p : civil) onEdge = onEdge && std::fabs(solarElevation(june, p.second, p.first) + 6) < 0.01;
+    CHECK(onEdge, "the terminator and civil twilight circles");
+}
+
 int main(int argc, char **argv) {
     testStructure();
     testHeader();
@@ -3219,6 +3339,8 @@ int main(int argc, char **argv) {
     testContestAndSpothole();
     testLabels();
     testWorld();
+    testWorked();
+    testRegionsAndSun();
     testProjections();
     testPalettes();
     for (int i = 1; i < argc; ++i)

@@ -5,6 +5,9 @@
 #import "PotaParks.h"
 #import "ToolWindow.h"
 #include "adif_geo.h"
+#include "adif_worked.h"
+#include "adif_regions.h"
+#import "Country.h"
 #include "adif_spec.h"
 
 #include <algorithm>
@@ -17,6 +20,40 @@ using namespace adifhost;
 using namespace mapkit;
 
 @implementation ADIFMapView (Layers)
+
+// The areas worked: each CQ and ITU zone, US state and county in the log, shaded in the map's
+// colours, the most particular on top (zones, then states, then counties).
+- (void)drawWorkedAreas:(MapDrawCtx &)d {
+    NSRect b = d.b;
+    for (MapLayerId l : {kLayerCq, kLayerItu, kLayerStates, kLayerCounties}) {
+        if (!_style[l].show) continue;
+        const adif::AreaIndex &index = adif::areaIndex(layerOverlay(l));
+        for (const auto &[name, qsos] : _areaQsos[l]) {
+            size_t i = index.byName(name);
+            if (i == adif::AreaIndex::npos) continue;
+            NSBezierPath *region = [NSBezierPath bezierPath];
+            for (const auto &ring : index.area(i).rings) [region appendBezierPath:[self viewPath:ring close:YES wraps:NO]];
+            if (region.isEmpty || !NSIntersectsRect(region.bounds, b)) continue;
+            NSColor *c = [self colorFor:_areaAgg[l][name] entity:NO];
+            bool lit = false;
+            for (const ADIFMapHit *h : {&_hover, &_selected}) lit = lit || (h->kind == ADIFMapHit::Area && h->layer == l && h->index == i);
+            region.windingRule = NSWindingRuleEvenOdd;
+            [[c colorWithAlphaComponent:lit ? 0.6 : 0.38] setFill];
+            [region fill];
+            region.lineWidth = lit ? 2 : 0.8;
+            region.lineJoinStyle = NSLineJoinStyleRound;
+            [[c colorWithAlphaComponent:0.9] setStroke];
+            [region stroke];
+        }
+    }
+}
+
+- (size_t)workedAreaAt:(MapLayerId)layer lon:(double)lon lat:(double)lat {
+    const adif::AreaIndex &index = adif::areaIndex(layerOverlay(layer));
+    size_t i = index.at(lon, lat);
+    if (i == adif::AreaIndex::npos || !_areaQsos[layer].count(index.area(i).name)) return adif::AreaIndex::npos;
+    return i;
+}
 
 // The world: ocean, clipped to its outline; then land, lakes, rivers and borders on the plane.
 // Leaves two states saved, the view's bounds and the world's outline, which drawRect restores.
@@ -146,7 +183,7 @@ using namespace mapkit;
     bool curved = d.curved;
     double west = d.west, south = d.south, east = d.east, north = d.north;
     double squareW = d.squareW;
-    if (_style.grid) {
+    if (_style[kLayerSquares].overlay) {
         NSBezierPath *grid = [NSBezierPath bezierPath];
         double step = curved ? 2 : 180;
         for (int lon = -180; lon <= 180; lon += 20) {
@@ -187,7 +224,7 @@ using namespace mapkit;
 - (void)drawDxccLand:(MapDrawCtx &)d {
     NSRect b = d.b;
     _entityDot.assign(_entities.size(), true);
-    if (_showEntities) {
+    if (_style[kLayerCountries].show) {
         const OverlayCache &land = overlay(adif::Overlay::Subunits);
         for (size_t i = 0; i < _entities.size(); ++i) {
             const ADIFMapEntity &e = _entities[i];
@@ -227,16 +264,16 @@ using namespace mapkit;
         CGFloat width, labelSize, minPixels;
     };
     const OverlayStyle overlayStyles[] = {
-        {_style.countries, _style.countryLabels, adif::Overlay::Countries, [NSColor colorWithCalibratedWhite:ink alpha:0.6], 0.8, 10, 24},
-        {_style.states, _style.stateLabels, adif::Overlay::UsStates, [NSColor colorWithCalibratedWhite:ink alpha:0.5], 0.7, 10, 26},
-        {_style.ituZones, _style.ituLabels, adif::Overlay::ItuZones, pal.dark ? rgb(0x4FC3F7, 0.75) : rgb(0x0277BD, 0.8), 1.0, 12, 30},
-        {_style.cqZones, _style.cqLabels, adif::Overlay::CqZones, pal.dark ? rgb(0xFFB74D, 0.8) : rgb(0xE65100, 0.8), 1.4, 14, 30},
+        {_style[kLayerCountries].overlay, _style[kLayerCountries].labels, adif::Overlay::Countries, [NSColor colorWithCalibratedWhite:ink alpha:0.6], 0.8, 10, 24},
+        {_style[kLayerStates].overlay, _style[kLayerStates].labels, adif::Overlay::UsStates, [NSColor colorWithCalibratedWhite:ink alpha:0.5], 0.7, 10, 26},
+        {_style[kLayerItu].overlay, _style[kLayerItu].labels, adif::Overlay::ItuZones, pal.dark ? rgb(0x4FC3F7, 0.75) : rgb(0x0277BD, 0.8), 1.0, 12, 30},
+        {_style[kLayerCq].overlay, _style[kLayerCq].labels, adif::Overlay::CqZones, pal.dark ? rgb(0xFFB74D, 0.8) : rgb(0xE65100, 0.8), 1.4, 14, 30},
         // US counties from 2.5x: the whole world would be a grey mesh.
-        {_style.counties && _zoom >= 2.5, _style.countyLabels, adif::Overlay::UsCounties, [NSColor colorWithCalibratedWhite:ink alpha:0.38], 0.5, 9, 34},
+        {_style[kLayerCounties].overlay && _zoom >= 2.5, _style[kLayerCounties].labels, adif::Overlay::UsCounties, [NSColor colorWithCalibratedWhite:ink alpha:0.38], 0.5, 9, 34},
     };
     // City names come before county names (Milwaukee the city, not the county, by its dot): with
     // both shown, the counties' names wait for the cities and go only where they're clear of them.
-    d.countiesAfterCities = _style.cities && _style.cityLabels && !mapDetail().empty();
+    d.countiesAfterCities = _style[kLayerCities].overlay && _style[kLayerCities].labels && !mapDetail().empty();
     for (const OverlayStyle &os : overlayStyles) {
         if (!os.on) continue;
         const OverlayCache &oc = overlay(os.which);
@@ -269,15 +306,16 @@ using namespace mapkit;
     }
 }
 
-    // IOTA: IOTA's island groups (downloaded in Settings), each the box of longitude and
-    // latitude IOTA gives it: the groups in the log filled (more strongly when confirmed), the
-    // rest dashed. Each named by its reference where there's room, the log's groups first, and
-    // with its name too where the box is wide enough.
+// IOTA: IOTA's island groups (downloaded in Settings), each the box of longitude and latitude
+// IOTA gives it. Show: the groups in the log, filled (more strongly when confirmed). Overlay: the
+// rest, dashed. Each named by its reference where there's room, the log's groups first, and with
+// its name too where the box is wide enough.
 - (void)drawIota:(MapDrawCtx &)d {
     NSRect b = d.b;
     const MapPalette &pal = *d.pal;
     double south = d.south, north = d.north;
-    if (_style.iota) {
+    bool showWorked = _style[kLayerIota].show, showOthers = _style[kLayerIota].overlay;
+    if (showWorked || showOthers) {
         const std::vector<adif::IotaGroup> &groups = ADIFIotaGroups();
         NSColor *tint = pal.dark ? rgb(0x4DD0E1) : rgb(0x00838F);
         NSBezierPath *unworked = [NSBezierPath bezierPath];
@@ -286,6 +324,8 @@ using namespace mapkit;
         for (size_t i = 0; i < groups.size(); ++i) {
             const adif::IotaGroup &g = groups[i];
             if (g.north < south || g.south > north) continue;
+            auto it = _iotaQsos.find(g.ref);
+            if (!(it == _iotaQsos.end() ? showOthers : showWorked)) continue;
             NSBezierPath *box = [NSBezierPath bezierPath];
             NSRect named = NSZeroRect;  // across the 180th meridian a group is two boxes, at the map's two edges
             for (const std::array<double, 4> &piece : adif::iotaBoxes(g)) {
@@ -296,7 +336,6 @@ using namespace mapkit;
                 if (r.size.width * r.size.height > named.size.width * named.size.height) named = r;
             }
             if (NSIsEmptyRect(named)) continue;
-            auto it = _iotaQsos.find(g.ref);
             if (it == _iotaQsos.end()) {
                 [unworked appendBezierPath:box];
                 shown.emplace_back(i, named);
@@ -317,7 +356,7 @@ using namespace mapkit;
         [unworked setLineDash:dash count:2 phase:0];
         [[tint colorWithAlphaComponent:0.75] setStroke];
         [unworked stroke];
-        if (_style.iotaLabels) {
+        if (_style[kLayerIota].labels) {
             NSShadow *halo = [[NSShadow alloc] init];
             halo.shadowColor = [NSColor colorWithCalibratedWhite:pal.dark ? 0 : 1 alpha:0.9];
             halo.shadowBlurRadius = 2;
@@ -350,7 +389,7 @@ using namespace mapkit;
     const MapPalette &pal = *d.pal;
     CGFloat ink = d.ink;
     double south = d.south, north = d.north;
-    if (_style.cities && !mapDetail().empty()) {
+    if (_style[kLayerCities].overlay && !mapDetail().empty()) {
         double web = webZoom(_zoom);
         NSShadow *halo = [[NSShadow alloc] init];
         halo.shadowColor = [NSColor colorWithCalibratedWhite:pal.dark ? 0 : 1 alpha:0.9];
@@ -369,7 +408,7 @@ using namespace mapkit;
             [[NSColor colorWithCalibratedWhite:pal.dark ? 0 : 1 alpha:0.8] setStroke];
             dot.lineWidth = 0.8;
             [dot stroke];
-            if (_style.cityLabels) {
+            if (_style[kLayerCities].labels) {
                 NSString *name = ADIFString(c.name);
                 NSSize sz = [name sizeWithAttributes:attrs];
                 NSRect r = NSMakeRect(p.x + 4, p.y - sz.height / 2, sz.width, sz.height);
@@ -460,7 +499,7 @@ using namespace mapkit;
 - (void)drawSquares:(MapDrawCtx &)d {
     NSRect b = d.b;
     const MapPalette &pal = *d.pal;
-    if (_showSquares) {
+    if (_style[kLayerSquares].show) {
         CGFloat alpha = _style.fill == 1 ? 0.45 : 0.85;
         for (size_t i = 0; i < _data.squares.size(); ++i) {
             NSBezierPath *cell = [self squarePath:_data.squares[i].grid];
@@ -495,7 +534,7 @@ using namespace mapkit;
     double west = d.west, south = d.south, east = d.east, north = d.north;
     double squareW = d.squareW;
     double fieldW = d.fieldW;
-    if (_style.grid && _style.labels) {
+    if (_style[kLayerSquares].overlay && _style[kLayerSquares].labels) {
         if (fieldW >= 44 && squareW < 36)
             for (int fx = 0; fx < 18; ++fx)
                 for (int fy = 0; fy < 18; ++fy) {
@@ -571,7 +610,7 @@ using namespace mapkit;
 - (void)drawDxccDots:(MapDrawCtx &)d {
     NSRect b = d.b;
     CGFloat ink = d.ink;
-    if (_showEntities)
+    if (_style[kLayerCountries].show)
         for (size_t i = 0; i < _entities.size(); ++i) {
             if (i < _entityDot.size() && !_entityDot[i]) continue;
             const ADIFMapEntity &e = _entities[i];
@@ -631,8 +670,9 @@ using namespace mapkit;
         if (!adif::gridToLatLon(pk.grid, &lat, &lon)) continue;
         NSPoint p = [self viewPointForLon:lon lat:lat];
         if (!NSPointInRect(p, NSInsetRect(b, -10, -10))) continue;
-        NSBezierPath *m = [self marker:pk.park() ? 1 : 2 at:p size:(pk.park() ? 5.5 : 5) * _style.marker];
-        [(pk.park() ? rgb(pal.park) : [self programColor:pk.program]) setFill];
+        bool pota = pk.program == "POTA";
+        NSBezierPath *m = [self marker:pota ? 1 : 2 at:p size:(pota ? 5.5 : 5) * _style.marker];
+        [(pota ? rgb(pal.park) : [self programColor:pk.program]) setFill];
         [m fill];
         bool lit = (_hover.kind == ADIFMapHit::Park && _hover.index == i) || (_selected.kind == ADIFMapHit::Park && _selected.index == i);
         [[NSColor colorWithCalibratedWhite:ink alpha:lit ? 1 : 0.35] setStroke];
@@ -703,20 +743,20 @@ using namespace mapkit;
     [mark fill];
 }
 
-// Where the POTA overlay's markers go in the view as it is now: a pin at each park you worked
-// (hunted ones first, then the ones you activated, on top), and a ring at each other active
-// park, or, where more than 2,500 rings would show, counts where they are many. Worked
-// out again when the view, the log or the list changes; the pointer finds the markers here.
+// Where the POTA layer's markers go in the view as it is now. Show: a pin at each park you
+// worked (hunted first, then the ones you activated, on top). Overlay: a ring at each other
+// active park, or a small dot each where more than 1,500 would show (the Filters limit them).
+// Worked out again when the view, the log or the list changes; the pointer finds them here.
 - (void)placeParks {
     NSRect b = self.bounds;
     const adif::PotaParks &list = ADIFPotaParks();
+    bool show = _style[kLayerPota].show, open = _style[kLayerPota].overlay;
     auto key = std::make_tuple(_cx, _cy, _zoom, _pr.centerLat(), _pr.centerLon(), (int)_pr.kind(), b.size.width, b.size.height, _style.marker,
-                               _style.pota, (uintptr_t)list.parks().data(), list.size(), _dataGeneration);
+                               (int)show * 2 + (int)open, (uintptr_t)list.parks().data(), list.size(), _dataGeneration);
     if (key == _parksPlacedFor) return;
     _parksPlacedFor = key;
     _potaSpots.clear();
-    _potaClusters.clear();
-    if (!_style.pota || !list.size()) return;
+    if ((!show && !open) || !list.size()) return;
     double west, south, east, north;
     [self visibleWest:&west south:&south east:&east north:&north];
     std::map<size_t, ADIFParkWork> byPark;  // an old K- reference and its US- park are one park
@@ -727,49 +767,18 @@ using namespace mapkit;
         w.hunted.insert(w.hunted.end(), work.hunted.begin(), work.hunted.end());
         w.activated.insert(w.activated.end(), work.activated.begin(), work.activated.end());
     }
-    std::vector<std::pair<size_t, NSPoint>> open;
-    for (size_t i = 0; i < list.parks().size(); ++i) {
-        const adif::PotaPark &p = list.parks()[i];
-        if (!p.active || !p.placed || p.lat < south - 1 || p.lat > north + 1 || byPark.count(i)) continue;
-        NSPoint q = [self viewPointForLon:p.lon lat:p.lat];
-        if (NSPointInRect(q, NSInsetRect(b, -6, -6))) open.emplace_back(i, q);
-    }
-    if (open.size() <= 2500) {
-        for (const auto &[i, q] : open) _potaSpots.push_back({i, q, false, false, {}});
-    } else {
-        // A count for each 48-point cell, its parks' middle; rings still where a cell has 4 or
-        // fewer. A count that would overlap a bigger one joins it, the biggest first.
-        const double cell = 48;
-        std::map<std::pair<long, long>, std::vector<size_t>> cells;  // into open
-        for (size_t k = 0; k < open.size(); ++k)
-            cells[{(long)std::floor(open[k].second.x / cell), (long)std::floor(open[k].second.y / cell)}].push_back(k);
-        std::vector<ADIFParkCluster> counts;
-        for (const auto &kv : cells) {
-            if (kv.second.size() <= 4) {
-                for (size_t k : kv.second) _potaSpots.push_back({open[k].first, open[k].second, false, false, {}});
-                continue;
-            }
-            ADIFParkCluster c;
-            for (size_t k : kv.second) c.at.x += open[k].second.x, c.at.y += open[k].second.y;
-            c.count = kv.second.size();
-            c.at = NSMakePoint(c.at.x / c.count, c.at.y / c.count);
-            counts.push_back(c);
+    if (open) {
+        std::vector<std::pair<size_t, NSPoint>> notWorked;
+        for (size_t i = 0; i < list.parks().size(); ++i) {
+            const adif::PotaPark &p = list.parks()[i];
+            if (!p.active || !p.placed || p.lat < south - 1 || p.lat > north + 1 || byPark.count(i) || ![self parkFiltered:p]) continue;
+            NSPoint q = [self viewPointForLon:p.lon lat:p.lat];
+            if (NSPointInRect(q, NSInsetRect(b, -6, -6))) notWorked.emplace_back(i, q);
         }
-        auto radius = [](size_t n) { return std::min(18.0, 7 + 3.2 * std::log10((double)n)); };
-        std::stable_sort(counts.begin(), counts.end(), [](const ADIFParkCluster &a, const ADIFParkCluster &b) { return a.count > b.count; });
-        for (ADIFParkCluster &c : counts) {
-            c.radius = radius(c.count);
-            auto big = std::find_if(_potaClusters.begin(), _potaClusters.end(), [&](const ADIFParkCluster &o) {
-                return std::hypot(o.at.x - c.at.x, o.at.y - c.at.y) < (o.radius + c.radius) * 0.9;
-            });
-            if (big == _potaClusters.end()) {
-                _potaClusters.push_back(c);
-            } else {
-                big->count += c.count;
-                big->radius = radius(big->count);
-            }
-        }
+        bool dots = notWorked.size() > 1500;
+        for (const auto &[i, q] : notWorked) _potaSpots.push_back({i, q, false, false, {}, dots});
     }
+    if (!show) return;
     double rise = 2.2 * kPin * 1.2 * _style.marker;  // a pin's head above its point
     for (int pass = 0; pass < 2; ++pass)
         for (const auto &[i, w] : byPark) {
@@ -778,22 +787,64 @@ using namespace mapkit;
             const adif::PotaPark &p = list.parks()[i];
             NSPoint q = [self viewPointForLon:p.lon lat:p.lat];
             if (NSPointInRect(q, NSInsetRect(b, -12, -12)))
-                _potaSpots.push_back({i, NSMakePoint(q.x, q.y + rise), true, activated, [self aggregate:w.hunted]});
+                _potaSpots.push_back({i, NSMakePoint(q.x, q.y + rise), true, activated, [self aggregate:w.hunted], false});
         }
 }
 
-// The rings and counts of the parks you haven't worked.
+// Whether the Filters' places let a park (one you haven't worked) show: its locations, its
+// state and region, its entity and continent. Without "Apply to POTA parks", every park shows.
+- (BOOL)parkFiltered:(const adif::PotaPark &)p {
+    const adif::MapFilter &f = _parkFilter;
+    if (!_filterParks || !f.any()) return YES;
+    std::vector<std::string> locs;
+    for (size_t b = 0; b <= p.location.size();) {
+        size_t e = p.location.find(',', b);
+        if (e == std::string::npos) e = p.location.size();
+        if (e > b) locs.push_back(p.location.substr(b, e - b));
+        b = e + 1;
+    }
+    auto anyLoc = [&](const std::function<bool(const std::string &)> &ok) {
+        for (const std::string &l : locs)
+            if (ok(l)) return true;
+        return false;
+    };
+    auto usState = [](const std::string &loc) { return loc.size() == 5 && loc.compare(0, 3, "US-") == 0 ? loc.substr(3) : std::string(); };
+    if (!f.potaLocations.empty() && !anyLoc([&](const std::string &l) { return f.potaLocations.count(l) > 0; })) return NO;
+    if (!f.states.empty() && !anyLoc([&](const std::string &l) { return f.states.count(usState(l)) > 0; })) return NO;
+    if (!f.regions.empty() && !anyLoc([&](const std::string &l) {
+            for (const std::string &id : f.regions)
+                if (const adif::UsRegion *r = adif::usRegion(id); r && adif::inUsRegion(*r, usState(l), "")) return true;
+            return false;
+        }))
+        return NO;
+    if (!f.dxcc.empty() && !f.dxcc.count(p.entity)) return NO;
+    if (!f.continents.empty()) {
+        std::string cont;
+        for (const adif::CountryInfo &c : ADIFCountries().all())
+            if (c.dxcc == p.entity) {
+                cont = c.continent;
+                break;
+            }
+        if (!f.continents.count(cont)) return NO;
+    }
+    return YES;
+}
+
+// The parks you haven't worked: rings, or dots where they are many.
 - (void)drawParkRings {
     const MapPalette &pal = paletteAt(_style.palette);
     CGFloat ink = pal.dark ? 1 : 0;
     NSColor *tint = rgb(pal.park);
-    double r = 3.2 * _style.marker;
-    NSBezierPath *rings = [NSBezierPath bezierPath], *lit = [NSBezierPath bezierPath];
+    double r = 3.2 * _style.marker, dr = 1.7 * _style.marker;
+    NSBezierPath *rings = [NSBezierPath bezierPath], *dots = [NSBezierPath bezierPath], *lit = [NSBezierPath bezierPath];
     for (const ADIFParkSpot &sp : _potaSpots) {
         if (sp.pin) continue;
         bool on = (_hover.kind == ADIFMapHit::Pota && _hover.index == sp.park) || (_selected.kind == ADIFMapHit::Pota && _selected.index == sp.park);
-        [(on ? lit : rings) appendBezierPathWithOvalInRect:NSMakeRect(sp.at.x - r, sp.at.y - r, 2 * r, 2 * r)];
+        double rr = on ? r : sp.dot ? dr : r;
+        [(on ? lit : sp.dot ? dots : rings) appendBezierPathWithOvalInRect:NSMakeRect(sp.at.x - rr, sp.at.y - rr, 2 * rr, 2 * rr)];
     }
+    [[tint colorWithAlphaComponent:0.85] setFill];
+    [dots fill];
     [[NSColor colorWithCalibratedWhite:pal.dark ? 0 : 1 alpha:0.55] setFill];
     [rings fill];
     [lit fill];
@@ -803,21 +854,6 @@ using namespace mapkit;
     lit.lineWidth = 2.2;
     [[NSColor colorWithCalibratedWhite:ink alpha:1] setStroke];
     [lit stroke];
-    NSDictionary *attrs = @{NSFontAttributeName : [NSFont systemFontOfSize:9.5 weight:NSFontWeightSemibold],
-                            NSForegroundColorAttributeName : [NSColor colorWithCalibratedWhite:ink alpha:0.92]};
-    for (size_t k = 0; k < _potaClusters.size(); ++k) {
-        const ADIFParkCluster &c = _potaClusters[k];
-        bool on = _hover.kind == ADIFMapHit::PotaCluster && _hover.index == k;
-        NSBezierPath *o = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(c.at.x - c.radius, c.at.y - c.radius, 2 * c.radius, 2 * c.radius)];
-        [[tint colorWithAlphaComponent:on ? 0.55 : 0.32] setFill];
-        [o fill];
-        o.lineWidth = on ? 2 : 1;
-        [[tint colorWithAlphaComponent:0.95] setStroke];
-        [o stroke];
-        NSString *n = c.count < 1000 ? [NSString stringWithFormat:@"%zu", c.count] : [NSString stringWithFormat:@"%.1fk", c.count / 1000.0];
-        NSSize sz = [n sizeWithAttributes:attrs];
-        [n drawAtPoint:NSMakePoint(c.at.x - sz.width / 2, c.at.y - sz.height / 2) withAttributes:attrs];
-    }
 }
 
 // The pins of the parks you hunted (a triangle, in the map's colours) and activated (a star, in
@@ -835,8 +871,8 @@ using namespace mapkit;
 }
 
 // Each park's reference beside its marker, where it doesn't run into another: the parks you
-// worked always, the others once the view is down to 400 rings and no counts, and names too
-// once it is down to 150.
+// worked always, the others once the view is down to 400 of them, and names too once it is down
+// to 150.
 - (void)drawParkLabelsIn:(NSRect)b {
     const adif::PotaParks &list = ADIFPotaParks();
     const MapPalette &pal = paletteAt(_style.palette);
@@ -846,7 +882,7 @@ using namespace mapkit;
     NSDictionary *attrs = @{NSFontAttributeName : [NSFont systemFontOfSize:10 weight:NSFontWeightSemibold],
                             NSForegroundColorAttributeName : [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.9], NSShadowAttributeName : halo};
     size_t rings = (size_t)std::count_if(_potaSpots.begin(), _potaSpots.end(), [](const ADIFParkSpot &sp) { return !sp.pin; });
-    bool ringLabels = _potaClusters.empty() && rings <= 400, names = _potaClusters.empty() && _potaSpots.size() <= 150;
+    bool ringLabels = rings <= 400, names = _potaSpots.size() <= 150;
     std::vector<NSRect> taken;
     for (int pass = 0; pass < 2; ++pass)
         for (const ADIFParkSpot &sp : _potaSpots) {
@@ -865,8 +901,5 @@ using namespace mapkit;
         }
 }
 
-- (size_t)parkClusterCount:(size_t)i {
-    return i < _potaClusters.size() ? _potaClusters[i].count : 0;
-}
 
 @end

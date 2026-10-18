@@ -5,6 +5,7 @@
 #import "PotaParks.h"
 #import "ToolWindow.h"
 #include "adif_geo.h"
+#include "adif_worked.h"
 #include "adif_spec.h"
 
 #include <algorithm>
@@ -53,7 +54,7 @@ const char *const kModeLabels[3] = {"CW", "Phone", "Data"};
 
 // ── Programs ──
 
-const ProgramInfo kPrograms[] = {{"SOTA", "SOTA (summits)"},       {"IOTA", "IOTA (islands)"},        {"GMA", "GMA (mountains)"},
+const ProgramInfo kPrograms[] = {{"WWFF", "WWFF (parks)"},       {"SOTA", "SOTA (summits)"},       {"IOTA", "IOTA (islands)"},        {"GMA", "GMA (mountains)"},
                                  {"WWBOTA", "WWBOTA (bunkers)"},   {"HEMA", "HEMA (hills)"},          {"SIOTA", "SiOTA (silos)"},
                                  {"WCA", "WCA (castles)"},         {"ILLW", "ILLW (lighthouses)"},    {"ARLHS", "ARLHS (lighthouses)"},
                                  {"MOTA", "MOTA (mills)"},         {"ZLOTA", "ZLOTA (New Zealand)"}, {"WOTA", "WOTA (Lake District)"}};
@@ -149,7 +150,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 
 - (instancetype)initWithFrame:(NSRect)frame {
     if ((self = [super initWithFrame:frame])) {
-        _showSquares = _showEntities = _showParks = YES;
+        _style.layer[kLayerSquares].show = _style.layer[kLayerCountries].show = _style.layer[kLayerPota].show = true;
         _zoom = 1;
         _minYear = _maxYear = 0;
         _hasHome = false;
@@ -222,6 +223,17 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         _contacts[it->second].qsos.push_back(i);
     }
     for (const ADIFMapContact &c : _contacts) _contactAgg.push_back([self aggregate:c.qsos]);
+    for (auto &m : _areaQsos) m.clear();
+    for (auto &m : _areaAgg) m.clear();
+    for (size_t i = 0; i < _data.qsos.size(); ++i) {
+        const adif::QsoAreas &a = _data.qsos[i].areas;
+        if (!a.state.empty()) _areaQsos[kLayerStates][a.state].push_back(i);
+        if (!a.county.empty()) _areaQsos[kLayerCounties][a.county].push_back(i);
+        if (a.cq) _areaQsos[kLayerCq][std::to_string(a.cq)].push_back(i);
+        if (a.itu) _areaQsos[kLayerItu][std::to_string(a.itu)].push_back(i);
+    }
+    for (size_t l = 0; l < kLayerCount; ++l)
+        for (const auto &[name, qsos] : _areaQsos[l]) _areaAgg[l][name] = [self aggregate:qsos];
     _iotaQsos.clear();
     _potaWork.clear();
     ++_dataGeneration;
@@ -262,6 +274,18 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 
 - (const std::vector<ADIFMapContact> &)contacts {
     return _contacts;
+}
+
+- (void)setParkFilter:(const adif::MapFilter &)filter on:(BOOL)on {
+    _parkFilter = filter, _filterParks = on;
+    _parksPlacedFor = {};
+    self.needsDisplay = YES;
+}
+
+- (std::vector<size_t>)areaQsos:(int)layer name:(const std::string &)name {
+    if (layer < 0 || layer >= kLayerCount) return {};
+    auto it = _areaQsos[(size_t)layer].find(name);
+    return it == _areaQsos[(size_t)layer].end() ? std::vector<size_t>() : it->second;
 }
 
 - (std::vector<size_t>)iotaQsos:(const std::string &)ref {
@@ -539,12 +563,12 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         if (!_pr.forward(lon, lat, &x, &y)) return;
         west = std::min(west, x), east = std::max(east, x), south = std::min(south, y), north = std::max(north, y);
     };
-    if (_showSquares)
+    if (_style[kLayerSquares].show)
         for (const adif::MapSquare &sq : _data.squares) {
             double w, s, e, n;
             if (adif::squareBounds(sq.grid, &w, &s, &e, &n)) add(w, s), add(e, n), add(w, n), add(e, s);
         }
-    if (_showEntities)
+    if (_style[kLayerCountries].show)
         for (const ADIFMapEntity &e : _entities) add(e.lon, e.lat);
     if (_showContacts)
         for (const ADIFMapContact &c : _contacts) add(c.lon, c.lat);
@@ -728,12 +752,12 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 }
 
 - (BOOL)programShown:(const adif::MapPark &)pk {
-    return pk.park() ? _showParks : !_hiddenPrograms.count(pk.program);
+    return pk.program == "POTA" ? _style[kLayerPota].show : !_hiddenPrograms.count(pk.program);
 }
 
 // A POTA park the POTA overlay pins at the park itself, so the Parks layer leaves it out.
 - (BOOL)parkPinned:(const adif::MapPark &)pk {
-    if (!_style.pota || pk.program != "POTA") return NO;
+    if (!_style[kLayerPota].show || pk.program != "POTA") return NO;
     const adif::PotaPark *p = ADIFPotaParks().find(pk.reference);
     return p && p->placed;
 }
@@ -753,6 +777,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     [self drawBase:d];
     [self drawGridLines:d];
     [self drawDxccLand:d];
+    [self drawWorkedAreas:d];
     [self drawOverlays:d];
     [self drawIota:d];
     // POTA: the parks you haven't worked (rings, or counts); the worked ones' pins go on top, with the markers.
@@ -767,7 +792,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     [self drawContacts:d];
     [self drawPrograms:d];
     [self drawParkPins];
-    if (_style.potaLabels) [self drawParkLabelsIn:d.b];
+    if (_style[kLayerPota].labels) [self drawParkLabelsIn:d.b];
     [self drawMine:d];
     [self drawSelection:d];
     CGContextRestoreGState(d.ctx);
@@ -793,7 +818,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     static const char *const kBy[] = {"Colour: confirmed or not", "Colour: band (the most QSOs)", "Colour: mode (the most QSOs)",
                                       "Colour: QSO count", "Colour: year first worked"};
     bool contacts = _showContacts && !_contacts.empty();
-    if (_showSquares || _showEntities || contacts) {
+    if (_style[kLayerSquares].show || _style[kLayerCountries].show || contacts) {
         rows.push_back({7, nil, kBy[std::clamp(_style.colorBy, 0, 4)]});
         switch (_style.colorBy) {
             case 1:
@@ -826,22 +851,22 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
                     }
                 break;
             default:
-                if (_showSquares || contacts) rows.push_back({0, rgb(pal.confirmed), "confirmed"}), rows.push_back({0, rgb(pal.worked), "worked"});
-                if (_showEntities) rows.push_back({1, rgb(pal.dxccConfirmed), "DXCC confirmed"}), rows.push_back({1, rgb(pal.dxccWorked), "DXCC worked"});
+                if (_style[kLayerSquares].show || contacts) rows.push_back({0, rgb(pal.confirmed), "confirmed"}), rows.push_back({0, rgb(pal.worked), "worked"});
+                if (_style[kLayerCountries].show) rows.push_back({1, rgb(pal.dxccConfirmed), "DXCC confirmed"}), rows.push_back({1, rgb(pal.dxccWorked), "DXCC worked"});
                 break;
         }
     }
     std::set<std::string> programs;
     bool parks = false;
     for (const adif::MapPark &pk : _data.parks)
-        if ([self programShown:pk]) pk.park() ? (void)(parks = true) : (void)programs.insert(pk.program);
+        if ([self programShown:pk] && ![self parkPinned:pk]) pk.program == "POTA" ? (void)(parks = true) : (void)programs.insert(pk.program);
     if (contacts || parks || !programs.empty()) rows.push_back({7, nil, "Markers"});
     if (contacts) rows.push_back({6, [NSColor colorWithCalibratedWhite:pal.dark ? 0.85 : 0.35 alpha:1], "contacts (exact place)"});
-    if (parks) rows.push_back({2, rgb(pal.park), "parks (POTA, WWFF)"});
+    if (parks) rows.push_back({2, rgb(pal.park), "POTA parks (at the QSO's grid)"});
     for (const std::string &p : programs) rows.push_back({3, [self programColor:p], p});
     if (_style.mine && !_data.mine.empty()) rows.push_back({4, rgb(pal.me), "my station"});
     if (_style.paths) rows.push_back({5, [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.6], "lines to contacts"});
-    if (_style.pota && ADIFPotaParks().size()) {
+    if ((_style[kLayerPota].show || _style[kLayerPota].overlay) && ADIFPotaParks().size()) {
         std::set<std::string> hunted, activated;  // by the list's reference (K-0001 is US-0001)
         for (const auto &[ref, w] : _potaWork) {
             const adif::PotaPark *p = ADIFPotaParks().find(ref);
@@ -849,16 +874,20 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
             if (!w.activated.empty()) activated.insert(p ? p->ref : ref);
         }
         rows.push_back({7, nil, "POTA parks: " + std::to_string(hunted.size()) + " hunted, " + std::to_string(activated.size()) + " activated"});
-        rows.push_back({10, rgb(pal.worked), "hunted (in the map's colours)"});
-        rows.push_back({11, rgb(pal.me), "activated by you"});
-        rows.push_back({12, rgb(pal.park), "not worked (a count where many)"});
+        if (_style[kLayerPota].show) {
+            rows.push_back({10, rgb(pal.worked), "hunted (in the map's colours)"});
+            rows.push_back({11, rgb(pal.me), "activated by you"});
+        }
+        if (_style[kLayerPota].overlay) rows.push_back({12, rgb(pal.park), "not worked"});
     }
-    if (_style.iota && !ADIFIotaGroups().empty()) {
+    if ((_style[kLayerIota].show || _style[kLayerIota].overlay) && !ADIFIotaGroups().empty()) {
         NSColor *tint = pal.dark ? rgb(0x4DD0E1) : rgb(0x00838F);
         rows.push_back({7, nil, "IOTA groups"});
-        rows.push_back({0, [tint colorWithAlphaComponent:0.42], "confirmed"});
-        rows.push_back({0, [tint colorWithAlphaComponent:0.22], "worked"});
-        rows.push_back({9, [tint colorWithAlphaComponent:0.75], "not worked"});
+        if (_style[kLayerIota].show) {
+            rows.push_back({0, [tint colorWithAlphaComponent:0.42], "confirmed"});
+            rows.push_back({0, [tint colorWithAlphaComponent:0.22], "worked"});
+        }
+        if (_style[kLayerIota].overlay) rows.push_back({9, [tint colorWithAlphaComponent:0.75], "not worked"});
     }
     if (rows.empty()) return;
 
@@ -934,12 +963,20 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     if (h.square.empty()) return h;
     // POTA: the pins (drawn last, on top), the rings, then the counts.
     [self placeParks];
-    for (auto it = _potaSpots.rbegin(); it != _potaSpots.rend(); ++it)
-        if (std::hypot(it->at.x - p.x, it->at.y - p.y) <= (it->pin ? kPin * 1.2 * _style.marker + 2 : 5 * _style.marker))
-            return h.kind = ADIFMapHit::Pota, h.index = it->park, h;
-    for (size_t i = 0; i < _potaClusters.size(); ++i)
-        if (std::hypot(_potaClusters[i].at.x - p.x, _potaClusters[i].at.y - p.y) <= _potaClusters[i].radius + 1)
-            return h.kind = ADIFMapHit::PotaCluster, h.index = i, h;
+    {  // a pin first (they're on top), else the nearest ring or dot within reach
+        const ADIFParkSpot *best = nullptr;
+        double bestDistance = 1e9;
+        for (auto it = _potaSpots.rbegin(); it != _potaSpots.rend(); ++it) {
+            double d = std::hypot(it->at.x - p.x, it->at.y - p.y);
+            if (d > (it->pin ? kPin * 1.2 * _style.marker + 2 : it->dot ? 3 : 5 * _style.marker)) continue;
+            if (it->pin) {
+                best = &*it;
+                break;
+            }
+            if (d < bestDistance) best = &*it, bestDistance = d;
+        }
+        if (best) return h.kind = ADIFMapHit::Pota, h.index = best->park, h;
+    }
     for (size_t i = 0; i < _data.parks.size(); ++i) {
         if (![self programShown:_data.parks[i]] || [self parkPinned:_data.parks[i]]) continue;
         double plat, plon;
@@ -953,17 +990,21 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
             if (_style.contact == 0) q.y += 2.2 * kPin * _style.marker;
             if (std::hypot(q.x - p.x, q.y - p.y) <= 5 * _style.marker + 1) return h.kind = ADIFMapHit::Contact, h.index = i, h;
         }
-    if (_showEntities)
+    if (_style[kLayerCountries].show)
         for (size_t i = 0; i < _entities.size(); ++i) {
             if (i < _entityDot.size() && !_entityDot[i]) continue;  // its land is shaded: found below, after the squares
             NSPoint q = [self viewPointForLon:_entities[i].lon lat:_entities[i].lat];
             if (std::hypot(q.x - p.x, q.y - p.y) <= [self dotRadius:_entities[i].qsos.size()] + 2)
                 return h.kind = ADIFMapHit::Dxcc, h.index = i, h;
         }
-    if (_showSquares)
+    if (_style[kLayerSquares].show)
         for (size_t i = 0; i < _data.squares.size(); ++i)
             if (_data.squares[i].grid == h.square) return h.kind = ADIFMapHit::Square, h.index = i, h;
-    if (_showEntities) {  // a shaded entity: the point is inside an odd number of its rings
+    // A worked county or state, more particular than the country around it.
+    for (MapLayerId l : {kLayerCounties, kLayerStates})
+        if (_style[l].show)
+            if (size_t i = [self workedAreaAt:l lon:lon lat:lat]; i != adif::AreaIndex::npos) return h.kind = ADIFMapHit::Area, h.layer = l, h.index = i, h;
+    if (_style[kLayerCountries].show) {  // a shaded entity: the point is inside an odd number of its rings
         const OverlayCache &land = overlay(adif::Overlay::Subunits);
         for (size_t i = 0; i < _entities.size(); ++i) {
             if (i >= _entityDot.size() || _entityDot[i]) continue;
@@ -978,14 +1019,19 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
             if (in) return h.kind = ADIFMapHit::Dxcc, h.index = i, h;
         }
     }
-    if (_style.iota) {  // the smallest IOTA box the point is in
+    for (MapLayerId l : {kLayerCq, kLayerItu})
+        if (_style[l].show)
+            if (size_t i = [self workedAreaAt:l lon:lon lat:lat]; i != adif::AreaIndex::npos) return h.kind = ADIFMapHit::Area, h.layer = l, h.index = i, h;
+    if (_style[kLayerIota].show || _style[kLayerIota].overlay) {  // the smallest IOTA box the point is in
         const std::vector<adif::IotaGroup> &groups = ADIFIotaGroups();
         double best = 1e9;
-        for (size_t i = 0; i < groups.size(); ++i)
+        for (size_t i = 0; i < groups.size(); ++i) {
+            if (!(_iotaQsos.count(groups[i].ref) ? _style[kLayerIota].show : _style[kLayerIota].overlay)) continue;
             for (const std::array<double, 4> &box : adif::iotaBoxes(groups[i])) {
                 double size = (groups[i].east - groups[i].west) * (groups[i].north - groups[i].south);
                 if (lon >= box[0] && lon <= box[2] && lat >= box[1] && lat <= box[3] && size < best) best = size, h.kind = ADIFMapHit::Iota, h.index = i;
             }
+        }
         if (h.kind == ADIFMapHit::Iota) return h;
     }
     h.kind = ADIFMapHit::Empty;
@@ -1027,12 +1073,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 - (void)mouseUp:(NSEvent *)event {
     [[NSCursor arrowCursor] set];
     if (_dragged || event.clickCount > 1) return;
-    NSPoint at = [self convertPoint:event.locationInWindow fromView:nil];
-    ADIFMapHit h = [self hitAt:at];
-    if (h.kind == ADIFMapHit::PotaCluster) {  // a count of parks: zoom in to them
-        [self zoomBy:3 at:at];
-        return;
-    }
+    ADIFMapHit h = [self hitAt:[self convertPoint:event.locationInWindow fromView:nil]];
     _selected = h;
     self.needsDisplay = YES;
     if (self.onSelect) self.onSelect(h);

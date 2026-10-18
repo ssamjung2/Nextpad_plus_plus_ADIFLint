@@ -3613,9 +3613,17 @@ int main(int argc, char **argv) {
             pump(0.3);
             run("Map (Grids, DXCC, Parks)...");
             NSWindow *mapw = windowTitled(@"Map");
+            // The layers' boxes: map.<show|overlay|labels>.<grid|countries|states|counties|cq|itu|pota|iota|cities>.
+            auto mapBox = [&](NSString *kind, NSString *layer) {
+                return (NSButton *)viewWithIdentifier(mapw.contentView, [NSString stringWithFormat:@"map.%@.%@", kind, layer]);
+            };
+            auto setBox = [&](NSButton *bx, bool on) {
+                bx.state = on ? NSControlStateValueOn : NSControlStateValueOff;
+                [bx sendAction:bx.action to:bx.target];
+            };
             NSString *mapStatus = mapw ? labelContaining(mapw.contentView, @"grid square") : nil;
-            CHECK(mapw.visible && [mapStatus hasPrefix:@"4 grid squares (1 confirmed"] && [mapStatus containsString:@"1 park (POTA, WWFF)"] &&
-                      [mapStatus containsString:@"1 other reference (IOTA"] && findButton(mapw.contentView, @"Other programs").state == NSControlStateValueOff &&
+            CHECK(mapw.visible && [mapStatus hasPrefix:@"4 grid squares (1 confirmed"] && [mapStatus containsString:@"1 POTA park"] &&
+                      [mapStatus containsString:@"1 other reference (WWFF, IOTA"] && findButton(mapw.contentView, @"Other programs").state == NSControlStateValueOff &&
                       [mapStatus containsString:@"1 DXCC (1 confirmed"] && [mapStatus containsString:@"1 QSO without GRIDSQUARE"] &&
                       [mapStatus containsString:@"1 QSO with an exact place (Contacts)"],
                   "the map's summary: %s", mapStatus.UTF8String);
@@ -3737,7 +3745,7 @@ int main(int argc, char **argv) {
             NSPopUpButton *programsMenu = findPopupWith(mapw.contentView, @"Show All");
             NSPopUpButton *regionMenu = findPopupWith(mapw.contentView, @"South America");
             CHECK(proj && colour && styleMenu && programsMenu && regionMenu && [styleMenu itemAtIndex:0].title.length &&
-                      [[styleMenu itemAtIndex:0].title isEqualToString:@"Options"] && !findButton(mapw.contentView, @"Lines to contacts") &&
+                      [[styleMenu itemAtIndex:0].title isEqualToString:@"Options"] && findButton(mapw.contentView, @"Lines to contacts") &&
                       [proj itemAtIndex:3].enabled &&
                       [[proj itemAtIndex:3].title isEqualToString:@"Globe from EN52WA"],
                   "projection, colour, Style and Other programs controls; the globe from the log's grid: %s",
@@ -3785,11 +3793,12 @@ int main(int argc, char **argv) {
                     if ([i.title hasPrefix:prefix]) return (bool)i.enabled;
                 return false;
             };
-            CHECK(!menuEnabled(styleMenu, @"Dashed line") && menuAction(styleMenu, @"Lines to contacts") && menuState(styleMenu, @"Lines to contacts") &&
+            NSButton *linesBox = findButton(mapw.contentView, @"Lines to contacts");
+            CHECK(!menuEnabled(styleMenu, @"Dashed line") && linesBox.state == NSControlStateValueOff && (setBox(linesBox, true), true) &&
                       menuEnabled(styleMenu, @"Dashed line") && menuAction(styleMenu, @"Dashed line") && menuState(styleMenu, @"Dashed line") &&
                       menuAction(styleMenu, @"Thick line") && menuState(styleMenu, @"Thick line") && !menuState(styleMenu, @"Solid line") &&
                       menuEnabled(styleMenu, @"Arch over the globe") && menuState(styleMenu, @"Arch over the globe"),
-                  "Options: lines to contacts, then their style and width; arching over the globe starts on");
+                  "Lines to contacts (Markers), then their style and width (Options); arching over the globe starts on");
             CHECK(menuAction(styleMenu, @"Distance rings") && menuState(styleMenu, @"Distance rings"), "distance rings on");
             // Fit Log fits the farthest QSO around home, where FN20's park sits beside FN31: zoom in on
             // FN31 first (double-clicks turn the globe toward the pointer, keeping FN31 under it).
@@ -3855,17 +3864,18 @@ int main(int argc, char **argv) {
                   "Region → Africa turns the globe to face it (%.1f px off, %s)", regionMiddle(16.5, 1), zoomShown().c_str());
             snapshot(mapw, "map-globe-africa");
             // Overlays: CQ and ITU zones on the globe, then US states on a flat map.
-            NSButton *cqBox = findButton(mapw.contentView, @"CQ zones"), *ituBox = findButton(mapw.contentView, @"ITU zones"),
-                     *statesBox = findButton(mapw.contentView, @"US states");
+            NSButton *cqBox = mapBox(@"overlay", @"cq"), *ituBox = mapBox(@"overlay", @"itu"), *statesBox = mapBox(@"overlay", @"states");
             CHECK(cqBox && ituBox && statesBox && cqBox.state == NSControlStateValueOff, "the overlay boxes, off at first");
-            // Labels: a box under each overlay for its names or numbers, working while the overlay shows.
-            NSButton *gridBox = findButton(mapw.contentView, @"Grid squares");
-            NSButton *gridLabels = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.labels.grid");
-            NSButton *cqLabels = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.labels.cq");
-            CHECK(gridBox && gridLabels && cqLabels && gridBox != gridLabels && gridLabels.enabled && !cqLabels.enabled &&
-                      cqLabels.state == NSControlStateValueOn && !findButton(mapw.contentView, @"Maidenhead grid") && !findButton(mapw.contentView, @"Labels") &&
-                      std::fabs(NSMinX(gridBox.frame) - NSMinX(gridLabels.frame)) < 1 && std::fabs(NSMinX(cqBox.frame) - NSMinX(cqLabels.frame)) < 1,
-                  "Overlays and Labels rows: Grid squares first, each label box under its overlay, off while the overlay is");
+            // A column per layer: its Show, Overlay and Labels boxes one above the other; a Labels box
+            // works while its layer shows. Cities has no Show.
+            NSButton *gridShow = mapBox(@"show", @"grid"), *gridBox = mapBox(@"overlay", @"grid");
+            NSButton *gridLabels = mapBox(@"labels", @"grid"), *cqLabels = mapBox(@"labels", @"cq"), *cqShow = mapBox(@"show", @"cq");
+            CHECK(gridShow && gridBox && gridLabels && cqLabels && cqShow && gridBox != gridLabels && gridLabels.enabled && !cqLabels.enabled &&
+                      cqLabels.state == NSControlStateValueOn && !mapBox(@"show", @"cities") && mapBox(@"overlay", @"cities") &&
+                      !findButton(mapw.contentView, @"Maidenhead grid") && !findButton(mapw.contentView, @"Worked squares") &&
+                      std::fabs(NSMidX(gridBox.frame) - NSMidX(gridLabels.frame)) < 1 && std::fabs(NSMidX(gridShow.frame) - NSMidX(gridBox.frame)) < 1 &&
+                      std::fabs(NSMidX(cqBox.frame) - NSMidX(cqLabels.frame)) < 1 && NSMinY(gridShow.frame) > NSMinY(gridBox.frame),
+                  "the layers: a column each with Show over Overlay over Labels; Labels off while its layer is");
             for (NSButton *bx in @[ cqBox, ituBox ]) {
                 bx.state = NSControlStateValueOn;
                 [bx sendAction:bx.action to:bx.target];
@@ -3899,7 +3909,7 @@ int main(int argc, char **argv) {
             snapshot(mapw, "map-us-states");
             statesBox.state = NSControlStateValueOff;
             [statesBox sendAction:statesBox.action to:statesBox.target];
-            NSButton *countriesBox = findButton(mapw.contentView, @"Countries");
+            NSButton *countriesBox = mapBox(@"overlay", @"countries");
             CHECK(countriesBox && countriesBox.state == NSControlStateValueOff, "the Countries box, off at first");
             countriesBox.state = NSControlStateValueOn;
             [countriesBox sendAction:countriesBox.action to:countriesBox.target];
@@ -3907,12 +3917,45 @@ int main(int argc, char **argv) {
             snapshot(mapw, "map-countries");
             countriesBox.state = NSControlStateValueOff;
             [countriesBox sendAction:countriesBox.action to:countriesBox.target];
-            auto setBox = [&](NSButton *bx, bool on) {
-                bx.state = on ? NSControlStateValueOn : NSControlStateValueOff;
-                [bx sendAction:bx.action to:bx.target];
-            };
+            // Show: the worked US states shaded. Ticking Show turns that layer's Overlay and Labels on.
+            NSButton *statesShow = mapBox(@"show", @"states"), *statesLabels = mapBox(@"labels", @"states");
+            CHECK(statesShow && statesShow.state == NSControlStateValueOff && statesBox.state == NSControlStateValueOff, "Show US states starts off");
+            setBox(statesShow, true);
+            CHECK(statesBox.state == NSControlStateValueOn && statesLabels.state == NSControlStateValueOn && statesLabels.enabled,
+                  "Show US states turns its Overlay and Labels on");
+            CHECK(menuAction(regionMenu, @"North America"), "Region → North America for states");
+            [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-71.9, 41.6), 0)];  // eastern Connecticut, outside K1AB's FN31
+            CHECK([labelContaining(mapw.contentView, @"CT:") hasPrefix:@"CT: 1 QSO, confirmed (K1AB); 1 by where the QSO was."],
+                  "a worked state, from where its QSO was (FN31pr): %s", labelWithLines(mapw.contentView, 3).UTF8String);
+            snapshot(mapw, "map-worked-states");
+            setBox(statesShow, false), setBox(statesBox, false);
+            // More Filters: places. A continent keeps only its QSOs; a state, only that state's.
+            NSButton *moreFilters = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.filter.more");
+            [moreFilters performClick:nil];
+            pump(0.2);
+            NSView *filtersView = nil;
+            for (NSWindow *w in NSApp.windows)
+                if ((filtersView = viewWithIdentifier(w.contentView, @"map.filters"))) break;
+            NSButton *eu = filtersView ? (NSButton *)viewWithIdentifier(filtersView, @"map.filter.continent.EU") : nil;
+            CHECK(moreFilters && filtersView && eu, "More Filters opens its places");
+            setBox(eu, true);
+            CHECK([labelContaining(mapw.contentView, @"grid square") hasPrefix:@"0 grid squares (0 confirmed), 1 DXCC (1 confirmed)"] &&
+                      [moreFilters.title isEqualToString:@"More Filters (1)..."],
+                  "a continent filter keeps Europe's QSOs (1A0C, the only call the test country file places): %s, %s",
+                  labelContaining(mapw.contentView, @"grid square").UTF8String, moreFilters.title.UTF8String);
+            setBox(eu, false);
+            NSTokenField *stateTokens = (NSTokenField *)viewWithIdentifier(filtersView, @"map.filter.states");
+            stateTokens.objectValue = @[ @"CT" ];
+            [stateTokens sendAction:stateTokens.action to:stateTokens.target];
+            CHECK([labelContaining(mapw.contentView, @"grid square") hasPrefix:@"1 grid square (1 confirmed"], "a state filter keeps Connecticut's QSO: %s",
+                  labelContaining(mapw.contentView, @"grid square").UTF8String);
+            [(NSButton *)viewWithIdentifier(mapw.contentView, @"map.filter.clear") performClick:nil];
+            CHECK([labelContaining(mapw.contentView, @"grid square") hasPrefix:@"4 grid squares"] && [moreFilters.title isEqualToString:@"More Filters..."],
+                  "Clear shows every QSO again");
+            [filtersView.window orderOut:nil];
+
             // US counties and cities, down to city level (the 1:10m detail): Madison, Wisconsin.
-            NSButton *countiesBox = findButton(mapw.contentView, @"US counties"), *citiesBox = findButton(mapw.contentView, @"Cities");
+            NSButton *countiesBox = mapBox(@"overlay", @"counties"), *citiesBox = mapBox(@"overlay", @"cities");
             NSButton *countyLabels = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.labels.counties");
             NSButton *cityLabels = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.labels.cities");
             CHECK(countiesBox && citiesBox && countyLabels && cityLabels && countiesBox != countyLabels && citiesBox != cityLabels &&
@@ -3929,20 +3972,11 @@ int main(int argc, char **argv) {
             }
             CHECK(std::atof(zoomShown().c_str()) >= 12, "zoomed in to city level, where the 1:10m detail draws: %s", zoomShown().c_str());
             snapshot(mapw, "map-city-detail");
-            // Apple Maps opens what was clicked: here an empty square, EN53.
-            NSPoint madison = pointFor(-89.40, 43.07);
-            [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, madison, 1)];
-            [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, madison, 1)];
-            setenv("ADIFLINT_TEST_SAVE_DIR", mapDir.UTF8String, 1);
-            [findButton(mapw.contentView, @"Apple Maps") performClick:nil];
-            unsetenv("ADIFLINT_TEST_SAVE_DIR");
-            NSString *appleUrl = [NSString stringWithContentsOfFile:[mapDir stringByAppendingPathComponent:@"apple-maps-url.txt"] encoding:NSUTF8StringEncoding
-                                                              error:nil];
-            CHECK([appleUrl isEqualToString:@"https://maps.apple.com/place?coordinate=43.50000,-89.00000&name=EN53"], "Apple Maps: %s", appleUrl.UTF8String);
+            CHECK(!findButton(mapw.contentView, @"Apple Maps"), "no Apple Maps button");
             setBox(countiesBox, false), setBox(citiesBox, false);
 
             // IOTA: the overlay needs IOTA's group list, which Settings downloads when asked.
-            NSButton *iotaBox = findButton(mapw.contentView, @"IOTA");
+            NSButton *iotaBox = mapBox(@"overlay", @"iota"), *iotaShow = mapBox(@"show", @"iota");
             NSButton *iotaLabels = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.labels.iota");
             CHECK(iotaBox && iotaLabels && iotaBox != iotaLabels && iotaBox.state == NSControlStateValueOff && !iotaLabels.enabled,
                   "the IOTA overlay starts off, its Labels box with it");
@@ -3961,6 +3995,7 @@ int main(int argc, char **argv) {
                   "IOTA's group list downloaded (the 4 good groups of the test file) into the config folder: %s",
                   labelContaining(iotaSection, @"group").UTF8String);
             [isw orderOut:nil];
+            setBox(iotaShow, true);  // the groups worked, filled
             [findButton(mapw.contentView, @"World") performClick:nil];
             [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(1.5, 58.0), 0)];  // the North Sea, in EU-005's box
             CHECK([labelContaining(mapw.contentView, @"EU-005") hasPrefix:@"IOTA EU-005 Test Group Atlantic: 1 QSO (G4ABC)."],
@@ -3983,7 +4018,7 @@ int main(int argc, char **argv) {
             [findButton(mapw.contentView, @"World") performClick:nil];
             snapshot(mapw, "map-iota-globe");
             pick(proj, @"Equirectangular");
-            setBox(iotaBox, false);
+            setBox(iotaBox, false), setBox(iotaShow, false);
 
             // POTA: the overlay needs POTA's park list, which Settings downloads when asked; then a pin
             // at each park hunted (W2CD's US-1234) or activated, at the park itself, and a ring at each other.
@@ -3998,10 +4033,11 @@ int main(int argc, char **argv) {
                 [inv setArgument:&n atIndex:5];
                 [inv invoke];
             };
-            NSButton *potaBox = findButton(mapw.contentView, @"POTA");
-            NSButton *potaLabels = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.labels.pota");
-            CHECK(potaBox && potaLabels && potaBox != potaLabels && potaBox.state == NSControlStateValueOff && !potaLabels.enabled,
-                  "the POTA overlay starts off, its Labels box with it");
+            NSButton *potaBox = mapBox(@"overlay", @"pota"), *potaShow = mapBox(@"show", @"pota");
+            NSButton *potaLabels = mapBox(@"labels", @"pota");
+            CHECK(potaBox && potaLabels && potaShow && potaBox != potaLabels && potaBox.state == NSControlStateValueOff &&
+                      potaShow.state == NSControlStateValueOn && potaLabels.enabled,
+                  "POTA: Show (the parks you worked) starts on, Overlay (the rest) off");
             setBox(potaBox, true);
             CHECK(potaLabels.enabled && [labelContaining(mapw.contentView, @"POTA:") hasPrefix:@"POTA: download POTA's park list first"],
                   "POTA without the park list says where to get it: %s", labelContaining(mapw.contentView, @"POTA").UTF8String);
@@ -4038,13 +4074,6 @@ int main(int argc, char **argv) {
             [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, hunted, 1)];
             CHECK([qsoList.dataSource numberOfRowsInTableView:qsoList] == 1 && [cell(qsoList, 0, @"1") isEqualToString:@"W2CD"],
                   "a click on the park's pin lists its QSO");
-            setenv("ADIFLINT_TEST_SAVE_DIR", mapDir.UTF8String, 1);
-            [findButton(mapw.contentView, @"Apple Maps") performClick:nil];
-            unsetenv("ADIFLINT_TEST_SAVE_DIR");
-            NSString *parkUrl = [NSString stringWithContentsOfFile:[mapDir stringByAppendingPathComponent:@"apple-maps-url.txt"] encoding:NSUTF8StringEncoding
-                                                             error:nil];
-            CHECK([parkUrl hasPrefix:@"https://maps.apple.com/place?coordinate=40.70000,-74.40000&name=US-1234"], "Apple Maps opens the park: %s",
-                  parkUrl.UTF8String);
             [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-74.60, 41.05), 0)];
             CHECK([labelContaining(mapw.contentView, @"US-2001") hasPrefix:@"POTA US-2001 Test Park North (US-NJ): not worked."],
                   "hovering a park not worked: %s", labelContaining(mapw.contentView, @"POTA").UTF8String);
@@ -4057,7 +4086,7 @@ int main(int argc, char **argv) {
             [mapView mouseMoved:mouse(NSEventTypeMouseMoved, activated, 0)];
             CHECK([labelContaining(mapw.contentView, @"US-2004") hasPrefix:@"POTA US-2004 Test Park Activated (US-IL): activated by you, 1 QSO."],
                   "hovering a park you activated: %s", labelContaining(mapw.contentView, @"POTA").UTF8String);
-            // Many parks: counts instead of rings, and a click on one zooms in.
+            // Many parks: dots instead of rings, no counts, and each still found by the pointer.
             {
                 NSString *many = [tmp stringByAppendingPathComponent:@"many-parks"];
                 [[NSFileManager defaultManager] createDirectoryAtPath:[many stringByAppendingPathComponent:@"pota"] withIntermediateDirectories:YES
@@ -4080,15 +4109,13 @@ int main(int argc, char **argv) {
                 [psw orderOut:nil];
                 CHECK(manyStatus.find("3,000 parks (3,000 active)") == 0, "a list of 3,000 parks: %s", manyStatus.c_str());
                 [findButton(mapw.contentView, @"World") performClick:nil];
-                [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-89.5, 44.5), 0)];
-                NSString *count = labelContaining(mapw.contentView, @"POTA parks not worked here");
-                CHECK([count hasPrefix:@"3,000 POTA parks not worked here"], "3,000 parks in view are counts, not rings: %s",
-                      labelContaining(mapw.contentView, @"POTA").UTF8String);
-                snapshot(mapw, "map-pota-counts");
-                NSPoint at = pointFor(-89.5, 44.5);
-                [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, at, 1)];
-                [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, at, 1)];
-                CHECK(zoomShown() == "3.0×", "a click on a count zooms in: %s", zoomShown().c_str());
+                showBox(-89.9, 44.1, -89.2, 44.9);
+                [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-89.8, 44.2), 0)];  // US-5000, the first test park
+                CHECK([labelContaining(mapw.contentView, @"US-5000") hasPrefix:@"POTA US-5000 Test Park 0 (US-WI): not worked."] &&
+                          ![labelContaining(mapw.contentView, @"not worked here") length],
+                      "3,000 parks in view: dots, no counts, each found by the pointer: %s", labelWithLines(mapw.contentView, 3).UTF8String);
+                [findButton(mapw.contentView, @"World") performClick:nil];
+                snapshot(mapw, "map-pota-dots");
                 run("Settings...");
                 downloadParks(@"7 parks");  // back to the test file's parks
                 [psw orderOut:nil];
@@ -4112,7 +4139,7 @@ int main(int argc, char **argv) {
             pick(colour, @"Colour by confirmation");
             menuAction(styleMenu, @"Solid line");
             menuAction(styleMenu, @"Medium line");
-            menuAction(styleMenu, @"Lines to contacts");
+            setBox(linesBox, false);
 
             // Documentation screenshots (ADIFLINT_DOCS=1, with ADIFLINT_SNAPSHOT_DIR): the map and
             // the Log Table on the sample log above. tools/docs-screenshots.sh runs this.
@@ -4124,14 +4151,18 @@ int main(int argc, char **argv) {
                 pump(0.3);
                 run("Map (Grids, DXCC, Parks)...");
                 auto box = [&](NSString *title, bool on) {
-                    NSButton *b = findButton(mapw.contentView, title);
+                    // The layer boxes by what the controls were once called; the rest by title.
+                    NSDictionary *ids = @{@"Worked squares" : @"show.grid", @"DXCC" : @"show.countries", @"Parks" : @"show.pota",
+                                          @"Grid squares" : @"overlay.grid", @"Countries" : @"overlay.countries", @"US states" : @"overlay.states",
+                                          @"CQ zones" : @"overlay.cq", @"ITU zones" : @"overlay.itu", @"US counties" : @"overlay.counties",
+                                          @"Cities" : @"overlay.cities"};
+                    NSButton *b = ids[title] ? (NSButton *)viewWithIdentifier(mapw.contentView, [@"map." stringByAppendingString:ids[title]])
+                                             : findButton(mapw.contentView, title);
                     if (!b || (b.state == NSControlStateValueOn) == on) return;
                     b.state = on ? NSControlStateValueOn : NSControlStateValueOff;
                     [b sendAction:b.action to:b.target];
                 };
-                auto lines = [&](bool on) {
-                    if (menuState(styleMenu, @"Lines to contacts") != on) menuAction(styleMenu, @"Lines to contacts");
-                };
+                auto lines = [&](bool on) { setBox(linesBox, on); };
                 for (NSString *t in @[ @"Worked squares", @"DXCC", @"Parks", @"Grid squares", @"Countries", @"US states", @"CQ zones", @"ITU zones" ])
                     box(t, false);
                 box(@"Contacts", true), box(@"My station", true);

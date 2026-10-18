@@ -4,6 +4,8 @@
 #include "adif_geo.h"
 #include "adif_parks.h"
 #include "adif_programs.h"
+#include "adif_regions.h"
+#include "adif_worked.h"
 #include "adif_spec.h"
 
 #include <algorithm>
@@ -87,7 +89,45 @@ MapData mapData(std::string_view text, const DocModel &m, std::string_view band,
     return mapData(text, m, f);
 }
 
-MapData mapData(std::string_view text, const DocModel &m, const MapFilter &filter) {
+bool MapFilter::any() const {
+    return !continents.empty() || !dxcc.empty() || !cq.empty() || !itu.empty() || !states.empty() || !counties.empty() || !regions.empty() ||
+           !potaLocations.empty();
+}
+
+bool placeMatches(const MapFilter &f, const MapQso &q, const PotaParks *parks) {
+    const QsoAreas &a = q.areas;
+    if (!f.continents.empty() && !f.continents.count(a.cont)) return false;
+    if (!f.dxcc.empty() && !f.dxcc.count(a.dxcc)) return false;
+    if (!f.cq.empty() && !f.cq.count(a.cq)) return false;
+    if (!f.itu.empty() && !f.itu.count(a.itu)) return false;
+    if (!f.states.empty() && !f.states.count(a.state)) return false;
+    if (!f.counties.empty() && !f.counties.count(a.county)) return false;
+    if (!f.regions.empty()) {
+        bool in = false;
+        for (const std::string &id : f.regions)
+            if (const UsRegion *r = usRegion(id)) in = in || inUsRegion(*r, a.state, q.arrlSect);
+        if (!in) return false;
+    }
+    if (!f.potaLocations.empty()) {
+        // A park's location from POTA's list, else from how the log wrote it ("US-1234@US-WI").
+        bool in = false;
+        for (const auto *refs : {&q.potaHunted, &q.potaActivated})
+            for (const std::string &ref : *refs) {
+                const PotaPark *p = parks ? parks->find(ref) : nullptr;
+                std::string locs = p ? p->location : "";
+                for (size_t b = 0; b <= locs.size() && !in;) {
+                    size_t e = locs.find(',', b);
+                    if (e == std::string::npos) e = locs.size();
+                    in = f.potaLocations.count(locs.substr(b, e - b)) > 0;
+                    b = e + 1;
+                }
+            }
+        if (!in) return false;
+    }
+    return true;
+}
+
+MapData mapData(std::string_view text, const DocModel &m, const MapFilter &filter, const MapContext &context) {
     MapData out;
     std::map<std::string, size_t> squareIndex;
     std::vector<std::string> mine;
@@ -101,7 +141,6 @@ MapData mapData(std::string_view text, const DocModel &m, const MapFilter &filte
         if (!filter.to.empty() && (date8.empty() || date8 > filter.to)) continue;
         bool confirmed = isConfirmed(r);
         if ((filter.confirmed == 1 && !confirmed) || (filter.confirmed == 2 && confirmed)) continue;
-        ++out.records;
         std::string call = upper(trimmed(r.get("CALL")));
         size_t index = out.qsos.size();
         {
@@ -120,6 +159,14 @@ MapData mapData(std::string_view text, const DocModel &m, const MapFilter &filte
             q.modeGroup = modeGroup(trimmed(r.get("MODE")));
             q.confirmed = confirmed;
             q.iota = iotaRef(r.get("IOTA"));
+            q.state = upper(trimmed(r.get("STATE")));
+            q.cnty = trimmed(r.get("CNTY"));
+            q.cont = upper(trimmed(r.get("CONT")));
+            auto number = [&](const char *field) {
+                std::string v = trimmed(r.get(field));
+                return !v.empty() && v.size() <= 4 && std::all_of(v.begin(), v.end(), [](char c) { return c >= '0' && c <= '9'; }) ? std::stoi(v) : 0;
+            };
+            q.dxcc = number("DXCC"), q.cqz = number("CQZ"), q.ituz = number("ITUZ");
             for (const std::string &park : theirParks(r))
                 if (std::string ref = potaListRef(park); !ref.empty()) q.potaHunted.push_back(ref);
             for (const std::string &park : myParks(r))
@@ -132,6 +179,10 @@ MapData mapData(std::string_view text, const DocModel &m, const MapFilter &filte
                 else ++out.unusedLatLon;
             }
             if (!q.located && grid && q.grid.size() >= 6 && gridToLatLon(q.grid, &q.lat, &q.lon)) q.located = true, q.locatedBy = q.grid;
+            q.arrlSect = upper(trimmed(r.get("ARRL_SECT")));
+            q.areas = resolveAreas(placeFacts(q, context.countries));
+            if (filter.any() && !placeMatches(filter, q, context.parks)) continue;
+            ++out.records;
             out.qsos.push_back(std::move(q));
             out.calls.emplace_back(call, confirmed);
         }

@@ -32,14 +32,22 @@ struct ADIFMapEntity {
 
 // What the pointer is over, or what was clicked.
 struct ADIFMapHit {
-    enum Kind { None, Square, Dxcc, Park, Contact, Iota, Pota, PotaCluster, Empty } kind = None;
+    enum Kind { None, Square, Dxcc, Park, Contact, Iota, Pota, Area, Empty } kind = None;
     std::string square;  // the 4-character square under the point (always set on the map)
     // Into squares, entities, parks, contacts, IOTA groups (ADIFIotaGroups), POTA's parks
-    // (ADIFPotaParks) or the counts of parks not worked last drawn.
+    // (ADIFPotaParks), or (Area) the layer's areas (adif::areaIndex).
     size_t index = 0;
+    int layer = 0;  // Area: the MapLayerId
 };
 
-// How the map looks: the Options menu, the colour popup and the overlay checkboxes.
+// The Map's layers of areas. Each has Show (the areas worked in the log, shaded), Overlay
+// (every area outlined) and Labels (their names or numbers); Cities has no Show.
+enum MapLayerId { kLayerSquares, kLayerCountries, kLayerStates, kLayerCounties, kLayerCq, kLayerItu, kLayerPota, kLayerIota, kLayerCities, kLayerCount };
+struct LayerState {
+    bool show = false, overlay = false, labels = true;
+};
+
+// How the map looks: the Style Options, the colour popup and the layer checkboxes.
 struct ADIFMapStyle {
     int colorBy = 0;    // 0 confirmation, 1 band, 2 mode, 3 QSO count, 4 year first worked
     int palette = 0;    // 0 standard, 1 colour-blind safe, 2 high contrast, 3 light (print)
@@ -49,14 +57,12 @@ struct ADIFMapStyle {
     int lineStyle = 0;  // lines to contacts: 0 solid, 1 dashed, 2 dotted
     int lineWidth = 1;  // 0 thin, 1 medium, 2 thick
     double marker = 1;  // marker size factor
-    bool grid = true, labels = true, legend = true, rings = false, paths = false, mine = true;
+    bool legend = true, rings = false, paths = false, mine = true;
     bool arcs = true;  // on the globe, lines to contacts arch over it
-    bool cqZones = false, ituZones = false, states = false, countries = false;  // overlays
-    // Each overlay's names or numbers, shown while the overlay is (labels: the grid squares').
-    bool cqLabels = true, ituLabels = true, stateLabels = true, countryLabels = true;
-    bool counties = false, countyLabels = true, cities = false, cityLabels = true;
-    bool iota = false, iotaLabels = true;  // IOTA's island groups (downloaded in Settings)
-    bool pota = false, potaLabels = true;  // POTA's parks (the list downloaded in Settings)
+    // Squares: Show the worked squares, Overlay the Maidenhead grid, Labels its names. Countries:
+    // Show each worked DXCC entity's land. POTA and IOTA need their lists (downloaded in Settings).
+    std::array<LayerState, kLayerCount> layer;
+    const LayerState &operator[](MapLayerId l) const { return layer[(size_t)l]; }
 };
 
 // QSOs at one exact place (MapQso::located), for the Contacts layer.
@@ -85,12 +91,7 @@ struct ADIFParkSpot {
     bool pin = false;        // a park you worked; else a ring
     bool activated = false;  // a pin for a park you activated
     ADIFMapAgg agg;          // a hunted park's QSOs, for its colour
-};
-// Parks not worked, gathered into one count where too many would show.
-struct ADIFParkCluster {
-    NSPoint at = NSZeroPoint;
-    double radius = 0;
-    size_t count = 0;
+    bool dot = false;        // a small dot, where too many rings would show
 };
 
 namespace mapkit {
@@ -129,6 +130,12 @@ double webZoom(double zoom);
 CGMutablePathRef detailPath(const adif::Projector &pr, adif::DetailLayer l, bool polygons, double west, double south, double east, double north,
                             const std::function<bool(int)> &keep);
 CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRank = 99);
+// The overlay a layer of worked areas is drawn from (states, counties, CQ and ITU zones).
+inline adif::Overlay layerOverlay(int layer) {
+    return layer == kLayerStates ? adif::Overlay::UsStates : layer == kLayerCounties ? adif::Overlay::UsCounties
+           : layer == kLayerCq   ? adif::Overlay::CqZones
+                                 : adif::Overlay::ItuZones;
+}
 
 }  // namespace mapkit
 
@@ -159,11 +166,15 @@ struct MapDrawCtx {
     std::vector<ADIFMapContact> _contacts;
     std::vector<ADIFMapAgg> _squareAgg, _entityAgg, _contactAgg;
     std::vector<bool> _entityDot;  // drawn as a dot: no land at this scale, or too small on screen
+    // The worked areas of the States, Counties, CQ and ITU layers: area name -> its QSOs.
+    std::array<std::map<std::string, std::vector<size_t>>, kLayerCount> _areaQsos;
+    std::array<std::map<std::string, ADIFMapAgg>, kLayerCount> _areaAgg;
     std::map<std::string, std::vector<size_t>> _iotaQsos;  // IOTA reference -> its QSOs (into _data.qsos)
     std::map<std::string, ADIFParkWork> _potaWork;         // a POTA park, as the list writes it -> your QSOs there
     std::vector<ADIFParkSpot> _potaSpots;                  // where the parks' markers are (placeParks)
-    std::vector<ADIFParkCluster> _potaClusters;            // and the counts of parks not worked
-    std::tuple<double, double, double, double, double, int, double, double, double, bool, uintptr_t, size_t, int> _parksPlacedFor;
+    adif::MapFilter _parkFilter;  // the Filters' places, for parks not worked
+    BOOL _filterParks;             // "Apply to POTA parks"
+    std::tuple<double, double, double, double, double, int, double, double, double, int, uintptr_t, size_t, int> _parksPlacedFor;
     int _dataGeneration;                                   // counts setData, for placeParks
     std::vector<std::string> _bands;  // in the data, frequency order
     int _minYear, _maxYear;
@@ -178,12 +189,12 @@ struct MapDrawCtx {
     BOOL _dragged;
     NSTrackingArea *_tracking;
     // The properties' own, here so the layers (MapLayers.mm) can read them too.
-    BOOL _showSquares, _showEntities, _showParks, _showContacts;
+    BOOL _showContacts;
     std::set<std::string> _hiddenPrograms;
     std::map<std::string, size_t> _qsosPerBand;
     ADIFMapStyle _style;
 }
-@property(nonatomic) BOOL showSquares, showEntities, showParks, showContacts;
+@property(nonatomic) BOOL showContacts;
 @property(nonatomic) std::set<std::string> hiddenPrograms;
 @property(nonatomic) std::map<std::string, size_t> qsosPerBand;  // over the whole log, for the colour-blind safe band colours
 @property(nonatomic) ADIFMapStyle style;
@@ -199,6 +210,8 @@ struct MapDrawCtx {
 - (void)showWest:(double)w south:(double)s east:(double)e north:(double)n;  // a region
 - (NSPoint)viewPointForLon:(double)lon lat:(double)lat;
 - (const std::vector<ADIFMapContact> &)contacts;
+- (std::vector<size_t>)areaQsos:(int)layer name:(const std::string &)name;  // a worked area's QSOs
+- (void)setParkFilter:(const adif::MapFilter &)filter on:(BOOL)on;      // the Filters, for parks not worked
 - (std::vector<size_t>)iotaQsos:(const std::string &)ref;  // the QSOs with this IOTA reference
 - (ADIFParkWork)parkWork:(const std::string &)ref;          // your QSOs with this POTA park (as the list writes it)
 - (void)selectedPlace:(double *)lat lon:(double *)lon name:(std::string *)name;
@@ -260,7 +273,9 @@ struct MapDrawCtx {
 
 // The layers (MapLayers.mm), in drawRect's order.
 @interface ADIFMapView (Layers)
-- (size_t)parkClusterCount:(size_t)i;  // the parks in a count last drawn
+- (void)drawWorkedAreas:(MapDrawCtx &)d;
+- (size_t)workedAreaAt:(MapLayerId)layer lon:(double)lon lat:(double)lat;  // a worked area's index (adif::areaIndex), or npos
+- (BOOL)parkFiltered:(const adif::PotaPark &)p;
 - (void)drawBase:(MapDrawCtx &)d;
 - (void)drawGridLines:(MapDrawCtx &)d;
 - (void)drawDxccLand:(MapDrawCtx &)d;

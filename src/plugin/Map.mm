@@ -9,6 +9,8 @@
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include "adif_detail.h"
 #include "adif_geo.h"
+#include "adif_worked.h"
+#include "adif_regions.h"
 #include "adif_palette.h"
 #include "adif_projection.h"
 #include "adif_spec.h"
@@ -57,6 +59,30 @@ using namespace mapkit;
 }
 @end
 
+// Completions for a token field: the candidates that start with what was typed, then those that
+// contain it.
+@interface ADIFTokenCompleter : NSObject <NSTokenFieldDelegate>
+@property(nonatomic, copy) NSArray<NSString *> *candidates;
+@end
+
+@implementation ADIFTokenCompleter
+- (NSArray *)tokenField:(NSTokenField *)tokenField
+    completionsForSubstring:(NSString *)substring
+               indexOfToken:(NSInteger)tokenIndex
+        indexOfSelectedItem:(NSInteger *)selectedIndex {
+    NSMutableArray *starts = [NSMutableArray array], *contains = [NSMutableArray array];
+    for (NSString *c in _candidates) {
+        NSRange r = [c rangeOfString:substring options:NSCaseInsensitiveSearch | NSDiacriticInsensitiveSearch];
+        if (r.location == 0) [starts addObject:c];
+        else if (r.location != NSNotFound) [contains addObject:c];
+        if (starts.count >= 40) break;
+    }
+    [starts addObjectsFromArray:[contains subarrayWithRange:NSMakeRange(0, std::min<NSUInteger>(contains.count, 40 - std::min<NSUInteger>(40, starts.count)))]];
+    if (selectedIndex) *selectedIndex = starts.count ? 0 : -1;
+    return starts;
+}
+@end
+
 namespace worldmap {
 namespace {
 
@@ -65,13 +91,19 @@ struct {
     ADIFMapView *view = nil;
     ADIFMapList *list = nil;
     NSTableView *table = nil;
-    NSButton *squares = nil, *grid = nil, *labels = nil, *entities = nil, *contacts = nil, *parks = nil, *mine = nil;
-    NSButton *cqZones = nil, *ituZones = nil, *states = nil, *countries = nil;
-    NSButton *cqLabels = nil, *ituLabels = nil, *stateLabels = nil, *countryLabels = nil;  // labels: the grid squares'
-    NSButton *counties = nil, *countyLabels = nil, *cities = nil, *cityLabels = nil, *iota = nil, *iotaLabels = nil, *pota = nil, *potaLabels = nil;
+    NSButton *show[kLayerCount] = {}, *overlay[kLayerCount] = {}, *labels[kLayerCount] = {};  // the layers' boxes (no Show for cities)
+    NSButton *contacts = nil, *lines = nil, *mine = nil;
     NSPopUpButton *programs = nil, *style = nil, *projection = nil, *colorBy = nil, *region = nil;
     NSPopUpButton *band = nil, *mode = nil, *dates = nil, *confirmed = nil;
     NSTextField *target = nil, *status = nil, *zoomLabel = nil;
+    // More Filters: places.
+    NSButton *moreFilters = nil, *clearFilters = nil;
+    NSPopover *filterPopover = nil;
+    NSButton *continent[7] = {}, *parksToo = nil;
+    NSTokenField *dxccTokens = nil, *stateTokens = nil, *countyTokens = nil, *potaTokens = nil;
+    NSTextField *cqField = nil, *ituField = nil;
+    NSPopUpButton *regions = nil;
+    NSMutableArray *completers = nil;
     adif::MapData data;
     std::vector<ADIFMapEntity> dxcc;
     std::vector<size_t> listed;   // the table's rows: indexes into data.qsos
@@ -112,6 +144,47 @@ void saveHidden(const std::set<std::string> &hidden) {
     setSetting("mapHiddenProgramsSet", "1");
 }
 
+// The layers' boxes: each layer's identifier, column title, settings keys and defaults. The keys
+// are the ones the earlier Show, Overlays and Labels rows saved, so choices carry over.
+struct LayerUi {
+    MapLayerId id;
+    NSString *ident, *title;
+    const char *showKey, *overlayKey, *labelsKey;
+    bool showOn, overlayOn;
+    NSString *showTip, *overlayTip, *labelsTip;
+};
+const LayerUi kLayerUi[] = {
+    {kLayerSquares, @"grid", @"Grid squares", "mapSquares", "mapGrid", "mapLabels", true, true, @"Each grid square worked, in the map's colours",
+     @"The Maidenhead grid: its fields (20 x 10 degrees), and its squares (2 x 1) when zoomed in",
+     @"Field names (FN, EM...), and square names (FN31) when zoomed in"},
+    {kLayerCountries, @"countries", @"Countries", "mapDxcc", "mapCountries", "mapCountryLabels", true, false,
+     @"Each DXCC entity worked, its own land shaded (Alaska apart from the United States, Sardinia from Italy, Scotland from England); "
+     @"a dot for one too small to shade",
+     @"Every country outlined, coasts and borders (Natural Earth, public domain)", @"Each country's name, where it fits inside the country on screen"},
+    {kLayerStates, @"states", @"US states", "mapShowStates", "mapUsStates", "mapStateLabels", false, false,
+     @"Each US state worked, shaded: from STATE, else where the QSO was", @"State lines (Natural Earth, public domain)",
+     @"Each state's postal code, where it fits"},
+    {kLayerCounties, @"counties", @"US counties", "mapShowCounties", "mapCounties", "mapCountyLabels", false, false,
+     @"Each US county worked, shaded: from CNTY, else where the QSO was (LAT/LON or a 6-character grid)",
+     @"County lines (Natural Earth, public domain), from 2.5x zoom", @"Each county's name, where it fits"},
+    {kLayerCq, @"cq", @"CQ zones", "mapShowCq", "mapCqZones", "mapCqLabels", false, false,
+     @"Each CQ zone worked, shaded: from CQZ, else where the QSO was, else the country data",
+     @"CQ zones 1-40 (HB9HIL's hamradio-zones-geojson, MIT); approximate", @"The CQ zones' numbers"},
+    {kLayerItu, @"itu", @"ITU zones", "mapShowItu", "mapItuZones", "mapItuLabels", false, false,
+     @"Each ITU zone worked, shaded: from ITUZ, else where the QSO was, else the country data",
+     @"ITU zones 1-90 (HB9HIL's hamradio-zones-geojson, MIT); approximate", @"The ITU zones' numbers"},
+    {kLayerPota, @"pota", @"POTA", "mapShowPota", "mapPota", "mapPotaLabels", true, false,
+     @"The POTA parks you hunted (a pin) and activated (a pin with a star), at the parks themselves with POTA's park list "
+     @"(Settings, POTA Parks), else at the QSO's grid",
+     @"Every active POTA park you haven't worked, as a dot (needs POTA's park list, from Settings)",
+     @"Each park's reference (US-1234): the parks you worked always, the others once zoomed in to a few hundred, and names once zoomed in to fewer"},
+    {kLayerIota, @"iota", @"IOTA", "mapShowIota", "mapIota", "mapIotaLabels", false, false,
+     @"The IOTA groups in your log, filled in (needs IOTA's group list, from Settings)", @"Every IOTA group's box, dashed",
+     @"Each group's reference (EU-005), and its name where there is room"},
+    {kLayerCities, @"cities", @"Cities", nullptr, "mapCities", "mapCityLabels", false, false, nil,
+     @"7,300 cities and towns (Natural Earth, public domain), more as you zoom in", @"City names, where they don't run into each other"},
+};
+
 ADIFMapStyle savedStyle() {
     ADIFMapStyle s;
     static const double kSizes[] = {0.75, 1.0, 1.4, 1.9};
@@ -121,24 +194,14 @@ ADIFMapStyle savedStyle() {
     s.fill = number("mapSquareFill", 0, 2);
     s.marker = kSizes[number("mapMarkerSize", 1, 3)];
     s.contact = number("mapContactMarker", 0, 2);
-    s.grid = flag("mapGrid", true);
-    s.cqZones = flag("mapCqZones", false);
-    s.ituZones = flag("mapItuZones", false);
-    s.states = flag("mapUsStates", false);
-    s.countries = flag("mapCountries", false);
-    s.labels = flag("mapLabels", true);
-    s.cqLabels = flag("mapCqLabels", true);
-    s.ituLabels = flag("mapItuLabels", true);
-    s.countryLabels = flag("mapCountryLabels", true);
-    s.stateLabels = flag("mapStateLabels", true);
-    s.counties = flag("mapCounties", false);
-    s.countyLabels = flag("mapCountyLabels", true);
-    s.cities = flag("mapCities", false);
-    s.cityLabels = flag("mapCityLabels", true);
-    s.iota = flag("mapIota", false);
-    s.iotaLabels = flag("mapIotaLabels", true);
-    s.pota = flag("mapPota", false);
-    s.potaLabels = flag("mapPotaLabels", true);
+    for (const LayerUi &l : kLayerUi) {
+        LayerState &st = s.layer[l.id];
+        // POTA's Show was the Parks box (mapParks).
+        bool showOn = l.id == kLayerPota ? flag("mapParks", l.showOn) : l.showOn;
+        st.show = l.showKey && flag(l.showKey, showOn);
+        st.overlay = flag(l.overlayKey, l.overlayOn);
+        st.labels = flag(l.labelsKey, true);
+    }
     s.legend = flag("mapLegend", true);
     s.rings = flag("mapRings", false);
     s.paths = flag("mapPaths", false);
@@ -221,11 +284,34 @@ std::string describe(const ADIFMapHit &h) {
             }
             return "POTA " + p.ref + " " + p.name + " (" + p.location + (p.active ? "" : ", inactive") + "): " + what + "." + from;
         }
-        case ADIFMapHit::PotaCluster: {
-            size_t n = [mw.view parkClusterCount:h.index];
-            std::string count = std::to_string(n);
-            for (int i = (int)count.size() - 3; i > 0; i -= 3) count.insert((size_t)i, ",");
-            return count + (n == 1 ? " POTA park" : " POTA parks") + " not worked here; click to zoom in.";
+        case ADIFMapHit::Area: {
+            const adif::AreaIndex &index = adif::areaIndex(layerOverlay(h.layer));
+            if (h.index >= index.size()) break;
+            std::string name = index.area(h.index).name;
+            std::vector<size_t> qsos = [mw.view areaQsos:h.layer name:name];
+            bool confirmed = false;
+            size_t byField = 0, byPlace = 0, byCty = 0;
+            for (size_t qi : qsos) {
+                if (qi >= mw.data.qsos.size()) continue;
+                const adif::QsoAreas &a = mw.data.qsos[qi].areas;
+                confirmed |= mw.data.qsos[qi].confirmed;
+                adif::AreaFrom from = h.layer == kLayerStates ? a.stateFrom : h.layer == kLayerCounties ? a.countyFrom : h.layer == kLayerCq ? a.cqFrom : a.ituFrom;
+                byField += from == adif::AreaFrom::Field, byPlace += from == adif::AreaFrom::Location, byCty += from == adif::AreaFrom::CountryFile;
+            }
+            static const char *const kField[] = {"", "", "STATE", "CNTY", "CQZ", "ITUZ"};
+            std::string title = h.layer == kLayerCq    ? "CQ zone " + name
+                                : h.layer == kLayerItu ? "ITU zone " + name
+                                : h.layer == kLayerCounties && name.size() > 3 ? name.substr(3) + ", " + name.substr(0, 2)
+                                                                                 : name;
+            std::string from;
+            auto part = [&](size_t n, const std::string &how) {
+                if (n) from += (from.empty() ? "" : ", ") + std::to_string(n) + " " + how;
+            };
+            part(byField, std::string("by ") + kField[h.layer]);
+            part(byPlace, "by where the QSO was");
+            part(byCty, "by the country data");
+            return title + ": " + plural(qsos.size(), "QSO") + (confirmed ? ", confirmed" : "") + " (" + callsOf(qsos) + ")" +
+                   (from.empty() ? "" : "; " + from) + "." + where;
         }
         case ADIFMapHit::Iota: {
             if (h.index >= ADIFIotaGroups().size()) break;
@@ -259,7 +345,10 @@ void selected(const ADIFMapHit &h) {
     if (h.kind == ADIFMapHit::Square) qsos = mw.data.squares[h.index].qsoIndex;
     else if (h.kind == ADIFMapHit::Dxcc) qsos = mw.dxcc[h.index].qsos;
     else if (h.kind == ADIFMapHit::Contact) qsos = mw.view.contacts[h.index].qsos;
-    else if (h.kind == ADIFMapHit::Iota && h.index < ADIFIotaGroups().size()) qsos = [mw.view iotaQsos:ADIFIotaGroups()[h.index].ref];
+    else if (h.kind == ADIFMapHit::Area) {
+        const adif::AreaIndex &index = adif::areaIndex(layerOverlay(h.layer));
+        if (h.index < index.size()) qsos = [mw.view areaQsos:h.layer name:index.area(h.index).name];
+    } else if (h.kind == ADIFMapHit::Iota && h.index < ADIFIotaGroups().size()) qsos = [mw.view iotaQsos:ADIFIotaGroups()[h.index].ref];
     else if (h.kind == ADIFMapHit::Pota && h.index < ADIFPotaParks().size()) {
         ADIFParkWork w = [mw.view parkWork:ADIFPotaParks().parks()[h.index].ref];
         qsos = w.hunted;
@@ -340,6 +429,8 @@ NSMenuItem *menuItem(NSMenu *menu, NSString *title, bool on, void (^action)(void
 void refresh();
 void fillPrograms();
 void fillStyle();
+adif::MapFilter savedPlaceFilter();
+void updateFilterButton();
 
 // The Other programs list: the common programs, then any other SIG in the log, each with its count.
 void fillPrograms() {
@@ -349,7 +440,7 @@ void fillPrograms() {
     [menu addItemWithTitle:@"Other programs" action:nil keyEquivalent:@""];  // the pull-down's own title
     std::map<std::string, std::set<std::string>> refs;
     for (const adif::MapPark &p : mw.data.parks)
-        if (!p.park()) refs[p.program].insert(p.reference);
+        if (p.program != "POTA") refs[p.program].insert(p.reference);
     std::vector<std::pair<std::string, std::string>> list;  // key, label
     for (size_t i = 0; i < kProgramCount; ++i) list.emplace_back(kPrograms[i].key, kPrograms[i].label);
     for (const auto &kv : refs) {
@@ -367,7 +458,7 @@ void fillPrograms() {
         std::set<std::string> all;
         for (size_t i = 0; i < kProgramCount; ++i) all.insert(kPrograms[i].key);
         for (const adif::MapPark &p : mw.data.parks)
-            if (!p.park()) all.insert(p.program);
+            if (p.program != "POTA") all.insert(p.program);
         saveHidden(all);
         applyStyle();
         fillPrograms();
@@ -434,9 +525,6 @@ void fillStyle() {
     NSArray *fills = @[ @"Solid", @"See-through", @"Outline" ];
     for (NSInteger i = 0; i < 3; ++i) menuItem(menu, fills[(NSUInteger)i], s.fill == i, choose("mapSquareFill", (int)i)).indentationLevel = 1;
     [menu addItem:[NSMenuItem separatorItem]];
-    menuItem(menu, @"Lines to contacts", s.paths, toggle("mapPaths", s.paths)).toolTip =
-        @"Great-circle lines from your station (each QSO's MY_GRIDSQUARE, else home) to each contact (its LAT and LON, else its grid, else "
-        @"its DXCC entity), coloured as the map colours";
     NSArray *lineStyles = @[ @"Solid line", @"Dashed line", @"Dotted line" ];
     for (NSInteger i = 0; i < 3; ++i) {
         NSMenuItem *item = menuItem(menu, lineStyles[(NSUInteger)i], s.lineStyle == i, choose("mapLineStyle", (int)i));
@@ -524,7 +612,15 @@ void refresh() {
                 }
                 break;
         }
-        mw.data = adif::mapData(text, r.model, f);
+        adif::MapFilter places = savedPlaceFilter();
+        f.continents = places.continents, f.dxcc = places.dxcc, f.cq = places.cq, f.itu = places.itu, f.states = places.states,
+        f.counties = places.counties, f.regions = places.regions, f.potaLocations = places.potaLocations;
+        adif::MapContext context;
+        context.countries = &ADIFCountries();
+        context.parks = &ADIFPotaParks();
+        mw.data = adif::mapData(text, r.model, f, context);
+        [mw.view setParkFilter:places on:flag("mapFilterParks", false)];
+        updateFilterButton();
         // DXCC from the calls, by country data.
         std::map<int, ADIFMapEntity> byDxcc;
         const adif::CountryTable &countries = ADIFCountries();
@@ -554,9 +650,6 @@ void refresh() {
             mw.dxcc.push_back(kv.second);
         }
         for (const adif::MapSquare &sq : mw.data.squares) confirmedSquares += sq.confirmed;
-        mw.view.showSquares = mw.squares.state == NSControlStateValueOn;
-        mw.view.showEntities = mw.entities.state == NSControlStateValueOn;
-        mw.view.showParks = mw.parks.state == NSControlStateValueOn;
         mw.view.showContacts = mw.contacts.state == NSControlStateValueOn;
         mw.view.qsosPerBand = qsosPerBand;
         mw.home = homeGrid();
@@ -569,11 +662,11 @@ void refresh() {
         size_t located = 0;
         for (const adif::MapQso &q : mw.data.qsos) located += q.located;
         std::set<std::string> parkRefs, otherRefs;
-        for (const adif::MapPark &p : mw.data.parks) (p.park() ? parkRefs : otherRefs).insert(p.program + " " + p.reference);
+        for (const adif::MapPark &p : mw.data.parks) (p.program == "POTA" ? parkRefs : otherRefs).insert(p.program + " " + p.reference);
         mw.summary = plural(mw.data.squares.size(), "grid square") + " (" + std::to_string(confirmedSquares) + " confirmed), " +
                      std::to_string(mw.dxcc.size()) + " DXCC (" + std::to_string(confirmedDxcc) + " confirmed), " +
-                     plural(parkRefs.size(), "park") + " (POTA, WWFF) where the QSO has a grid, " + plural(otherRefs.size(), "other reference") +
-                     " (IOTA, SOTA, GMA... under Other programs)" + (mw.home.empty() ? "" : "; home " + mw.home) + ". " +
+                     plural(parkRefs.size(), "POTA park") + " where the QSO has a grid, " + plural(otherRefs.size(), "other reference") +
+                     " (WWFF, IOTA, SOTA... under Other programs)" + (mw.home.empty() ? "" : "; home " + mw.home) + ". " +
                      (mw.data.withoutGrid ? plural(mw.data.withoutGrid, "QSO") + " without GRIDSQUARE " + (mw.data.withoutGrid == 1 ? "isn't" : "aren't") +
                                                 " on the squares. "
                                           : "") +
@@ -638,23 +731,300 @@ void exportPng() {
     setStatus("Saved " + ADIFStd(ADIFString(path).lastPathComponent) + ". " + mw.summary);
 }
 
-// Apple's unified map URL for a place card (developer.apple.com/documentation/mapkit/
-// unified-map-urls, read 2026-10-13): the Maps app opens there. Under the tests, the URL is
-// written to a file instead.
-void openInAppleMaps() {
-    double lat = 0, lon = 0;
-    std::string name;
-    [mw.view selectedPlace:&lat lon:&lon name:&name];
-    NSURLComponents *url = [NSURLComponents componentsWithString:@"https://maps.apple.com/place"];
-    NSMutableArray *query = [NSMutableArray arrayWithObject:[NSURLQueryItem queryItemWithName:@"coordinate"
-                                                                                       value:[NSString stringWithFormat:@"%.5f,%.5f", lat, lon]]];
-    if (!name.empty()) [query addObject:[NSURLQueryItem queryItemWithName:@"name" value:ADIFString(name)]];
-    url.queryItems = query;
-    if (const char *dir = getenv("ADIFLINT_TEST_SAVE_DIR")) {
-        [url.URL.absoluteString writeToFile:[@(dir) stringByAppendingPathComponent:@"apple-maps-url.txt"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
-        return;
+// ── More Filters: places ──
+
+const char *const kContinents[7] = {"AF", "AN", "AS", "EU", "NA", "OC", "SA"};
+
+std::vector<std::string> splitSetting(const char *key, char sep) {
+    std::string v = setting(key);
+    std::vector<std::string> out;
+    for (size_t b = 0; b <= v.size();) {
+        size_t e = v.find(sep, b);
+        if (e == std::string::npos) e = v.size();
+        std::string item = v.substr(b, e - b);
+        while (!item.empty() && item.front() == ' ') item.erase(item.begin());
+        while (!item.empty() && item.back() == ' ') item.pop_back();
+        if (!item.empty()) out.push_back(item);
+        b = e + 1;
     }
-    if (url.URL) [[NSWorkspace sharedWorkspace] openURL:url.URL];
+    return out;
+}
+
+void saveSetting(const char *key, const std::vector<std::string> &items, char sep) {
+    std::string v;
+    for (const std::string &i : items) v += (v.empty() ? "" : std::string(1, sep)) + i;
+    setSetting(key, v);
+}
+
+// The places the Filters keep, as saved: continents, DXCC (names or numbers), zones, states,
+// counties, regions and POTA locations.
+adif::MapFilter savedPlaceFilter() {
+    adif::MapFilter f;
+    for (const std::string &c : splitSetting("mapFilterContinents", ',')) f.continents.insert(c);
+    for (const std::string &d : splitSetting("mapFilterDxcc", ';')) {
+        if (std::all_of(d.begin(), d.end(), [](char c) { return c >= '0' && c <= '9'; })) {
+            f.dxcc.insert(std::atoi(d.c_str()));
+            continue;
+        }
+        for (const adif::CountryInfo &c : ADIFCountries().all())
+            if (strcasecmp(c.name.c_str(), d.c_str()) == 0) f.dxcc.insert(c.dxcc);
+        if (f.dxcc.empty()) f.dxcc.insert(-1);  // a name the country data doesn't know matches nothing
+    }
+    for (const std::string &z : splitSetting("mapFilterCq", ',')) f.cq.insert(std::atoi(z.c_str()));
+    for (const std::string &z : splitSetting("mapFilterItu", ',')) f.itu.insert(std::atoi(z.c_str()));
+    for (const std::string &st : splitSetting("mapFilterStates", ',')) f.states.insert(st);
+    for (const std::string &c : splitSetting("mapFilterCounties", ';')) {
+        const adif::AreaIndex &counties = adif::areaIndex(adif::Overlay::UsCounties);
+        size_t i = counties.byCounty(c);
+        f.counties.insert(i == adif::AreaIndex::npos ? c : counties.area(i).name);
+    }
+    for (const std::string &r : splitSetting("mapFilterRegions", ',')) f.regions.insert(r);
+    for (const std::string &l : splitSetting("mapFilterPota", ',')) f.potaLocations.insert(l);
+    return f;
+}
+
+size_t placeKinds(const adif::MapFilter &f) {
+    return !f.continents.empty() + !f.dxcc.empty() + !f.cq.empty() + !f.itu.empty() + !f.states.empty() + !f.counties.empty() + !f.regions.empty() +
+           !f.potaLocations.empty();
+}
+
+void updateFilterButton() {
+    size_t n = placeKinds(savedPlaceFilter());
+    mw.moreFilters.title = n ? [NSString stringWithFormat:@"More Filters (%zu)...", n] : @"More Filters...";
+    mw.clearFilters.enabled = n > 0 || mw.band.indexOfSelectedItem > 0 || mw.mode.indexOfSelectedItem > 0 || mw.dates.indexOfSelectedItem > 0 ||
+                              mw.confirmed.indexOfSelectedItem > 0;
+}
+
+std::vector<std::string> tokens(NSTokenField *t) {
+    std::vector<std::string> out;
+    for (id o in [t.objectValue isKindOfClass:NSArray.class] ? (NSArray *)t.objectValue : @[])
+        if ([o isKindOfClass:NSString.class] && [(NSString *)o length]) out.push_back(ADIFStd(o));
+    return out;
+}
+
+void refresh();
+
+// The popover's controls changed: save them, filter again.
+void placeFiltersChanged() {
+    std::vector<std::string> conts;
+    for (int i = 0; i < 7; ++i)
+        if (mw.continent[i].state == NSControlStateValueOn) conts.push_back(kContinents[i]);
+    saveSetting("mapFilterContinents", conts, ',');
+    saveSetting("mapFilterDxcc", tokens(mw.dxccTokens), ';');
+    auto numbers = [](NSTextField *f, int max) {
+        std::vector<std::string> out;
+        for (NSString *part in [f.stringValue componentsSeparatedByCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@", "]]) {
+            int n = part.intValue;
+            if (n >= 1 && n <= max) out.push_back(std::to_string(n));
+        }
+        return out;
+    };
+    saveSetting("mapFilterCq", numbers(mw.cqField, 40), ',');
+    saveSetting("mapFilterItu", numbers(mw.ituField, 90), ',');
+    std::vector<std::string> states;
+    for (std::string st : tokens(mw.stateTokens)) {
+        for (char &c : st) c = (char)toupper((unsigned char)c);
+        states.push_back(st);
+    }
+    saveSetting("mapFilterStates", states, ',');
+    saveSetting("mapFilterCounties", tokens(mw.countyTokens), ';');
+    std::vector<std::string> pota;
+    for (std::string l : tokens(mw.potaTokens)) {
+        for (char &c : l) c = (char)toupper((unsigned char)c);
+        pota.push_back(l);
+    }
+    saveSetting("mapFilterPota", pota, ',');
+    saveFlag("mapFilterParks", mw.parksToo.state == NSControlStateValueOn);
+    refresh();
+}
+
+void fillPlaceControls() {
+    adif::MapFilter f = savedPlaceFilter();
+    for (int i = 0; i < 7; ++i) mw.continent[i].state = f.continents.count(kContinents[i]) ? NSControlStateValueOn : NSControlStateValueOff;
+    auto set = [](NSTokenField *t, const std::vector<std::string> &items) {
+        NSMutableArray *a = [NSMutableArray array];
+        for (const std::string &i : items) [a addObject:ADIFString(i)];
+        t.objectValue = a;
+    };
+    set(mw.dxccTokens, splitSetting("mapFilterDxcc", ';'));
+    set(mw.stateTokens, splitSetting("mapFilterStates", ','));
+    set(mw.countyTokens, splitSetting("mapFilterCounties", ';'));
+    set(mw.potaTokens, splitSetting("mapFilterPota", ','));
+    auto join = [](const std::vector<std::string> &v) {
+        std::string out;
+        for (const std::string &s : v) out += (out.empty() ? "" : ", ") + s;
+        return ADIFString(out);
+    };
+    mw.cqField.stringValue = join(splitSetting("mapFilterCq", ','));
+    mw.ituField.stringValue = join(splitSetting("mapFilterItu", ','));
+    mw.parksToo.state = flag("mapFilterParks", false) ? NSControlStateValueOn : NSControlStateValueOff;
+    // Regions: a menu of checkable items, by kind.
+    NSMenu *menu = mw.regions.menu;
+    [menu removeAllItems];
+    std::set<std::string> chosen = f.regions;
+    [menu addItemWithTitle:chosen.empty() ? @"Any region" : [NSString stringWithFormat:@"%zu region%s", chosen.size(), chosen.size() == 1 ? "" : "s"]
+                    action:nil
+             keyEquivalent:@""];
+    std::string kind;
+    for (const adif::UsRegion &r : adif::usRegions()) {
+        if (r.kind != kind) {
+            kind = r.kind;
+            [menu addItem:[NSMenuItem separatorItem]];
+            NSMenuItem *head = [menu addItemWithTitle:ADIFString(kind) action:nil keyEquivalent:@""];
+            head.enabled = NO;
+        }
+        NSMenuItem *item = [menu addItemWithTitle:ADIFString(r.name) action:nil keyEquivalent:@""];
+        item.state = chosen.count(r.id) ? NSControlStateValueOn : NSControlStateValueOff;
+        item.indentationLevel = 1;
+        std::string id = r.id;
+        ADIFBlockMenuItem(item, ^{
+            std::vector<std::string> ids = splitSetting("mapFilterRegions", ',');
+            auto it = std::find(ids.begin(), ids.end(), id);
+            if (it == ids.end()) ids.push_back(id);
+            else ids.erase(it);
+            saveSetting("mapFilterRegions", ids, ',');
+            fillPlaceControls();
+            refresh();
+        });
+    }
+}
+
+// More Filters: a popover of places to keep. Changes apply as they're made.
+void showMoreFilters() {
+    if (!mw.filterPopover) {
+        mw.completers = [NSMutableArray array];
+        auto tokenField = [](NSString *ident, NSString *placeholder, NSArray<NSString *> *candidates, NSString *separators) {
+            NSTokenField *t = [[NSTokenField alloc] initWithFrame:NSMakeRect(0, 0, 380, 24)];
+            t.identifier = ident;
+            t.placeholderString = placeholder;
+            t.tokenizingCharacterSet = [NSCharacterSet characterSetWithCharactersInString:separators];
+            ADIFTokenCompleter *c = [[ADIFTokenCompleter alloc] init];
+            c.candidates = candidates;
+            t.delegate = c;
+            [mw.completers addObject:c];
+            [t.widthAnchor constraintEqualToConstant:380].active = YES;
+            ADIFOnAction(t, ^{ placeFiltersChanged(); });
+            return t;
+        };
+        NSMutableArray *dxccNames = [NSMutableArray array];
+        std::set<std::string> seen;
+        for (const adif::CountryInfo &c : ADIFCountries().all())
+            if (seen.insert(c.name).second) [dxccNames addObject:ADIFString(c.name)];
+        NSMutableArray *states = [NSMutableArray array], *counties = [NSMutableArray array], *locations = [NSMutableArray array];
+        const adif::AreaIndex &st = adif::areaIndex(adif::Overlay::UsStates), &co = adif::areaIndex(adif::Overlay::UsCounties);
+        for (size_t i = 0; i < st.size(); ++i) [states addObject:ADIFString(st.area(i).name)];
+        for (size_t i = 0; i < co.size(); ++i) [counties addObject:ADIFString(co.area(i).name)];
+        std::set<std::string> locs;
+        for (const adif::PotaPark &p : ADIFPotaParks().parks())
+            for (size_t b = 0; b <= p.location.size();) {
+                size_t e = p.location.find(',', b);
+                if (e == std::string::npos) e = p.location.size();
+                if (e > b) locs.insert(p.location.substr(b, e - b));
+                b = e + 1;
+            }
+        for (const std::string &l : locs) [locations addObject:ADIFString(l)];
+        mw.dxccTokens = tokenField(@"map.filter.dxcc", @"Countries (DXCC), e.g. Italy, Canada", dxccNames, @";");
+        mw.stateTokens = tokenField(@"map.filter.states", @"US states, e.g. WI, IL", states, @", ");
+        mw.countyTokens = tokenField(@"map.filter.counties", @"US counties, e.g. WI,Dane; WI,Milwaukee", counties, @";");
+        mw.potaTokens = tokenField(@"map.filter.pota", @"POTA locations, e.g. US-WI, CA-ON", locations, @", ");
+        NSMutableArray *conts = [NSMutableArray array];
+        for (int i = 0; i < 7; ++i) {
+            mw.continent[i] = ADIFCheckbox(@(kContinents[i]), false);
+            mw.continent[i].identifier = [NSString stringWithFormat:@"map.filter.continent.%s", kContinents[i]];
+            ADIFOnAction(mw.continent[i], ^{ placeFiltersChanged(); });
+            [conts addObject:mw.continent[i]];
+        }
+        NSStackView *contRow = [NSStackView stackViewWithViews:conts];
+        contRow.spacing = 8;
+        auto zoneField = [](NSString *ident, NSString *placeholder) {
+            NSTextField *f = ADIFTextField(placeholder, 140);
+            f.identifier = ident;
+            ADIFOnAction(f, ^{ placeFiltersChanged(); });
+            return f;
+        };
+        mw.cqField = zoneField(@"map.filter.cq", @"e.g. 3, 4, 5");
+        mw.ituField = zoneField(@"map.filter.itu", @"e.g. 6, 7, 8");
+        NSStackView *zones = [NSStackView stackViewWithViews:@[ mw.cqField, ADIFLabel(@"ITU zones:"), mw.ituField ]];
+        zones.spacing = 8;
+        mw.regions = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:YES];
+        mw.regions.identifier = @"map.filter.regions";
+        mw.regions.toolTip = @"US call areas, Census regions and divisions, ARRL divisions (California, New York and New Jersey count for an ARRL "
+                             @"division by the QSO's ARRL_SECT)";
+        mw.parksToo = ADIFCheckbox(@"Also limit the POTA parks you haven't worked", false);
+        mw.parksToo.identifier = @"map.filter.parks";
+        mw.parksToo.toolTip = @"The POTA layer's Overlay shows only the parks in these places (their location, state, region, country and continent)";
+        ADIFOnAction(mw.parksToo, ^{ placeFiltersChanged(); });
+        NSButton *clear = [NSButton buttonWithTitle:@"Clear Places" target:nil action:nil];
+        ADIFOnAction(clear, ^{
+            for (const char *key : {"mapFilterContinents", "mapFilterDxcc", "mapFilterCq", "mapFilterItu", "mapFilterStates", "mapFilterCounties",
+                                    "mapFilterRegions", "mapFilterPota"})
+                setSetting(key, "");
+            fillPlaceControls();
+            refresh();
+        });
+        NSGridView *grid = [NSGridView gridViewWithViews:@[
+            @[ ADIFLabel(@"Continents:"), contRow ], @[ ADIFLabel(@"DXCC:"), mw.dxccTokens ], @[ ADIFLabel(@"CQ zones:"), zones ],
+            @[ ADIFLabel(@"US states:"), mw.stateTokens ], @[ ADIFLabel(@"US counties:"), mw.countyTokens ],
+            @[ ADIFLabel(@"US regions:"), mw.regions ], @[ ADIFLabel(@"POTA locations:"), mw.potaTokens ],
+            @[ [NSGridCell emptyContentView], mw.parksToo ], @[ [NSGridCell emptyContentView], clear ]
+        ]];
+        grid.rowSpacing = 8;
+        grid.columnSpacing = 10;
+        [grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
+        grid.rowAlignment = NSGridRowAlignmentFirstBaseline;
+        grid.translatesAutoresizingMaskIntoConstraints = NO;
+        NSTextField *help = [NSTextField wrappingLabelWithString:@"Keep only the QSOs in these places: within a line any of its values, "
+                                                                 @"and every line that has values. Changes apply as you make them."];
+        help.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        help.textColor = NSColor.secondaryLabelColor;
+        help.translatesAutoresizingMaskIntoConstraints = NO;
+        NSView *content = [[NSView alloc] initWithFrame:NSZeroRect];
+        content.identifier = @"map.filters";
+        [content addSubview:help];
+        [content addSubview:grid];
+        [NSLayoutConstraint activateConstraints:@[
+            [help.topAnchor constraintEqualToAnchor:content.topAnchor constant:14],
+            [help.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:14],
+            [help.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-14],
+            [help.widthAnchor constraintEqualToConstant:500],
+            [grid.topAnchor constraintEqualToAnchor:help.bottomAnchor constant:10],
+            [grid.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:14],
+            [grid.trailingAnchor constraintLessThanOrEqualToAnchor:content.trailingAnchor constant:-14],
+            [grid.bottomAnchor constraintEqualToAnchor:content.bottomAnchor constant:-14],
+        ]];
+        NSViewController *vc = [[NSViewController alloc] init];
+        vc.view = content;
+        mw.filterPopover = [[NSPopover alloc] init];
+        mw.filterPopover.contentViewController = vc;
+        mw.filterPopover.behavior = NSPopoverBehaviorTransient;
+    }
+    fillPlaceControls();
+    [mw.filterPopover showRelativeToRect:mw.moreFilters.bounds ofView:mw.moreFilters preferredEdge:NSRectEdgeMaxY];
+}
+
+// A Labels box works while its layer shows (outlined, or its worked areas).
+void labelsFollow() {
+    for (const LayerUi &l : kLayerUi)
+        mw.labels[l.id].enabled = mw.overlay[l.id].state == NSControlStateValueOn || (mw.show[l.id] && mw.show[l.id].state == NSControlStateValueOn);
+}
+
+// A layer's box changed (0 Show, 1 Overlay, 2 Labels). Ticking Show turns that layer's Overlay
+// and Labels on too: the worked areas among all of them, named.
+void layerChanged(MapLayerId id, int which) {
+    if (which == 0 && mw.show[id].state == NSControlStateValueOn)
+        mw.overlay[id].state = mw.labels[id].state = NSControlStateValueOn;
+    for (const LayerUi &l : kLayerUi) {
+        if (l.showKey) saveFlag(l.showKey, mw.show[l.id].state == NSControlStateValueOn);
+        saveFlag(l.overlayKey, mw.overlay[l.id].state == NSControlStateValueOn);
+        saveFlag(l.labelsKey, mw.labels[l.id].state == NSControlStateValueOn);
+    }
+    labelsFollow();
+    applyStyle();
+    fillStyle();
+    bool on = which != 2 && (which == 0 ? mw.show[id] : mw.overlay[id]).state == NSControlStateValueOn;
+    if (on && id == kLayerIota && ADIFIotaGroups().empty()) setStatus("IOTA: download IOTA's group list first, in Settings (IOTA Groups).");
+    if (on && id == kLayerPota && !ADIFPotaParks().size())
+        setStatus("POTA: download POTA's park list first, in Settings (POTA Parks). Until then, the parks you hunted show at the QSO's grid.");
 }
 
 NSButton *smallButton(NSString *title, NSString *tip, void (^action)(void)) {
@@ -686,72 +1056,62 @@ void cmdMap() {
         mw.window.contentMinSize = NSMakeSize(920, 620);
         NSView *root = mw.window.contentView;
         mw.target = ADIFLabel(@"");
-        // Row 1: what to show.
-        mw.squares = ADIFCheckbox(@"Worked squares", flag("mapSquares", true));
-        mw.grid = ADIFCheckbox(@"Grid squares", flag("mapGrid", true));
-        mw.grid.toolTip = @"The Maidenhead grid: its fields (20 x 10 degrees), and its squares (2 x 1) when zoomed in";
-        // The Labels row: each overlay's names or numbers, under its box in the Overlays row.
-        mw.labels = ADIFCheckbox(@"Grid squares", flag("mapLabels", true));
-        mw.labels.toolTip = @"Field names (FN, EM...), and square names (FN31) when zoomed in";
-        mw.cqLabels = ADIFCheckbox(@"CQ zones", flag("mapCqLabels", true));
-        mw.cqLabels.toolTip = @"The CQ zones' numbers";
-        mw.ituLabels = ADIFCheckbox(@"ITU zones", flag("mapItuLabels", true));
-        mw.ituLabels.toolTip = @"The ITU zones' numbers";
-        mw.countryLabels = ADIFCheckbox(@"Countries", flag("mapCountryLabels", true));
-        mw.countryLabels.toolTip = @"Each country's name, where it fits inside the country on screen";
-        mw.stateLabels = ADIFCheckbox(@"US states", flag("mapStateLabels", true));
-        mw.stateLabels.toolTip = @"Each state's postal code, where it fits";
-        mw.counties = ADIFCheckbox(@"US counties", flag("mapCounties", false));
-        mw.counties.toolTip = @"County lines (Natural Earth, public domain), from 2.5x zoom";
-        mw.countyLabels = ADIFCheckbox(@"US counties", flag("mapCountyLabels", true));
-        mw.countyLabels.toolTip = @"Each county's name, where it fits";
-        mw.cities = ADIFCheckbox(@"Cities", flag("mapCities", false));
-        mw.cities.toolTip = @"7,300 cities and towns (Natural Earth, public domain), more as you zoom in";
-        mw.cityLabels = ADIFCheckbox(@"Cities", flag("mapCityLabels", true));
-        mw.cityLabels.toolTip = @"City names, where they don't run into each other";
-        mw.pota = ADIFCheckbox(@"POTA", flag("mapPota", false));
-        mw.pota.toolTip = @"POTA parks: a pin at each park you hunted or activated, at the park itself, and a ring at each park you haven't "
-                          @"worked (a count where there are many: click it to zoom in). POTA's park list is downloaded in Settings (POTA Parks)";
-        mw.potaLabels = ADIFCheckbox(@"POTA", flag("mapPotaLabels", true));
-        mw.potaLabels.toolTip = @"Each park's reference (US-1234): the parks you worked always, the others once zoomed in to a few hundred, "
-                                @"and names once zoomed in to fewer";
-        mw.potaLabels.identifier = @"map.labels.pota";
-        mw.iota = ADIFCheckbox(@"IOTA", flag("mapIota", false));
-        mw.iota.toolTip = @"IOTA's island groups, the ones in your log filled in. The group list is downloaded in Settings (IOTA Groups)";
-        mw.iotaLabels = ADIFCheckbox(@"IOTA", flag("mapIotaLabels", true));
-        mw.iotaLabels.toolTip = @"Each group's reference (EU-005), and its name where there is room";
-        mw.countyLabels.identifier = @"map.labels.counties", mw.cityLabels.identifier = @"map.labels.cities", mw.iotaLabels.identifier = @"map.labels.iota";
-        mw.labels.identifier = @"map.labels.grid", mw.cqLabels.identifier = @"map.labels.cq", mw.ituLabels.identifier = @"map.labels.itu";
-        mw.countryLabels.identifier = @"map.labels.countries", mw.stateLabels.identifier = @"map.labels.states";
-        mw.cqZones = ADIFCheckbox(@"CQ zones", flag("mapCqZones", false));
-        mw.ituZones = ADIFCheckbox(@"ITU zones", flag("mapItuZones", false));
-        mw.states = ADIFCheckbox(@"US states", flag("mapUsStates", false));
-        mw.states.toolTip = @"State lines (Natural Earth, public domain)";
-        mw.countries = ADIFCheckbox(@"Countries", flag("mapCountries", false));
-        mw.countries.toolTip = @"Every country outlined, coasts and borders (Natural Earth, public domain)";
-        mw.cqZones.toolTip = @"CQ zones 1-40 (HB9HIL's hamradio-zones-geojson, MIT); approximate";
-        mw.ituZones.toolTip = @"ITU zones 1-90 (HB9HIL's hamradio-zones-geojson, MIT); approximate";
-        mw.entities = ADIFCheckbox(@"DXCC", flag("mapDxcc", true));
-        mw.entities.toolTip = @"Each DXCC entity worked, its own land shaded (Alaska apart from the United States, Sardinia from Italy, "
-                              @"Scotland from England); a dot for one too small to shade";
+        // The layers: a column each, with its Show, Overlay and Labels boxes.
+        ADIFMapStyle saved = savedStyle();
+        NSMutableArray *header = [NSMutableArray arrayWithObject:[NSGridCell emptyContentView]];
+        NSMutableArray *showRow = [NSMutableArray arrayWithObject:ADIFLabel(@"Show:")];
+        NSMutableArray *overlayRow = [NSMutableArray arrayWithObject:ADIFLabel(@"Overlay:")];
+        NSMutableArray *labelsRow = [NSMutableArray arrayWithObject:ADIFLabel(@"Labels:")];
+        auto box = [](bool on, NSString *kind, const LayerUi &l, NSString *tip, NSString *spoken) {
+            NSButton *b = ADIFCheckbox(@"", on);
+            b.identifier = [NSString stringWithFormat:@"map.%@.%@", kind, l.ident];
+            b.toolTip = tip;
+            b.accessibilityLabel = [NSString stringWithFormat:spoken, l.title];
+            return b;
+        };
+        for (const LayerUi &l : kLayerUi) {
+            NSTextField *title = ADIFLabel(l.title);
+            title.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightMedium];
+            [header addObject:title];
+            mw.show[l.id] = l.showKey ? box(saved[l.id].show, @"show", l, l.showTip, @"Show worked %@") : nil;
+            mw.overlay[l.id] = box(saved[l.id].overlay, @"overlay", l, l.overlayTip, @"Overlay %@");
+            mw.labels[l.id] = box(saved[l.id].labels, @"labels", l, l.labelsTip, @"Labels for %@");
+            [showRow addObject:mw.show[l.id] ?: [NSGridCell emptyContentView]];
+            [overlayRow addObject:mw.overlay[l.id]];
+            [labelsRow addObject:mw.labels[l.id]];
+        }
+        NSGridView *layers = [NSGridView gridViewWithViews:@[ header, showRow, overlayRow, labelsRow ]];
+        layers.rowSpacing = 4;
+        layers.columnSpacing = 12;
+        for (NSInteger c = 1; c < layers.numberOfColumns; ++c) [layers columnAtIndex:c].xPlacement = NSGridCellPlacementCenter;
+        for (NSInteger r = 1; r < layers.numberOfRows; ++r) [layers rowAtIndex:r].yPlacement = NSGridCellPlacementCenter;
+        layers.identifier = @"map.layers";
+        labelsFollow();
+        for (const LayerUi &l : kLayerUi) {
+            MapLayerId id = l.id;
+            if (mw.show[id]) ADIFOnAction(mw.show[id], ^{ layerChanged(id, 0); });
+            ADIFOnAction(mw.overlay[id], ^{ layerChanged(id, 1); });
+            ADIFOnAction(mw.labels[id], ^{ layerChanged(id, 2); });
+        }
+        // Markers, and how to colour them.
         mw.contacts = ADIFCheckbox(@"Contacts", flag("mapContacts", false));
         mw.contacts.toolTip = @"A marker at each contact's own place: its LAT and LON, else a GRIDSQUARE of 6 or 8 characters (a 4-character "
-                              @"square is 100 km or more across: Worked squares shows those). Style chooses pins, dots or crosshairs";
-        mw.parks = ADIFCheckbox(@"Parks", flag("mapParks", true));
-        mw.parks.toolTip = @"POTA and WWFF parks you hunted, where the QSO has a grid";
-        mw.programs = pullDown(@"Other programs", @"Other programs' references, a colour each: SOTA summits, IOTA islands, GMA, bunkers, "
-                                                  @"castles... (IOTA starts hidden: callbooks fill it in for every island station)");
+                              @"square is 100 km or more across: Show grid squares shows those). Style Options chooses pins, dots or crosshairs";
+        mw.lines = ADIFCheckbox(@"Lines to contacts", flag("mapPaths", false));
+        mw.lines.toolTip = @"A great-circle line from your station to each contact, in its marker's colour; Style Options chooses their look";
+        mw.programs = pullDown(@"Other programs", @"Other programs' references, a colour each: WWFF parks, SOTA summits, IOTA islands, GMA, "
+                                                  @"bunkers, castles... (IOTA starts hidden: callbooks fill it in for every island station)");
         mw.mine = ADIFCheckbox(@"My station", flag("mapMine", true));
         mw.mine.toolTip = @"A star at each MY_GRIDSQUARE in the log";
-        // Row 2: which QSOs, and how to colour them.
+        mw.colorBy = ADIFPopup(@[ @"Colour by confirmation", @"Colour by band", @"Colour by mode", @"Colour by QSO count",
+                                  @"Colour by year first worked" ]);
+        [mw.colorBy selectItemAtIndex:number("mapColorBy", 0, 4)];
+        // Filters: which QSOs.
         mw.band = ADIFPopup(@[ @"All bands" ]);
         mw.mode = ADIFPopup(@[ @"All modes" ]);
         mw.dates = ADIFPopup(@[ @"All dates", @"Last 30 days", @"Last 12 months", @"This year" ]);
         mw.confirmed = ADIFPopup(@[ @"All QSOs", @"Confirmed", @"Not confirmed" ]);
-        mw.colorBy = ADIFPopup(@[ @"Colour by confirmation", @"Colour by band", @"Colour by mode", @"Colour by QSO count",
-                                  @"Colour by year first worked" ]);
-        [mw.colorBy selectItemAtIndex:number("mapColorBy", 0, 4)];
-        // Row 3: zoom, projection, style.
+        // Zoom, projection, style.
         mw.projection = ADIFPopup(@[ @"Equirectangular", @"Mercator", @"Equal Earth", @"Globe" ]);
         mw.projection.autoenablesItems = NO;
         mw.projection.toolTip = @"Equirectangular: the grid as rectangles. Mercator: familiar shapes. Equal Earth: true sizes. Globe: the Earth "
@@ -772,60 +1132,19 @@ void cmdMap() {
                                            {@"South America", -82, -56, -34, 13}};
             for (const Box &b : kRegions) {
                 NSMenuItem *item = [mw.region.menu addItemWithTitle:b.name action:nil keyEquivalent:@""];
-                Box box = b;
-                ADIFBlockMenuItem(item, ^{ [mw.view showWest:box.w south:box.s east:box.e north:box.n]; });
+                Box rbox = b;
+                ADIFBlockMenuItem(item, ^{ [mw.view showWest:rbox.w south:rbox.s east:rbox.e north:rbox.n]; });
             }
         }
-        for (NSControl *c in @[ mw.squares, mw.entities, mw.contacts, mw.parks, mw.band, mw.mode, mw.dates, mw.confirmed ]) ADIFOnAction(c, ^{
-            saveFlag("mapSquares", mw.squares.state == NSControlStateValueOn);
-            saveFlag("mapDxcc", mw.entities.state == NSControlStateValueOn);
+        for (NSControl *c in @[ mw.contacts, mw.band, mw.mode, mw.dates, mw.confirmed ]) ADIFOnAction(c, ^{
             saveFlag("mapContacts", mw.contacts.state == NSControlStateValueOn);
-            saveFlag("mapParks", mw.parks.state == NSControlStateValueOn);
             refresh();
         });
-        // A Labels box works while its overlay is shown.
-        void (^labelsFollow)(void) = ^{
-            mw.labels.enabled = mw.grid.state == NSControlStateValueOn;
-            mw.cqLabels.enabled = mw.cqZones.state == NSControlStateValueOn;
-            mw.ituLabels.enabled = mw.ituZones.state == NSControlStateValueOn;
-            mw.countryLabels.enabled = mw.countries.state == NSControlStateValueOn;
-            mw.stateLabels.enabled = mw.states.state == NSControlStateValueOn;
-            mw.countyLabels.enabled = mw.counties.state == NSControlStateValueOn;
-            mw.cityLabels.enabled = mw.cities.state == NSControlStateValueOn;
-            mw.iotaLabels.enabled = mw.iota.state == NSControlStateValueOn;
-            mw.potaLabels.enabled = mw.pota.state == NSControlStateValueOn;
-        };
-        labelsFollow();
-        for (NSButton *b in @[ mw.grid, mw.labels, mw.mine, mw.cqZones, mw.ituZones, mw.states, mw.countries, mw.cqLabels, mw.ituLabels,
-                               mw.countryLabels, mw.stateLabels, mw.counties, mw.countyLabels, mw.cities, mw.cityLabels, mw.pota, mw.potaLabels, mw.iota, mw.iotaLabels ])
-            ADIFOnAction(b, ^{
-            saveFlag("mapGrid", mw.grid.state == NSControlStateValueOn);
-            saveFlag("mapLabels", mw.labels.state == NSControlStateValueOn);
-            saveFlag("mapCqLabels", mw.cqLabels.state == NSControlStateValueOn);
-            saveFlag("mapItuLabels", mw.ituLabels.state == NSControlStateValueOn);
-            saveFlag("mapCountryLabels", mw.countryLabels.state == NSControlStateValueOn);
-            saveFlag("mapStateLabels", mw.stateLabels.state == NSControlStateValueOn);
-            saveFlag("mapCounties", mw.counties.state == NSControlStateValueOn);
-            saveFlag("mapCountyLabels", mw.countyLabels.state == NSControlStateValueOn);
-            saveFlag("mapCities", mw.cities.state == NSControlStateValueOn);
-            saveFlag("mapCityLabels", mw.cityLabels.state == NSControlStateValueOn);
-            saveFlag("mapPota", mw.pota.state == NSControlStateValueOn);
-            saveFlag("mapPotaLabels", mw.potaLabels.state == NSControlStateValueOn);
-            saveFlag("mapIota", mw.iota.state == NSControlStateValueOn);
-            saveFlag("mapIotaLabels", mw.iotaLabels.state == NSControlStateValueOn);
-            labelsFollow();
-            saveFlag("mapCqZones", mw.cqZones.state == NSControlStateValueOn);
-            saveFlag("mapItuZones", mw.ituZones.state == NSControlStateValueOn);
-            saveFlag("mapUsStates", mw.states.state == NSControlStateValueOn);
-            saveFlag("mapCountries", mw.countries.state == NSControlStateValueOn);
+        for (NSButton *b in @[ mw.lines, mw.mine ]) ADIFOnAction(b, ^{
+            saveFlag("mapPaths", mw.lines.state == NSControlStateValueOn);
             saveFlag("mapMine", mw.mine.state == NSControlStateValueOn);
             applyStyle();
             fillStyle();
-            if (b == mw.iota && mw.iota.state == NSControlStateValueOn && ADIFIotaGroups().empty())
-                setStatus("IOTA: download IOTA's group list first, in Settings (IOTA Groups).");
-            if (b == mw.pota && mw.pota.state == NSControlStateValueOn && !ADIFPotaParks().size())
-                setStatus("POTA: download POTA's park list first, in Settings (POTA Parks). Until then, Parks shows the parks you "
-                          "hunted at the QSO's grid.");
         });
         ADIFOnAction(mw.colorBy, ^{
             setSetting("mapColorBy", std::to_string(mw.colorBy.indexOfSelectedItem));
@@ -842,26 +1161,28 @@ void cmdMap() {
         NSButton *fit = smallButton(@"Fit Log", @"Zoom to the log's QSOs", ^{ [mw.view fitLog]; });
         NSButton *world = smallButton(@"World", @"The whole world (0)", ^{ [mw.view showWorld]; });
         NSButton *save = smallButton(@"Export PNG...", @"Save the map as it is shown now, with its legend", ^{ exportPng(); });
-        NSButton *apple = smallButton(@"Apple Maps", @"Open what you clicked (a contact, square, park or entity), or the middle of the map, in Apple's Maps "
-                                                      @"app: streets and satellite. Maps goes online; ADIF Lint sends nothing.",
-                                      ^{ openInAppleMaps(); });
-        NSStackView *row = [NSStackView stackViewWithViews:@[ ADIFLabel(@"Show:"), mw.squares, mw.entities, mw.contacts, mw.parks, mw.programs, mw.mine ]];
-        row.spacing = 10;
-        NSStackView *row2 = [NSStackView stackViewWithViews:@[ ADIFLabel(@"Only:"), mw.band, mw.mode, mw.dates, mw.confirmed, mw.colorBy ]];
-        row2.spacing = 8;
-        [row2 setCustomSpacing:24 afterView:mw.confirmed];
-        // Overlays, and under each one the box for its labels.
-        NSGridView *overlays = [NSGridView gridViewWithViews:@[
-            @[ ADIFLabel(@"Overlays:"), mw.grid, mw.cqZones, mw.ituZones, mw.countries, mw.states, mw.counties, mw.cities, mw.pota, mw.iota ],
-            @[ ADIFLabel(@"Labels:"), mw.labels, mw.cqLabels, mw.ituLabels, mw.countryLabels, mw.stateLabels, mw.countyLabels, mw.cityLabels, mw.potaLabels, mw.iotaLabels ]
-        ]];
-        overlays.rowSpacing = 6;
-        overlays.columnSpacing = 10;
-        overlays.rowAlignment = NSGridRowAlignmentFirstBaseline;
-        NSStackView *row3 =
-            [NSStackView stackViewWithViews:@[ ADIFLabel(@"Zoom:"), out, mw.zoomLabel, in, fit, world, mw.region, mw.projection, mw.style, save, apple ]];
-        row3.spacing = 8;
-        [row3 setCustomSpacing:24 afterView:world];
+        NSStackView *markers = [NSStackView stackViewWithViews:@[ ADIFLabel(@"Markers:"), mw.contacts, mw.lines, mw.programs, mw.mine, mw.colorBy ]];
+        markers.spacing = 10;
+        [markers setCustomSpacing:24 afterView:mw.mine];
+        mw.moreFilters = smallButton(@"More Filters...", @"Keep the QSOs in chosen places: continents, countries, zones, US states, counties and "
+                                                          @"regions, POTA locations", ^{ showMoreFilters(); });
+        mw.moreFilters.identifier = @"map.filter.more";
+        mw.clearFilters = smallButton(@"Clear", @"Show every QSO again: all bands, modes, dates and places", ^{
+            for (NSPopUpButton *p in @[ mw.band, mw.mode, mw.dates, mw.confirmed ]) [p selectItemAtIndex:0];
+            for (const char *key : {"mapFilterContinents", "mapFilterDxcc", "mapFilterCq", "mapFilterItu", "mapFilterStates", "mapFilterCounties",
+                                    "mapFilterRegions", "mapFilterPota"})
+                setSetting(key, "");
+            if (mw.filterPopover) fillPlaceControls();
+            refresh();
+        });
+        mw.clearFilters.identifier = @"map.filter.clear";
+        NSStackView *filters =
+            [NSStackView stackViewWithViews:@[ ADIFLabel(@"Filters:"), mw.band, mw.mode, mw.dates, mw.confirmed, mw.moreFilters, mw.clearFilters ]];
+        filters.spacing = 8;
+        NSStackView *zoomRow =
+            [NSStackView stackViewWithViews:@[ ADIFLabel(@"Zoom:"), out, mw.zoomLabel, in, fit, world, mw.region, mw.projection, mw.style, save ]];
+        zoomRow.spacing = 8;
+        [zoomRow setCustomSpacing:24 afterView:world];
         mw.view = [[ADIFMapView alloc] initWithFrame:NSZeroRect];
         mw.view.onHover = ^(const ADIFMapHit &h) {
             std::string d = describe(h);
@@ -892,7 +1213,7 @@ void cmdMap() {
         mw.status = [NSTextField wrappingLabelWithString:@""];
         mw.status.maximumNumberOfLines = 3;
         mw.status.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
-        for (NSView *v in @[ mw.target, row, overlays, row2, row3, mw.view, scroll, mw.status ]) {
+        for (NSView *v in @[ mw.target, layers, markers, filters, zoomRow, mw.view, scroll, mw.status ]) {
             v.translatesAutoresizingMaskIntoConstraints = NO;
             [root addSubview:v];
         }
@@ -900,19 +1221,19 @@ void cmdMap() {
         [NSLayoutConstraint activateConstraints:@[
             [mw.target.topAnchor constraintEqualToAnchor:root.topAnchor constant:m],
             [mw.target.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
-            [row.topAnchor constraintEqualToAnchor:mw.target.bottomAnchor constant:8],
-            [row.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
-            [row.trailingAnchor constraintLessThanOrEqualToAnchor:root.trailingAnchor constant:-m],
-            [overlays.topAnchor constraintEqualToAnchor:row.bottomAnchor constant:6],
-            [overlays.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
-            [overlays.trailingAnchor constraintLessThanOrEqualToAnchor:root.trailingAnchor constant:-m],
-            [row2.topAnchor constraintEqualToAnchor:overlays.bottomAnchor constant:6],
-            [row2.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
-            [row2.trailingAnchor constraintLessThanOrEqualToAnchor:root.trailingAnchor constant:-m],
-            [row3.topAnchor constraintEqualToAnchor:row2.bottomAnchor constant:6],
-            [row3.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
-            [row3.trailingAnchor constraintLessThanOrEqualToAnchor:root.trailingAnchor constant:-m],
-            [mw.view.topAnchor constraintEqualToAnchor:row3.bottomAnchor constant:8],
+            [layers.topAnchor constraintEqualToAnchor:mw.target.bottomAnchor constant:8],
+            [layers.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
+            [layers.trailingAnchor constraintLessThanOrEqualToAnchor:root.trailingAnchor constant:-m],
+            [markers.topAnchor constraintEqualToAnchor:layers.bottomAnchor constant:8],
+            [markers.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
+            [markers.trailingAnchor constraintLessThanOrEqualToAnchor:root.trailingAnchor constant:-m],
+            [filters.topAnchor constraintEqualToAnchor:markers.bottomAnchor constant:6],
+            [filters.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
+            [filters.trailingAnchor constraintLessThanOrEqualToAnchor:root.trailingAnchor constant:-m],
+            [zoomRow.topAnchor constraintEqualToAnchor:filters.bottomAnchor constant:6],
+            [zoomRow.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
+            [zoomRow.trailingAnchor constraintLessThanOrEqualToAnchor:root.trailingAnchor constant:-m],
+            [mw.view.topAnchor constraintEqualToAnchor:zoomRow.bottomAnchor constant:8],
             [mw.view.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
             [mw.view.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-m],
             [scroll.topAnchor constraintEqualToAnchor:mw.view.bottomAnchor constant:8],
