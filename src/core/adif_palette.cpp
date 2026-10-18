@@ -86,7 +86,7 @@ const std::vector<unsigned> &colourBlindBandSet() {
     return set;
 }
 
-size_t mapPaletteCount() { return 4; }
+size_t mapPaletteCount() { return 5; }
 
 const MapPalette &mapPalette(int i) {
     // Tableau 10 (plus two), a common qualitative set.
@@ -107,6 +107,10 @@ const MapPalette &mapPalette(int i) {
          bright, 0.3, false},
         {"Light", 0xFFFFFF, 0xDCE9F5, 0xF2EFE6, 0x7FA7D0, 0x8A8A8A, false, 0x1A9850, 0xF46D43, 0x2C7BB6, 0x8C510A, 0x762A83, 0xD7191C,
          tableau, 0.0, false},
+        // For the dark: the standard colours, which the Map then shows as reds of their brightness
+        // (red on black keeps night vision); confirmed and worked differ in brightness too.
+        {"Night (red)", 0x000000, 0x0A0F16, 0x3A4038, 0x3E5A7A, 0x9AA090, true, 0xF0F0F0, 0x8A8A8A, 0xFFFFFF, 0x9A9A9A, 0xBF5AF2, 0xFFD60A,
+         tableau, 0.2, false, true},
     };
     return all[(size_t)std::clamp(i, 0, (int)all.size() - 1)];
 }

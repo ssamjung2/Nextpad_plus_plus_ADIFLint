@@ -58,7 +58,12 @@ struct ADIFMapStyle {
     int lineWidth = 1;  // 0 thin, 1 medium, 2 thick
     double marker = 1;  // marker size factor
     bool legend = true, rings = false, paths = false, mine = true;
-    bool arcs = true;  // on the globe, lines to contacts arch over it
+    bool arcs = true;      // on the globe, lines to contacts arch over it
+    int lineOpacity = 1;   // lines to contacts: 0 faint, 1 medium, 2 solid
+    int areaShade = 1;     // worked areas (DXCC, states, counties, zones): 0 light, 1 medium, 2 strong
+    bool dayNight = false; // the night side shaded, and the terminator
+    bool greyLine = false; // the twilight band (sun from 0 to 6 degrees below the horizon) tinted
+    int sunTime = 0;       // 0 now, 1 the selected QSO's time
     // Squares: Show the worked squares, Overlay the Maidenhead grid, Labels its names. Countries:
     // Show each worked DXCC entity's land. POTA and IOTA need their lists (downloaded in Settings).
     std::array<LayerState, kLayerCount> layer;
@@ -219,6 +224,7 @@ struct MapDrawCtx {
 
 // What MapView.mm implements for the layers and the window.
 @interface ADIFMapView ()
+- (void)drawMap;
 - (instancetype)initWithFrame:(NSRect)frame;
 - (BOOL)isFlipped;
 - (BOOL)acceptsFirstResponder;
@@ -273,6 +279,9 @@ struct MapDrawCtx {
 
 // The layers (MapLayers.mm), in drawRect's order.
 @interface ADIFMapView (Layers)
+- (double)sunSeconds;
+- (double)qsoSunSeconds;
+- (void)drawDayNight:(MapDrawCtx &)d;
 - (void)drawWorkedAreas:(MapDrawCtx &)d;
 - (size_t)workedAreaAt:(MapLayerId)layer lon:(double)lon lat:(double)lat;  // a worked area's index (adif::areaIndex), or npos
 - (BOOL)parkFiltered:(const adif::PotaPark &)p;

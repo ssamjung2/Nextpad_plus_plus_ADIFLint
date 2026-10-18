@@ -742,7 +742,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     }
 }
 
-// The contact marker's shape and size, by Options.
+// The contact marker's shape and size, by Style Options.
 - (NSBezierPath *)contactMarkerAt:(NSPoint)p {
     switch (_style.contact) {
         case 1: return [self marker:0 at:p size:3 * _style.marker];
@@ -772,7 +772,50 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     [text drawAtPoint:NSMakePoint(p.x - s.width / 2, p.y - s.height / 2) withAttributes:attrs];
 }
 
+// On the night palette the map is drawn off screen and shown as reds of its brightness (red on
+// black keeps night vision), the legend and labels too; in an exported PNG as well.
 - (void)drawRect:(NSRect)dirty {
+    if (!paletteAt(_style.palette).night) {
+        [self drawMap];
+        return;
+    }
+    NSRect b = self.bounds;
+    CGFloat scale = self.window ? self.window.backingScaleFactor : 2;
+    NSInteger w = (NSInteger)std::ceil(b.size.width * scale), h = (NSInteger)std::ceil(b.size.height * scale);
+    if (w <= 0 || h <= 0) return;
+    NSBitmapImageRep *rep = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:nullptr
+                                                                    pixelsWide:w
+                                                                    pixelsHigh:h
+                                                                 bitsPerSample:8
+                                                               samplesPerPixel:4
+                                                                      hasAlpha:YES
+                                                                      isPlanar:NO
+                                                                colorSpaceName:NSDeviceRGBColorSpace
+                                                                   bytesPerRow:0
+                                                                  bitsPerPixel:0];
+    rep.size = b.size;
+    [NSGraphicsContext saveGraphicsState];
+    NSGraphicsContext *off = [NSGraphicsContext graphicsContextWithBitmapImageRep:rep];
+    [NSGraphicsContext setCurrentContext:off];
+    CGContextTranslateCTM(off.CGContext, -NSMinX(b), -NSMinY(b));
+    [self drawMap];
+    [NSGraphicsContext restoreGraphicsState];
+    unsigned char *data = rep.bitmapData;
+    NSInteger row = rep.bytesPerRow;
+    for (NSInteger y = 0; y < h; ++y)
+        for (NSInteger x = 0; x < w; ++x) {
+            unsigned char *p = data + y * row + x * 4;
+            double lum = 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2];  // premultiplied, so dark where transparent
+            p[0] = (unsigned char)std::min<double>(p[3], lum * 1.15), p[1] = (unsigned char)(lum * 0.10), p[2] = (unsigned char)(lum * 0.06);
+        }
+    // In the screen's own colours: its red, with no green or blue added by a colour conversion.
+    NSColorSpace *screen = self.window.colorSpace;
+    if (screen && screen.colorSpaceModel == NSColorSpaceModelRGB)
+        if (NSBitmapImageRep *shown = [rep bitmapImageRepByRetaggingWithColorSpace:screen]) rep = shown;
+    [rep drawInRect:b];
+}
+
+- (void)drawMap {
     MapDrawCtx d;
     [self drawBase:d];
     [self drawGridLines:d];
@@ -780,7 +823,8 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     [self drawWorkedAreas:d];
     [self drawOverlays:d];
     [self drawIota:d];
-    // POTA: the parks you haven't worked (rings, or counts); the worked ones' pins go on top, with the markers.
+    [self drawDayNight:d];  // over the land and areas, under the markers and labels
+    // POTA: the parks you haven't worked (rings, or dots when there are many); the worked ones' pins go on top, with the markers.
     [self placeParks];
     [self drawParkRings];
     [self drawCities:d];
@@ -818,7 +862,9 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     static const char *const kBy[] = {"Colour: confirmed or not", "Colour: band (the most QSOs)", "Colour: mode (the most QSOs)",
                                       "Colour: QSO count", "Colour: year first worked"};
     bool contacts = _showContacts && !_contacts.empty();
-    if (_style[kLayerSquares].show || _style[kLayerCountries].show || contacts) {
+    bool areas = false;  // states, counties or zones worked, shaded in the map's colours
+    for (int l : {kLayerStates, kLayerCounties, kLayerCq, kLayerItu}) areas |= _style.layer[l].show;
+    if (_style[kLayerSquares].show || _style[kLayerCountries].show || contacts || areas) {
         rows.push_back({7, nil, kBy[std::clamp(_style.colorBy, 0, 4)]});
         switch (_style.colorBy) {
             case 1:
@@ -851,7 +897,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
                     }
                 break;
             default:
-                if (_style[kLayerSquares].show || contacts) rows.push_back({0, rgb(pal.confirmed), "confirmed"}), rows.push_back({0, rgb(pal.worked), "worked"});
+                if (_style[kLayerSquares].show || contacts || areas) rows.push_back({0, rgb(pal.confirmed), "confirmed"}), rows.push_back({0, rgb(pal.worked), "worked"});
                 if (_style[kLayerCountries].show) rows.push_back({1, rgb(pal.dxccConfirmed), "DXCC confirmed"}), rows.push_back({1, rgb(pal.dxccWorked), "DXCC worked"});
                 break;
         }
@@ -865,7 +911,18 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     if (parks) rows.push_back({2, rgb(pal.park), "POTA parks (at the QSO's grid)"});
     for (const std::string &p : programs) rows.push_back({3, [self programColor:p], p});
     if (_style.mine && !_data.mine.empty()) rows.push_back({4, rgb(pal.me), "my station"});
-    if (_style.paths) rows.push_back({5, [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.6], "lines to contacts"});
+    if (_style.paths) rows.push_back({5, [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.6], "lines to contacts (in their colours)"});
+    if (_style.dayNight || _style.greyLine) {
+        double at = [self qsoSunSeconds];
+        time_t t = (time_t)(at >= 0 ? at : [self sunSeconds]);
+        struct tm tm{};
+        gmtime_r(&t, &tm);
+        char when[40];
+        strftime(when, sizeof when, at >= 0 ? "Sun at the QSO: %Y-%m-%d %H:%M UTC" : "Sun now: %H:%M UTC", &tm);
+        rows.push_back({7, nil, when});
+        if (_style.dayNight) rows.push_back({0, [NSColor colorWithCalibratedWhite:pal.dark ? 0.3 : 0.45 alpha:1], "night (darker)"});
+        if (_style.greyLine) rows.push_back({0, [NSColor colorWithCalibratedRed:1 green:0.70 blue:0.25 alpha:0.6], "grey line (twilight)"});
+    }
     if ((_style[kLayerPota].show || _style[kLayerPota].overlay) && ADIFPotaParks().size()) {
         std::set<std::string> hunted, activated;  // by the list's reference (K-0001 is US-0001)
         for (const auto &[ref, w] : _potaWork) {

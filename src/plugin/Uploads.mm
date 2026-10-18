@@ -40,6 +40,7 @@ struct Upload {
     ADIFToolWindow *w = nil;
     NSTextField *account = nil, *callsign = nil, *nickname = nil, *tqsl = nil;
     NSComboBox *location = nil;
+    std::string locationFor;  // LoTW: the profile (lastLocationKey) the Station Location was offered for
     NSButton *includeDone = nil, *selectionOnly = nil, *upload = nil, *stop = nil;
     intptr_t buffer = 0;
     std::vector<adif::UploadItem> items;  // model rows
@@ -89,6 +90,28 @@ std::vector<adif::TqslLocation> tqslStationData(std::string *file = nullptr) {
         return adif::parseStationData(std::string((const char *)data.bytes, data.length));
     }
     return {};
+}
+
+// The Station Location last used for LoTW with the chosen New QSO profile, or with none: a
+// setting per profile (its name in hex, as names may hold any character).
+std::string lastLocationKey() {
+    NSInteger p = station::chosenProfile();
+    std::vector<adif::StationProfile> profiles = station::profiles();
+    if (p < 1 || (size_t)p > profiles.size()) return "tqslLocation";
+    std::string key = "tqslLocation.";
+    for (unsigned char c : profiles[(size_t)p - 1].name) {
+        static const char kHex[] = "0123456789abcdef";
+        key += kHex[c >> 4], key += kHex[c & 15];
+    }
+    return key;
+}
+
+// The Station Location to offer: the chosen profile's own, else the one last used with it.
+std::string offeredLocation() {
+    NSInteger p = station::chosenProfile();
+    std::vector<adif::StationProfile> profiles = station::profiles();
+    if (p >= 1 && (size_t)p <= profiles.size() && !profiles[(size_t)p - 1].tqslLocation.empty()) return profiles[(size_t)p - 1].tqslLocation;
+    return setting(lastLocationKey());
 }
 
 NSArray<NSString *> *tqslLocations() {
@@ -213,11 +236,10 @@ void plan(Upload &u, bool keepTicks = false) {
             locations = tqslStationData(&stationData);
             [u.location removeAllItems];
             for (const adif::TqslLocation &l : locations) [u.location addItemWithObjectValue:ADIFString(l.name)];
-            if (u.location.stringValue.length == 0) {
-                NSInteger p = station::chosenProfile();
-                std::vector<adif::StationProfile> profiles = station::profiles();
-                if (p >= 1 && (size_t)p <= profiles.size() && !profiles[(size_t)p - 1].tqslLocation.empty())
-                    u.location.stringValue = ADIFString(profiles[(size_t)p - 1].tqslLocation);
+            // Offered again when New QSO's profile changes, so each profile signs with its own location.
+            if (u.location.stringValue.length == 0 || u.locationFor != lastLocationKey()) {
+                u.location.stringValue = ADIFString(offeredLocation());
+                u.locationFor = lastLocationKey();
             }
             std::string chosen = ADIFStd(u.location.stringValue);
             for (const adif::TqslLocation &l : locations)
@@ -526,7 +548,7 @@ void startUpload(Upload &u) {
                     [u.w setStatus:@"Enter the TQSL Station Location to sign with (as named in TQSL)." severity:2];
                     return;
                 }
-                setSetting("tqslLocation", loc);
+                setSetting(lastLocationKey(), loc);
                 std::string file = adif::uploadFile(text, r.model, groups, ADIFLINT_VERSION, utcNow("%Y%m%d %H%M%S"));
                 NSString *tmp = [NSTemporaryDirectory()
                     stringByAppendingPathComponent:[NSString stringWithFormat:@"adiflint-lotw-%@.adi", [NSUUID UUID].UUIDString]];
@@ -621,7 +643,8 @@ void openUpload(adif::UploadService s) {
             });
             [w addOptionRow:@[ ADIFLabel(@"TQSL:"), u.tqsl, choose ]];
             u.location = ADIFComboBox(tqslLocations(), 220);
-            u.location.stringValue = ADIFString(setting("tqslLocation"));
+            u.location.stringValue = ADIFString(offeredLocation());
+            u.locationFor = lastLocationKey();
             u.location.placeholderString = @"as named in TQSL";
             ADIFOnAction(u.location, ^{ plan(*pu, true); });
             [w addOptionRow:@[ ADIFLabel(@"Station Location:"), u.location,

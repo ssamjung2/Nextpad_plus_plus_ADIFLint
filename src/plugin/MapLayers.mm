@@ -7,11 +7,13 @@
 #include "adif_geo.h"
 #include "adif_worked.h"
 #include "adif_regions.h"
+#include "adif_sun.h"
 #import "Country.h"
 #include "adif_spec.h"
 
 #include <algorithm>
 #include <cmath>
+#include <ctime>
 #include <dlfcn.h>
 #include <fstream>
 #include <sstream>
@@ -20,6 +22,98 @@ using namespace adifhost;
 using namespace mapkit;
 
 @implementation ADIFMapView (Layers)
+
+// The time the sun is drawn for: now, or the selected QSO's (its first, for a square or entity).
+- (double)sunSeconds {
+    double t = [self qsoSunSeconds];
+    return t >= 0 ? t : [[NSDate date] timeIntervalSince1970];
+}
+
+// The selected QSO's time, when Sun at is the selected QSO's time and one is selected; else -1.
+- (double)qsoSunSeconds {
+    const double now = -1;
+    if (_style.sunTime != 1) return now;
+    const ADIFMapHit &h = _selected;
+    std::vector<size_t> qsos;
+    if (h.kind == ADIFMapHit::Contact && h.index < _contacts.size()) qsos = _contacts[h.index].qsos;
+    else if (h.kind == ADIFMapHit::Square && h.index < _data.squares.size()) qsos = _data.squares[h.index].qsoIndex;
+    else if (h.kind == ADIFMapHit::Dxcc && h.index < _entities.size()) qsos = _entities[h.index].qsos;
+    else if (h.kind == ADIFMapHit::Park && h.index < _data.parks.size()) qsos = {_data.parks[h.index].qso};
+    if (qsos.empty() || qsos[0] >= _data.qsos.size()) return now;
+    const adif::MapQso &q = _data.qsos[qsos[0]];
+    std::string t;
+    for (char c : q.time)
+        if (c >= '0' && c <= '9') t += c;
+    if (q.date8.size() != 8 || t.size() < 4) return now;
+    struct tm tm{};
+    tm.tm_year = std::atoi(q.date8.substr(0, 4).c_str()) - 1900, tm.tm_mon = std::atoi(q.date8.substr(4, 2).c_str()) - 1;
+    tm.tm_mday = std::atoi(q.date8.substr(6, 2).c_str()), tm.tm_hour = std::atoi(t.substr(0, 2).c_str()), tm.tm_min = std::atoi(t.substr(2, 2).c_str());
+    return (double)timegm(&tm);
+}
+
+// Day and night: the night side shaded, deeper towards astronomical twilight (the sun 18
+// degrees below the horizon), and the grey line, the twilight band from sunset until the sun is
+// 6 degrees down (civil twilight), tinted gold. Drawn as an image of the view at a quarter of its
+// size, each pixel by the sun's height there (adif_sun), so it fits every projection.
+- (void)drawDayNight:(MapDrawCtx &)d {
+    if (!_style.dayNight && !_style.greyLine) return;
+    NSRect b = d.b;
+    double t = [self sunSeconds];
+    adif::SunPosition sun = adif::sunAt(t);
+    const int step = 4;
+    size_t w = (size_t)std::ceil(b.size.width / step), h = (size_t)std::ceil(b.size.height / step);
+    std::vector<uint8_t> px(w * h * 4, 0);
+    for (size_t y = 0; y < h; ++y)
+        for (size_t x = 0; x < w; ++x) {
+            double lon, lat;
+            NSPoint p = NSMakePoint(NSMinX(b) + (x + 0.5) * step, NSMaxY(b) - (y + 0.5) * step);
+            if (![self lonLatAt:p lon:&lon lat:&lat]) continue;
+            double e = adif::solarElevation(sun, lat, lon);
+            double dark = 0, gold = 0;
+            if (_style.dayNight && e < 0) dark = 0.5 * std::min(1.0, -e / 18.0);
+            if (_style.greyLine && e < 0.8 && e > -6) gold = 0.32 * (1 - std::fabs(e + 2.6) / 3.4);
+            gold = std::max(0.0, gold);
+            // Premultiplied RGBA: black for the night, gold (0xFFB340) for the grey line, over each other.
+            double a = gold + dark * (1 - gold);
+            uint8_t *o = &px[(y * w + x) * 4];
+            o[0] = (uint8_t)std::lround(255 * gold * 1.0), o[1] = (uint8_t)std::lround(255 * gold * 0.70), o[2] = (uint8_t)std::lround(255 * gold * 0.25);
+            o[3] = (uint8_t)std::lround(255 * std::min(1.0, a));
+        }
+    CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+    CGContextRef bitmap = CGBitmapContextCreate(px.data(), w, h, 8, w * 4, space, kCGImageAlphaPremultipliedLast);
+    CGImageRef image = bitmap ? CGBitmapContextCreateImage(bitmap) : nullptr;
+    if (image) {
+        CGContextSetInterpolationQuality(d.ctx, kCGInterpolationHigh);
+        CGContextDrawImage(d.ctx, CGRectMake(NSMinX(b), NSMaxY(b) - h * step, w * step, h * step), image);
+        CGImageRelease(image);
+    }
+    if (bitmap) CGContextRelease(bitmap);
+    CGColorSpaceRelease(space);
+    // The terminator, and the sun where it is overhead.
+    if (_style.dayNight) {
+        std::vector<std::pair<double, double>> edge = adif::sunCircle(sun, 0, 2);
+        edge.push_back(edge.front());
+        NSBezierPath *line = [self viewPath:edge close:NO wraps:YES];
+        line.lineWidth = 1;
+        [[NSColor colorWithCalibratedWhite:d.ink alpha:0.4] setStroke];
+        [line stroke];
+    }
+    NSPoint s = [self viewPointForLon:sun.subLon lat:sun.subLat];
+    if (NSPointInRect(s, NSInsetRect(b, -10, -10))) {
+        NSBezierPath *disc = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(s.x - 5, s.y - 5, 10, 10)];
+        NSBezierPath *rays = [NSBezierPath bezierPath];
+        for (int k = 0; k < 8; ++k) {
+            double a = k * M_PI / 4;
+            [rays moveToPoint:NSMakePoint(s.x + 7 * std::cos(a), s.y + 7 * std::sin(a))];
+            [rays lineToPoint:NSMakePoint(s.x + 11 * std::cos(a), s.y + 11 * std::sin(a))];
+        }
+        [rgb(0xFFC83D) setFill];
+        [disc fill];
+        rays.lineWidth = 1.5;
+        [rgb(0xFFC83D) setStroke];
+        [rays stroke];
+    }
+}
 
 // The areas worked: each CQ and ITU zone, US state and county in the log, shaded in the map's
 // colours, the most particular on top (zones, then states, then counties).
@@ -38,7 +132,8 @@ using namespace mapkit;
             bool lit = false;
             for (const ADIFMapHit *h : {&_hover, &_selected}) lit = lit || (h->kind == ADIFMapHit::Area && h->layer == l && h->index == i);
             region.windingRule = NSWindingRuleEvenOdd;
-            [[c colorWithAlphaComponent:lit ? 0.6 : 0.38] setFill];
+            static const CGFloat kShade[] = {0.22, 0.38, 0.55};
+            [[c colorWithAlphaComponent:lit ? 0.62 : kShade[std::clamp(_style.areaShade, 0, 2)]] setFill];
             [region fill];
             region.lineWidth = lit ? 2 : 0.8;
             region.lineJoinStyle = NSLineJoinStyleRound;
@@ -241,7 +336,8 @@ using namespace mapkit;
             NSColor *c = [self colorFor:_entityAgg[i] entity:YES];
             bool lit = (_hover.kind == ADIFMapHit::Dxcc && _hover.index == i) || (_selected.kind == ADIFMapHit::Dxcc && _selected.index == i);
             region.windingRule = NSWindingRuleEvenOdd;  // a country inside another (Lesotho) stays out
-            [[c colorWithAlphaComponent:lit ? 0.6 : 0.42] setFill];
+            static const CGFloat kShade[] = {0.25, 0.42, 0.6};
+            [[c colorWithAlphaComponent:lit ? 0.62 : kShade[std::clamp(_style.areaShade, 0, 2)]] setFill];
             [region fill];
             region.lineWidth = lit ? 2 : 1;
             region.lineJoinStyle = NSLineJoinStyleRound;
@@ -442,9 +538,11 @@ using namespace mapkit;
     bool arched = globe && _style.arcs;
     if (_style.paths && arched) CGContextRestoreGState(ctx);
     if (_style.paths) {
-        std::map<size_t, size_t> entityOf, squareOf;  // QSO -> entity, QSO -> square
+        std::map<size_t, size_t> entityOf, squareOf, contactOf;  // QSO -> entity, square, contact
         for (size_t e = 0; e < _entities.size(); ++e)
             for (size_t qi : _entities[e].qsos) entityOf[qi] = e;
+        for (size_t c = 0; c < _contacts.size(); ++c)
+            for (size_t qi : _contacts[c].qsos) contactOf[qi] = c;
         for (size_t s = 0; s < _data.squares.size(); ++s)
             for (size_t qi : _data.squares[s].qsoIndex) squareOf.emplace(qi, s);
         std::set<std::tuple<long, long, long, long>> drawn;
@@ -464,11 +562,13 @@ using namespace mapkit;
                 tlat = _entities[e->second].lat, tlon = _entities[e->second].lon;
             }
             if (!drawn.insert({std::lround(flat * 100), std::lround(flon * 100), std::lround(tlat * 100), std::lround(tlon * 100)}).second) continue;
-            ADIFMapAgg a;
-            a.band = q.band, a.mode = q.modeGroup, a.confirmed = q.confirmed;
-            a.year = q.date8.size() == 8 ? std::atoi(q.date8.substr(0, 4).c_str()) : 0;
-            auto sq = squareOf.find(qi);
-            a.count = sq != squareOf.end() ? _squareAgg[sq->second].count : 1;
+            // The line takes the colour of the marker at its far end: the contact's pin, else its
+            // square, else its entity's dot.
+            NSColor *colour = nil;
+            if (auto c = contactOf.find(qi); q.located && c != contactOf.end()) colour = [self colorFor:_contactAgg[c->second] entity:NO];
+            else if (auto sq = squareOf.find(qi); sq != squareOf.end()) colour = [self colorFor:_squareAgg[sq->second] entity:NO];
+            else if (auto e = entityOf.find(qi); e != entityOf.end()) colour = [self colorFor:_entityAgg[e->second] entity:YES];
+            else colour = [self colorFor:[self aggregate:{qi}] entity:NO];
             NSBezierPath *path = nil;
             if (arched) {
                 double arc = adif::greatCircleKm(flat, flon, tlat, tlon) / 6371.0;  // radians
@@ -485,7 +585,8 @@ using namespace mapkit;
             }
             [self styleLine:path];
             path.lineJoinStyle = NSLineJoinStyleRound;
-            [[[self colorFor:a entity:NO] colorWithAlphaComponent:arched ? 0.65 : 0.5] setStroke];
+            static const CGFloat kStrength[] = {0.35, 0.65, 0.95};
+            [[colour colorWithAlphaComponent:kStrength[std::clamp(_style.lineOpacity, 0, 2)]] setStroke];
             [path stroke];
         }
     }
@@ -792,7 +893,8 @@ using namespace mapkit;
 }
 
 // Whether the Filters' places let a park (one you haven't worked) show: its locations, its
-// state and region, its entity and continent. Without "Apply to POTA parks", every park shows.
+// state and region, its entity and continent. Without "Also limit the POTA parks you haven't
+// worked", every park shows.
 - (BOOL)parkFiltered:(const adif::PotaPark &)p {
     const adif::MapFilter &f = _parkFilter;
     if (!_filterParks || !f.any()) return YES;

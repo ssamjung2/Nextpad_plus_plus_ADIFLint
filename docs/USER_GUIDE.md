@@ -495,47 +495,103 @@ world, 1:50m zoomed in, and 1:10m from 12× down to city level): land, lakes, ri
 largest at first, smaller ones as you zoom in), country borders, state and province lines
 from 2.5×, and towns' built-up areas at 1:10m. Every choice is remembered.
 
-The rows at the top choose what to draw (**Show**), what to lay over the map (**Overlays**),
-which QSOs (**Only**) and how to colour them (**Colour by**); the next row zooms, jumps to a
-**Region**, chooses the projection and opens **Options**. Under the map, a list shows the
-QSOs of whatever you click, and the status line says what is under the pointer.
+At the top, a grid of layers (grid squares, countries, US states, US counties, CQ zones, ITU
+zones, POTA, IOTA, cities) with three rows of boxes: **Show**, **Overlay** and **Labels**.
+Then **Markers** (contacts, lines, other programs, your station, and how to colour them),
+**Filters** (which QSOs), and a row to zoom, jump to a **Region**, choose the projection,
+open **Style Options…** and **Export PNG…**. Under the map, a list shows the QSOs of
+whatever you click, and the status line says what is under the pointer.
 
-### What it shows
+### Layers: Show, Overlay and Labels
 
-**Show**:
+Each layer has up to three boxes:
 
-- **Worked squares**, from GRIDSQUARE and VUCC_GRIDS. QSOs without GRIDSQUARE count for
+- **Show** marks what you worked on that layer: the worked grid squares, countries, states,
+  counties and zones shaded in the map's colours, the POTA parks you worked pinned, the IOTA
+  groups you worked filled in. Ticking Show ticks the layer's Overlay and Labels too, so the
+  worked areas show among the rest; untick Overlay to see only the worked ones, each with
+  its own outline.
+- **Overlay** draws the whole layer: every square, country, state, county, zone, park or
+  group (see [Overlays](#overlays)).
+- **Labels** names them: square and zone numbers, country names, state codes, county and
+  city names, park references, IOTA references. Labels work while the layer shows.
+
+Point at a shaded area for its QSOs, and click it to list them. The status line says where
+each QSO's area came from, for example "WI: 12 QSOs (…); 10 by STATE, 2 by where the QSO
+was".
+
+### Worked areas
+
+Where a QSO counts on each layer:
+
+- **Grid squares**, from GRIDSQUARE and VUCC_GRIDS. QSOs without GRIDSQUARE count for
   DXCC but not for squares.
-- **DXCC**: each entity worked, from the call's prefix in the country data, its own land
-  shaded: Alaska and Hawaii apart from the United States, Sardinia apart from Italy, the
-  Canaries apart from Spain, England, Scotland, Wales and Northern Ireland each their own,
-  and European Russia apart from Asiatic Russia. Which land is whose is worked out from the
-  country file's name and place for each entity, over Natural Earth's map subunits. An
-  entity with no land at this scale, or too small on screen to see (Jamaica on the whole
-  world, the Vatican), is a dot, bigger with more QSOs.
+- **Countries (DXCC)**: each entity worked, from the call's prefix in the country data, its
+  own land shaded: Alaska and Hawaii apart from the United States, Sardinia apart from
+  Italy, the Canaries apart from Spain, England, Scotland, Wales and Northern Ireland each
+  their own, and European Russia apart from Asiatic Russia. Which land is whose is worked
+  out from the country file's name and place for each entity, over Natural Earth's map
+  subunits. An entity with no land at this scale, or too small on screen to see (Jamaica on
+  the whole world, the Vatican), is a dot, bigger with more QSOs.
+- **US states** (for the United States, Alaska and Hawaii): the QSO's STATE, else where the
+  QSO was (its LAT and LON or a 6-character grid inside a state's outline, or a 4-character
+  square wholly inside one state).
+- **US counties**: the QSO's CNTY ("WI,Dane"; "St." and "Saint", accents, and a trailing
+  "County" or "Parish" are matched either way), else where the QSO was, within its state.
+- **CQ zones** and **ITU zones**: the QSO's CQZ or ITUZ, else where the QSO was, else the
+  zone the country data gives its call.
+
+**Style Options → Other areas** sets how strongly they are shaded.
+
+### Markers
+
 - **Contacts**: a marker at each contact's own place (see
   [contacts and their places](#contacts-and-their-places)).
-- **Parks** you hunted (POTA and WWFF) as triangles, placed at the QSO's GRIDSQUARE. With
-  the **POTA** overlay on and POTA's park list downloaded, POTA parks are pinned at the parks
-  themselves instead (see [Overlays](#overlays)).
-- **Other programs**, a list with a colour and a count for each: SOTA summits, IOTA islands,
-  GMA, WWBOTA bunkers, HEMA, SiOTA silos, WCA castles, ILLW and ARLHS lighthouses, MOTA
-  mills, ZLOTA, WOTA, and any other SIG in the log. Tick the ones to show (**Show All**,
-  **Hide All**). IOTA starts hidden: a callbook such as QRZ.com fills it in for every island
-  station.
+- **Lines to contacts**: a great-circle line from your station to each contact, in the
+  colour of the contact's marker (see [Style Options](#style-options-and-export)).
+- **Other programs**, a list with a colour and a count for each: WWFF parks, SOTA summits,
+  IOTA islands, GMA, WWBOTA bunkers, HEMA, SiOTA silos, WCA castles, ILLW and ARLHS
+  lighthouses, MOTA mills, ZLOTA, WOTA, and any other SIG in the log, each a diamond at the
+  QSO's GRIDSQUARE. Tick the ones to show (**Show All**, **Hide All**). IOTA starts hidden: a
+  callbook such as QRZ.com fills it in for every island station.
 - **My station**: a star at each MY_GRIDSQUARE.
+- **Colour by** (see [Colours](#colours)).
 
-**Only** these QSOs: a band, a mode, a time (the last 30 days, the last 12 months, this
-year, or a year in the log), and all, confirmed or not confirmed QSOs (confirmed: QSL_RCVD,
-LOTW_QSL_RCVD or EQSL_QSL_RCVD Y or V).
+POTA parks you hunted are triangles at the QSO's GRIDSQUARE while POTA's **Show** is on;
+with POTA's park list downloaded, they are pinned at the parks themselves instead (see
+[Overlays](#overlays)).
+
+### Filters
+
+The **Filters** row keeps only some QSOs: a band, a mode, a time (the last 30 days, the
+last 12 months, this year, or a year in the log), and all, confirmed or not confirmed QSOs
+(confirmed: QSL_RCVD, LOTW_QSL_RCVD or EQSL_QSL_RCVD Y or V).
+
+**More Filters…** keeps the QSOs in some places. Within a line any of its values counts,
+and every line that has values must match:
+
+- **Continents** (the QSO's CONT, else the country data's).
+- **DXCC**: countries by name, completed as you type.
+- **CQ zones** and **ITU zones**: numbers, such as `3, 4, 5`.
+- **US states** (`WI, IL`) and **US counties** (`WI,Dane; WI,Milwaukee`), by the QSO's
+  state and county as [above](#worked-areas).
+- **US regions**: the call areas (W1 to W0, KL7, KH6), the Census regions and divisions,
+  and the ARRL divisions. California, New York and New Jersey are split between ARRL
+  divisions, so for those a QSO counts by its ARRL_SECT.
+- **POTA locations** (`US-WI, CA-ON`): the QSO's park's location.
+- **Also limit the POTA parks you haven't worked**: the POTA overlay shows only the parks
+  in these places.
+
+The button shows how many places are chosen ("More Filters (2)…"); **Clear** shows every
+QSO again.
 
 ### Contacts and their places
 
 **Contacts** puts a marker at each contact's own place: its LAT and LON, else a GRIDSQUARE
-of 6 or 8 characters. A 4-character square is 100 km or more across, so **Worked squares**
+of 6 or 8 characters. A 4-character square is 100 km or more across, so **Grid squares**
 shows those instead. QSOs at the same place share one marker. Point at one for the calls,
 where the place came from and how far it is from home, or click it to list its QSOs.
-**Options** chooses pins, dots or crosshairs.
+**Style Options** chooses pins, dots or crosshairs.
 
 ![Europe in the Mercator projection, with country outlines and names and a pin at each contact](images/map-europe.png)
 
@@ -552,8 +608,8 @@ the LAT/LON left out. The grids AA00 and JJ00 are placeholders too, and are draw
 
 ### Overlays
 
-**Overlays** on the map, and under each one in the **Labels** row, its names or numbers
-(each works while its overlay shows):
+Each layer's **Overlay**, and in the **Labels** row its names or numbers (each works while
+its layer shows):
 
 - **Grid squares**: the Maidenhead grid's fields (20 × 10 degrees), and its squares (2 × 1)
   when zoomed in; labels `FN`, then `FN31`.
@@ -567,18 +623,19 @@ the LAT/LON left out. The grids AA00 and JJ00 are placeholders too, and are draw
 - **Cities**: 7,300 cities and towns (Natural Earth), the largest first and more as you zoom
   in, labelled with names where they don't run into each other. With counties labelled too,
   a city's name goes first and a county's name only where it is clear of the cities.
-- **POTA**: POTA's parks, at the parks themselves. A pin with a triangle marks each park you
-  hunted (POTA_REF, or SIG_INFO with SIG POTA), coloured as the map colours. A pin with a
-  star, in your station's colour, marks each park you activated (MY_POTA_REF, or
-  MY_SIG_INFO). A ring marks each active park you haven't worked. Where more than 2,500
-  rings would show, they gather into counts ("6.6k"); click a count to zoom in to it. Labels
+- **POTA**: POTA's parks, at the parks themselves. With **Show**, a pin with a triangle
+  marks each park you hunted (POTA_REF, or SIG_INFO with SIG POTA), coloured as the map
+  colours, and a pin with a star, in your station's colour, each park you activated
+  (MY_POTA_REF, or MY_SIG_INFO). The **Overlay** puts a ring at each active park you haven't
+  worked, or a small dot where more than 1,500 would show; zoom in, or limit them with
+  **More Filters → Also limit the POTA parks you haven't worked**, to see fewer. Labels
   give the references of the parks you worked, of the others once you are zoomed in to a few
   hundred, and their names once fewer show. Point at a park for its name, location, your
   QSOs there and how far it is; click it to list the QSOs. References written before POTA
   renamed its programs in 2024 and kept the numbers (K-, G-, OA-, TG-, T7-, TA-) find the
   park under its new name (US-, GB-, PE-, GT-, SM-, TR-). Programs that were renumbered (the
   US territories, GI, GM and GW) and Canada's old VE- (now Venezuela's) don't, and stay at
-  the QSO's grid in **Parks**. Download the park list first in Settings → POTA Parks.
+  the QSO's grid as triangles. Download the park list first in Settings → POTA Parks.
 - **IOTA**: IOTA's island groups, each the box of latitude and longitude IOTA gives it. The
   groups in the log's IOTA field are filled in (more strongly when a QSO is confirmed), the
   rest dashed; labels give each group's reference, and its name where the box is wide
@@ -590,9 +647,9 @@ The CQ and ITU zones come from HB9HIL's
 Wavelog uses). Zone lines are approximate, across the sea in particular, and sources
 disagree in places; the zone a QSO counts for is the one in its CQZ or ITUZ field.
 
-| Worked squares and CQ zones (Equal Earth) | Worked squares and US states |
+| Worked squares and CQ zones (Equal Earth) | US states worked (Show) |
 |---|---|
-| ![The world in the Equal Earth projection, worked squares coloured by band, and the CQ zones numbered](images/map-zones.png) | ![North America with US state lines and postal codes, worked squares coloured confirmed or worked](images/map-states.png) |
+| ![The world in the Equal Earth projection, worked squares coloured by band, and the CQ zones numbered](images/map-zones.png) | ![North America with the US states worked shaded, confirmed or only worked, and every state's line and postal code](images/map-states.png) |
 
 ![Zoomed in from Madison to Chicago: county lines and names, cities and towns, and a pin at each contact](images/map-city.png)
 
@@ -604,8 +661,13 @@ the same yellow as on its map), mode (CW, phone or data), QSO count (1, 2-4, 5-9
 25 and more) or the year a square was first worked. The **legend** in the corner says what
 each colour and marker means.
 
-**Options** has four palettes: **Standard**, **Colour-blind safe**, **High contrast**, and
-**Light** for printing.
+**Style Options** has five palettes: **Standard**, **Colour-blind safe**, **High contrast**,
+**Light** for printing, and **Night (red)**.
+
+**Night (red)** draws the whole map, legend and labels too, in shades of red on black, as
+bright as each part would be: red light keeps your eyes adapted to the dark at a night-time
+operating position. The reds are the screen's own, with no green or blue in them. Turn the
+screen's brightness down as well; the rest of macOS is outside the plugin's reach.
 
 **Colour-blind safe** keeps markers apart for red-green (protan, deutan) and blue-yellow
 (tritan) colour blindness on the dark map. By band it has seven colours of its own, chosen
@@ -652,31 +714,41 @@ On the globe:
   bearing. **Click** it to list its
   QSOs under the map, and double-click one to go to its record in the log.
 
-### Options and export
+### Style Options and export
 
-**Options**:
+**Style Options…** opens a panel beside the map. Each choice applies at once and is kept;
+**Reset to Defaults** puts them all back.
 
 - **Colours**: the palettes above.
-- **Marker size**, and **Markers** by layer (dots, triangles, diamonds) or all circles or
-  squares.
-- **Contacts** as pins, dots or crosshairs.
-- **Worked squares** solid, see-through or as outlines.
-- **Lines to contacts**: a great-circle line from your station (the QSO's MY_GRIDSQUARE,
-  else home) to each contact (its LAT and LON, else its GRIDSQUARE at full precision, else
-  its DXCC entity's centre), coloured as the map colours, each pair once; **solid**,
-  **dashed** or **dotted**, and **thin**, **medium** or **thick**. **Arch over the globe**
-  (on at first) draws them on the globe as arches rising over it, higher the further they
-  go and leaning to one side so they read as arches from above your station too, and over
-  the horizon for contacts on the far side. They are for looks: the true path, and the beam
-  heading, is the straight line you get with it off.
-- The **Legend**, and **Distance rings** from your grid: 2,500 km apart for the whole world,
-  closer as you zoom in, with bearings every 30° when the globe is centred on home.
+- **Markers**: size; shapes by layer (dots, triangles, diamonds) or all circles or squares;
+  contacts as pins, dots or crosshairs.
+- **Worked areas**: grid squares solid, see-through or as outlines; other areas (countries,
+  states, counties, zones) shaded lightly, medium or strongly.
+- **Lines to contacts** (tick **Lines to contacts** under Markers first): a great-circle line
+  from your station (the QSO's MY_GRIDSQUARE, else home) to each contact (its LAT and LON,
+  else its GRIDSQUARE at full precision, else its DXCC entity's centre), each pair once,
+  in the colour of the marker at its end (the contact's pin, else its square, else its
+  entity's dot). **Line** solid, dashed or dotted; **Width** thin, medium or thick;
+  **Strength** faint, medium or solid. **Arch over the globe** (on at first) draws them on
+  the globe as arches rising over it, higher the further they go and leaning to one side so
+  they read as arches from above your station too, and over the horizon for contacts on the
+  far side. They are for looks: the true path, and the beam heading, is the straight line
+  you get with it off.
+- **On the map**: the **Legend**; **Distance rings** from your grid, 2,500 km apart for the
+  whole world, closer as you zoom in, with bearings every 30° when the globe is centred on
+  home; **Day and night**; **Grey line**; and **Sun at** now or at the selected QSO's time.
+
+**Day and night** shades the side of the Earth where the sun is down, deeper as it goes
+further down (to astronomical twilight, 18° below the horizon), draws the line between day
+and night, and marks the sun where it is overhead. **Grey line** tints the twilight band
+gold, from just before sunset until the sun is 6° down (civil twilight): a common time for
+long-distance openings. Its edges are a convention, not a propagation prediction. **Sun at**
+draws them for now, updated each minute, or for the time of the QSO you clicked. The sun's
+place comes from NOAA's solar calculator equations (after Meeus), good to about a minute.
+
+![Day and night at a QSO's time: the night side shaded, the grey line in gold, and the sun overhead in the Gulf of Guinea](images/map-day-night.png)
 
 **Export PNG…** saves the map as it is shown, legend included, at twice the screen's size.
-
-**Apple Maps** opens what you clicked (a contact, square, park, POTA park, DXCC entity or IOTA group),
-or the middle of the map, in Apple's Maps app, for streets and satellite views. Maps goes
-online; ADIF Lint itself sends nothing.
 
 ## Activations: POTA, WWFF and SOTA
 

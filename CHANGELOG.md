@@ -9,6 +9,47 @@ Versions before 0.8.0 were development builds and were not published.
 
 ## [Unreleased]
 
+### Added
+
+- **Map → layers**: a grid of layers (grid squares, countries, US states, US counties, CQ
+  zones, ITU zones, POTA, IOTA, cities), each with **Show**, **Overlay** and **Labels**.
+  Show marks what you worked on that layer and ticks its Overlay and Labels too.
+- **Map → Show** for **US states**, **US counties**, **CQ zones** and **ITU zones** shades the
+  areas worked: by the QSO's STATE, CNTY, CQZ or ITUZ, else by where the QSO was (its LAT and
+  LON or a 6-character grid inside the area, or for a state a 4-character square wholly
+  inside it), else for zones by the country data. Click an area for its QSOs and where each
+  one's area came from.
+- **Map → Filters → More Filters…**: keep the QSOs in some continents, countries (DXCC), CQ
+  and ITU zones, US states and counties, US regions (call areas W1 to W0, KL7 and KH6, Census
+  regions and divisions, ARRL divisions, by ARRL_SECT for California, New York and New
+  Jersey) or POTA locations; optionally limit the POTA parks you haven't worked to the same
+  places.
+- **Map → Style Options…**, a panel in place of the Options menu: colours, markers, worked
+  areas (with how strongly countries, states, counties and zones are shaded), lines to
+  contacts (with their strength), the legend, distance rings, and **Reset to Defaults**.
+- **Map → Style Options → Night (red)**: the whole map, legend and labels in the screen's own
+  reds on black, to keep night vision; PNG exports too.
+- **Map → Style Options → Day and night** and **Grey line**: the night side shaded, deeper
+  to 18° below the horizon, the line between day and night, the sun overhead, and the
+  twilight band to 6° down tinted gold; for now (each minute) or the selected QSO's time.
+  The sun's place comes from NOAA's solar calculator equations.
+
+### Changed
+
+- **Map**: the **Only** row is now **Filters**, with **More Filters…** and **Clear**.
+- **Map**: lines to contacts take the colour of the marker at their end (the contact's pin,
+  else its square, else its entity's dot).
+- **Map → POTA**: the parks you haven't worked show as rings, or as small dots where more
+  than 1,500 would show, with no more numbered counts. **Show** pins the parks you worked
+  (it was **Parks**); WWFF parks are now under **Other programs**.
+- **Upload to LoTW (TQSL)** offers the Station Location of New QSO's chosen profile, and
+  remembers the last one used for each profile; before, the last location used for any
+  profile was offered, so a profile's own location never applied.
+
+### Removed
+
+- **Map → Apple Maps**.
+
 ## [1.2.0] - 2026-10-14
 
 ### Added

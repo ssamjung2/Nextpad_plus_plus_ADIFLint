@@ -93,7 +93,9 @@ struct {
     NSTableView *table = nil;
     NSButton *show[kLayerCount] = {}, *overlay[kLayerCount] = {}, *labels[kLayerCount] = {};  // the layers' boxes (no Show for cities)
     NSButton *contacts = nil, *lines = nil, *mine = nil;
-    NSPopUpButton *programs = nil, *style = nil, *projection = nil, *colorBy = nil, *region = nil;
+    NSPopUpButton *programs = nil, *projection = nil, *colorBy = nil, *region = nil;
+    NSPanel *styleWindow = nil;  // Style Options
+    NSTimer *sunTimer = nil;     // day and night, while it shows now
     NSPopUpButton *band = nil, *mode = nil, *dates = nil, *confirmed = nil;
     NSTextField *target = nil, *status = nil, *zoomLabel = nil;
     // More Filters: places.
@@ -189,7 +191,7 @@ ADIFMapStyle savedStyle() {
     ADIFMapStyle s;
     static const double kSizes[] = {0.75, 1.0, 1.4, 1.9};
     s.colorBy = number("mapColorBy", 0, 4);
-    s.palette = number("mapPalette", 0, 3);
+    s.palette = number("mapPalette", 0, 4);
     s.shape = number("mapMarkerShape", 0, 2);
     s.fill = number("mapSquareFill", 0, 2);
     s.marker = kSizes[number("mapMarkerSize", 1, 3)];
@@ -208,6 +210,11 @@ ADIFMapStyle savedStyle() {
     s.lineStyle = number("mapLineStyle", 0, 2);
     s.lineWidth = number("mapLineWidth", 1, 2);
     s.arcs = flag("mapArcs", true);
+    s.lineOpacity = number("mapLineOpacity", 1, 2);
+    s.areaShade = number("mapAreaShade", 1, 2);
+    s.dayNight = flag("mapDayNight", false);
+    s.greyLine = flag("mapGreyLine", false);
+    s.sunTime = number("mapSunTime", 0, 1);
     s.mine = flag("mapMine", true);
     return s;
 }
@@ -480,73 +487,149 @@ void fillPrograms() {
     }
 }
 
-// Options: palette, marker size and shape, contact markers, square fill, lines to contacts,
-// legend, distance rings.
+// The view with this identifier inside v, or nil.
+NSView *findView(NSView *v, NSString *ident) {
+    if ([v.identifier isEqualToString:ident]) return v;
+    for (NSView *sub in v.subviews)
+        if (NSView *found = findView(sub, ident)) return found;
+    return nil;
+}
+
+// Style Options: how the map looks, in sections; each choice applies at once and is kept.
+struct StyleChoice {
+    const char *key;
+    NSString *ident;
+    int fallback;
+    NSArray<NSString *> *titles;  // a popup; nil: a checkbox
+    NSString *title, *tip;
+};
+NSArray<NSString *> *const kPaletteTitles = @[ @"Standard", @"Colour-blind safe", @"High contrast", @"Light (for printing)", @"Night (red)" ];
+
 void fillStyle() {
-    NSMenu *menu = mw.style.menu;
-    menu.autoenablesItems = NO;
-    [menu removeAllItems];
-    [menu addItemWithTitle:@"Options" action:nil keyEquivalent:@""];
+    if (!mw.styleWindow) return;
     ADIFMapStyle s = savedStyle();
-    auto choose = [](const char *key, int value) {
-        return ^{
-            setSetting(key, std::to_string(value));
-            applyStyle();
-            fillStyle();
-            fillPrograms();  // program swatches follow the palette
+    NSView *root = mw.styleWindow.contentView;
+    for (NSString *ident in @[ @"map.style.line", @"map.style.width", @"map.style.strength", @"map.style.arcs" ])
+        if (NSControl *c = (NSControl *)findView(root, ident)) c.enabled = s.paths;
+    if (NSControl *c = (NSControl *)findView(root, @"map.style.rings")) c.enabled = !mw.home.empty();
+    if (NSControl *c = (NSControl *)findView(root, @"map.style.sunTime")) c.enabled = s.dayNight || s.greyLine;
+}
+
+void showStyleOptions() {
+    if (!mw.styleWindow) {
+        NSPanel *p = [[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 440, 560)
+                                                styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskUtilityWindow
+                                                  backing:NSBackingStoreBuffered
+                                                    defer:NO];
+        p.title = @"Style Options";
+        p.releasedWhenClosed = NO;
+        p.hidesOnDeactivate = NO;
+        p.floatingPanel = YES;
+        p.identifier = @"map.style";
+        NSMutableArray *rows = [NSMutableArray array];
+        auto section = [&](NSString *title) {
+            NSTextField *t = ADIFLabel(title);
+            t.font = [NSFont boldSystemFontOfSize:NSFont.systemFontSize];
+            [rows addObject:@[ t, [NSGridCell emptyContentView] ]];
         };
-    };
-    auto toggle = [](const char *key, bool now) {
-        return ^{
-            saveFlag(key, !now);
-            applyStyle();
-            fillStyle();
+        auto add = [&](const StyleChoice &c) {
+            NSControl *control;
+            if (c.titles) {
+                NSPopUpButton *pop = ADIFPopup(c.titles);
+                [pop selectItemAtIndex:std::clamp(number(c.key, c.fallback, (int)c.titles.count - 1), 0, (int)c.titles.count - 1)];
+                std::string key = c.key;
+                ADIFOnAction(pop, ^{
+                    setSetting(key.c_str(), std::to_string(pop.indexOfSelectedItem));
+                    applyStyle();
+                    fillStyle();
+                    fillPrograms();  // program swatches follow the palette
+                });
+                control = pop;
+            } else {
+                NSButton *box = ADIFCheckbox(c.title, flag(c.key, c.fallback));
+                std::string key = c.key;
+                ADIFOnAction(box, ^{
+                    saveFlag(key.c_str(), box.state == NSControlStateValueOn);
+                    applyStyle();
+                    fillStyle();
+                });
+                control = box;
+            }
+            control.identifier = c.ident;
+            control.toolTip = c.tip;
+            [rows addObject:@[ c.titles ? ADIFLabel(c.title) : [NSGridCell emptyContentView], control ]];
         };
-    };
-    menuItem(menu, @"Colours", false, nil);
-    NSArray *palettes = @[ @"Standard", @"Colour-blind safe", @"High contrast", @"Light (for printing)" ];
-    for (NSInteger i = 0; i < 4; ++i) menuItem(menu, palettes[(NSUInteger)i], s.palette == i, choose("mapPalette", (int)i)).indentationLevel = 1;
-    [menu addItem:[NSMenuItem separatorItem]];
-    menuItem(menu, @"Marker size", false, nil);
-    NSArray *sizes = @[ @"Small", @"Medium", @"Large", @"Extra large" ];
-    int size = number("mapMarkerSize", 1, 3);
-    for (NSInteger i = 0; i < 4; ++i) menuItem(menu, sizes[(NSUInteger)i], size == i, choose("mapMarkerSize", (int)i)).indentationLevel = 1;
-    [menu addItem:[NSMenuItem separatorItem]];
-    menuItem(menu, @"Markers", false, nil);
-    NSArray *shapes = @[ @"By layer: dots, triangles, diamonds", @"All circles", @"All squares" ];
-    for (NSInteger i = 0; i < 3; ++i) menuItem(menu, shapes[(NSUInteger)i], s.shape == i, choose("mapMarkerShape", (int)i)).indentationLevel = 1;
-    [menu addItem:[NSMenuItem separatorItem]];
-    menuItem(menu, @"Contacts", false, nil);
-    NSArray *contactShapes = @[ @"Pins", @"Dots", @"Crosshairs" ];
-    for (NSInteger i = 0; i < 3; ++i)
-        menuItem(menu, contactShapes[(NSUInteger)i], s.contact == i, choose("mapContactMarker", (int)i)).indentationLevel = 1;
-    [menu addItem:[NSMenuItem separatorItem]];
-    menuItem(menu, @"Worked squares", false, nil);
-    NSArray *fills = @[ @"Solid", @"See-through", @"Outline" ];
-    for (NSInteger i = 0; i < 3; ++i) menuItem(menu, fills[(NSUInteger)i], s.fill == i, choose("mapSquareFill", (int)i)).indentationLevel = 1;
-    [menu addItem:[NSMenuItem separatorItem]];
-    NSArray *lineStyles = @[ @"Solid line", @"Dashed line", @"Dotted line" ];
-    for (NSInteger i = 0; i < 3; ++i) {
-        NSMenuItem *item = menuItem(menu, lineStyles[(NSUInteger)i], s.lineStyle == i, choose("mapLineStyle", (int)i));
-        item.indentationLevel = 1;
-        item.enabled = s.paths;
+        section(@"Colours");
+        add({"mapPalette", @"map.style.palette", 0, kPaletteTitles, @"Palette:",
+             @"Colour-blind safe: colours that stay apart for red-green and blue-yellow colour blindness. Light: for printing. Night (red): red on "
+             @"black, to keep your night vision"});
+        section(@"Markers");
+        add({"mapMarkerSize", @"map.style.size", 1, @[ @"Small", @"Medium", @"Large", @"Extra large" ], @"Size:", nil});
+        add({"mapMarkerShape", @"map.style.shape", 0, @[ @"By layer: dots, triangles, diamonds", @"All circles", @"All squares" ], @"Shape:", nil});
+        add({"mapContactMarker", @"map.style.contact", 0, @[ @"Pins", @"Dots", @"Crosshairs" ], @"Contacts:", nil});
+        section(@"Worked areas");
+        add({"mapSquareFill", @"map.style.fill", 0, @[ @"Solid", @"See-through", @"Outlines" ], @"Grid squares:", nil});
+        add({"mapAreaShade", @"map.style.shade", 1, @[ @"Light", @"Medium", @"Strong" ], @"Other areas:",
+             @"How strongly worked countries, states, counties and zones are shaded"});
+        section(@"Lines to contacts");
+        add({"mapLineStyle", @"map.style.line", 0, @[ @"Solid", @"Dashed", @"Dotted" ], @"Line:", nil});
+        add({"mapLineWidth", @"map.style.width", 1, @[ @"Thin", @"Medium", @"Thick" ], @"Width:", nil});
+        add({"mapLineOpacity", @"map.style.strength", 1, @[ @"Faint", @"Medium", @"Solid" ], @"Strength:",
+             @"Each line is its contact's marker colour; this is how strongly it shows"});
+        add({"mapArcs", @"map.style.arcs", 1, nil, @"Arch over the globe",
+             @"On the globe, draw each line as an arch rising over it (for looks: the true path, and the beam heading, is the straight line "
+             @"you get with this off)"});
+        section(@"On the map");
+        add({"mapLegend", @"map.style.legend", 1, nil, @"Legend", nil});
+        add({"mapRings", @"map.style.rings", 0, nil, @"Distance rings from my grid", nil});
+        add({"mapDayNight", @"map.style.dayNight", 0, nil, @"Day and night", @"The night side shaded, deeper as the sun goes further down, and the "
+                                                                              @"line between day and night; the sun where it is overhead"});
+        add({"mapGreyLine", @"map.style.greyLine", 0, nil, @"Grey line",
+             @"The twilight band, where the sun has set but is less than 6 degrees down (civil twilight), tinted gold: a common time for "
+             @"long-distance openings"});
+        add({"mapSunTime", @"map.style.sunTime", 0, @[ @"Now", @"The selected QSO's time" ], @"Sun at:",
+             @"Draw day and night for now (updated each minute), or for the time of the QSO you clicked"});
+        NSButton *reset = [NSButton buttonWithTitle:@"Reset to Defaults" target:nil action:nil];
+        reset.identifier = @"map.style.reset";
+        ADIFOnAction(reset, ^{
+            for (const char *key : {"mapPalette", "mapMarkerSize", "mapMarkerShape", "mapContactMarker", "mapSquareFill", "mapAreaShade", "mapLineStyle",
+                                    "mapLineWidth", "mapLineOpacity", "mapArcs", "mapLegend", "mapRings", "mapDayNight", "mapGreyLine", "mapSunTime"})
+                setSetting(key, "");
+            [mw.styleWindow orderOut:nil];
+            mw.styleWindow = nil;
+            applyStyle();
+            fillPrograms();
+            showStyleOptions();
+        });
+        [rows addObject:@[ [NSGridCell emptyContentView], reset ]];
+        NSGridView *grid = [NSGridView gridViewWithViews:rows];
+        grid.rowSpacing = 6;
+        grid.columnSpacing = 10;
+        [grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
+        grid.rowAlignment = NSGridRowAlignmentFirstBaseline;
+        for (NSInteger r = 0; r < grid.numberOfRows; ++r) {  // section titles span both columns, with room above
+            NSGridCell *first = [grid cellAtColumnIndex:0 rowIndex:r];
+            if ([first.contentView isKindOfClass:NSTextField.class] && ((NSTextField *)first.contentView).font.pointSize >= NSFont.systemFontSize &&
+                [((NSTextField *)first.contentView).font.fontDescriptor symbolicTraits] & NSFontDescriptorTraitBold) {
+                [grid mergeCellsInHorizontalRange:NSMakeRange(0, 2) verticalRange:NSMakeRange(r, 1)];
+                first.xPlacement = NSGridCellPlacementLeading;
+                if (r > 0) [grid rowAtIndex:r].topPadding = 8;
+            }
+        }
+        grid.translatesAutoresizingMaskIntoConstraints = NO;
+        [p.contentView addSubview:grid];
+        [NSLayoutConstraint activateConstraints:@[
+            [grid.topAnchor constraintEqualToAnchor:p.contentView.topAnchor constant:16],
+            [grid.leadingAnchor constraintEqualToAnchor:p.contentView.leadingAnchor constant:16],
+            [grid.trailingAnchor constraintLessThanOrEqualToAnchor:p.contentView.trailingAnchor constant:-16],
+            [grid.bottomAnchor constraintEqualToAnchor:p.contentView.bottomAnchor constant:-16],
+        ]];
+        mw.styleWindow = p;
+        NSRect frame = mw.window.frame;
+        [p setFrameTopLeftPoint:NSMakePoint(NSMaxX(frame) - 20, NSMaxY(frame) - 60)];
     }
-    {
-        NSMenuItem *item = menuItem(menu, @"Arch over the globe", s.arcs, toggle("mapArcs", s.arcs));
-        item.indentationLevel = 1;
-        item.enabled = s.paths;
-        item.toolTip = @"On the globe, draw each line as an arch rising over it (for looks: the true path, and the beam heading, is the "
-                       @"straight line you get with this off)";
-    }
-    NSArray *lineWidths = @[ @"Thin line", @"Medium line", @"Thick line" ];
-    for (NSInteger i = 0; i < 3; ++i) {
-        NSMenuItem *item = menuItem(menu, lineWidths[(NSUInteger)i], s.lineWidth == i, choose("mapLineWidth", (int)i));
-        item.indentationLevel = 1;
-        item.enabled = s.paths;
-    }
-    [menu addItem:[NSMenuItem separatorItem]];
-    menuItem(menu, @"Legend", s.legend, toggle("mapLegend", s.legend));
-    menuItem(menu, @"Distance rings from my grid", s.rings, toggle("mapRings", s.rings)).enabled = !mw.home.empty();
+    fillStyle();
+    [mw.styleWindow makeKeyAndOrderFront:nil];
 }
 
 // Home: Settings → Your Station's grid, else the log's most used MY_GRIDSQUARE.
@@ -1117,8 +1200,10 @@ void cmdMap() {
         mw.projection.toolTip = @"Equirectangular: the grid as rectangles. Mercator: familiar shapes. Equal Earth: true sizes. Globe: the Earth "
                                 @"as seen from space, centred on your grid; drag (or the arrow keys) to turn it any way, zoom in for detail, "
                                 @"World to come home. Bearings from the centre are true (beam headings)";
-        mw.style = pullDown(@"Options", @"Colours, marker size and shape, contact markers, how worked squares are filled, lines to contacts "
-                                        @"and their style, the legend, distance rings");
+        NSButton *styleButton = smallButton(@"Style Options...", @"Colours, markers, how worked areas are shaded, lines to contacts, the legend, "
+                                                                 @"distance rings, day and night, the grey line",
+                                            ^{ showStyleOptions(); });
+        styleButton.identifier = @"map.style.open";
         mw.region = pullDown(@"Region", @"Zoom to a continent (on the globe, turn to face it)");
         {
             // Continents as ADIF's CONT names them, each a box of longitude and latitude to show.
@@ -1180,7 +1265,7 @@ void cmdMap() {
             [NSStackView stackViewWithViews:@[ ADIFLabel(@"Filters:"), mw.band, mw.mode, mw.dates, mw.confirmed, mw.moreFilters, mw.clearFilters ]];
         filters.spacing = 8;
         NSStackView *zoomRow =
-            [NSStackView stackViewWithViews:@[ ADIFLabel(@"Zoom:"), out, mw.zoomLabel, in, fit, world, mw.region, mw.projection, mw.style, save ]];
+            [NSStackView stackViewWithViews:@[ ADIFLabel(@"Zoom:"), out, mw.zoomLabel, in, fit, world, mw.region, mw.projection, styleButton, save ]];
         zoomRow.spacing = 8;
         [zoomRow setCustomSpacing:24 afterView:world];
         mw.view = [[ADIFMapView alloc] initWithFrame:NSZeroRect];
@@ -1248,6 +1333,14 @@ void cmdMap() {
         ]];
         [mw.window center];
     }
+    if (!mw.sunTimer)
+        mw.sunTimer = [NSTimer scheduledTimerWithTimeInterval:60
+                                                      repeats:YES
+                                                        block:^(NSTimer *) {
+                                                            ADIFMapStyle st = mw.view.style;
+                                                            if (mw.window.visible && (st.dayNight || st.greyLine) && st.sunTime == 0)
+                                                                mw.view.needsDisplay = YES;
+                                                        }];
     refresh();
     [mw.window makeKeyAndOrderFront:nil];
     [mw.window makeFirstResponder:mw.view];

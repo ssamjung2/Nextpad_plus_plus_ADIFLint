@@ -27,9 +27,11 @@ struct MapPalette {
     std::vector<unsigned> qualitative;  // modes, then other programs
     double rampFrom;                    // where counts and years start along viridis
     bool safeBands;                     // bands from colourBlindBandSet() instead of PSKReporter's
+    bool night = false;                 // shown red on black, to keep night vision: each colour as a red of its brightness
 };
 size_t mapPaletteCount();
-const MapPalette &mapPalette(int i);  // clamped: 0 standard, 1 colour-blind safe, 2 high contrast, 3 light
+// Clamped: 0 standard, 1 colour-blind safe, 2 high contrast, 3 light, 4 night (red).
+const MapPalette &mapPalette(int i);
 
 // Viridis (matplotlib's perceptually uniform map) at t in 0..1, for counts and years.
 unsigned viridisColour(double t);

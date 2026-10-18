@@ -19,6 +19,8 @@
 #include "adif_tools.h"
 #include "adif_upload.h"
 #include "adif_world.h"
+#include "adif_worked.h"
+#include "adif_regions.h"
 
 #include <chrono>
 #include <cmath>
@@ -431,6 +433,72 @@ int main(int argc, char **argv) {
                 break;
             }
         }
+    }
+    // The Map's worked areas: the area at any point (also off the Earth and across the 180th
+    // meridian) is one whose box holds it, and the place filters on random records and
+    // random filters never keep a QSO outside them.
+    {
+        std::uniform_real_distribution<double> lon(-200, 200), lat(-100, 100);
+        for (Overlay o : {Overlay::UsStates, Overlay::UsCounties, Overlay::CqZones, Overlay::ItuZones}) {
+            const AreaIndex &index = areaIndex(o);
+            for (int k = 0; k < iterations * 4; ++k) {
+                double x = lon(rng), y = lat(rng);
+                size_t at = index.at(x, y);
+                if (at != AreaIndex::npos && (at >= index.size() || !pointInRings(index.area(at).rings, x, y))) {
+                    std::printf("FAIL area index: overlay %d at %.4f, %.4f gave %zu\n", (int)o, x, y, at);
+                    ++gFailures;
+                    break;
+                }
+            }
+        }
+        static const char *const kStates[] = {"WI", "IL", "CA", "NY", "TX", "AK", "HI", "ZZ", "wi", ""};
+        static const char *const kCounties[] = {"WI,Dane", "IL,LaSalle", "MO,St. Louis", "CA,Nowhere", "", ",", "WI,"};
+        static const char *const kGrids[] = {"EN53", "EN53dc", "FN31pr", "DM79", "AA00", "JJ00aa", "RR99xx", "", "EN5"};
+        static const char *const kConts[] = {"NA", "EU", "AS", "XX", ""};
+        auto field = [](const char *name, const std::string &v) { return "<" + std::string(name) + ":" + std::to_string(v.size()) + ">" + v + " "; };
+        const std::vector<UsRegion> &regions = usRegions();
+        int runs = 0, narrowed = 0;  // filters that kept some QSOs but not all
+        for (int k = 0; k < iterations / 4 + 1; ++k) {
+            std::string log = "fuzz\n<EOH>\n";
+            for (int r = 0; r < 20; ++r) {
+                log += field("CALL", "K" + std::to_string(rng() % 10) + "AB") + field("QSO_DATE", "20260101") + field("BAND", "20m") +
+                       field("MODE", "CW");
+                if (rng() % 2) log += field("GRIDSQUARE", kGrids[rng() % (sizeof kGrids / sizeof *kGrids)]);
+                if (rng() % 2) log += field("STATE", kStates[rng() % (sizeof kStates / sizeof *kStates)]);
+                if (rng() % 2) log += field("CNTY", kCounties[rng() % (sizeof kCounties / sizeof *kCounties)]);
+                if (rng() % 5) log += field("DXCC", std::to_string(rng() % 4 ? 291 : rng() % 600));
+                if (rng() % 3 == 0) log += field("CQZ", std::to_string(rng() % 45));
+                if (rng() % 3 == 0) log += field("ITUZ", std::to_string(rng() % 95));
+                if (rng() % 3 == 0) log += field("CONT", kConts[rng() % (sizeof kConts / sizeof *kConts)]);
+                if (rng() % 4 == 0) log += field("LAT", "N043 04.200") + field("LON", "W089 24.000");
+                if (rng() % 4 == 0) log += field("ARRL_SECT", rng() % 2 ? "ENY" : "SV");
+                log += "<EOR>\n";
+            }
+            MapFilter f;  // about two kinds of place each
+            if (rng() % 4 == 0) f.continents.insert(kConts[rng() % (sizeof kConts / sizeof *kConts)]);
+            if (rng() % 4 == 0) f.dxcc.insert(rng() % 2 ? 291 : (int)(rng() % 600));
+            if (rng() % 4 == 0) f.cq.insert((int)(rng() % 45));
+            if (rng() % 4 == 0) f.itu.insert((int)(rng() % 95));
+            if (rng() % 4 == 0) f.states.insert(kStates[rng() % (sizeof kStates / sizeof *kStates)]);
+            if (rng() % 4 == 0) f.counties.insert(kCounties[rng() % (sizeof kCounties / sizeof *kCounties)]);
+            if (rng() % 4 == 0) f.regions.insert(rng() % 5 ? regions[rng() % regions.size()].id : std::string("nonsense"));
+            if (rng() % 4 == 0) f.potaLocations.insert("US-WI");
+            LintOptions withModel;
+            withModel.buildModel = true;
+            LintResult r = lint(log, withModel);
+            MapData all = mapData(log, r.model, MapFilter{}), kept = mapData(log, r.model, f);
+            size_t matching = 0;  // the filter keeps exactly the QSOs whose places match it
+            for (const MapQso &q : all.qsos) matching += placeMatches(f, q, nullptr);
+            bool ok = kept.qsos.size() == matching;
+            ++runs, narrowed += !kept.qsos.empty() && kept.qsos.size() < all.qsos.size();
+            for (const MapQso &q : kept.qsos) ok &= placeMatches(f, q, nullptr);
+            if (!ok) {
+                std::printf("FAIL place filters: %zu of %zu kept\n", kept.qsos.size(), all.qsos.size());
+                ++gFailures;
+                break;
+            }
+        }
+        std::printf("place filters: %d logs, %d narrowed\n", runs, narrowed);
     }
     {
         auto t0 = std::chrono::steady_clock::now();

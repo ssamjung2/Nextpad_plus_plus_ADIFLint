@@ -3107,6 +3107,7 @@ int main(int argc, char **argv) {
                 CHECK([labelWithLines(pw.contentView, 4) containsString:@"number of watts"], "a power with its unit is refused");
                 editCell(0, 8, @"5");
                 editCell(0, 6, @"Elecraft T1");
+                editCell(0, 9, @"Portable");  // its TQSL Station Location
             }
             NSString *saved = [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint-profiles.adi"]
                                                         encoding:NSUTF8StringEncoding
@@ -3178,6 +3179,17 @@ int main(int argc, char **argv) {
                                                                encoding:NSUTF8StringEncoding
                                                                   error:nil];
             CHECK([settingsText containsString:@"activationActive=0\n"], "the activation is over");
+            // LoTW signs with the profile's own Station Location, not the one last used without it (Home QTH).
+            run("Upload to LoTW (TQSL)...");
+            if (NSWindow *lw2 = windowTitled(@"Upload to LoTW (TQSL)")) {
+                NSMutableArray *combos = [NSMutableArray array];
+                collect(lw2.contentView, NSComboBox.class, combos);
+                CHECK([((NSComboBox *)combos.firstObject).stringValue isEqualToString:@"Portable"],
+                      "LoTW offers the profile's Station Location: %s", ((NSComboBox *)combos.firstObject).stringValue.UTF8String);
+                [lw2 orderOut:nil];
+            } else {
+                CHECK(false, "Upload to LoTW opens");
+            }
             for (NSString *t in @[ @"Check Log", @"Export Activation Logs", @"Start Activation", @"New QSO" ]) [windowTitled(t) orderOut:nil];
         }
 
@@ -3741,11 +3753,11 @@ int main(int argc, char **argv) {
             // Projections, colours and styles: each draws, and a click still finds its square.
             NSPopUpButton *proj = findPopupWith(mapw.contentView, @"Equal Earth");
             NSPopUpButton *colour = findPopupWith(mapw.contentView, @"Colour by band");
-            NSPopUpButton *styleMenu = findPopupWith(mapw.contentView, @"Legend");
+            NSButton *styleOpen = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.style.open");
             NSPopUpButton *programsMenu = findPopupWith(mapw.contentView, @"Show All");
             NSPopUpButton *regionMenu = findPopupWith(mapw.contentView, @"South America");
-            CHECK(proj && colour && styleMenu && programsMenu && regionMenu && [styleMenu itemAtIndex:0].title.length &&
-                      [[styleMenu itemAtIndex:0].title isEqualToString:@"Options"] && findButton(mapw.contentView, @"Lines to contacts") &&
+            CHECK(proj && colour && [styleOpen.title isEqualToString:@"Style Options..."] && !findPopupWith(mapw.contentView, @"Legend") &&
+                      programsMenu && regionMenu && findButton(mapw.contentView, @"Lines to contacts") &&
                       [proj itemAtIndex:3].enabled &&
                       [[proj itemAtIndex:3].title isEqualToString:@"Globe from EN52WA"],
                   "projection, colour, Style and Other programs controls; the globe from the log's grid: %s",
@@ -3763,6 +3775,57 @@ int main(int argc, char **argv) {
                 for (NSMenuItem *i in p.menu.itemArray)
                     if ([i.title hasPrefix:prefix]) return i.state == NSControlStateValueOn;
                 return false;
+            };
+            // Style Options: its panel's controls by identifier (map.style.<name>), opened from the Map.
+            auto stylePanel = [&]() -> NSWindow * {
+                [styleOpen performClick:nil];
+                for (NSWindow *w in NSApp.windows)
+                    if ([w.identifier isEqualToString:@"map.style"] && w.visible) return w;
+                return nil;
+            };
+            auto style = [&](NSString *name) {
+                NSWindow *w = stylePanel();
+                return w ? (NSControl *)viewWithIdentifier(w.contentView, [@"map.style." stringByAppendingString:name]) : nil;
+            };
+            auto stylePick = [&](NSString *name, NSString *title) {
+                NSPopUpButton *p = (NSPopUpButton *)style(name);
+                if (![p isKindOfClass:NSPopUpButton.class] || ![p itemWithTitle:title] || !p.enabled) return false;
+                [p selectItemWithTitle:title];
+                [p sendAction:p.action to:p.target];
+                return (bool)[((NSPopUpButton *)style(name)).titleOfSelectedItem isEqualToString:title];
+            };
+            auto styleSet = [&](NSString *name, bool on) {
+                NSButton *b = (NSButton *)style(name);
+                if (![b isKindOfClass:NSButton.class] || !b.enabled) return false;
+                setBox(b, on);
+                return (((NSButton *)style(name)).state == NSControlStateValueOn) == on;
+            };
+            // The map as drawn now, and the colour at a window point in it (sRGB).
+            auto mapImage = [&]() {
+                NSBitmapImageRep *rep = [mapView bitmapImageRepForCachingDisplayInRect:mapView.bounds];
+                [mapView cacheDisplayInRect:mapView.bounds toBitmapImageRep:rep];
+                return rep;
+            };
+            auto colourAt = [&](NSBitmapImageRep *rep, NSPoint at) {
+                NSPoint v = [mapView convertPoint:at fromView:nil];
+                double sx = rep.pixelsWide / mapView.bounds.size.width, sy = rep.pixelsHigh / mapView.bounds.size.height;
+                NSInteger x = std::lround(v.x * sx), y = std::lround((mapView.bounds.size.height - v.y) * sy);
+                if (x < 0 || y < 0 || x >= rep.pixelsWide || y >= rep.pixelsHigh) return (NSColor *)nil;
+                return [[rep colorAtX:x y:y] colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+            };
+            auto colourGap = [](NSColor *a, NSColor *b) {
+                if (!a || !b) return 9.0;
+                return (double)std::max({std::fabs(a.redComponent - b.redComponent), std::fabs(a.greenComponent - b.greenComponent),
+                                         std::fabs(a.blueComponent - b.blueComponent)});
+            };
+            auto brightness = [&](NSBitmapImageRep *rep, NSPoint at) {  // the mean over 5 by 5 points
+                double sum = 0;
+                int n = 0;
+                for (int dx = -2; dx <= 2; ++dx)
+                    for (int dy = -2; dy <= 2; ++dy)
+                        if (NSColor *c = colourAt(rep, NSMakePoint(at.x + dx, at.y + dy)))
+                            sum += (c.redComponent + c.greenComponent + c.blueComponent) / 3, ++n;
+                return n ? sum / n : -1;
             };
             auto clickFn31 = [&]() {
                 [findButton(mapw.contentView, @"Fit Log") performClick:nil];
@@ -3788,18 +3851,50 @@ int main(int argc, char **argv) {
             [findButton(mapw.contentView, @"World") performClick:nil];
             snapshot(mapw, "map-mercator");
             pick(proj, [proj itemAtIndex:3].title);
-            auto menuEnabled = [&](NSPopUpButton *p, NSString *prefix) {
-                for (NSMenuItem *i in p.menu.itemArray)
-                    if ([i.title hasPrefix:prefix]) return (bool)i.enabled;
-                return false;
-            };
             NSButton *linesBox = findButton(mapw.contentView, @"Lines to contacts");
-            CHECK(!menuEnabled(styleMenu, @"Dashed line") && linesBox.state == NSControlStateValueOff && (setBox(linesBox, true), true) &&
-                      menuEnabled(styleMenu, @"Dashed line") && menuAction(styleMenu, @"Dashed line") && menuState(styleMenu, @"Dashed line") &&
-                      menuAction(styleMenu, @"Thick line") && menuState(styleMenu, @"Thick line") && !menuState(styleMenu, @"Solid line") &&
-                      menuEnabled(styleMenu, @"Arch over the globe") && menuState(styleMenu, @"Arch over the globe"),
-                  "Lines to contacts (Markers), then their style and width (Options); arching over the globe starts on");
-            CHECK(menuAction(styleMenu, @"Distance rings") && menuState(styleMenu, @"Distance rings"), "distance rings on");
+            CHECK(!style(@"line").enabled && linesBox.state == NSControlStateValueOff && (setBox(linesBox, true), true) && style(@"line").enabled &&
+                      stylePick(@"line", @"Dashed") && stylePick(@"width", @"Thick") && style(@"arcs").enabled &&
+                      ((NSButton *)style(@"arcs")).state == NSControlStateValueOn,
+                  "Lines to contacts (Markers), then their style and width (Style Options); arching over the globe starts on");
+            CHECK(styleSet(@"rings", true), "distance rings on");
+            if (NSWindow *sp = stylePanel()) {
+                [sp.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(sp.contentView) == 0 && style(@"palette") && style(@"dayNight") && style(@"reset"),
+                      "Style Options: its sections, with no overlaps (%d)", overlaps(sp.contentView));
+                snapshot(sp, "map-style-options");
+            } else {
+                CHECK(false, "Style Options opens");
+            }
+            {  // each line is its contact's marker colour: K1AB's pin, and the middle of the line to it from EN52wa
+                setBox(contactsBox, true);
+                pick(proj, @"Equirectangular");
+                stylePick(@"line", @"Solid"), stylePick(@"strength", @"Solid");
+                [findButton(mapw.contentView, @"Fit Log") performClick:nil];
+                NSPoint head = pointFor(-72.7083, 41.7292);
+                head.y += 8.8;
+                NSColor *pin = colourAt(mapImage(), head);
+                // The great circle's midpoint: the two places as unit vectors, averaged.
+                double la1 = 42.0208 * M_PI / 180, lo1 = -88.125 * M_PI / 180, la2 = 41.7292 * M_PI / 180, lo2 = -72.7083 * M_PI / 180;
+                double x = std::cos(la1) * std::cos(lo1) + std::cos(la2) * std::cos(lo2), y = std::cos(la1) * std::sin(lo1) + std::cos(la2) * std::sin(lo2),
+                       z = std::sin(la1) + std::sin(la2);
+                double midLat = std::atan2(z, std::hypot(x, y)) * 180 / M_PI, midLon = std::atan2(y, x) * 180 / M_PI;
+                for (int i = 0; i < 3; ++i) {
+                    NSPoint at = pointFor(midLon, midLat);
+                    [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, at, 2)];
+                    [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, at, 2)];
+                }
+                NSBitmapImageRep *img = mapImage();
+                NSPoint mid = pointFor(midLon, midLat);
+                double best = 9;
+                for (int dx = -3; dx <= 3; ++dx)
+                    for (int dy = -3; dy <= 3; ++dy) best = std::min(best, colourGap(colourAt(img, NSMakePoint(mid.x + dx, mid.y + dy)), pin));
+                CHECK(pin && best < 0.08, "the line to K1AB is its pin's colour (%.3f apart; pin %.2f %.2f %.2f)", best, pin.redComponent,
+                      pin.greenComponent, pin.blueComponent);
+                snapshot(mapw, "map-line-colour");
+                stylePick(@"line", @"Dashed"), stylePick(@"strength", @"Medium");
+                setBox(contactsBox, false);
+                pick(proj, [proj itemAtIndex:3].title);
+            }
             // Fit Log fits the farthest QSO around home, where FN20's park sits beside FN31: zoom in on
             // FN31 first (double-clicks turn the globe toward the pointer, keeping FN31 under it).
             [findButton(mapw.contentView, @"Fit Log") performClick:nil];
@@ -3889,12 +3984,46 @@ int main(int argc, char **argv) {
                 NSButton *cb = findButton(mapw.contentView, @"Contacts");
                 cb.state = NSControlStateValueOn;
                 [cb sendAction:cb.action to:cb.target];
-                CHECK(menuAction(styleMenu, @"Colour-blind safe") && menuState(styleMenu, @"Colour-blind safe"), "the colour-blind safe palette");
+                CHECK(stylePick(@"palette", @"Colour-blind safe"), "the colour-blind safe palette");
                 snapshot(mapw, "map-colour-blind-bands");
                 cb.state = NSControlStateValueOff;
                 [cb sendAction:cb.action to:cb.target];
             }
-            CHECK(menuAction(styleMenu, @"Light (for printing)") && menuState(styleMenu, @"Light (for printing)"), "the light palette");
+            CHECK(stylePick(@"palette", @"Light (for printing)"), "the light palette");
+            {  // Day and night at K1AB's QSO, 2026-10-09 12:00 UTC: the sun over about 6.3 S, 3 W, so night is deepest near 6.3 N, 177 E.
+                pick(proj, @"Equirectangular");
+                setBox(contactsBox, true);
+                [findButton(mapw.contentView, @"Fit Log") performClick:nil];
+                NSPoint head = pointFor(-72.7083, 41.7292);
+                head.y += 8.8;
+                [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, head, 1)];
+                [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, head, 1)];
+                [findButton(mapw.contentView, @"World") performClick:nil];
+                NSPoint night = pointFor(177, 6.3), day = pointFor(-20, 30);
+                NSBitmapImageRep *before = mapImage();
+                bool timeOff = !style(@"sunTime").enabled;
+                CHECK(timeOff && styleSet(@"dayNight", true) && styleSet(@"greyLine", true) && stylePick(@"sunTime", @"The selected QSO's time"),
+                      "Style Options: day and night, the grey line, at the selected QSO's time (Sun at: off until one is on)");
+                NSBitmapImageRep *after = mapImage();
+                CHECK(brightness(after, night) < 0.75 * brightness(before, night) && std::fabs(brightness(after, day) - brightness(before, day)) < 0.02,
+                      "night shaded where the sun is down, day left alone (night %.3f to %.3f, day %.3f to %.3f)", brightness(before, night),
+                      brightness(after, night), brightness(before, day), brightness(after, day));
+                snapshot(mapw, "map-day-night");
+                CHECK(stylePick(@"palette", @"Night (red)"), "the Night (red) palette");
+                NSBitmapImageRep *red = mapImage();
+                int notRed = 0, lit = 0;
+                for (NSInteger x = 0; x < red.pixelsWide; x += 5)  // in the screen's colours, as it shows
+                    for (NSInteger y = 0; y < red.pixelsHigh; y += 5) {
+                        NSColor *c = [red colorAtX:x y:y];
+                        if (c.greenComponent > 0.12 * c.redComponent + 0.02 || c.blueComponent > 0.12 * c.redComponent + 0.02) ++notRed;
+                        if (c.redComponent > 0.3) ++lit;
+                    }
+                CHECK(notRed == 0 && lit > 100, "Night (red): every point of the map red or black (%d not, %d bright)", notRed, lit);
+                snapshot(mapw, "map-night");
+                stylePick(@"palette", @"Light (for printing)");
+                styleSet(@"dayNight", false), styleSet(@"greyLine", false);
+                setBox(contactsBox, false);
+            }
             pick(proj, @"Equirectangular");
             CHECK(menuAction(regionMenu, @"Europe") && regionMiddle(10, 53) < 3 && std::atof(zoomShown().c_str()) > 2,
                   "Region → Europe on a flat map (%.1f px off, %s)", regionMiddle(10, 53), zoomShown().c_str());
@@ -4133,12 +4262,15 @@ int main(int argc, char **argv) {
             [mapw.contentView layoutSubtreeIfNeeded];
             CHECK(overlaps(mapw.contentView) == 0, "the map's controls do not overlap (%d)", overlaps(mapw.contentView));
             // Back to the defaults for any later run with this config.
-            menuAction(styleMenu, @"Standard");
-            menuAction(styleMenu, @"Distance rings");
+            [style(@"reset") performClick:nil];
+            CHECK([((NSPopUpButton *)style(@"palette")).titleOfSelectedItem isEqualToString:@"Standard"] &&
+                      ((NSButton *)style(@"rings")).state == NSControlStateValueOff &&
+                      [((NSPopUpButton *)style(@"line")).titleOfSelectedItem isEqualToString:@"Solid"] &&
+                      [((NSPopUpButton *)style(@"width")).titleOfSelectedItem isEqualToString:@"Medium"],
+                  "Style Options → Reset to Defaults");
+            [stylePanel() orderOut:nil];
             menuAction(programsMenu, @"IOTA (islands)");
             pick(colour, @"Colour by confirmation");
-            menuAction(styleMenu, @"Solid line");
-            menuAction(styleMenu, @"Medium line");
             setBox(linesBox, false);
 
             // Documentation screenshots (ADIFLINT_DOCS=1, with ADIFLINT_SNAPSHOT_DIR): the map and
@@ -4153,6 +4285,7 @@ int main(int argc, char **argv) {
                 auto box = [&](NSString *title, bool on) {
                     // The layer boxes by what the controls were once called; the rest by title.
                     NSDictionary *ids = @{@"Worked squares" : @"show.grid", @"DXCC" : @"show.countries", @"Parks" : @"show.pota",
+                                          @"Worked states" : @"show.states",
                                           @"Grid squares" : @"overlay.grid", @"Countries" : @"overlay.countries", @"US states" : @"overlay.states",
                                           @"CQ zones" : @"overlay.cq", @"ITU zones" : @"overlay.itu", @"US counties" : @"overlay.counties",
                                           @"Cities" : @"overlay.cities"};
@@ -4169,7 +4302,7 @@ int main(int argc, char **argv) {
                 pick(colour, @"Colour by band");
                 pick(proj, [proj itemAtIndex:3].title);
                 lines(true);
-                menuAction(styleMenu, @"Thin line");
+                stylePick(@"width", @"Thin");
                 [findButton(mapw.contentView, @"World") performClick:nil];
                 snapshot(mapw, "docs-map-globe");
                 lines(false);
@@ -4181,12 +4314,12 @@ int main(int argc, char **argv) {
                 pick(proj, @"Mercator");
                 menuAction(regionMenu, @"Europe");
                 snapshot(mapw, "docs-map-europe");
-                box(@"Countries", false), box(@"Contacts", false), box(@"Worked squares", true), box(@"US states", true);
+                box(@"Countries", false), box(@"Contacts", false), box(@"Worked states", true);
                 pick(colour, @"Colour by confirmation");
                 pick(proj, @"Equirectangular");
                 menuAction(regionMenu, @"North America");
                 snapshot(mapw, "docs-map-states");
-                box(@"US states", false), box(@"Worked squares", false), box(@"DXCC", true);
+                box(@"Worked states", false), box(@"US states", false), box(@"DXCC", true);
                 [findButton(mapw.contentView, @"World") performClick:nil];
                 snapshot(mapw, "docs-map-dxcc");
                 pick(proj, [proj itemAtIndex:3].title);
@@ -4209,13 +4342,28 @@ int main(int argc, char **argv) {
                 }
                 snapshot(mapw, "docs-map-city");
                 box(@"US counties", false), box(@"Cities", false);
-                menuAction(styleMenu, @"Colour-blind safe");
+                stylePick(@"palette", @"Colour-blind safe");
                 pick(proj, @"Equal Earth");
                 [findButton(mapw.contentView, @"World") performClick:nil];
                 snapshot(mapw, "docs-map-colour-blind");
+                // Day and night with the grey line, at the time of a QSO in Tokyo's square (PM95).
+                stylePick(@"palette", @"Standard");
+                box(@"Contacts", false), box(@"Worked squares", true);
+                [findButton(mapw.contentView, @"World") performClick:nil];
+                {
+                    NSPoint at = pointFor(139.69, 35.68);
+                    [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, at, 1)];
+                    [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, at, 1)];
+                }
+                CHECK(labelContaining(mapw.contentView, @"PM95:") != nil, "docs: a click on PM95 selects it");
+                styleSet(@"dayNight", true), styleSet(@"greyLine", true), stylePick(@"sunTime", @"The selected QSO's time");
+                snapshot(mapw, "docs-map-day-night");
+                stylePick(@"sunTime", @"Now"), styleSet(@"dayNight", false), styleSet(@"greyLine", false);
+                box(@"Worked squares", false);
                 // Back to the defaults.
-                menuAction(styleMenu, @"Standard");
-                menuAction(styleMenu, @"Medium line");
+                stylePick(@"palette", @"Standard");
+                stylePick(@"width", @"Medium");
+                [stylePanel() orderOut:nil];
                 pick(colour, @"Colour by confirmation");
                 pick(proj, @"Equirectangular");
                 box(@"Contacts", false);

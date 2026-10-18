@@ -32,11 +32,13 @@ offline map, and QSL sync with LoTW, QRZ.com, Club Log and eQSL.
   parks you haven't worked marked NEW; double-click one to log it.
 - **Captures QSOs from your other programs.** **Monitor** adds what WSJT-X, JTDX, JS8Call,
   N1MM Logger+, GridTracker and other loggers log, as they log it. It only listens.
-- **Maps your log, offline.** A globe or a flat map with worked squares, contacts at their
-  exact place, each DXCC entity's own land, parks, lines to contacts arching over the globe,
-  distance rings, and overlays for countries, US states and counties, cities, CQ and ITU
-  zones, POTA parks (worked and not) and IOTA groups; zoom in to city level. Colour by band in PSKReporter's colours, mode,
-  confirmation, count or year, with a palette tested for colour blindness.
+- **Maps your log, offline.** A globe or a flat map with the squares, countries, US states
+  and counties, CQ and ITU zones, POTA parks and IOTA groups you worked, contacts at their
+  exact place, lines to contacts arching over the globe, distance rings, day and night with
+  the grey line, and overlays for each layer and for cities; filter by place (continents,
+  countries, zones, states, counties, call areas, Census and ARRL divisions, POTA locations);
+  zoom in to city level. Colour by band in PSKReporter's colours, mode, confirmation, count
+  or year, with a palette tested for colour blindness and a red one for night use.
 - **Keeps QSL services in sync.** Import your QSOs and confirmations from LoTW, QRZ.com
   Logbook and eQSL; upload to QRZ.com Logbook, LoTW (TQSL), Club Log and eQSL. Every window
   lists exactly what would be sent or changed, and nothing happens until you say so.
@@ -109,14 +111,18 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
 **The Map**
 - A **globe** you turn by dragging, or Equirectangular, Mercator or Equal Earth; zoom in
   for detail, or jump to a continent with **Region**.
-- **Worked squares**, **Contacts** at their exact place (LAT/LON or a 6-character grid,
-  ignoring QRZ.com's placeholders), **DXCC**, **parks** and other programs' references,
-  **lines to contacts** and **distance rings**.
-- Overlays: the **Maidenhead grid**, **countries**, **US states**, **CQ zones** and **ITU
-  zones**, each named where it fits.
-- **Colour by** confirmation, band (PSKReporter's colours), mode, QSO count or year, with
-  a legend; palettes include **Colour-blind safe** (tested under simulated colour blindness)
-  and **Light** for printing. **Export PNG** saves what you see.
+- Layers, each with **Show** (what you worked), **Overlay** and **Labels**: **grid
+  squares**, **countries** (DXCC), **US states**, **US counties**, **CQ zones**, **ITU
+  zones**, **POTA** parks and **IOTA** groups, and **cities**. A state, county or zone counts
+  by the QSO's own field, else by where the QSO was.
+- **Contacts** at their exact place (LAT/LON or a 6-character grid, ignoring QRZ.com's
+  placeholders), other programs' references, **lines to contacts** in their contacts'
+  colours, and **distance rings**.
+- **Filters** by band, mode, date and confirmation, and **More Filters** by place.
+- **Style Options**: **Colour by** confirmation, band (PSKReporter's colours), mode, QSO
+  count or year, with a legend; palettes include **Colour-blind safe** (tested under
+  simulated colour blindness), **Light** for printing and **Night (red)**; **day and night**
+  and the **grey line**. **Export PNG** saves what you see.
 
 **Online services**
 - **Import** your QSOs and confirmations from LoTW, QRZ.com Logbook or eQSL, after you
@@ -208,7 +214,7 @@ tab); Settings suggests some.
 | Log Summary… | Counts by band, mode, day, entity and park; confirmations and uploads |
 | Activation Tracker (POTA, WWFF, SOTA)… | Activations counted by each program's rule |
 | Worked Before… | Search a folder of logs for a call |
-| Map (Grids, DXCC, Parks)… | The log on a world map: worked squares, DXCC, parks and other programs, coloured by confirmation, band, mode, count or year; contacts at their exact place; countries, US states, CQ zones and ITU zones; four projections, including a globe you turn by dragging; paths and distance rings; PNG export |
+| Map (Grids, DXCC, Parks)… | The log on a world map: the squares, countries, US states and counties, CQ and ITU zones, POTA parks and IOTA groups worked, and other programs, coloured by confirmation, band, mode, count or year; contacts at their exact place; filters by band, mode, date and place; four projections, including a globe you turn by dragging; lines to contacts, distance rings, day and night and the grey line; PNG export |
 | Import… | From LoTW, QRZ.com Logbook or eQSL (your QSOs and confirmations), a CSV file, or WSJT-X's log |
 | Export… | Activation logs for POTA, WWFF or SOTA, CSV, a Cabrillo contest log, or QSL labels (PDF) |
 | QSL Sync (Upload, Confirmations)… | Each service at a glance; upload to QRZ.com Logbook, LoTW (TQSL), Club Log or eQSL (list what would be sent, upload when you say so, mark it uploaded) and download confirmations |
@@ -259,8 +265,6 @@ HTTPS.
   to its queue file in the plugin config folder.
 - **Settings** are kept in `ADIFLint.ini` in Nextpad++'s plugin config folder
   (`~/Library/Application Support/Nextpad++/plugins/Config/`).
-- **Map → Apple Maps** opens a place in Apple's Maps app, which goes online itself; ADIF
-  Lint sends nothing.
 
 See [SECURITY.md](SECURITY.md) to report a security problem.
 
