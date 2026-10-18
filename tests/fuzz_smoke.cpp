@@ -21,6 +21,8 @@
 #include "adif_world.h"
 #include "adif_worked.h"
 #include "adif_regions.h"
+#include "adif_pmtiles.h"
+#include "adif_mvt.h"
 
 #include <chrono>
 #include <cmath>
@@ -434,11 +436,79 @@ int main(int argc, char **argv) {
             }
         }
     }
+    std::uniform_real_distribution<double> lon(-200, 200), lat(-100, 100);
+    // Map detail files come from the network: PMTiles headers and directories, and vector
+    // tiles, mutated, must be refused or read without crashing; geometry stays in bounds.
+    {
+        namespace pm = adif::pmtiles;
+        std::vector<pm::Entry> dir;
+        for (uint64_t k = 0; k < 40; ++k) dir.push_back({k * 3 + 1, k * 100, (uint32_t)(50 + k), (uint32_t)(k % 4)});
+        const std::string goodDir = pm::directoryBytes(dir), goodHeader = pm::headerBytes(pm::Header{127, 60, 187, 10, 197, 0, 197, 4000});
+        auto pv = [](std::string &s, uint64_t v) {
+            while (v >= 0x80) s += (char)((v & 0x7f) | 0x80), v >>= 7;
+            s += (char)v;
+        };
+        std::string feature, layer, tile, geom;
+        for (uint32_t v : {9u, 0u, 0u, 26u, 20u, 0u, 0u, 20u, 19u, 0u, 15u}) pv(geom, v);
+        pv(feature, 3 << 3), pv(feature, 3), pv(feature, 4 << 3 | 2), pv(feature, geom.size()), feature += geom;
+        pv(layer, 1 << 3 | 2), pv(layer, 5), layer += "water", pv(layer, 2 << 3 | 2), pv(layer, feature.size()), layer += feature;
+        pv(tile, 3 << 3 | 2), pv(tile, layer.size()), tile += layer;
+        size_t decoded = 0;
+        for (int k = 0; k < iterations * 4; ++k) {
+            std::string d = goodDir, h = goodHeader, t = tile;
+            for (std::string *x : {&d, &h, &t})
+                for (int e = 1 + (int)(rng() % 4); e > 0; --e) {
+                    size_t at = rng() % x->size();
+                    switch (rng() % 3) {
+                        case 0: (*x)[at] = (char)(rng() & 0xff); break;
+                        case 1: x->erase(at, 1 + rng() % 4); break;
+                        default: x->insert(at, 1, (char)(rng() & 0xff)); break;
+                    }
+                    if (x->empty()) *x = "x";
+                }
+            std::vector<pm::Entry> got;
+            std::string why;
+            pm::Header hh;
+            pm::parseDirectory(d, &got, &why);
+            for (size_t i = 1; i < got.size(); ++i)
+                if (got[i].tileId <= got[i - 1].tileId) {
+                    std::printf("FAIL pmtiles directory: tile ids out of order\n");
+                    ++gFailures;
+                    break;
+                }
+            pm::parseHeader(h, &hh, &why);
+            std::vector<adif::mvt::Layer> ls;
+            if (adif::mvt::decode(t, &ls, &why)) {
+                ++decoded;
+                for (const auto &l : ls)
+                    for (const auto &f : l.features) {
+                        std::vector<adif::mvt::Path> g;
+                        adif::mvt::geometry(f, &g);
+                        l.text(f, "kind");
+                    }
+            }
+            std::string gz = pm::gzip(t), back;
+            if (!pm::gunzip(gz, &back, 1 << 20, &why) || back != t) {
+                std::printf("FAIL gzip round trip\n");
+                ++gFailures;
+                break;
+            }
+            std::vector<std::vector<std::pair<double, double>>> rings(1);
+            for (int v = 0; v < 3 + (int)(rng() % 8); ++v) rings[0].push_back({lon(rng) * 0.9, lat(rng) * 0.85});
+            std::vector<uint64_t> cover = pm::coveringTiles(rings, 0, 6);
+            if (!std::is_sorted(cover.begin(), cover.end()) || cover.size() > 5461) {
+                std::printf("FAIL covering tiles: %zu\n", cover.size());
+                ++gFailures;
+                break;
+            }
+        }
+        std::printf("map detail files: %d mutations, %zu tiles still decoded\n", iterations * 4, decoded);
+    }
+
     // The Map's worked areas: the area at any point (also off the Earth and across the 180th
     // meridian) is one whose box holds it, and the place filters on random records and
     // random filters never keep a QSO outside them.
     {
-        std::uniform_real_distribution<double> lon(-200, 200), lat(-100, 100);
         for (Overlay o : {Overlay::UsStates, Overlay::UsCounties, Overlay::CqZones, Overlay::ItuZones}) {
             const AreaIndex &index = areaIndex(o);
             for (int k = 0; k < iterations * 4; ++k) {

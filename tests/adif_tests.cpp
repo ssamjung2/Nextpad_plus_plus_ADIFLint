@@ -21,6 +21,8 @@
 #include "adif_worked.h"
 #include "adif_regions.h"
 #include "adif_sun.h"
+#include "adif_pmtiles.h"
+#include "adif_mvt.h"
 #include "adif_tools.h"
 #include "adif_upload.h"
 #include "adif_geo.h"
@@ -36,6 +38,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <unistd.h>
 #include <random>
 #include <sstream>
 #include <string>
@@ -3294,6 +3297,186 @@ static void testRegionsAndSun() {
     CHECK(onEdge, "the terminator and civil twilight circles");
 }
 
+// PMTiles v3 (protomaps/PMTiles spec/v3/spec.md, read 2026-10-18) and the Map's extracts.
+static void testPmtiles() {
+    using namespace adif::pmtiles;
+    CHECK(tileId(0, 0, 0) == 0 && tileId(1, 0, 0) == 1 && tileId(1, 0, 1) == 2 && tileId(1, 1, 1) == 3 && tileId(1, 1, 0) == 4 &&
+              tileId(2, 0, 0) == 5 && tileId(12, 3423, 1763) == 19078479,
+          "tile ids: the spec's examples (12/3423/1763 is %llu)", (unsigned long long)tileId(12, 3423, 1763));
+    bool back = true;
+    for (int z : {0, 1, 5, 15, 20})
+        for (uint32_t k = 0; k < 50; ++k) {
+            uint32_t n = 1u << z, x = (k * 2654435761u) % n, y = (k * 40503u + 7) % n;
+            int z2 = -1;
+            uint32_t x2 = 0, y2 = 0;
+            back = back && tileZxy(tileId(z, x, y), &z2, &x2, &y2) && z2 == z && x2 == x && y2 == y;
+        }
+    CHECK(back, "tile ids back to zoom, x and y");
+    CHECK(std::lround(std::floor(tileX(-89.384, 15))) == 8248 && std::lround(std::floor(tileY(43.0747, 15))) == 12031 &&
+              std::fabs(tileLat(tileY(43.0747, 15), 15) - 43.0747) < 1e-9 && std::fabs(tileLon(tileX(-89.384, 15), 15) + 89.384) < 1e-9,
+          "Web Mercator tiles: downtown Madison is 15/8248/12031 (as in Protomaps' build)");
+
+    Header h;
+    h.rootOffset = 127, h.rootLength = 50, h.metadataOffset = 177, h.metadataLength = 9, h.dataOffset = 300, h.dataLength = 12345678901;
+    h.addressedTiles = 5, h.tileEntries = 4, h.tileContents = 3, h.clustered = true, h.internalCompression = kGzip, h.tileCompression = kGzip;
+    h.tileType = kMvt, h.minZoom = 2, h.maxZoom = 15, h.minLonE7 = -1800000000, h.minLatE7 = -850511287, h.maxLonE7 = 1800000000;
+    h.maxLatE7 = 850511287, h.centerZoom = 7, h.centerLonE7 = -893840000, h.centerLatE7 = 430747000;
+    std::string hb = headerBytes(h), why;
+    Header r;
+    CHECK(hb.size() == kHeaderBytes && parseHeader(hb, &r, &why) && r.dataLength == h.dataLength && r.minLonE7 == h.minLonE7 &&
+              r.centerLatE7 == h.centerLatE7 && r.maxZoom == 15 && r.clustered && r.tileType == kMvt && hb[96] == 1 && (uint8_t)hb[101] == 15,
+          "a header written and read back (127 bytes)");
+    std::string v2 = hb;
+    v2[7] = 2;
+    CHECK(!parseHeader(v2, &r, &why) && why.find("version 2") != std::string::npos && !parseHeader(hb.substr(0, 100), &r, &why) &&
+              !parseHeader("PMTilez" + hb.substr(7), &r, &why),
+          "not a version 3 header: refused");
+
+    std::vector<Entry> dir = {{5, 0, 10, 1}, {6, 10, 20, 3}, {9, 30, 5, 1}, {20, 0, 99, 0}, {40, 100, 7, 2}};
+    std::vector<Entry> got;
+    std::string raw = directoryBytes(dir);
+    bool same = parseDirectory(raw, &got, &why) && got.size() == dir.size();
+    for (size_t i = 0; same && i < dir.size(); ++i)
+        same = got[i].tileId == dir[i].tileId && got[i].offset == dir[i].offset && got[i].length == dir[i].length && got[i].runLength == dir[i].runLength;
+    CHECK(same && raw.find('\0') != std::string::npos, "a directory written and read back (an offset following on stored as 0)");
+    CHECK(findEntry(dir, 7) == &dir[1] && findEntry(dir, 8) == &dir[1] && !findEntry(dir, 4) && !findEntry(dir, 10) && findEntry(dir, 25) == &dir[3] &&
+              findEntry(dir, 41) == &dir[4] && !findEntry(dir, 42),
+          "finding a tile: in a run, in a leaf, or nowhere");
+    CHECK(!parseDirectory(raw.substr(0, raw.size() - 1), &got, &why) && !parseDirectory(std::string(1, '\0'), &got, &why) &&
+              !parseDirectory(std::string("\x05\x01", 2), &got, &why),
+          "damaged directories are refused");
+    std::string text(5000, 'x'), back2;
+    for (size_t i = 0; i < text.size(); ++i) text[i] = (char)('a' + i * 7 % 26);
+    std::string gz = gzip(text);
+    CHECK(gunzip(gz, &back2, 1 << 20, &why) && back2 == text && !gunzip(gz, &back2, 100, &why) && !gunzip(gz.substr(0, gz.size() / 2), &back2, 1 << 20, &why) &&
+              !gunzip("not gzip", &back2, 1 << 20, &why),
+          "gzip, with a size limit, and damaged data refused");
+
+    std::vector<uint64_t> box = coveringTiles({{{-179, 67}, {-91, 67}, {-91, 84}, {-179, 84}}}, 0, 4);
+    std::vector<uint64_t> tri = coveringTiles({{{-179, 67}, {-91, 67}, {-179, 84}}}, 4, 4);
+    CHECK(box.size() == 16 + 4 + 1 + 1 + 1 && std::is_sorted(box.begin(), box.end()) && tri.size() < 16 && tri.size() >= 10 &&
+              coveringTiles({}, 0, 4).empty(),
+          "the tiles an area touches: a box (%zu), a triangle (%zu)", box.size(), tri.size());
+
+    // An archive of zooms 0-4 with leaf directories and shared tiles (z4's south-east quarter is
+    // all one "ocean" tile), cut down to the box above as Settings → Map Detail does.
+    std::string data, leafBytes;
+    std::vector<Entry> entries;
+    std::map<std::string, uint64_t> stored;
+    auto content = [](int z, uint32_t x, uint32_t y) { return z == 4 && x >= 8 && y >= 8 ? std::string("ocean") : "tile " + std::to_string(z) + "/" + std::to_string(x) + "/" + std::to_string(y); };
+    std::vector<std::pair<uint64_t, std::string>> all;
+    for (int z = 0; z <= 4; ++z)
+        for (uint32_t x = 0; x < (1u << z); ++x)
+            for (uint32_t y = 0; y < (1u << z); ++y) all.push_back({tileId(z, x, y), content(z, x, y)});
+    std::sort(all.begin(), all.end());
+    for (const auto &[id, c] : all) {
+        std::string g = gzip(c);
+        auto it = stored.find(c);
+        uint64_t off = it != stored.end() ? it->second : data.size();
+        if (it == stored.end()) stored[c] = off, data += g;
+        if (!entries.empty() && entries.back().offset == off && entries.back().tileId + entries.back().runLength == id) ++entries.back().runLength;
+        else entries.push_back({id, off, (uint32_t)g.size(), 1});
+    }
+    std::vector<Entry> rootEntries;
+    for (size_t i = 0; i < entries.size(); i += 50) {
+        std::string leaf = gzip(directoryBytes(std::vector<Entry>(entries.begin() + (long)i, entries.begin() + (long)std::min(entries.size(), i + 50))));
+        rootEntries.push_back({entries[i].tileId, leafBytes.size(), (uint32_t)leaf.size(), 0});
+        leafBytes += leaf;
+    }
+    std::string rootBytes = gzip(directoryBytes(rootEntries)), meta = gzip("{\"name\":\"test\"}");
+    Header sh = h;
+    sh.rootOffset = 127, sh.rootLength = rootBytes.size(), sh.metadataOffset = 127 + rootBytes.size(), sh.metadataLength = meta.size();
+    sh.leafOffset = sh.metadataOffset + meta.size(), sh.leafLength = leafBytes.size(), sh.dataOffset = sh.leafOffset + leafBytes.size();
+    sh.dataLength = data.size(), sh.minZoom = 0, sh.maxZoom = 4;
+    std::string archive = headerBytes(sh) + rootBytes + meta + leafBytes + data;
+    Extract x(box, {-179, 67, -91, 84});
+    bool ok = x.start(archive.substr(0, std::min(archive.size(), kFirstBytes)), &why) &&
+              x.metadata(archive.substr(x.metadataRange().offset, x.metadataRange().length), &why);
+    int rounds = 0;
+    for (; ok && !x.planned() && rounds < 4; ++rounds)
+        for (const Range &rg : x.directoryRanges()) ok = ok && x.addDirectories(rg, archive.substr(rg.offset, rg.length), &why);
+    CHECK(ok && x.planned() && rounds == 1 && x.tileCount() == box.size(), "an extract reads the leaves it needs, then plans (%s, %zu tiles)", why.c_str(),
+          x.tileCount());
+    std::string out = x.head();
+    std::vector<Range> ranges = x.dataRanges(0.05);
+    for (size_t i = 0; i < ranges.size(); ++i) out += x.copyFrom(i, archive.substr(ranges[i].offset, ranges[i].length));
+    char path[] = "/tmp/adif_pmtiles_testXXXXXX";
+    int fd = mkstemp(path);
+    if (fd >= 0) close(fd);
+    {
+        std::ofstream f(path, std::ios::binary | std::ios::trunc);
+        f << out;
+    }
+    Archive a;
+    bool tilesOk = a.open(path, &why) && a.header().addressedTiles == box.size() && a.header().maxZoom == 4 && a.header().clustered;
+    for (uint64_t id : box) {
+        int z = 0;
+        uint32_t tx = 0, ty = 0;
+        std::string t;
+        tilesOk = tilesOk && tileZxy(id, &z, &tx, &ty) && a.tile(z, tx, ty, &t) && t == content(z, tx, ty);
+    }
+    std::string none;
+    CHECK(tilesOk && !a.tile(4, 10, 10, &none) && !a.tile(5, 0, 0, &none), "the extract opens, with each tile of the box and no others (%s)", why.c_str());
+    {
+        std::ofstream f(path, std::ios::binary | std::ios::trunc);
+        f << out.substr(0, out.size() - 3);
+    }
+    CHECK(!Archive().open(path, &why), "a file cut short is refused: %s", why.c_str());
+    unlink(path);
+}
+
+// Mapbox Vector Tile 2.1 (vector-tile-spec 2.1, read 2026-10-18), on a tile written by hand.
+static void testMvt() {
+    using namespace adif::mvt;
+    auto pv = [](std::string &s, uint64_t v) {
+        while (v >= 0x80) s += (char)((v & 0x7f) | 0x80), v >>= 7;
+        s += (char)v;
+    };
+    auto len = [&](std::string &s, int n, const std::string &body) { pv(s, (uint64_t)(n << 3 | 2)), pv(s, body.size()), s += body; };
+    auto var = [&](std::string &s, int n, uint64_t v) { pv(s, (uint64_t)(n << 3)), pv(s, v); };
+    auto packed = [&](std::vector<uint32_t> v) {
+        std::string b;
+        for (uint32_t x : v) pv(b, x);
+        return b;
+    };
+    auto zz = [](int32_t v) { return (uint32_t)((uint32_t)v << 1) ^ (uint32_t)(v >> 31); };
+    auto cmd = [](uint32_t id, uint32_t count) { return (id & 7) | (count << 3); };
+    std::string line, poly, pts, kindValue, nameValue, num, layer, tile;
+    var(line, 1, 7), len(line, 2, packed({0, 0})), var(line, 3, 2), len(line, 4, packed({cmd(1, 1), zz(2), zz(2), cmd(2, 2), zz(3), zz(0), zz(0), zz(3)}));
+    var(poly, 3, 3), len(poly, 2, packed({1, 1}));
+    len(poly, 4, packed({cmd(1, 1), zz(0), zz(0), cmd(2, 3), zz(10), zz(0), zz(0), zz(10), zz(-10), zz(0), cmd(7, 1), cmd(1, 1), zz(2), zz(-8), cmd(2, 3),
+                         zz(0), zz(6), zz(6), zz(0), zz(0), zz(-6), cmd(7, 1)}));
+    var(pts, 3, 1), len(pts, 2, packed({0, 2})), len(pts, 4, packed({cmd(1, 2), zz(1), zz(1), zz(2), zz(2)}));
+    len(kindValue, 1, "major_road"), len(nameValue, 1, "Lake"), var(num, 6, zz(-7));
+    len(layer, 1, "roads"), len(layer, 2, line), len(layer, 2, poly), len(layer, 2, pts), len(layer, 3, "kind"), len(layer, 3, "name");
+    len(layer, 4, kindValue), len(layer, 4, nameValue), len(layer, 4, num), var(layer, 15, 2);
+    len(tile, 3, layer);
+    std::vector<Layer> layers;
+    std::string why;
+    bool ok = decode(tile, &layers, &why) && layers.size() == 1 && layers[0].name == "roads" && layers[0].extent == 4096 && layers[0].version == 2 &&
+              layers[0].features.size() == 3;
+    CHECK(ok, "a vector tile decoded: one layer, its default extent (%s)", why.c_str());
+    if (!ok) return;
+    const Layer &l = layers[0];
+    std::vector<Path> g;
+    const std::vector<std::pair<int32_t, int32_t>> wantLine = {{2, 2}, {5, 2}, {5, 5}};
+    CHECK(l.features[0].id == 7 && l.features[0].type == GeomType::Line && l.text(l.features[0], "kind") == "major_road" && geometry(l.features[0], &g) &&
+              g.size() == 1 && g[0].points == wantLine,
+          "a line: its kind and its points (deltas from a cursor)");
+    CHECK(geometry(l.features[1], &g) && g.size() == 2 && g[0].exterior && !g[1].exterior && g[1].points.front() == std::make_pair(2, 2) &&
+              g[1].points.back() == std::make_pair(8, 2) && l.text(l.features[1], "name") == "Lake",
+          "a polygon: the outer ring (positive area, y down) and its hole, the cursor carried across rings");
+    CHECK(geometry(l.features[2], &g) && g.size() == 1 && g[0].points.size() == 2 && g[0].points[1] == std::make_pair(3, 3) &&
+              l.number(l.features[2], "kind", 0) == -7 && l.text(l.features[2], "kind").empty() && !l.get(l.features[2], "name"),
+          "points, and a signed (zigzag) number value");
+    Feature bad;
+    bad.type = GeomType::Line;
+    bad.geometry = {cmd(2, 1), zz(1), zz(1)};
+    std::vector<Layer> none;
+    CHECK(!geometry(bad, &g) && !decode(tile.substr(0, tile.size() - 5), &none, &why) && !decode("\xff\xff", &none, &why),
+          "a LineTo with no MoveTo, and a cut-off tile, are refused");
+}
+
 int main(int argc, char **argv) {
     testStructure();
     testHeader();
@@ -3341,6 +3524,8 @@ int main(int argc, char **argv) {
     testWorld();
     testWorked();
     testRegionsAndSun();
+    testPmtiles();
+    testMvt();
     testProjections();
     testPalettes();
     for (int i = 1; i < argc; ++i)

@@ -714,6 +714,40 @@ On the globe:
   bearing. **Click** it to list its
   QSOs under the map, and double-click one to go to its record in the log.
 
+### Map Detail: streets and buildings
+
+![Downtown Madison, Wisconsin, at street level: buildings, streets with their names, the Capitol square, the lakeshore](images/map-detail.png)
+
+For the places you choose, the Map can show OpenStreetMap's detail when you zoom in:
+streets and roads with their names, buildings, parks and other land use, water, rail, and
+the names of towns and neighbourhoods. Download a region in **Settings → Map Detail**:
+
+1. Choose the region: **The area shown on the Map** (open the Map and show it first), a US
+   state, or a country.
+2. Choose how much detail: **Streets and buildings** (zoom 15), **Roads and towns** (zoom
+   13) or **Main roads** (zoom 11).
+3. **Check Size** reads the newest build's index for that region (for a city, under a
+   megabyte) and says what the download would take: about 12 MB for 25 by 17 km around
+   Madison, Wisconsin, with streets and buildings, hundreds of megabytes for a state. A region too large for
+   that much detail is refused; choose less detail or a smaller region.
+4. **Download** fetches it (**Stop** ends it, keeping nothing).
+
+The Map draws the detail over its own maps, wherever a downloaded region has it, from about
+100× zoom in (in a window of the usual size), and zooms in up to 16,384× there (elsewhere up to 1,024×). It follows the
+palette, Night (red) included, and the credit "© OpenStreetMap contributors" shows in the
+corner whenever the detail does, in an exported PNG too. **Downloaded** lists the regions,
+with **Remove**. Downloading the same region again replaces it.
+
+Where it comes from: the regions are cut from [Protomaps](https://protomaps.com)' daily
+build of the whole OpenStreetMap planet (`build.protomaps.com`, about 139 GB), reading only
+the parts the region needs, as Protomaps' own `pmtiles extract` does. One download reads one
+build throughout; if Protomaps publishes a new build while it runs, it stops and says so.
+The files are kept in the plugin config folder's `maps` folder
+(`<region> z<zoom> <build date>.pmtiles`), and the Map reads nothing else while drawing:
+once downloaded, the detail works offline. The data is © OpenStreetMap contributors under
+the [Open Database License](https://www.openstreetmap.org/copyright): keep the files for
+your own use; if you pass them on, the licence goes with them.
+
 ### Style Options and export
 
 **Style Options…** opens a panel beside the map. Each choice applies at once and is kept;
@@ -1076,6 +1110,8 @@ Rules for every source:
   about 9.5 MB: every park's reference, name, location and place) for the Map's POTA
   overlay; download again for new parks. It is only fetched when you press Download. ADIF
   Lint isn't affiliated with Parks on the Air.
+- **Map Detail:** OpenStreetMap streets and buildings for the regions you download (see
+  [Map Detail](#map-detail-streets-and-buildings)).
 - **IOTA Groups:** **Download** fetches IOTA's list of island groups (`iota-world.org`,
   about 290 KB) for the Map's IOTA overlay; download again to update it. The list is
   © RSGB and IOTA Ltd, who allow downloading it for personal non-commercial use, so it
@@ -1096,8 +1132,8 @@ Where things are kept:
   (`~/Library/Application Support/Nextpad++/plugins/Config/`). Beside it: station profiles
   (`ADIFLint-profiles.adi`), the Monitor's queue (`ADIFLint-queue.adi`), a downloaded
   country file (`ADIFLint-cty.csv`), the LoTW user list (`ADIFLint-lotw-users.csv`), POTA's
-  park list (`ADIFLint-pota-parks.csv`) and IOTA's group list (`ADIFLint-iota-groups.json`).
-  They survive plugin updates.
+  park list (`ADIFLint-pota-parks.csv`), IOTA's group list (`ADIFLint-iota-groups.json`), and
+  the Map Detail regions (`maps/`). They survive plugin updates.
 - **The installed country file** and the Map's 1:10m detail (`map-detail.bin`) beside the
   plugin, in `~/Library/Application Support/Nextpad++/plugins/ADIFLint/`.
 
@@ -1114,8 +1150,8 @@ nothing is sent:
 - callbook lookups (New QSO, Enrich) and sign-in tests;
 - the Spots window;
 - uploads, TQSL included, and imports from LoTW, QRZ.com Logbook and eQSL;
-- the downloads in Settings (country data, LoTW users, POTA parks, IOTA groups), and the
-  weekly LoTW users refresh;
+- the downloads in Settings (country data, LoTW users, POTA parks, IOTA groups, Map Detail),
+  and the weekly LoTW users refresh;
 - web pages ADIF Lint would open in your browser (About's links, pota.app's uploads page).
 
 Each says "Offline mode is on" instead. Everything that works on your Mac's own files goes

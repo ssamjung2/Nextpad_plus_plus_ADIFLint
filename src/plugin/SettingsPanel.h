@@ -41,6 +41,19 @@
 @property(nonatomic, copy) void (^onEditorOption)(NSInteger option, BOOL on);
 - (void)setEditorValidate:(BOOL)validate colour:(BOOL)colour autocomplete:(BOOL)autocomplete characters:(BOOL)characters;
 
+// Map Detail (MapDetail.h): a region and how much detail, Check Size, Download and Stop; what
+// is downloaded, with Remove. Choices and levels are [id, title] and [zoom, title].
+@property(nonatomic, copy) void (^onMapDetailCheck)(NSString *choice, NSInteger zoom);
+@property(nonatomic, copy) void (^onMapDetailDownload)(void);
+@property(nonatomic, copy) void (^onMapDetailStop)(void);
+@property(nonatomic, copy) void (^onMapDetailRemove)(NSString *path);
+- (void)setMapDetailChoices:(NSArray<NSArray *> *)choices
+                     levels:(NSArray<NSArray *> *)levels
+                  installed:(NSArray<NSArray<NSString *> *> *)installed
+                    summary:(NSString *)summary;
+// After a check, while downloading, and when done: what to say, and which buttons work.
+- (void)setMapDetailState:(NSString *)message ok:(BOOL)ok checked:(BOOL)checked busy:(BOOL)busy;
+
 // Offline Mode: no network requests (Network.h).
 @property(nonatomic, copy) void (^onOfflineToggled)(BOOL on);
 - (void)setOffline:(BOOL)on;

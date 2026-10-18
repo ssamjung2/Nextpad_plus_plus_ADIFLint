@@ -24,6 +24,9 @@
     NSTextField *_welcome, *_stationCall, *_stationGrid, *_logsFolder, *_stationStatus;
     NSArray<NSButton *> *_editorBoxes;
     NSButton *_offline;
+    NSPopUpButton *_detailRegion, *_detailLevel, *_detailInstalled;
+    NSButton *_detailCheck, *_detailDownload, *_detailStop, *_detailRemove;
+    NSTextField *_detailStatus, *_detailSummary;
 }
 
 static NSTextField *sectionTitle(NSString *text) {
@@ -77,7 +80,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     _welcome.hidden = YES;
     [views addObject:_welcome];
     for (NSView *section in @[ [self stationSection], [self editorSection], [self offlineSection], [self keyboardSection], [self countrySection], [self lotwSection],
-                                 [self potaSection], [self iotaSection] ]) {
+                                 [self potaSection], [self iotaSection], [self mapDetailSection] ]) {
         [views addObject:section];
         NSBox *line = [[NSBox alloc] init];
         line.boxType = NSBoxSeparator;
@@ -228,6 +231,101 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
                                  @"this Mac. Also in the ADIF Lint menu: Offline Mode.",
                                  NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
     return sectionStack(@[ sectionTitle(@"Offline Mode"), help, _offline ], @"settings.offline");
+}
+
+- (NSView *)mapDetailSection {
+    NSTextField *help = wrapping(
+        @"Streets, buildings, land use, water and place names on the Map when you zoom in, for the regions you choose. They are "
+        @"OpenStreetMap's (© OpenStreetMap contributors, ODbL: openstreetmap.org/copyright), cut from Protomaps' newest daily "
+        @"build (protomaps.com) and kept on this Mac; the Map draws only from what is kept here. Check Size reads the build's "
+        @"index for the region and says what it would take (a city is about 10 MB with streets and buildings, a state hundreds); "
+        @"Download fetches it.",
+        NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    _detailRegion = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    _detailRegion.identifier = @"settings.mapdetail.region";
+    [_detailRegion.widthAnchor constraintEqualToConstant:250].active = YES;
+    _detailLevel = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    _detailLevel.identifier = @"settings.mapdetail.level";
+    for (NSPopUpButton *p in @[ _detailRegion, _detailLevel ]) {
+        p.target = self;
+        p.action = @selector(detailChoiceChanged:);
+    }
+    NSStackView *choose = [NSStackView stackViewWithViews:@[ _detailRegion, _detailLevel ]];
+    _detailCheck = [NSButton buttonWithTitle:@"Check Size" target:self action:@selector(detailCheck:)];
+    _detailDownload = [NSButton buttonWithTitle:@"Download" target:self action:@selector(detailDownload:)];
+    _detailStop = [NSButton buttonWithTitle:@"Stop" target:self action:@selector(detailStop:)];
+    _detailDownload.enabled = _detailStop.enabled = NO;
+    NSStackView *buttons = [NSStackView stackViewWithViews:@[ _detailCheck, _detailDownload, _detailStop ]];
+    _detailStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    _detailStatus.identifier = @"settings.mapdetail.status";
+    _detailInstalled = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    _detailInstalled.identifier = @"settings.mapdetail.installed";
+    [_detailInstalled.widthAnchor constraintEqualToConstant:330].active = YES;
+    _detailRemove = [NSButton buttonWithTitle:@"Remove" target:self action:@selector(detailRemove:)];
+    NSStackView *have = [NSStackView stackViewWithViews:@[ [NSTextField labelWithString:@"Downloaded:"], _detailInstalled, _detailRemove ]];
+    _detailSummary = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    _detailSummary.identifier = @"settings.mapdetail.summary";
+    return sectionStack(@[ sectionTitle(@"Map Detail"), help, choose, buttons, _detailStatus, have, _detailSummary ], @"settings.mapdetail");
+}
+
+- (void)setMapDetailChoices:(NSArray<NSArray *> *)choices
+                     levels:(NSArray<NSArray *> *)levels
+                  installed:(NSArray<NSArray<NSString *> *> *)installed
+                    summary:(NSString *)summary {
+    id was = _detailRegion.selectedItem.representedObject, level = _detailLevel.selectedItem.representedObject;
+    [_detailRegion removeAllItems];
+    NSString *group = nil;
+    for (NSArray *c in choices) {
+        NSString *ident = c[0], *kind = [ident hasPrefix:@"state:"] ? @"state" : [ident hasPrefix:@"country:"] ? @"country" : @"view";
+        if (group && ![group isEqualToString:kind]) [_detailRegion.menu addItem:[NSMenuItem separatorItem]];
+        group = kind;
+        NSMenuItem *item = [_detailRegion.menu addItemWithTitle:c[1] action:nil keyEquivalent:@""];
+        item.representedObject = ident;
+    }
+    NSInteger at = was ? [_detailRegion indexOfItemWithRepresentedObject:was] : -1;
+    if (at >= 0) [_detailRegion selectItemAtIndex:at];
+    [_detailLevel removeAllItems];
+    for (NSArray *l in levels) [_detailLevel.menu addItemWithTitle:l[1] action:nil keyEquivalent:@""].representedObject = l[0];
+    at = level ? [_detailLevel indexOfItemWithRepresentedObject:level] : -1;
+    if (at >= 0) [_detailLevel selectItemAtIndex:at];
+    [_detailInstalled removeAllItems];
+    for (NSArray<NSString *> *r in installed) [_detailInstalled.menu addItemWithTitle:r[1] action:nil keyEquivalent:@""].representedObject = r[0];
+    if (!installed.count) [_detailInstalled addItemWithTitle:@"(none)"];
+    _detailInstalled.enabled = _detailRemove.enabled = installed.count > 0;
+    _detailSummary.stringValue = summary ?: @"";
+}
+
+- (void)setMapDetailState:(NSString *)message ok:(BOOL)ok checked:(BOOL)checked busy:(BOOL)busy {
+    _detailStatus.stringValue = message ?: @"";
+    _detailStatus.textColor = ok ? NSColor.secondaryLabelColor : NSColor.systemRedColor;
+    _detailDownload.enabled = checked && !busy;
+    _detailStop.enabled = busy;
+    _detailCheck.enabled = !busy;
+    _detailRegion.enabled = _detailLevel.enabled = !busy;
+}
+
+- (void)detailChoiceChanged:(id)sender {
+    _detailDownload.enabled = NO;  // check again for the new choice
+    _detailStatus.stringValue = @"";
+}
+
+- (void)detailCheck:(id)sender {
+    NSString *choice = _detailRegion.selectedItem.representedObject;
+    NSNumber *zoom = _detailLevel.selectedItem.representedObject;
+    if (choice && zoom && self.onMapDetailCheck) self.onMapDetailCheck(choice, zoom.integerValue);
+}
+
+- (void)detailDownload:(id)sender {
+    if (self.onMapDetailDownload) self.onMapDetailDownload();
+}
+
+- (void)detailStop:(id)sender {
+    if (self.onMapDetailStop) self.onMapDetailStop();
+}
+
+- (void)detailRemove:(id)sender {
+    NSString *path = _detailInstalled.selectedItem.representedObject;
+    if (path && self.onMapDetailRemove) self.onMapDetailRemove(path);
 }
 
 - (void)offlineToggled:(id)sender {

@@ -1240,7 +1240,7 @@ void cmdMap() {
             applyProjection();
         });
         mw.zoomLabel = ADIFLabel(@"1.0×");
-        [mw.zoomLabel.widthAnchor constraintEqualToConstant:40].active = YES;
+        [mw.zoomLabel.widthAnchor constraintEqualToConstant:52].active = YES;  // up to "16384×" (Map Detail)
         NSButton *out = smallButton(@"−", @"Zoom out (−)", ^{ [mw.view zoomBy:1 / 1.5]; });
         NSButton *in = smallButton(@"+", @"Zoom in (+, or double-click the map)", ^{ [mw.view zoomBy:1.5]; });
         NSButton *fit = smallButton(@"Fit Log", @"Zoom to the log's QSOs", ^{ [mw.view fitLog]; });
@@ -1352,6 +1352,19 @@ void iotaGroupsChanged() {
 
 void parkListChanged() {
     if (mw.view) mw.view.needsDisplay = YES;
+}
+
+bool shownArea(std::array<double, 4> *box) {
+    if (!mw.window || !mw.window.visible || !mw.view) return false;
+    double w, s, e, n;
+    [mw.view visibleWest:&w south:&s east:&e north:&n];
+    if (e - w >= 359 || n - s >= 170) return false;  // the whole world: not an area to download
+    *box = {w, s, e, n};
+    return true;
+}
+
+void detailChanged() {
+    if (mw.view) [mw.view osmChanged];
 }
 
 void documentChanged() {

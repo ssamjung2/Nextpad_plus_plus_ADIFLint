@@ -508,7 +508,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 - (void)zoomBy:(double)factor at:(NSPoint)p {
     double x, y;
     [self viewToPlane:p x:&x y:&y];
-    double z = std::clamp(_zoom * factor, 1.0, kMaxZoom);
+    double z = std::clamp(_zoom * factor, 1.0, std::max([self maxZoomHere], _zoom));
     if (z == _zoom) return;
     if ([self globe]) {  // turn toward the pointer so the place under it stays about there
         double f = z / _zoom;
@@ -591,7 +591,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     _pr.bounds(&minX, &minY, &maxX, &maxY);
     NSRect b = self.bounds;
     double base = std::min(b.size.width / (maxX - minX), b.size.height / (maxY - minY));
-    _zoom = std::clamp(std::min(b.size.width / spanX, b.size.height / spanY) / base, 1.0, kMaxZoom);
+    _zoom = std::clamp(std::min(b.size.width / spanX, b.size.height / spanY) / base, 1.0, kMaxZoom);  // a region: not into Map Detail
     _cx = (west + east) / 2, _cy = (south + north) / 2;
     [self viewChanged];
 }
@@ -818,6 +818,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 - (void)drawMap {
     MapDrawCtx d;
     [self drawBase:d];
+    [self drawOsm:d];  // Map Detail, where downloaded
     [self drawGridLines:d];
     [self drawDxccLand:d];
     [self drawWorkedAreas:d];
@@ -841,6 +842,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     [self drawSelection:d];
     CGContextRestoreGState(d.ctx);
     if (_style.legend) [self drawLegend];
+    [self drawOsmCredit];
     CGContextRestoreGState(d.ctx);
 }
 

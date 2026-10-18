@@ -37,7 +37,8 @@ offline map, and QSL sync with LoTW, QRZ.com, Club Log and eQSL.
   exact place, lines to contacts arching over the globe, distance rings, day and night with
   the grey line, and overlays for each layer and for cities; filter by place (continents,
   countries, zones, states, counties, call areas, Census and ARRL divisions, POTA locations);
-  zoom in to city level. Colour by band in PSKReporter's colours, mode, confirmation, count
+  zoom in to city level, or to street level with OpenStreetMap detail for the regions you
+  download. Colour by band in PSKReporter's colours, mode, confirmation, count
   or year, with a palette tested for colour blindness and a red one for night use.
 - **Keeps QSL services in sync.** Import your QSOs and confirmations from LoTW, QRZ.com
   Logbook and eQSL; upload to QRZ.com Logbook, LoTW (TQSL), Club Log and eQSL. Every window
@@ -119,6 +120,8 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
   placeholders), other programs' references, **lines to contacts** in their contacts'
   colours, and **distance rings**.
 - **Filters** by band, mode, date and confirmation, and **More Filters** by place.
+- **Map Detail**: OpenStreetMap's streets, buildings and place names for a state, a country
+  or the area in view, downloaded once from Protomaps' build and drawn offline.
 - **Style Options**: **Colour by** confirmation, band (PSKReporter's colours), mode, QSO
   count or year, with a legend; palettes include **Colour-blind safe** (tested under
   simulated colour blindness), **Light** for printing and **Night (red)**; **day and night**
@@ -256,6 +259,8 @@ your Mac.
 | LoTW user list | `lotw.arrl.org` | Settings → LoTW Users → Update, and weekly while it is on | Nothing but the request |
 | POTA park list | `pota.app` | Settings → POTA Parks → Download | Nothing but the request |
 | IOTA group list | `www.iota-world.org` | Settings → IOTA Groups → Download | Nothing but the request |
+| Protomaps build list | `build-metadata.protomaps.dev` | Settings → Map Detail → Check Size | Nothing but the request |
+| Protomaps build | `build.protomaps.com` | Settings → Map Detail: Check Size (the region's index), Download (its tiles) | The byte ranges asked for |
 
 - **Credentials** are stored only in your macOS Keychain ("ADIF Lint: …" items), never in
   a file, and a saved password is never shown again. HamQTH's sign-in, LoTW's report API
@@ -339,6 +344,9 @@ Nextpad++ and its plugins.
   [PSKReporter](https://pskreporter.info)'s band colours.
 - POTA's park list is not included: Settings downloads it from [pota.app](https://pota.app)
   when you ask. ADIF Lint is not affiliated with Parks on the Air, a registered service mark.
+- Map Detail is OpenStreetMap data, © OpenStreetMap contributors under the
+  [ODbL](https://www.openstreetmap.org/copyright), from [Protomaps](https://protomaps.com)'
+  daily builds; it is not included, and Settings downloads the regions you choose.
 - IOTA's group list is © RSGB and IOTA Ltd and is not included: Settings downloads it from
   [iota-world.org](https://www.iota-world.org), when you ask, for your own use. IOTA is a
   registered trade mark of the RSGB.

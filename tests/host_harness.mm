@@ -4274,6 +4274,89 @@ int main(int argc, char **argv) {
             pick(colour, @"Colour by confirmation");
             setBox(linesBox, false);
 
+            // ── Map Detail: Settings cuts a region out of the (made-up) build; the Map draws it ──
+            auto zoomMap = [&](double factor) {
+                SEL sel = NSSelectorFromString(@"zoomBy:");
+                NSInvocation *inv = [NSInvocation invocationWithMethodSignature:[mapView methodSignatureForSelector:sel]];
+                inv.target = mapView;
+                inv.selector = sel;
+                [inv setArgument:&factor atIndex:2];
+                [inv invoke];
+            };
+            auto mapZoom = [&]() { return [[mapView valueForKey:@"zoom"] doubleValue]; };
+            auto osmShown = [&]() {
+                mapImage();  // draws it
+                return (bool)[[mapView valueForKey:@"osmDrawn"] boolValue];
+            };
+            {
+                pick(proj, @"Equirectangular");
+                [findButton(mapw.contentView, @"World") performClick:nil];
+                run("Settings...");
+                NSWindow *setw = windowTitled(@"ADIF Lint Settings");
+                NSPopUpButton *region = (NSPopUpButton *)viewWithIdentifier(setw.contentView, @"settings.mapdetail.region");
+                NSPopUpButton *level = (NSPopUpButton *)viewWithIdentifier(setw.contentView, @"settings.mapdetail.level");
+                NSPopUpButton *have = (NSPopUpButton *)viewWithIdentifier(setw.contentView, @"settings.mapdetail.installed");
+                NSTextField *detailStatus = (NSTextField *)viewWithIdentifier(setw.contentView, @"settings.mapdetail.status");
+                NSView *section = viewWithIdentifier(setw.contentView, @"settings.mapdetail");
+                auto waitFor = [&](NSString *text) {
+                    for (int i = 0; i < 400 && ![detailStatus.stringValue containsString:text]; ++i) pump(0.05);
+                    return (bool)[detailStatus.stringValue containsString:text];
+                };
+                NSInteger wi = [region indexOfItemWithRepresentedObject:@"state:WI"];
+                CHECK(region && wi >= 0 && [[region itemAtIndex:wi].title isEqualToString:@"Wisconsin (US)"] && level.numberOfItems == 3 &&
+                          [region indexOfItemWithRepresentedObject:@"country:Italy"] > wi && [have.titleOfSelectedItem isEqualToString:@"(none)"],
+                      "Map Detail: states, then countries; three levels; nothing downloaded yet");
+                [region selectItemAtIndex:wi];
+                [level selectItemAtIndex:0];
+                [findButton(section, @"Check Size") performClick:nil];
+                CHECK(waitFor(@"Press Download") && [detailStatus.stringValue hasPrefix:@"Wisconsin, Streets and buildings (zoom 15): "] &&
+                          [detailStatus.stringValue containsString:@"build of 2026-10-18"] && findButton(section, @"Download").enabled,
+                      "Check Size reads the newest build's index: %s", detailStatus.stringValue.UTF8String);
+                [findButton(section, @"Download") performClick:nil];
+                CHECK(waitFor(@"Downloaded Wisconsin"), "Download: %s", detailStatus.stringValue.UTF8String);
+                NSString *kept = [tmp stringByAppendingPathComponent:@"maps/Wisconsin z15 20261018.pmtiles"];
+                CHECK([[NSFileManager defaultManager] fileExistsAtPath:kept] && [have.titleOfSelectedItem hasPrefix:@"Wisconsin (zoom 15, "],
+                      "the region kept in the settings folder's maps: %s", have.titleOfSelectedItem.UTF8String);
+                if (setw) {
+                    [section scrollRectToVisible:section.bounds];
+                    [setw.contentView layoutSubtreeIfNeeded];
+                    CHECK(overlaps(setw.contentView) == 0, "Settings with Map Detail does not overlap (%d)", overlaps(setw.contentView));
+                    snapshot(setw, "settings-map-detail");
+                }
+                [setw orderOut:nil];
+
+                // The Map: Testville's lake, park, buildings and streets; past 1,024x where the detail is.
+                showBox(-89.395, 43.066, -89.372, 43.079);
+                zoomMap(16);
+                bool z11 = osmShown() && mapZoom() <= 1024;  // a town's worth: zoom 10 or 11 tiles
+                NSColor *sea = colourAt(mapImage(), pointFor(-89.46, 43.072));  // the tile's water, outside the made-up land
+                zoomMap(16);
+                NSBitmapImageRep *img = mapImage();
+                NSColor *lake = colourAt(img, pointFor(-89.395, 43.077)), *building = colourAt(img, pointFor(-89.37875, 43.07175)),
+                        *land = colourAt(img, pointFor(-89.3735, 43.0775));
+                CHECK(z11 && osmShown() && mapZoom() > 1024 && colourGap(lake, sea) < 0.03 && colourGap(building, land) > 0.04,
+                      "Map Detail drawn (zoom %.0f): the lake in the sea's colour (%.3f apart), a building apart from the land (%.3f)", mapZoom(),
+                      colourGap(lake, sea), colourGap(building, land));
+                snapshot(mapw, "map-detail");
+                [findButton(mapw.contentView, @"World") performClick:nil];
+                CHECK(!osmShown(), "the whole world: the base map only");
+
+                // Offline: no check; then Remove.
+                run("Settings...");
+                runItem("Offline Mode");
+                [findButton(section, @"Check Size") performClick:nil];
+                CHECK(waitFor(@"Offline mode is on"), "offline: Map Detail asks for nothing: %s", detailStatus.stringValue.UTF8String);
+                runItem("Offline Mode");
+                [findButton(section, @"Remove") performClick:nil];
+                CHECK(![[NSFileManager defaultManager] fileExistsAtPath:kept] && [have.titleOfSelectedItem isEqualToString:@"(none)"] &&
+                          [detailStatus.stringValue isEqualToString:@"Removed."],
+                      "Remove deletes the region: %s", detailStatus.stringValue.UTF8String);
+                showBox(-89.395, 43.066, -89.372, 43.079);
+                CHECK(!osmShown() && mapZoom() <= 1024, "without it, the base map and 1,024x at most");
+                [findButton(mapw.contentView, @"World") performClick:nil];
+                [setw orderOut:nil];
+            }
+
             // Documentation screenshots (ADIFLINT_DOCS=1, with ADIFLINT_SNAPSHOT_DIR): the map and
             // the Log Table on the sample log above. tools/docs-screenshots.sh runs this.
             if (getenv("ADIFLINT_DOCS")) {
@@ -4342,6 +4425,32 @@ int main(int argc, char **argv) {
                     [inv invoke];
                 }
                 snapshot(mapw, "docs-map-city");
+                // Map Detail on real OpenStreetMap data, when given a downloaded region (it isn't
+                // in the repository): downtown Madison, with the contacts there.
+                if (const char *real = getenv("ADIFLINT_DOCS_MAPDETAIL")) {
+                    NSString *maps = [tmp stringByAppendingPathComponent:@"maps"], *copy = [maps stringByAppendingPathComponent:@"Madison z15 20261018.pmtiles"];
+                    [[NSFileManager defaultManager] createDirectoryAtPath:maps withIntermediateDirectories:YES attributes:nil error:nil];
+                    [[NSFileManager defaultManager] copyItemAtPath:@(real) toPath:copy error:nil];
+                    pump(0.2);
+                    box(@"US counties", false), box(@"Cities", false), box(@"Contacts", true);
+                    showBox(-89.42, 43.06, -89.35, 43.09);
+                    zoomMap(8);
+                    pump(0.2);
+                    snapshot(mapw, "docs-map-detail-town");
+                    zoomMap(4);
+                    snapshot(mapw, "docs-map-detail");
+                    showBox(-89.392, 43.070, -89.376, 43.080);  // the Capitol, at street level
+                    zoomMap(16), zoomMap(16);
+                    snapshot(mapw, "docs-map-detail-streets");
+                    stylePick(@"palette", @"Light (for printing)");
+                    snapshot(mapw, "docs-map-detail-light");
+                    stylePick(@"palette", @"Night (red)");
+                    snapshot(mapw, "docs-map-detail-night");
+                    stylePick(@"palette", @"Standard");
+                    [stylePanel() orderOut:nil];
+                    [[NSFileManager defaultManager] removeItemAtPath:copy error:nil];
+                    pump(0.2);
+                }
                 box(@"US counties", false), box(@"Cities", false);
                 stylePick(@"palette", @"Colour-blind safe");
                 pick(proj, @"Equal Earth");

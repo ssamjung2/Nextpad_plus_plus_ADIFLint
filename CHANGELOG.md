@@ -29,6 +29,12 @@ Versions before 0.8.0 were development builds and were not published.
   contacts (with their strength), the legend, distance rings, and **Reset to Defaults**.
 - **Map → Style Options → Night (red)**: the whole map, legend and labels in the screen's own
   reds on black, to keep night vision; PNG exports too.
+- **Map Detail** (Settings): OpenStreetMap's streets with their names, buildings, land use,
+  water, rail and place names for a US state, a country or the area shown on the Map, at
+  three levels of detail. Check Size says what a region takes; Download cuts it from
+  Protomaps' newest planet build by byte ranges (one build throughout) into the plugin's
+  `maps` folder, and the Map draws it from there, offline, zooming in to 16,384× where it is,
+  credited "© OpenStreetMap contributors".
 - **Offline Mode** (the ADIF Lint menu, and Settings): no network requests at all (lookups,
   spots, uploads and TQSL, imports, downloads, web pages) until it is turned off; Monitor
   still listens to the programs on your Mac.

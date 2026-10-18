@@ -34,6 +34,7 @@
 
 #import "CheckLog.h"
 #import "Families.h"
+#import "MapDetail.h"
 #import "Network.h"
 #import "Country.h"
 #import "EnrichPanel.h"
@@ -2180,6 +2181,7 @@ static void setColour(bool on);
 static void setAutocomplete(bool on);
 static void setCountCharacters(bool on);
 static void refreshSettingsOptions();
+static void refreshMapDetail();
 
 static void openSettings(NSInteger source) {
     if (!g.settings) {
@@ -2239,6 +2241,29 @@ static void openSettings(NSInteger source) {
         };
         g.settings.onStationProfiles = ^{ station::cmdStationProfiles(); };
         g.settings.onOfflineToggled = ^(BOOL on) { ADIFSetOffline(on); };
+        g.settings.onMapDetailCheck = ^(NSString *choice, NSInteger zoom) {
+            [g.settings setMapDetailState:@"Checking..." ok:YES checked:NO busy:YES];
+            mapdetail::check(choice.UTF8String ?: "", (int)zoom, ^(BOOL ok, NSString *message) {
+                [g.settings setMapDetailState:message ok:ok checked:ok busy:NO];
+            });
+        };
+        g.settings.onMapDetailDownload = ^{
+            mapdetail::download(^(NSString *message) { [g.settings setMapDetailState:message ok:YES checked:NO busy:YES]; },
+                                ^(BOOL ok, NSString *message) {
+                                    [g.settings setMapDetailState:message ok:ok checked:NO busy:NO];
+                                    refreshMapDetail();
+                                });
+        };
+        g.settings.onMapDetailStop = ^{
+            mapdetail::stop();
+            [g.settings setMapDetailState:@"Stopped. Nothing was kept." ok:YES checked:NO busy:NO];
+        };
+        g.settings.onMapDetailRemove = ^(NSString *path) {
+            std::string why;
+            bool ok = mapdetail::remove(path.UTF8String ?: "", &why);
+            [g.settings setMapDetailState:ok ? @"Removed." : @(why.c_str()) ok:ok checked:NO busy:mapdetail::busy()];
+            refreshMapDetail();
+        };
         g.settings.onEditorOption = ^(NSInteger option, BOOL on) {
             switch (option) {
                 case 0: setAutoValidate(on); break;
@@ -2257,6 +2282,7 @@ static void openSettings(NSInteger source) {
                     logsFolder:ADIFString(adifhost::setting("logsFolder"))];
     refreshSettingsOptions();
     [g.settings setOffline:ADIFOffline()];
+    refreshMapDetail();
     [g.settings showSource:source];
 }
 
@@ -2599,6 +2625,21 @@ static void cmdToggleAutoValidate() { setAutoValidate(!g.autoValidate); }
 
 // Offline Mode (the menu item and Settings): the tick and the Settings box follow the setting.
 static void cmdToggleOffline() { ADIFSetOffline(!ADIFOffline()); }
+
+// Settings → Map Detail: the regions to choose from, and the ones downloaded.
+static void refreshMapDetail() {
+    if (!g.settings) return;
+    std::array<double, 4> box{};
+    NSMutableArray *choices = [NSMutableArray array], *levels = [NSMutableArray array], *have = [NSMutableArray array];
+    for (const mapdetail::Choice &c : mapdetail::choices(worldmap::shownArea(&box))) [choices addObject:@[ @(c.id.c_str()), @(c.name.c_str()) ]];
+    for (const mapdetail::Level &l : mapdetail::levels()) [levels addObject:@[ @(l.zoom), @(l.title) ]];
+    for (const mapdetail::Region &r : mapdetail::regions()) {
+        char size[32];
+        snprintf(size, sizeof size, r.bytes >= 1000000 ? "%.0f MB" : "%.0f KB", r.bytes >= 1000000 ? r.bytes / 1e6 : std::max(1.0, r.bytes / 1e3));
+        [have addObject:@[ @(r.path.c_str()), [NSString stringWithFormat:@"%s (zoom %d, %s)", r.name.c_str(), r.maxZoom, size] ]];
+    }
+    [g.settings setMapDetailChoices:choices levels:levels installed:have summary:mapdetail::status()];
+}
 static void offlineChanged() {
     setCheck(kCmdOffline, ADIFOffline());
     [g.settings setOffline:ADIFOffline()];
@@ -2761,6 +2802,15 @@ extern "C" NPP_EXPORT void beNotified(SCNotification *n) {
                 setCheck(kCmdAutoValidate, g.autoValidate);
                 setCheck(kCmdRecordPanel, g.panelWanted);
                 setCheck(kCmdOffline, ADIFOffline());
+                static id detailObserver;
+                if (!detailObserver)
+                    detailObserver = [[NSNotificationCenter defaultCenter] addObserverForName:ADIFMapDetailChangedNotification
+                                                                                       object:nil
+                                                                                        queue:nil
+                                                                                   usingBlock:^(NSNotification *) {
+                                                                                       worldmap::detailChanged();
+                                                                                       refreshMapDetail();
+                                                                                   }];
                 static id offlineObserver;
                 if (!offlineObserver)
                     offlineObserver = [[NSNotificationCenter defaultCenter] addObserverForName:ADIFOfflineChangedNotification

@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 #include <tuple>
@@ -102,6 +103,7 @@ struct ADIFParkSpot {
 namespace mapkit {
 
 constexpr double kMaxZoom = 1024;   // city level: a kilometre is some 30 points across
+constexpr double kMaxDetailZoom = 16384;  // where Map Detail is downloaded: its zoom 15, and closer
 constexpr double kDetailZoom = 12;  // from here the 1:10m detail (map-detail.bin) replaces the 1:50m maps
 constexpr double kPin = 4;  // a contact pin's head radius (times Style's marker size); the head is 2.2 of these above the point
 
@@ -165,6 +167,8 @@ struct MapDrawCtx {
 // The map, in one of four projections. Scroll or pinch to zoom (a trackpad's two-finger
 // scroll pans), drag to pan, double-click to zoom in, + and - keys, 0 for the whole world.
 // On the globe, dragging, a two-finger scroll and the arrow keys turn it instead.
+struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
+
 @interface ADIFMapView : NSView {
     adif::MapData _data;
     std::vector<ADIFMapEntity> _entities;
@@ -198,6 +202,8 @@ struct MapDrawCtx {
     std::set<std::string> _hiddenPrograms;
     std::map<std::string, size_t> _qsosPerBand;
     ADIFMapStyle _style;
+    std::shared_ptr<OsmCache> _osm;
+    BOOL _osmDrawn;  // OpenStreetMap detail is showing: credit it
 }
 @property(nonatomic) BOOL showContacts;
 @property(nonatomic) std::set<std::string> hiddenPrograms;
@@ -278,6 +284,14 @@ struct MapDrawCtx {
 @end
 
 // The layers (MapLayers.mm), in drawRect's order.
+// Map Detail (MapOsm.mm).
+@interface ADIFMapView (Osm)
+- (void)osmChanged;  // regions downloaded or removed
+- (double)maxZoomHere;
+- (void)drawOsm:(MapDrawCtx &)d;
+- (void)drawOsmCredit;
+@end
+
 @interface ADIFMapView (Layers)
 - (double)sunSeconds;
 - (double)qsoSunSeconds;

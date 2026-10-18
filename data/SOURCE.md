@@ -52,3 +52,16 @@ personal non-commercial use (iota-world.org, read 2026-10-13). It is not in this
 or in a release: **Settings → IOTA Groups → Download** fetches it into the plugin config
 folder, on the user's request. `tests/fixtures/lookup/iota/groups.json` is made-up test data
 in the same layout.
+
+## Map Detail (not included)
+
+The streets and buildings of **Settings → Map Detail** are OpenStreetMap data, © OpenStreetMap
+contributors under the Open Database License (https://www.openstreetmap.org/copyright), in
+Protomaps' basemap (v4, https://docs.protomaps.com/basemaps/layers; its code is BSD and its
+map styles CC0). Nothing of it is in the repository or a release: the plugin cuts the
+regions the user chooses out of Protomaps' daily planet build (https://build.protomaps.com,
+listed in https://build-metadata.protomaps.dev/builds.json, read 2026-10-18) by HTTP byte
+ranges and keeps them in the plugin config folder. Protomaps' download page discourages
+hotlinking its builds (docs.protomaps.com/basemaps/downloads, read 2026-10-18), so the Map
+reads only the downloaded files, never the build, while it draws. The tests use a made-up
+stand-in (`tests/fixtures/lookup/mapdetail`, made by `tools/pmtiles_dev.cpp fixture`).
