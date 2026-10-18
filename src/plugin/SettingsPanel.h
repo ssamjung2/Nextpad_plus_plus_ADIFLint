@@ -41,6 +41,10 @@
 @property(nonatomic, copy) void (^onEditorOption)(NSInteger option, BOOL on);
 - (void)setEditorValidate:(BOOL)validate colour:(BOOL)colour autocomplete:(BOOL)autocomplete characters:(BOOL)characters;
 
+// Offline Mode: no network requests (Network.h).
+@property(nonatomic, copy) void (^onOfflineToggled)(BOOL on);
+- (void)setOffline:(BOOL)on;
+
 - (void)showWelcome;                   // first run: a welcome, and Your Station at the top
 - (void)showSource:(NSInteger)source;  // show the window with that source's first field focused (-3: country data)
 - (void)refresh;                       // reload what is saved

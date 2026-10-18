@@ -1,6 +1,7 @@
 #import "LotwUsers.h"
 
 #import "Lookup.h"
+#import "Network.h"
 #import "PluginHost.h"
 #include "adif_qsl.h"
 
@@ -82,7 +83,7 @@ std::string ADIFLotwLastUpload(const std::string &call) {
     if (!ADIFLotwUsersOn()) return "";
     if (!loaded) loadCache();
     double age = 0;
-    if (!refreshing && !refreshedThisRun && (fileDate(cachePath(), &age).empty() || age > 7)) {
+    if (!refreshing && !refreshedThisRun && !ADIFOffline() && (fileDate(cachePath(), &age).empty() || age > 7)) {
         refreshedThisRun = true;
         ADIFUpdateLotwUsers(^(BOOL, NSString *) {});
     }

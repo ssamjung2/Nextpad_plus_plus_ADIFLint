@@ -29,6 +29,9 @@ Versions before 0.8.0 were development builds and were not published.
   contacts (with their strength), the legend, distance rings, and **Reset to Defaults**.
 - **Map → Style Options → Night (red)**: the whole map, legend and labels in the screen's own
   reds on black, to keep night vision; PNG exports too.
+- **Offline Mode** (the ADIF Lint menu, and Settings): no network requests at all (lookups,
+  spots, uploads and TQSL, imports, downloads, web pages) until it is turned off; Monitor
+  still listens to the programs on your Mac.
 - **Map → Style Options → Day and night** and **Grey line**: the night side shaded, deeper
   to 18° below the horizon, the line between day and night, the sun overhead, and the
   twilight band to 6° down tinted gold; for now (each minute) or the selected QSO's time.

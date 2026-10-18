@@ -1061,6 +1061,8 @@ Rules for every source:
   Worked Before searches.
 - **Editor:** checking while typing, syntax colouring, autocomplete, and counting lengths
   in characters instead of bytes.
+- **Offline Mode:** **Work offline** makes no network requests at all (see
+  [Offline mode](#offline-mode)); the same as the menu's **Offline Mode**.
 - **Keyboard Shortcuts:** where to assign them (Nextpad++'s Edit → Shortcut Mapper…, Plugin
   commands tab) and suggested keys.
 - **Country Data:** the AD1C country file in use. **Update** downloads the newest Big CTY
@@ -1102,6 +1104,23 @@ Where things are kept:
 All requests use HTTPS. The QRZ.com sign-in is sent as a POST, so the password isn't in
 a URL. HamQTH's sign-in, LoTW's report API and eQSL's DownloadInBox take the login as
 parameters of their HTTPS address, as those services document it.
+
+### Offline mode
+
+**Offline Mode** (ticked in the ADIF Lint menu, or **Settings → Offline Mode → Work
+offline**) stops every network request ADIF Lint makes, for off-grid operating or to be sure
+nothing is sent:
+
+- callbook lookups (New QSO, Enrich) and sign-in tests;
+- the Spots window;
+- uploads, TQSL included, and imports from LoTW, QRZ.com Logbook and eQSL;
+- the downloads in Settings (country data, LoTW users, POTA parks, IOTA groups), and the
+  weekly LoTW users refresh;
+- web pages ADIF Lint would open in your browser (About's links, pota.app's uploads page).
+
+Each says "Offline mode is on" instead. Everything that works on your Mac's own files goes
+on as usual: checking and editing logs, New QSO, the Map, the exports, and Monitor, which
+only listens to the programs on your Mac. The setting is kept until you turn it off.
 
 ## Command line
 

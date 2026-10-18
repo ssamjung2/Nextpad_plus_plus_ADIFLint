@@ -1,6 +1,7 @@
 #import "Uploads.h"
 
 #import "Families.h"
+#import "Network.h"
 #import "Imports.h"
 #import "Lookup.h"
 #import "PluginHost.h"
@@ -121,6 +122,10 @@ NSArray<NSString *> *tqslLocations() {
 }
 
 void runTqsl(const std::string &path, NSArray<NSString *> *args, Upload *u, void (^done)(int code, NSString *output)) {
+    if (ADIFOffline()) {  // TQSL uploads to LoTW itself
+        done(-1, ADIFOfflineReason());
+        return;
+    }
     NSTask *task = [[NSTask alloc] init];
     task.executableURL = [NSURL fileURLWithPath:@(path.c_str())];
     task.arguments = args;

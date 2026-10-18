@@ -223,7 +223,8 @@ tab); Settings suggests some.
 | Record Panel | Show or hide the docked record table |
 | Reformat: One Record per Line / One Field per Line | Re-lay the file without touching data |
 | Check .adi Files While Typing | Problem marks as you type (on by default) |
-| Settings… | Your station, editor options, country data, and accounts for the online services |
+| Offline Mode | No network requests at all, for off-grid operating (off by default) |
+| Settings… | Your station, editor options, offline mode, country data, and accounts for the online services |
 | About ADIF Lint… | Version, licence and links |
 
 Import…, Export… and Enrich… open the window you used last; the popup at its top switches to
@@ -236,7 +237,9 @@ the file.
 ## Privacy and network
 
 ADIF Lint only goes online when you use a command that needs it, and every request uses
-HTTPS.
+HTTPS. **Offline Mode** (in the menu, or Settings) stops every request below, TQSL and
+links to web pages too, until you turn it off; Monitor still listens to the programs on
+your Mac.
 
 | Service | Address | When | What is sent |
 |---|---|---|---|

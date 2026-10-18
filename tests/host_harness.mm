@@ -692,7 +692,7 @@ int main(int argc, char **argv) {
         CHECK(std::strcmp(getName(), "ADIF Lint") == 0, "plugin name: %s", getName());
         int n = 0;
         FuncItem *items = getFuncsArray(&n);
-        CHECK(n == 34, "34 menu entries (28 commands, 6 separators), got %d", n);
+        CHECK(n == 35, "35 menu entries (29 commands, 6 separators), got %d", n);
         std::map<std::string, FuncItem *> byName;
         int nextId = 22000;
         for (int i = 0; i < n; ++i) {
@@ -806,10 +806,11 @@ int main(int argc, char **argv) {
                                  "Previous Problem", "Bulk Edit...", "Time Shift...", "Sort and Organize...", "Remove Duplicates...",
                                  "Compare and Merge Logs...", "Log Summary...", "Activation Tracker (POTA, WWFF, SOTA)...", "Worked Before...", "Map (Grids, DXCC, Parks)...",
                                  "Import...", "Export...", "QSL Sync (Upload, Confirmations)...", "Enrich...", "Monitor (WSJT-X, N1MM, Loggers)...", "Record Panel", "Reformat: One Record per Line",
-                                 "Reformat: One Field per Line", "Check .adi Files While Typing", "Settings...", "About ADIF Lint..."})
+                                 "Reformat: One Field per Line", "Check .adi Files While Typing", "Offline Mode", "Settings...", "About ADIF Lint..."})
             CHECK(byName.count(name), "menu item %s", name);
         CHECK(byName.count("Check .adi Files While Typing") && byName["Check .adi Files While Typing"]->_init2Check &&
-                  byName.count("Record Panel") && !byName["Record Panel"]->_init2Check,
+                  byName.count("Record Panel") && !byName["Record Panel"]->_init2Check && byName.count("Offline Mode") &&
+                  !byName["Offline Mode"]->_init2Check,
               "default settings");
 
         {   // The layout check itself must catch a real overlap.
@@ -4377,6 +4378,50 @@ int main(int argc, char **argv) {
                 }
             }
             [mapw orderOut:nil];
+        }
+
+        // ── Offline Mode: every request refused, links not opened; the menu tick and Settings agree ──
+        {
+            FuncItem *off = byName["Offline Mode"];
+            auto ticked = [&]() { return H.checks[(uintptr_t)off->_cmdID] == 1; };
+            auto ini = [&]() {
+                NSString *t = [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint.ini"] encoding:NSUTF8StringEncoding error:nil];
+                return [t containsString:@"\noffline=1\n"];
+            };
+            runItem("Offline Mode");
+            CHECK(ticked() && ini(), "Offline Mode: ticked and saved");
+            run("Spots (POTA, WWFF, More)...");
+            NSWindow *spw = windowTitled(@"Spots");
+            [findButton(spw.contentView, @"Refresh") performClick:nil];
+            for (int i = 0; i < 40 && !labelContaining(spw.contentView, @"Offline mode is on"); ++i) pump(0.05);
+            CHECK(labelContaining(spw.contentView, @"Offline mode is on") != nil, "offline: Spots makes no request and says why: %s",
+                  labelWithLines(spw.contentView, 4).UTF8String);
+            [spw orderOut:nil];
+            NSString *urlLog = [tmp stringByAppendingPathComponent:@"urls.txt"];
+            setenv("ADIFLINT_TEST_URL_LOG", urlLog.UTF8String, 1);
+            run("Start Activation...");
+            NSWindow *aw = windowTitled(@"Start Activation");
+            NSButton *potaApp = findButton(aw.contentView, @"Open pota.app Uploads");
+            [potaApp performClick:nil];
+            NSString *urls = [NSString stringWithContentsOfFile:urlLog encoding:NSUTF8StringEncoding error:nil];
+            CHECK([urls isEqualToString:@"refused https://pota.app/#/user/logs\n"], "offline: pota.app not opened: %s", urls.UTF8String);
+            run("Settings...");
+            NSWindow *setw = windowTitled(@"ADIF Lint Settings");
+            NSButton *box = (NSButton *)viewWithIdentifier(setw.contentView, @"settings.offline.box");
+            CHECK(box.state == NSControlStateValueOn, "Settings shows Offline Mode on");
+            if (setw) {
+                [setw.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(setw.contentView) == 0, "Settings does not overlap with Offline Mode (%d)", overlaps(setw.contentView));
+            }
+            box.state = NSControlStateValueOff;
+            [box sendAction:box.action to:box.target];
+            CHECK(!ticked() && !ini(), "Offline Mode off from Settings: the menu tick follows");
+            [potaApp performClick:nil];
+            urls = [NSString stringWithContentsOfFile:urlLog encoding:NSUTF8StringEncoding error:nil];
+            CHECK([urls isEqualToString:@"opened https://pota.app/#/user/logs\n"], "online again: pota.app opens: %s", urls.UTF8String);
+            unsetenv("ADIFLINT_TEST_URL_LOG");
+            [aw orderOut:nil];
+            [setw orderOut:nil];
         }
 
         CHECK(messageProc(0, 0, 0) == TRUE, "messageProc answers");

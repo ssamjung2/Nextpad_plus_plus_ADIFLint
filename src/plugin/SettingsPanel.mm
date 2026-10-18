@@ -23,6 +23,7 @@
     NSScrollView *_scroll;
     NSTextField *_welcome, *_stationCall, *_stationGrid, *_logsFolder, *_stationStatus;
     NSArray<NSButton *> *_editorBoxes;
+    NSButton *_offline;
 }
 
 static NSTextField *sectionTitle(NSString *text) {
@@ -75,7 +76,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
                         NSFont.systemFontSize, NSColor.labelColor);
     _welcome.hidden = YES;
     [views addObject:_welcome];
-    for (NSView *section in @[ [self stationSection], [self editorSection], [self keyboardSection], [self countrySection], [self lotwSection],
+    for (NSView *section in @[ [self stationSection], [self editorSection], [self offlineSection], [self keyboardSection], [self countrySection], [self lotwSection],
                                  [self potaSection], [self iotaSection] ]) {
         [views addObject:section];
         NSBox *line = [[NSBox alloc] init];
@@ -218,6 +219,25 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
         _editorBoxes[i].state = on[i] ? NSControlStateValueOn : NSControlStateValueOff;
 }
 
+- (NSView *)offlineSection {
+    _offline = [NSButton checkboxWithTitle:@"Work offline: make no network requests" target:self action:@selector(offlineToggled:)];
+    _offline.identifier = @"settings.offline.box";
+    NSTextField *help = wrapping(@"For off-grid operating, or to be sure nothing is sent. Callbook lookups, spots, uploads (TQSL "
+                                 @"too), imports from the online services, downloads and web pages are refused while it is on; "
+                                 @"everything that works on this Mac's files goes on, and Monitor still hears the programs on "
+                                 @"this Mac. Also in the ADIF Lint menu: Offline Mode.",
+                                 NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    return sectionStack(@[ sectionTitle(@"Offline Mode"), help, _offline ], @"settings.offline");
+}
+
+- (void)offlineToggled:(id)sender {
+    if (self.onOfflineToggled) self.onOfflineToggled(_offline.state == NSControlStateValueOn);
+}
+
+- (void)setOffline:(BOOL)on {
+    _offline.state = on ? NSControlStateValueOn : NSControlStateValueOff;
+}
+
 - (NSView *)keyboardSection {
     NSTextField *help = wrapping(
         @"Nextpad++ binds plugin commands in its own Shortcut Mapper: Edit > Shortcut Mapper..., the Plugin commands tab. "
@@ -285,8 +305,8 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
 }
 
 - (NSView *)potaSection {
-    NSTextField *help = wrapping(@"Places POTA parks on the Map (Overlays: POTA): a pin at each park you've hunted or activated, at "
-                                 @"the park itself, and a ring at each park you haven't worked. Download fetches POTA's list of "
+    NSTextField *help = wrapping(@"Places POTA parks on the Map's POTA layer: with Show, a pin at each park you've hunted or "
+                                 @"activated, at the park itself; with Overlay, a ring or dot at each park you haven't worked. Download fetches POTA's list of "
                                  @"parks (pota.app, about 9.5 MB: every park's name and place) into the plugin's settings folder on "
                                  @"this Mac; download again for new parks. ADIF Lint isn't affiliated with Parks on the Air.",
                                  NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);

@@ -34,6 +34,7 @@
 
 #import "CheckLog.h"
 #import "Families.h"
+#import "Network.h"
 #import "Country.h"
 #import "EnrichPanel.h"
 #import "LogTools.h"
@@ -114,6 +115,7 @@ enum {
     kCmdReformatRecords,
     kCmdReformatFields,
     kCmdAutoValidate,
+    kCmdOffline,
     kSepSettings,
     kCmdSettings,
     kCmdAbout,
@@ -2236,6 +2238,7 @@ static void openSettings(NSInteger source) {
                             logsFolder:ADIFString(dir)];
         };
         g.settings.onStationProfiles = ^{ station::cmdStationProfiles(); };
+        g.settings.onOfflineToggled = ^(BOOL on) { ADIFSetOffline(on); };
         g.settings.onEditorOption = ^(NSInteger option, BOOL on) {
             switch (option) {
                 case 0: setAutoValidate(on); break;
@@ -2253,6 +2256,7 @@ static void openSettings(NSInteger source) {
     [g.settings setStationCall:ADIFString(adifhost::setting("stationCall")) grid:ADIFString(adifhost::setting("stationGrid"))
                     logsFolder:ADIFString(adifhost::setting("logsFolder"))];
     refreshSettingsOptions();
+    [g.settings setOffline:ADIFOffline()];
     [g.settings showSource:source];
 }
 
@@ -2593,6 +2597,13 @@ static void setAutoValidate(bool on) {
 
 static void cmdToggleAutoValidate() { setAutoValidate(!g.autoValidate); }
 
+// Offline Mode (the menu item and Settings): the tick and the Settings box follow the setting.
+static void cmdToggleOffline() { ADIFSetOffline(!ADIFOffline()); }
+static void offlineChanged() {
+    setCheck(kCmdOffline, ADIFOffline());
+    [g.settings setOffline:ADIFOffline()];
+}
+
 static void setColour(bool on) {
     g.colour = on;
     saveSettings();
@@ -2650,7 +2661,7 @@ static void cmdAbout() {
     NSString *url = r == NSAlertSecondButtonReturn  ? @(kProjectUrl)
                     : r == NSAlertThirdButtonReturn ? @"https://www.adif.org/317/ADIF_317.htm"
                                                     : nil;
-    if (url) [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:url]];
+    if (url) ADIFOpenURL(url);
 }
 
 // ── Hover ───────────────────────────────────────────────────────────────────
@@ -2726,6 +2737,7 @@ extern "C" NPP_EXPORT void setInfo(NppData data) {
     setItem(kCmdReformatRecords, "Reformat: One Record per Line", cmdReformatRecords);
     setItem(kCmdReformatFields, "Reformat: One Field per Line", cmdReformatFields);
     setItem(kCmdAutoValidate, "Check .adi Files While Typing", cmdToggleAutoValidate, g.autoValidate);
+    setItem(kCmdOffline, "Offline Mode", cmdToggleOffline, ADIFOffline());
     setItem(kSepSettings, "", nullptr);
     setItem(kCmdSettings, "Settings...", cmdSettings);
     setItem(kCmdAbout, "About ADIF Lint...", cmdAbout);
@@ -2748,6 +2760,13 @@ extern "C" NPP_EXPORT void beNotified(SCNotification *n) {
                 loadSettings();  // in case the config dir was not ready during setInfo
                 setCheck(kCmdAutoValidate, g.autoValidate);
                 setCheck(kCmdRecordPanel, g.panelWanted);
+                setCheck(kCmdOffline, ADIFOffline());
+                static id offlineObserver;
+                if (!offlineObserver)
+                    offlineObserver = [[NSNotificationCenter defaultCenter] addObserverForName:ADIFOfflineChangedNotification
+                                                                                        object:nil
+                                                                                         queue:nil
+                                                                                    usingBlock:^(NSNotification *) { offlineChanged(); }];
                 for (NppHandle h : {nppData._scintillaMainHandle, nppData._scintillaSecondHandle}) {
                     sci(h, SCI_SETMOUSEDWELLTIME, kDwellMs);
                     styleIndicators(h);

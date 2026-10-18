@@ -2,6 +2,7 @@
 
 #import "CheckLog.h"
 #import "LogTools.h"
+#import "Network.h"
 #import "PluginHost.h"
 #import "ToolWindow.h"
 #include "adif_lint.h"
@@ -459,7 +460,7 @@ void cmdStartActivation() {
         st.finish = [w addButton:@"Finish..." trailing:NO action:^{ finishActivation(); }];
         st.pota = [w addButton:@"Open pota.app Uploads" trailing:NO action:^{
             // docs.pota.app "Submitting logs" (checked 2026-10-09) links this page.
-            [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"https://pota.app/#/user/logs"]];
+            ADIFOpenURL(@"https://pota.app/#/user/logs");
         }];
         st.start = [w addButton:@"Start" trailing:YES action:^{ startActivation(); }];
         [w setDefaultButton:st.start];

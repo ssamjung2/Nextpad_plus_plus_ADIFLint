@@ -1,4 +1,5 @@
 #import "Lookup.h"
+#import "Network.h"
 
 #import <Security/Security.h>
 
@@ -84,6 +85,9 @@ static NSString *fakeDir() {
 }
 
 BOOL ADIFLookupFakeMode(void) { return fakeDir() != nil; }
+// Test mode answers requests from the fixtures, except in offline mode: then they go the real
+// way, to be refused there (httpSend, httpExchange) as they would be outside the tests.
+static NSString *fakeNet() { return ADIFOffline() ? nil : fakeDir(); }
 
 // ── Credentials ─────────────────────────────────────────────────────────────
 
@@ -198,6 +202,11 @@ static NSString *encode(NSString *v) {
 
 // Completion on the main queue with the body or an error message.
 static void httpSend(NSURLRequest *request, void (^done)(NSData *body, NSString *error)) {
+    if (ADIFOffline()) {  // every request ADIF Lint makes comes through here or httpExchange
+        NSString *why = ADIFOfflineReason();
+        dispatch_async(dispatch_get_main_queue(), ^{ done(nil, why); });
+        return;
+    }
     NSURLSessionDataTask *task = [lookupSession()
         dataTaskWithRequest:request
           completionHandler:^(NSData *data, NSURLResponse *response, NSError *err) {
@@ -280,7 +289,7 @@ static void callbookLogin(ADIFSource source, NSString *agent, void (^done)(NSStr
         if (key.length) done(key, notice, nil);
         else done(nil, nil, [NSString stringWithFormat:@"%@ sign-in failed: %@", ADIFSourceName(source), err.length ? err : @"no session"]);
     };
-    if (ADIFLookupFakeMode()) {
+    if (fakeNet()) {
         NSString *xml = source == ADIFSourceQRZ
                             ? @"<QRZDatabase><Session><Key>fake</Key><SubExp>Thu Jan 1 00:00:00 2099</SubExp></Session></QRZDatabase>"
                             : @"<HamQTH><session><session_id>fake</session_id></session></HamQTH>";
@@ -406,7 +415,7 @@ static void callbookLogin(ADIFSource source, NSString *agent, void (^done)(NSStr
         dispatch_async(dispatch_get_main_queue(), ^{ done(found, raw, nil, NO); });
         return;
     }
-    if (NSString *dir = fakeDir()) {
+    if (NSString *dir = fakeNet()) {
         if (!ADIFSavedAccount(_source)) {  // tests can remove the account to check the message
             dispatch_async(dispatch_get_main_queue(), ^{
                 done(NO, std::map<std::string, std::string>(),
@@ -451,7 +460,7 @@ static NSString *lotwText(NSData *body) {
 // your station's details, qso_qsldetail the confirming station's.
 static void lotwDownload(NSString *from, NSString *to, void (^done)(NSString *adif, NSString *error)) {
     NSString *const kBadLogin = @"LoTW did not return a report. Check your LoTW username and password in Settings.";
-    if (NSString *dir = fakeDir()) {
+    if (NSString *dir = fakeNet()) {
         NSData *body = ADIFSavedAccount(ADIFSourceLoTW)
                            ? [NSData dataWithContentsOfFile:[dir stringByAppendingPathComponent:@"lotw/lotwreport.adi"]]
                            : nil;
@@ -495,7 +504,7 @@ void ADIFTestCredential(ADIFSource source, void (^done)(BOOL ok, NSString *messa
             if (r.result == "OK") done(YES, @"QRZ.com accepted the key.");
             else done(NO, [NSString stringWithFormat:@"QRZ.com: %s", r.reason.empty() ? "the key was not accepted" : r.reason.c_str()]);
         };
-        if (ADIFLookupFakeMode()) {
+        if (fakeNet()) {
             dispatch_async(dispatch_get_main_queue(), ^{ handle(@"RESULT=OK&COUNT=1"); });
             return;
         }
@@ -517,7 +526,7 @@ void ADIFTestCredential(ADIFSource source, void (^done)(BOOL ok, NSString *messa
         return;
     }
     if (source == ADIFSourceLoTW) {
-        if (ADIFLookupFakeMode()) {
+        if (fakeNet()) {
             dispatch_async(dispatch_get_main_queue(), ^{ done(YES, @"LoTW accepted the login (test data)."); });
             return;
         }
@@ -555,7 +564,7 @@ static NSArray<NSDictionary *> *spotObjects(NSData *data, NSString **error) {
 }
 
 void ADIFFetchPotaSpots(NSString *agent, void (^done)(NSArray<NSDictionary *> *spots, NSString *error)) {
-    if (NSString *dir = fakeDir()) {
+    if (NSString *dir = fakeNet()) {
         NSData *d = [NSData dataWithContentsOfFile:[dir stringByAppendingPathComponent:@"pota/spots.json"]];
         dispatch_async(dispatch_get_main_queue(), ^{
             NSString *error = nil;
@@ -595,6 +604,11 @@ static void fakeUploadLog(NSString *line) {
 
 // POST and hand back the status and body whatever the status (Club Log explains its 403 and 400 in the body).
 static void httpExchange(NSURLRequest *request, void (^done)(NSInteger status, NSData *body, NSString *error)) {
+    if (ADIFOffline()) {
+        NSString *why = ADIFOfflineReason();
+        dispatch_async(dispatch_get_main_queue(), ^{ done(0, nil, why); });
+        return;
+    }
     NSURLSessionDataTask *task = [lookupSession()
         dataTaskWithRequest:request
           completionHandler:^(NSData *data, NSURLResponse *response, NSError *err) {
@@ -627,7 +641,7 @@ void ADIFQrzLogbookInsert(NSString *agent, NSString *adi, BOOL replace, void (^d
         dispatch_async(dispatch_get_main_queue(), ^{ done(nil, @"No QRZ.com Logbook API key yet. Add it in Settings."); });
         return;
     }
-    if (ADIFLookupFakeMode()) {
+    if (fakeNet()) {
         fakeUploadLog([NSString stringWithFormat:@"QRZ%@ %@", replace ? @" REPLACE" : @"", adi]);
         static int logid = 1000;
         NSString *reply = [adi containsString:@"<CALL:4>DUPE"]
@@ -659,7 +673,7 @@ void ADIFClubLogUpload(NSString *agent, NSString *callsign, NSString *adiFile, N
         });
         return;
     }
-    if (ADIFLookupFakeMode()) {
+    if (fakeNet()) {
         fakeUploadLog([NSString stringWithFormat:@"CLUBLOG %@ %@\n%@", callsign, fileName, adiFile]);
         dispatch_async(dispatch_get_main_queue(), ^{ done(200, @"OK", nil); });
         return;
@@ -682,7 +696,7 @@ void ADIFEqslUpload(NSString *agent, NSString *adiFile, NSString *fileName, void
         dispatch_async(dispatch_get_main_queue(), ^{ done(nil, @"No eQSL account yet. Add it in Settings."); });
         return;
     }
-    if (ADIFLookupFakeMode()) {
+    if (fakeNet()) {
         fakeUploadLog([@"EQSL " stringByAppendingString:adiFile]);
         NSString *reply = [adiFile containsString:@"<CALL:4>DUPE"]
                               ? @"Result: 0 out of 1 records added<BR>Warning: Y=2026 M=10 D=06 DUPE Bad record: Duplicate<BR>"
@@ -763,7 +777,7 @@ static void qrzFetchPage(NSString *agent, NSString *key, std::string between, lo
 // 2025-03-07): every record (STATUS:ALL is the default), or those BETWEEN two
 // QSO dates, 250 at a time.
 static void qrzDownload(NSString *agent, NSString *from, NSString *to, void (^done)(NSString *adif, NSString *error)) {
-    if (ADIFLookupFakeMode()) {
+    if (fakeNet()) {
         NSString *body = fakeText(@"qrzlog/fetch.txt");
         dispatch_async(dispatch_get_main_queue(), ^{
             adif::QrzReply reply;
@@ -790,7 +804,7 @@ static void qrzDownload(NSString *agent, NSString *from, NSString *to, void (^do
 // the eQSLs other stations sent you, optionally for QSO dates LimitDateLo to
 // LimitDateHi (MM/DD/YYYY).
 static void eqslDownload(NSString *agent, NSString *from, NSString *to, void (^done)(NSString *adif, NSString *error)) {
-    if (ADIFLookupFakeMode()) {
+    if (fakeNet()) {
         NSString *adif = fakeText(@"eqsl/inbox.adi");
         dispatch_async(dispatch_get_main_queue(), ^{ done(adif, adif ? nil : @"no test InBox"); });
         return;
@@ -848,7 +862,7 @@ void ADIFDownloadSiteQsos(adif::ImportSite site, NSString *from, NSString *to, v
 }
 
 void ADIFFetchWwffSpots(NSString *agent, void (^done)(NSArray<NSDictionary *> *spots, NSString *error)) {
-    if (NSString *dir = fakeDir()) {
+    if (NSString *dir = fakeNet()) {
         NSData *d = [NSData dataWithContentsOfFile:[dir stringByAppendingPathComponent:@"wwff/spots.json"]];
         dispatch_async(dispatch_get_main_queue(), ^{
             NSString *error = nil;
@@ -879,7 +893,7 @@ void ADIFFetchSpotholePrograms(NSString *agent, void (^done)(NSArray<NSDictionar
             if ([a isKindOfClass:NSDictionary.class]) [out addObject:a];
         return out.count ? out : nil;
     };
-    if (NSString *dir = fakeDir()) {
+    if (NSString *dir = fakeNet()) {
         NSData *d = [NSData dataWithContentsOfFile:[dir stringByAppendingPathComponent:@"spothole/options.json"]];
         dispatch_async(dispatch_get_main_queue(), ^{
             NSArray *list = parse(d);
@@ -901,7 +915,7 @@ void ADIFFetchSpotholePrograms(NSString *agent, void (^done)(NSArray<NSDictionar
 }
 
 void ADIFFetchSpotholeSpots(NSString *agent, NSString *programs, void (^done)(NSArray<NSDictionary *> *spots, NSString *error)) {
-    if (NSString *dir = fakeDir()) {
+    if (NSString *dir = fakeNet()) {
         NSData *d = [NSData dataWithContentsOfFile:[dir stringByAppendingPathComponent:@"spothole/spots.json"]];
         dispatch_async(dispatch_get_main_queue(), ^{
             NSString *error = nil;
@@ -928,7 +942,7 @@ void ADIFFetchSpotholeSpots(NSString *agent, NSString *programs, void (^done)(NS
 }
 
 void ADIFDownloadLotwUsers(NSString *agent, void (^done)(NSData *body, NSString *error)) {
-    if (NSString *dir = fakeDir()) {
+    if (NSString *dir = fakeNet()) {
         NSData *d = [NSData dataWithContentsOfFile:[dir stringByAppendingPathComponent:@"lotw/lotw-user-activity.csv"]];
         dispatch_async(dispatch_get_main_queue(), ^{ done(d, d ? nil : @"no test LoTW user list"); });
         return;
@@ -939,7 +953,7 @@ void ADIFDownloadLotwUsers(NSString *agent, void (^done)(NSData *body, NSString 
 }
 
 void ADIFDownloadIotaGroups(NSString *agent, void (^done)(NSData *body, NSString *error)) {
-    if (NSString *dir = fakeDir()) {
+    if (NSString *dir = fakeNet()) {
         NSData *d = [NSData dataWithContentsOfFile:[dir stringByAppendingPathComponent:@"iota/groups.json"]];
         dispatch_async(dispatch_get_main_queue(), ^{ done(d, d ? nil : @"no test IOTA group list"); });
         return;
@@ -951,7 +965,7 @@ void ADIFDownloadIotaGroups(NSString *agent, void (^done)(NSData *body, NSString
 }
 
 void ADIFDownloadPotaParks(NSString *agent, void (^done)(NSData *body, NSString *error)) {
-    if (NSString *dir = fakeDir()) {
+    if (NSString *dir = fakeNet()) {
         NSData *d = [NSData dataWithContentsOfFile:[dir stringByAppendingPathComponent:@"pota/all_parks_ext.csv"]];
         dispatch_async(dispatch_get_main_queue(), ^{ done(d, d ? nil : @"no test POTA park list"); });
         return;
@@ -964,7 +978,7 @@ void ADIFDownloadPotaParks(NSString *agent, void (^done)(NSData *body, NSString 
 // ── Country data ────────────────────────────────────────────────────────────
 
 void ADIFDownloadCountryData(NSString *agent, void (^done)(NSString *ctyCsv, NSString *release, NSString *error)) {
-    if (ADIFLookupFakeMode()) {
+    if (fakeNet()) {
         NSString *csv = fakeText(@"cty/cty.csv");
         dispatch_async(dispatch_get_main_queue(), ^{ done(csv, @"bigcty-test", csv ? nil : @"no test country file"); });
         return;
