@@ -19,10 +19,15 @@ supported.
   shown again. Settings → Remove deletes them.
 - **Network requests** use HTTPS and go only to the service you chose, when you ask:
   Enrich, Import, Upload, Test Sign-In, a callbook lookup you turned on in New QSO, an open
-  Spots window, Settings → Country Data → Update, or the LoTW user list once you turn it on
+  Spots window, the Map's Spots layer while its Show is ticked, Settings → Country Data → Update, or the LoTW user list once you turn it on
   (Update, then weekly). The README lists every address. The
   QRZ.com sign-in is sent as a POST; HamQTH's sign-in, LoTW's report API and eQSL's
   DownloadInBox take the login in the HTTPS address, as those services document it.
+- **A DX cluster** (Settings → Spots, off at first) is the one connection that isn't
+  HTTPS: plain telnet to the node you choose, as DX clusters work, logged in with your
+  callsign and never a password. It is open only while the Map's Spots layer shows. Every
+  telnet option the node offers is refused, lines are cut at 1,024 characters, at most
+  3,000 spots are kept, and what it sends is parsed by code covered by the fuzz tests.
 - **Programs run**: TQSL, which you choose, for LoTW uploads (with the certificate
   password on its command line when you save one, where other programs on your Mac could
   see it while TQSL runs), and `/usr/bin/unzip` to unpack a downloaded country file.

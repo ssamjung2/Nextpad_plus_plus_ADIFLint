@@ -8,6 +8,7 @@
 #include "adif_detail.h"
 #include "adif_palette.h"
 #include "adif_projection.h"
+#include "adif_spots.h"
 #include "adif_world.h"
 
 #include <array>
@@ -33,17 +34,18 @@ struct ADIFMapEntity {
 
 // What the pointer is over, or what was clicked.
 struct ADIFMapHit {
-    enum Kind { None, Square, Dxcc, Park, Contact, Iota, Pota, Area, Empty } kind = None;
+    enum Kind { None, Square, Dxcc, Park, Contact, Iota, Pota, Area, Spot, Empty } kind = None;
     std::string square;  // the 4-character square under the point (always set on the map)
     // Into squares, entities, parks, contacts, IOTA groups (ADIFIotaGroups), POTA's parks
-    // (ADIFPotaParks), or (Area) the layer's areas (adif::areaIndex).
+    // (ADIFPotaParks), (Area) the layer's areas (adif::areaIndex), or spots.
     size_t index = 0;
     int layer = 0;  // Area: the MapLayerId
 };
 
 // The Map's layers of areas. Each has Show (the areas worked in the log, shaded), Overlay
-// (every area outlined) and Labels (their names or numbers); Cities has no Show.
-enum MapLayerId { kLayerSquares, kLayerCountries, kLayerStates, kLayerCounties, kLayerCq, kLayerItu, kLayerPota, kLayerIota, kLayerCities, kLayerCount };
+// (every area outlined) and Labels (their names or numbers); Cities has no Show. Spots: Show
+// marks the stations spotted now, Overlay draws a line from each spotter, Labels their calls.
+enum MapLayerId { kLayerSquares, kLayerCountries, kLayerStates, kLayerCounties, kLayerCq, kLayerItu, kLayerPota, kLayerIota, kLayerCities, kLayerSpots, kLayerCount };
 struct LayerState {
     bool show = false, overlay = false, labels = true;
 };
@@ -69,6 +71,15 @@ struct ADIFMapStyle {
     // Show each worked DXCC entity's land. POTA and IOTA need their lists (downloaded in Settings).
     std::array<LayerState, kLayerCount> layer;
     const LayerState &operator[](MapLayerId l) const { return layer[(size_t)l]; }
+};
+
+// A station spotted, where it is on the map, and where its spotter is.
+struct ADIFMapSpot {
+    adif::Spot spot;
+    double lat = 0, lon = 0;
+    bool exact = false;  // at its 6-character grid; else its grid square or country
+    bool hasSpotter = false;
+    double spotterLat = 0, spotterLon = 0;
 };
 
 // QSOs at one exact place (MapQso::located), for the Contacts layer.
@@ -204,6 +215,9 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
     ADIFMapStyle _style;
     std::shared_ptr<OsmCache> _osm;
     BOOL _osmDrawn;  // OpenStreetMap detail is showing: credit it
+    std::vector<ADIFMapSpot> _spots;  // newest first
+    long long _spotsNow;             // when the spots were given, for their age
+    long long _spotMaxAge;           // the Spots filter's age (fading); 0 any
 }
 @property(nonatomic) BOOL showContacts;
 @property(nonatomic) std::set<std::string> hiddenPrograms;
@@ -226,6 +240,10 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 - (std::vector<size_t>)iotaQsos:(const std::string &)ref;  // the QSOs with this IOTA reference
 - (ADIFParkWork)parkWork:(const std::string &)ref;          // your QSOs with this POTA park (as the list writes it)
 - (void)selectedPlace:(double *)lat lon:(double *)lon name:(std::string *)name;
+// The spots to mark (the Spots layer), as of `now` (Unix seconds); older ones fade toward maxAge.
+- (void)setSpots:(const std::vector<ADIFMapSpot> &)spots now:(long long)now maxAge:(long long)maxAge;
+- (const std::vector<ADIFMapSpot> &)spots;
+- (ADIFMapHit)selectedHit;  // what was clicked last
 @end
 
 // What MapView.mm implements for the layers and the window.
@@ -319,4 +337,9 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 - (void)drawParkRings;
 - (void)drawParkPins;
 - (void)drawParkLabelsIn:(NSRect)b;
+- (NSBezierPath *)spotMarkerAt:(NSPoint)p;
+- (CGFloat)spotAlpha:(const ADIFMapSpot &)s;
+- (void)drawSpotLines:(MapDrawCtx &)d;
+- (void)drawSpots:(MapDrawCtx &)d;
+- (size_t)spotAt:(NSPoint)p;  // the spot whose marker is under the point, or npos
 @end

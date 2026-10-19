@@ -24,6 +24,7 @@
 #include "adif_pmtiles.h"
 #include "adif_mvt.h"
 #include "adif_i18n.h"
+#include "adif_spots.h"
 #include "adif_tools.h"
 #include "adif_upload.h"
 #include "adif_geo.h"
@@ -3550,6 +3551,179 @@ static void testI18n() {
     CHECK(rep.find("Records               1") != std::string::npos, "English again with no table");
 }
 
+// Spots: times, places, filters, the running list.
+static void testSpotsCore() {
+    CHECK(spotEpoch("2026-10-07T21:11:57") == 1791407517 && spotEpoch("2026-10-07 21:11:57") == 1791407517 &&
+              spotEpoch("2026-10-07T21:11:57+00:00") == 1791407517 && spotEpoch("2026-10-07T21:11:57Z") == 1791407517 &&
+              spotEpoch("2026-10-07T21:11:57.250Z") == 1791407517 && spotEpoch("2026-10-07T21:11") == 1791407460 &&
+              spotEpoch("1970-01-01T00:00:00") == 0 && spotEpoch("2026-10-07T21:11:57+02:00") == 0 && spotEpoch("yesterday") == 0 &&
+              spotEpoch("2026-13-07T21:11:57") == 0,
+          "spot times as Unix seconds, UTC only");
+    CHECK(spotTime(1791407517) == "21:11" && spotTime(0).empty(), "spot times shown HH:MM");
+    CHECK(spotKhz(14074000) == "14074" && spotKhz(7032500) == "7032.5" && spotKhz(1840150) == "1840.15" && spotKhz(0).empty() && spotKhz(-5).empty(),
+          "frequencies in kHz");
+    CHECK(spotterCall("w3lpl-#") == "W3LPL" && spotterCall("K1TTT-2") == "K1TTT" && spotterCall(" DL1ABC ") == "DL1ABC",
+          "spotters without a node's suffix");
+
+    CountryTable ct;
+    ct.load("DL,Fed. Rep. of Germany,230,EU,14,28,51.00,-10.00,-1.0,DA DB DC DD DE DF DG DH DI DJ DK DL DM DN DO DP DQ DR;\n"
+            "JA,Japan,339,AS,25,45,36.40,-138.38,-9.0,JA JE JF JG JH JI JJ JK JL JM JN JO JP JQ JR JS;\n"
+            "K,United States,291,NA,5,8,37.60,91.87,5.0,AA AB AC AD AE AF AG AI AJ AK K N W;\n");
+    SpotPlace p = stationPlace("DL1ABC", "JO62qm", &ct);
+    CHECK(p.ok && p.exact && p.from == "grid" && std::fabs(p.lat - 52.52) < 0.05 && std::fabs(p.lon - 13.38) < 0.05, "a spot at its 6-character grid");
+    p = stationPlace("DL1ABC", "", &ct);
+    CHECK(p.ok && !p.exact && p.from == "country data" && p.lat == 51.0 && p.lon == 10.0, "else at its country's place (%f %f)", p.lat, p.lon);
+    p = stationPlace("DL1ABC", "JJ00", &ct);
+    CHECK(p.from == "country data", "a placeholder grid isn't a place");
+    CHECK(!stationPlace("ZZ9ZZ", "", &ct).ok && !stationPlace("DL1ABC", "", nullptr).ok, "no place without the country data or a known prefix");
+
+    auto spot = [](SpotSource src, const char *call, const char *band, const char *mode, long long epoch, const char *grid = "") {
+        Spot sp;
+        sp.source = src, sp.activator = call, sp.band = band, sp.mode = mode, sp.epoch = epoch, sp.grid = grid;
+        sp.key = std::string(call) + band;
+        return sp;
+    };
+    long long now = 1791407517;
+    Spot berlin = spot(SpotSource::Cluster, "DL1ABC", "20m", "CW", now - 120);
+    Spot tokyo = spot(SpotSource::PskReporter, "JA1XYZ", "20m", "FT8", now - 4000);
+    Spot madison = spot(SpotSource::Spothole, "K9ABC", "40m", "SSB", now - 60, "EN53xb");
+    madison.program = "POTA", madison.refs = {"US-1234"};
+    SpotFilter f;
+    CHECK(spotMatches(f, berlin, now, &ct, nullptr) && spotMatches(f, tokyo, now, &ct, nullptr), "no filter: every spot");
+    f.maxAge = 3600;
+    CHECK(spotMatches(f, berlin, now, &ct, nullptr) && !spotMatches(f, tokyo, now, &ct, nullptr), "too old");
+    f = SpotFilter();
+    f.sources = {SpotSource::Cluster};
+    CHECK(spotMatches(f, berlin, now, &ct, nullptr) && !spotMatches(f, madison, now, &ct, nullptr), "by source");
+    f = SpotFilter();
+    f.map.band = "40m";
+    CHECK(!spotMatches(f, berlin, now, &ct, nullptr) && spotMatches(f, madison, now, &ct, nullptr), "by band");
+    f = SpotFilter();
+    f.map.continents = {"EU"};
+    CHECK(spotMatches(f, berlin, now, &ct, nullptr) && !spotMatches(f, tokyo, now, &ct, nullptr), "by continent, from the country data");
+    f = SpotFilter();
+    f.map.states = {"WI"};
+    CHECK(spotMatches(f, madison, now, &ct, nullptr) && !spotMatches(f, berlin, now, &ct, nullptr), "by US state, from the spot's grid");
+    f = SpotFilter();
+    f.programs = {""};
+    CHECK(spotMatches(f, berlin, now, &ct, nullptr) && !spotMatches(f, madison, now, &ct, nullptr), "plain DX spots only");
+    MapQso mq = spotQso(madison, &ct);
+    CHECK(mq.potaHunted.size() == 1 && mq.potaHunted[0] == "US-1234" && mq.areas.state == "WI" && mq.located, "a POTA spot as a QSO with a park");
+
+    SpotList list(3);
+    list.add(berlin);
+    list.add(tokyo);
+    Spot again = berlin;
+    again.epoch = now - 10, again.comments = "again";
+    list.add(again);
+    CHECK(list.spots().size() == 2 && list.spots()[0].comments == "again" && list.spots()[1].activator == "JA1XYZ",
+          "a spot given again replaces the old one");
+    list.add(spot(SpotSource::Cluster, "K1A", "20m", "CW", now - 5));
+    list.add(spot(SpotSource::Cluster, "K1B", "20m", "CW", now - 6));
+    CHECK(list.spots().size() == 3 && list.spots()[0].activator == "K1A" && list.spots()[2].comments == "again", "at most the limit, the newest");
+    list.prune(now, 7);
+    CHECK(list.spots().size() == 2, "pruned by age");
+    list.replace(SpotSource::Spothole, {madison});
+    CHECK(list.spots().size() == 3 && list.spots()[0].activator == "K1A", "a whole feed replaced, in time order");
+    list.clear(SpotSource::Cluster);
+    CHECK(list.spots().size() == 1 && list.spots()[0].source == SpotSource::Spothole, "a feed's spots cleared");
+
+    Spot older = berlin;
+    older.epoch = now - 900;
+    older.comments = "older";
+    std::vector<Spot> latest = latestPerStation({older, berlin, spot(SpotSource::Cluster, "DL1ABC", "40m", "CW", now - 30)});
+    CHECK(latest.size() == 2 && latest[0].band == "40m" && latest[1].epoch == now - 120, "one spot per station and band, the newest");
+}
+
+// A DX cluster: telnet bytes to lines, spot lines, prompts.
+static void testCluster() {
+    TelnetLines tl;
+    std::vector<std::string> lines;
+    std::string reply;
+    // Will ECHO, Do terminal type, a subnegotiation, IAC IAC, a bell, CR LF and a prompt.
+    std::string in = std::string("Welcome\r\n\xFF\xFB\x01\xFF\xFD\x18\xFF\xFA\x18\x01\xFF\xF0log") + "\xFF\xFF" + "in\a: ";
+    tl.feed(in.substr(0, 9), &lines, &reply);  // split mid-command
+    tl.feed(in.substr(9), &lines, &reply);
+    CHECK(lines.size() == 1 && lines[0] == "Welcome" && tl.pending() == "login: " && reply == std::string("\xFF\xFE\x01\xFF\xFC\x18"),
+          "telnet: options refused, subnegotiation skipped, a prompt left pending (%zu, '%s')", lines.size(), tl.pending().c_str());
+    reply.clear();
+    tl.feed("\xFF\xFB\x01one\rtwo\nthree\r\n\r\n", &lines, &reply);
+    CHECK(reply.empty() && lines.size() == 5 && lines[1] == "login: one" && lines[2] == "two" && lines[3] == "three" && lines[4].empty(),
+          "telnet: an option refused once only; CR, LF and CR LF end lines");
+    TelnetLines shortLines(8);
+    lines.clear();
+    shortLines.feed("0123456789abc\n", &lines, nullptr);
+    CHECK(lines.size() == 1 && lines[0] == "01234567", "telnet: an overlong line cut");
+
+    long long now = 1791407517;  // 2026-10-07 21:11:57 UTC
+    Spot sp;
+    CHECK(parseClusterSpot("DX de G4XYZ:     14285.0  M0TRT/P      SSB POTA GB-0001 tnx 73         1234Z", now, &sp) && sp.spotter == "G4XYZ" &&
+              sp.activator == "M0TRT/P" && sp.khz == "14285" && sp.band == "20m" && sp.mode == "SSB" && sp.comments == "SSB POTA GB-0001 tnx 73" &&
+              sp.time == "12:34" && sp.epoch == now - (21 * 3600 + 11 * 60 + 57) + 12 * 3600 + 34 * 60 && sp.source == SpotSource::Cluster && !sp.hasSnr,
+          "a DXSpider spot line (DXSpider wiki)");
+    CHECK(parseClusterSpot("DX de DJ9IE-#:    14034.9 UN7BBD       CW   4dB Q:5*+              17 1444Z 14", now, &sp) && sp.spotter == "DJ9IE-#" &&
+              sp.khz == "14034.9" && sp.mode == "CW" && sp.hasSnr && sp.snr == 4 && sp.comments == "CW 4dB Q:5*+" && sp.grid.empty(),
+          "an RBN spot through DXSpider, its zones dropped (%s)", sp.comments.c_str());
+    CHECK(parseClusterSpot("DX de WE9V-#:      7074.0 EA7ALL       FT8 -9dB Q:2+ Z:5           14 0641Z  4", now, &sp) && sp.mode == "FT8" &&
+              sp.snr == -9 && sp.band == "40m",
+          "a negative report");
+    CHECK(parseClusterSpot("DX de WE9V-#: 10118.0 N5JCB CW 15 dB 10 WPM CQ 2259Z", now, &sp) && sp.snr == 15 && sp.band == "30m" && sp.time == "22:59" &&
+              sp.epoch < now && now - sp.epoch < 86400,
+          "an RBN relay line; a time ahead of now is yesterday's");
+    CHECK(parseClusterSpot("DX de K1TTT:      7012.0  JA1XYZ       up 1 FN42                       0712Z FN32", now, &sp) && sp.grid == "FN42" &&
+              sp.spotterGrid == "FN32" && sp.comments == "up 1",
+          "the grids a node adds: the station's and the spotter's");
+    CHECK(parseClusterSpot("DX de N0CALL:   1296000.0  W1AW         EME                            0100Z\a\a", now, &sp) && sp.khz == "1296000" &&
+              sp.band == "23cm",
+          "bells after the line");
+    CHECK(!parseClusterSpot("WWV de VE7CC <18>:   SFI=150, A=5, K=1, No Storms -> No Storms", now, nullptr) &&
+              !parseClusterSpot("WCY de DK0WCY-1 <17> : K=2 expK=2 A=8 R=95 SFI=150 SA=qui GMF=qui Au=no", now, nullptr) &&
+              !parseClusterSpot("To ALL de W1AW: hello", now, nullptr) && !parseClusterSpot("DX de W1AW: 14025.0 JA1XYZ cq", now, nullptr) &&
+              !parseClusterSpot("DX de W1AW: 14x25.0 JA1XYZ cq 1234Z", now, nullptr) &&
+              !parseClusterSpot("DX de W1AW: 14025.0 ---- cq 1234Z", now, nullptr) &&
+              !parseClusterSpot("DX de W1AW: 14025.0 JA1XYZ cq 2575Z", now, nullptr) && !parseClusterSpot("", now, nullptr),
+          "other lines aren't spots");
+    CHECK(clusterPrompt("Please enter your login: ") == ClusterPrompt::Login && clusterPrompt("login:") == ClusterPrompt::Login &&
+              clusterPrompt("Please enter your call: ") == ClusterPrompt::Login && clusterPrompt("password: ") == ClusterPrompt::Password &&
+              clusterPrompt("Sorry N0T is an invalid callsign") == ClusterPrompt::Refused && clusterPrompt("Hello, welcome") == ClusterPrompt::None,
+          "prompts");
+
+    Spot dx;
+    dx.source = SpotSource::Cluster, dx.activator = "JA1XYZ", dx.khz = "14074", dx.mode = "FT8", dx.grid = "pm95vq";
+    std::vector<std::pair<std::string, std::string>> fields = spotQsoFields(dx);
+    auto has = [&](const char *k, const char *v) {
+        for (const auto &f : fields)
+            if (f.first == k) return f.second == v;
+        return false;
+    };
+    CHECK(has("CALL", "JA1XYZ") && has("FREQ", "14.074") && has("BAND", "20m") && has("MODE", "FT8") && has("GRIDSQUARE", "PM95vq"),
+          "a cluster spot as New QSO fields, with its grid");
+
+    // PSKReporter: the documentation's sample (unquoted numbers), and a fuller report.
+    std::vector<Spot> reports;
+    std::string why;
+    CHECK(parsePskReports("<receptionReports> <receptionReport receiverCallsign=\"KB1MBX\" receiverLocator=\"FN42hn\" senderCallsign=\"N1DQ\" "
+                          "frequency=14070987 flowStartSeconds=1791407000 /> </receptionReports>",
+                          &reports, &why) &&
+              reports.size() == 1 && reports[0].activator == "KB1MBX" && reports[0].grid == "FN42hn" && reports[0].spotter == "N1DQ" &&
+              reports[0].khz == "14070.987" && reports[0].band == "20m" && reports[0].epoch == 1791407000 && reports[0].source == SpotSource::PskReporter,
+          "PSKReporter's sample report: a station that heard N1DQ (%s)", why.c_str());
+    CHECK(parsePskReports("<?xml version=\"1.0\"?><receptionReports currentSeconds=\"1791407517\"><activeReceiver callsign=\"X\"/>"
+                          "<receptionReport receiverCallsign='ja1xyz' receiverLocator='PM95vq' senderCallsign='K9ABC' senderLocator='EN53xb' "
+                          "frequency='7074123' flowStartSeconds='1791407400' mode='FT8' sNR='-12' />"
+                          "<receptionReport receiverCallsign=\"\" frequency=\"14074000\" flowStartSeconds=\"1791407400\"/>"
+                          "<receptionReport receiverCallsign=\"DL1&amp;X\" frequency=\"x\" flowStartSeconds=\"1791407400\"/></receptionReports>",
+                          &reports, &why) &&
+              reports.size() == 1 && reports[0].activator == "JA1XYZ" && reports[0].spotterGrid == "EN53xb" && reports[0].mode == "FT8" &&
+              reports[0].hasSnr && reports[0].snr == -12 && reports[0].band == "40m",
+          "a fuller report; ones without a call or frequency skipped");
+    CHECK(!parsePskReports("<html>Too many requests</html>", &reports, &why) && !why.empty() && reports.empty(), "an answer that isn't reports");
+    CHECK(pskQueryUrl(" k9abc ", 1800, "me@example.org") ==
+                  "https://retrieve.pskreporter.info/query?senderCallsign=K9ABC&flowStartSeconds=-1800&rronly=1&appcontact=me%40example.org" &&
+              pskQueryUrl("K9ABC/P", 999999, "") == "https://retrieve.pskreporter.info/query?senderCallsign=K9ABC%2FP&flowStartSeconds=-86400&rronly=1",
+          "the PSKReporter query");
+}
+
 int main(int argc, char **argv) {
     testStructure();
     testHeader();
@@ -3600,6 +3774,8 @@ int main(int argc, char **argv) {
     testPmtiles();
     testMvt();
     testI18n();
+    testSpotsCore();
+    testCluster();
     testProjections();
     testPalettes();
     for (int i = 1; i < argc; ++i)

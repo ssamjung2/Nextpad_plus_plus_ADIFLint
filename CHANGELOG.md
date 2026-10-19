@@ -9,7 +9,23 @@ Versions before 0.8.0 were development builds and were not published.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-19
+
 ### Added
+
+- **Map → Spots**: a layer of the stations spotted now, a dot in a ring in each one's band
+  colour, fading as the spot ages; **Overlay** draws a line from each spotter, **Labels**
+  the calls. **Spots…** in the Filters row chooses how new (10 minutes, 30 minutes or an
+  hour), which sources and which program, and says what each source is doing; the Map's
+  band, mode and place filters apply too. Click a spot for who spotted it, when, and whether
+  it's in the log, and **Use in New QSO** to fill New QSO from it. Nothing is fetched until
+  Show is ticked, and only while the Map is open.
+- **Settings → Spots**: where the Map's spots come from. **Spothole** (on at first, every 2
+  minutes; SOTA left out); **a DX cluster** over telnet, logged in with your callsign, with
+  commands to send after logging in (such as `set/skimmer`), reconnecting with growing
+  pauses and stopping if the node wants a password or refuses the login; **PSKReporter**,
+  the stations that heard your callsign in the last hour, no more than every 5 minutes, with
+  an optional contact email for PSKReporter.
 
 - **Map → layers**: a grid of layers (grid squares, countries, US states, US counties, CQ
   zones, ITU zones, POTA, IOTA, cities), each with **Show**, **Overlay** and **Labels**.
@@ -509,7 +525,8 @@ First public release.
 - **Fix Lengths**, as one undo step, and **Count Lengths in Characters**.
 - The `adiflint` command-line tool.
 
-[Unreleased]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.0.0...v1.0.1

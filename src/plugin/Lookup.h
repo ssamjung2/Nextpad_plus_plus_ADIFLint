@@ -101,6 +101,16 @@ void ADIFFetchSpotholePrograms(NSString *agent, void (^done)(NSArray<NSDictionar
 // Spots of these programs (comma-separated names), not QRT, from the last hour (GET /api/v3/spots).
 // Test mode: <fake dir>/spothole/spots.json.
 void ADIFFetchSpotholeSpots(NSString *agent, NSString *programs, void (^done)(NSArray<NSDictionary *> *spots, NSString *error));
+// The Map's spots: these programs' (NO_ACTIVITY for plain DX spots from clusters and the RBN), not
+// QRT, at most 1000, received after `receivedSince` (Spothole's received_time, for the next poll)
+// or, when it is 0, in the last `maxAge` seconds (spothole.app/static/apidocs/openapi.yml, read
+// 2026-10-19). Test mode: <fake dir>/spothole/map-spots.json, the query noted in uploads.log.
+void ADIFFetchSpotholeMapSpots(NSString *agent, NSString *programs, long long receivedSince, long long maxAge,
+                               void (^done)(NSArray<NSDictionary *> *spots, NSString *error));
+// PSKReporter's reception reports for a query (adif::pskQueryUrl), as text. PSKReporter asks for
+// no more than one query every five minutes (pskreporter.info/pskdev.html, read 2026-10-19): the
+// caller keeps to that. Test mode: <fake dir>/pskreporter/query.xml, the query noted in uploads.log.
+void ADIFFetchPskReports(NSString *agent, NSString *url, void (^done)(NSData *xml, NSString *error));
 // ARRL's LoTW user activity list, https://lotw.arrl.org/lotw-user-activity.csv (about 6 MB).
 // Test mode: <fake dir>/lotw/lotw-user-activity.csv.
 void ADIFDownloadLotwUsers(NSString *agent, void (^done)(NSData *body, NSString *error));

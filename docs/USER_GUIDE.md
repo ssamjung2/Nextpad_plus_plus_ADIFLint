@@ -393,7 +393,9 @@ macOS may ask whether Nextpad++ may accept incoming connections.
 ## Spots
 
 **Spots (POTA, WWFF, More)…** (or **Spots…** in New QSO) lists the activators spotted now,
-with band and mode filters and a search box. The popup at the top chooses where from:
+with band and mode filters and a search box. (The Map can also show spots, from Spothole, a
+DX cluster and PSKReporter: see [Spots on the map](#spots-on-the-map).) The popup at the
+top chooses where from:
 
 - **POTA** (`api.pota.app`) or **WWFF** (`spots.wwff.co`), refreshed every minute while the
   window is open.
@@ -496,9 +498,9 @@ largest at first, smaller ones as you zoom in), country borders, state and provi
 from 2.5×, and towns' built-up areas at 1:10m. Every choice is remembered.
 
 At the top, a grid of layers (grid squares, countries, US states, US counties, CQ zones, ITU
-zones, POTA, IOTA, cities) with three rows of boxes: **Show**, **Overlay** and **Labels**.
-Then **Markers** (contacts, lines, other programs, your station, and how to colour them),
-**Filters** (which QSOs), and a row to zoom, jump to a **Region**, choose the projection,
+zones, POTA, IOTA, cities, spots) with three rows of boxes: **Show**, **Overlay** and
+**Labels**. Then **Markers** (contacts, lines, other programs, your station, and how to colour
+them), **Filters** (which QSOs, and **Spots…**), and a row to zoom, jump to a **Region**, choose the projection,
 open **Style Options…** and **Export PNG…**. Under the map, a list shows the QSOs of
 whatever you click, and the status line says what is under the pointer.
 
@@ -584,6 +586,49 @@ and every line that has values must match:
 
 The button shows how many places are chosen ("More Filters (2)…"); **Clear** shows every
 QSO again.
+
+### Spots on the map
+
+The **Spots** layer marks the stations spotted now, live, beside your log:
+
+- **Show** fetches the spots and marks each station: a dot in a ring in its band's colour,
+  solid for 10 minutes and fainter as it ages. A station spotted on several bands has a
+  marker for each band, from its newest spot.
+- **Overlay** draws a line from each spotter to the station it heard, while Show is on.
+  With PSKReporter, these are the stations that heard you.
+- **Labels** writes each station's call beside it, where there's room.
+
+Where the spots come from is set in **Settings → Spots** (see [Settings](#settings)):
+Spothole at first, and a DX cluster and PSKReporter when you turn them on. Nothing is
+fetched until you tick Show, and only while the Map is open: closing the Map, or unticking
+Show, stops the polling and closes the cluster's connection. Nothing at all is fetched in
+[Offline mode](#offline-mode).
+
+A station is placed where the spot says it is: Spothole's place for it, or a grid in the
+spot (a cluster node's, or the locator a PSKReporter receiver gives). Otherwise it is at the
+country data's place for its call, often the middle of the country. A spotter is placed the
+same way.
+
+**Spots…** in the Filters row chooses which spots show:
+
+- **Newer than:** 10 minutes, 30 minutes (at first) or 1 hour.
+- **From:** Spothole, DX cluster and PSKReporter; the ones turned off in Settings are
+  greyed out.
+- **Program:** all programs, plain DX spots only (no program reference), or one program
+  (POTA, WWFF, GMA…) among the spots now.
+- **Settings…** opens Settings at Spots.
+
+Below them, the number of stations on the map and of spots received, and what each source
+is doing ("Spothole: 42 new spots at 14:02 UTC (every 2 minutes)", "DX cluster: connected
+to dxc.hamserve.uk:7300 as N0CALL."). The Map's band and mode filters and **More Filters**'
+places apply to spots too; the dates and confirmation don't.
+
+Click a spot for what it is, in the status line: "K1ABC on 14074 kHz FT8 at POTA US-1234
+(a park's name), spotted 3 minutes ago by W1AW (Spothole); worked on other bands.", with the
+spot's comment, and the distance and bearing from your grid (Settings, else the log's most used MY_GRIDSQUARE). **Use in New QSO**, beside the
+status line, fills New QSO from it as the Spots window does: CALL, FREQ, BAND, MODE and the
+program's reference, or GRIDSQUARE when a cluster or PSKReporter spot gives the station's
+grid.
 
 ### Contacts and their places
 
@@ -1114,6 +1159,26 @@ Rules for every source:
   Lint isn't affiliated with Parks on the Air.
 - **Map Detail:** OpenStreetMap streets and buildings for the regions you download (see
   [Map Detail](#map-detail-streets-and-buildings)).
+- **Spots:** where the Map's Spots layer gets its spots (see
+  [Spots on the map](#spots-on-the-map)); nothing is fetched until you tick Show under Spots
+  on the Map.
+  - **Spothole** (ticked at first): spothole.app's spots every 2 minutes, from POTA, WWFF,
+    GMA and other programs, and the DX clusters and Reverse Beacon Network it reads; SOTA
+    left out. It never sends a login.
+  - **A DX cluster (telnet)**: **Node** is the cluster's `host:port`; the list suggests
+    `dxc.hamserve.uk:7300` (a DXSpider node, G1FEF) and `spothole.app:7300` (Spothole's
+    DXSpider node). **Login** is the callsign to log in with, your callsign from Your
+    Station when empty. **Then send** takes commands to send after logging in, `;` between
+    them; they are the node's own (see its `help`), for example `set/skimmer` for Reverse
+    Beacon Network spots on a DXSpider node. ADIF Lint keeps one connection, reconnects
+    after 15 seconds, then 30, and so on up to 10 minutes, and stops if the node asks for a
+    password (it never logs in with one) or refuses the login. The connection is plain
+    telnet, unencrypted, as DX clusters are.
+  - **PSKReporter**: the stations that heard your callsign in the last hour
+    (`retrieve.pskreporter.info`), asked no more than every 5 minutes, as PSKReporter asks.
+    **Your email** is optional: PSKReporter asks the programs that query it for a contact
+    address (its `appcontact`), and ADIF Lint sends one only if you enter it.
+  - **Save** applies the changes; the line under it says what each source is doing.
 - **IOTA Groups:** **Download** fetches IOTA's list of island groups (`iota-world.org`,
   about 290 KB) for the Map's IOTA overlay; download again to update it. The list is
   © RSGB and IOTA Ltd, who allow downloading it for personal non-commercial use, so it
@@ -1140,7 +1205,7 @@ Where things are kept:
   language tables (`lang/`) beside the plugin, in
   `~/Library/Application Support/Nextpad++/plugins/ADIFLint/`.
 
-All requests use HTTPS. The QRZ.com sign-in is sent as a POST, so the password isn't in
+All requests use HTTPS, except a DX cluster's telnet connection. The QRZ.com sign-in is sent as a POST, so the password isn't in
 a URL. HamQTH's sign-in, LoTW's report API and eQSL's DownloadInBox take the login as
 parameters of their HTTPS address, as those services document it.
 
@@ -1151,7 +1216,7 @@ offline**) stops every network request ADIF Lint makes, for off-grid operating o
 nothing is sent:
 
 - callbook lookups (New QSO, Enrich) and sign-in tests;
-- the Spots window;
+- the Spots window, and the Map's spots (Spothole, the DX cluster and PSKReporter);
 - uploads, TQSL included, and imports from LoTW, QRZ.com Logbook and eQSL;
 - the downloads in Settings (country data, LoTW users, POTA parks, IOTA groups, Map Detail),
   and the weekly LoTW users refresh;
@@ -1231,7 +1296,11 @@ The log tools work on one file and never change it.
 - Trailing spaces inside data are legal, so a length that includes one is not flagged.
 - Enrich, Import, the uploads and spots were tested against saved sample replies and a
   stand-in TQSL, not the live services. The POTA spot format was checked against the live
-  feed on 2026-10-07.
+  feed on 2026-10-07. The DX cluster client was tested against a stand-in node on the Mac,
+  with spot lines in the format DXSpider's source writes them (read 2026-10-19), and
+  PSKReporter's reports against the format its developer page documents (read 2026-10-19).
+- A spot that doesn't say where the station is goes at the country data's place for its
+  call, so spots from a large country gather at its middle.
 - TQSL must have the Station Location set up. A certificate password saved in Settings is
   passed on TQSL's command line (the only way TQSL takes it in batch mode), where other
   programs on your Mac could see it while TQSL runs.

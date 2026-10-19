@@ -78,7 +78,7 @@
 #include <vector>
 
 #ifndef ADIFLINT_VERSION
-#define ADIFLINT_VERSION "1.2.0"
+#define ADIFLINT_VERSION "1.3.0"
 #endif
 
 static const char kPluginName[] = "ADIF Lint";
@@ -2111,7 +2111,8 @@ static void useSpot(const std::vector<std::pair<std::string, std::string>> &fiel
         if (!qsoVisible()) cmdNewQso();
         if (!qsoVisible()) return;
         NppHandle h = currentScintilla();
-        if (!qsoHasField("SIG_INFO") && !qsoHasField("POTA_REF") && !qsoHasField("WWFF_REF")) {
+        bool program = std::any_of(fields.begin(), fields.end(), [](const auto &f) { return f.first == "SIG"; });  // not a plain DX spot
+        if (program && !qsoHasField("SIG_INFO") && !qsoHasField("POTA_REF") && !qsoHasField("WWFF_REF")) {
             std::map<std::string, std::string> typed;
             for (const auto &v : [g.qso values]) typed[v.first] = v.second;
             for (const char *name : {"SIG", "SIG_INFO"})
@@ -2898,6 +2899,7 @@ extern "C" NPP_EXPORT void beNotified(SCNotification *n) {
                     if (qsoVisible()) scheduleQsoCheck();
                 });
                 logtools::setSpotHandler(^(const std::vector<std::pair<std::string, std::string>> &fields) { useSpot(fields); });
+                worldmap::setSpotHandler(^(const std::vector<std::pair<std::string, std::string>> &fields) { useSpot(fields); });
                 if (g.panelWanted) showPanel(true);
                 schedule(0.1);
                 dispatch_async(dispatch_get_main_queue(), ^{ monitor::startIfWanted(); });

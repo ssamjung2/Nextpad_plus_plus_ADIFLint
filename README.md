@@ -29,7 +29,9 @@ offline map, and QSL sync with LoTW, QRZ.com, Club Log and eQSL.
   way the program asks, writes the activation's fields into every QSO, counts toward the
   goal ("US-7929 today: 8 of 10"), and exports the files each program wants.
 - **Spots from everywhere.** POTA, WWFF and dozens more programs through Spothole, with
-  parks you haven't worked marked NEW; double-click one to log it.
+  parks you haven't worked marked NEW; double-click one to log it. On the Map, the stations
+  spotted now from Spothole, a DX cluster you log in to with your callsign, and
+  PSKReporter's reports of who heard you.
 - **Captures QSOs from your other programs.** **Monitor** adds what WSJT-X, JTDX, JS8Call,
   N1MM Logger+, GridTracker and other loggers log, as they log it. It only listens.
 - **Maps your log, offline.** A globe or a flat map with the squares, countries, US states
@@ -120,6 +122,11 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
   placeholders), other programs' references, **lines to contacts** in their contacts'
   colours, and **distance rings**.
 - **Filters** by band, mode, date and confirmation, and **More Filters** by place.
+- **Spots**: the stations spotted now, from Spothole, a DX cluster (telnet, logged in with
+  your callsign) and PSKReporter's reports of who heard you, in their band's colours and
+  fading with age, with a line from each spotter if you like; filtered by age, source and
+  program as well as the Map's band, mode and places. Click one for who spotted it and
+  whether it's in your log, then **Use in New QSO**.
 - **Map Detail**: OpenStreetMap's streets, buildings and place names for a state, a country
   or the area in view, downloaded once from Protomaps' build and drawn offline.
 - **Style Options**: **Colour by** confirmation, band (PSKReporter's colours), mode, QSO
@@ -246,7 +253,7 @@ the file.
 ## Privacy and network
 
 ADIF Lint only goes online when you use a command that needs it, and every request uses
-HTTPS. **Offline Mode** (in the menu, or Settings) stops every request below, TQSL and
+HTTPS, except a DX cluster's telnet connection (below). **Offline Mode** (in the menu, or Settings) stops every request below, TQSL and
 links to web pages too, until you turn it off; Monitor still listens to the programs on
 your Mac.
 
@@ -261,6 +268,9 @@ your Mac.
 | POTA | `api.pota.app` | The Spots window (POTA), every minute while it is open | Nothing but the request |
 | WWFF | `spots.wwff.co` | The Spots window (WWFF), every minute while it is open | Nothing but the request |
 | Spothole | `spothole.app` | The Spots window (More programs), every 2 minutes while it is open | The programs asked for (never a login) |
+| Spothole, for the Map | `spothole.app` | Map → Spots → Show, with Spothole ticked in Settings → Spots (it is at first): every 2 minutes while the Map is open | The programs asked for and the time of the last spot received (never a login) |
+| A DX cluster | The node you choose in Settings → Spots (none at first) | Map → Spots → Show, with DX cluster ticked: one telnet connection while the Map is open | Your callsign as the login, then the commands you set (unencrypted) |
+| PSKReporter | `retrieve.pskreporter.info` | Map → Spots → Show, with PSKReporter ticked: no more than every 5 minutes while the Map is open | Your callsign, and your email if you give one |
 | Country files | `www.country-files.com` | Settings → Country Data → Update | Nothing but the request |
 | LoTW user list | `lotw.arrl.org` | Settings → LoTW Users → Update, and weekly while it is on | Nothing but the request |
 | POTA park list | `pota.app` | Settings → POTA Parks → Download | Nothing but the request |
@@ -274,6 +284,11 @@ your Mac.
   it.
 - **TQSL** runs on your Mac for LoTW uploads. A certificate password you save is passed on
   its command line, where other programs on your Mac could see it while TQSL runs.
+- **A DX cluster** is plain telnet, as DX clusters are: your callsign and everything the
+  node sends travel unencrypted. ADIF Lint never logs in to one with a password, and closes
+  the connection when the Map is closed or Show is unticked.
+- **PSKReporter** asks the programs that query it for a contact email (its `appcontact`);
+  ADIF Lint sends one only if you enter it in Settings → Spots.
 - **Monitor** listens and never sends: on the UDP and TCP ports you tick, on `127.0.0.1`
   only unless you tick Accept from other computers. It writes only to the log you chose and
   to its queue file in the plugin config folder.
@@ -313,7 +328,11 @@ and the release steps.
 - Nextpad++ doesn't let plugins supply a lexer or write to the status bar, so colours are
   painted for the lines on screen, and summaries appear in a tip at the caret.
 - Only the active document is checked.
-- The online services were tested against saved sample replies, not the live services.
+- The online services were tested against saved sample replies, not the live services;
+  the DX cluster against a stand-in node on the Mac, with spot lines in the format of
+  DXSpider's source code.
+- A spot that doesn't say where the station is (Spothole's place, or a grid) is drawn at
+  the country data's place for its call, often the middle of the country.
 - No SOTA spots: the SOTA API's terms don't allow software written with AI tools without
   the SOTA team's approval. SOTA tracking and export work offline.
 - Club Log offers no documented way to download QSOs or confirmations, so there is no

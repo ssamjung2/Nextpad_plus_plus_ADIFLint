@@ -17,7 +17,9 @@
 #include <ctime>
 #include <dlfcn.h>
 #include <fstream>
+#include <set>
 #include <sstream>
+#include <tuple>
 
 using namespace adifhost;
 using namespace mapkit;
@@ -1004,5 +1006,100 @@ using namespace mapkit;
         }
 }
 
+
+// ── Spots ──
+
+// A spot: a dot inside a ring, in its band's colour, like a station calling.
+- (NSBezierPath *)spotMarkerAt:(NSPoint)p {
+    double r = 3 * _style.marker, ring = 6 * _style.marker;
+    NSBezierPath *m = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(p.x - r, p.y - r, 2 * r, 2 * r)];
+    [m appendBezierPath:[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(p.x - ring, p.y - ring, 2 * ring, 2 * ring)]];
+    return m;
+}
+
+// Newer spots solid, older ones fainter: full for the first 10 minutes, then down to 0.45 at the
+// Spots filter's age (or an hour).
+- (CGFloat)spotAlpha:(const ADIFMapSpot &)s {
+    if (s.spot.epoch <= 0 || _spotsNow <= 0) return 1;
+    double age = (double)(_spotsNow - s.spot.epoch), span = _spotMaxAge > 600 ? (double)_spotMaxAge : 3600;
+    if (age <= 600) return 1;
+    return (CGFloat)std::max(0.45, 1 - 0.55 * (age - 600) / std::max(1.0, span - 600));
+}
+
+// Overlay: a line from each spotter to the station it heard, in the band's colour.
+- (void)drawSpotLines:(MapDrawCtx &)d {
+    if (!_style[kLayerSpots].show || !_style[kLayerSpots].overlay) return;
+    std::set<std::tuple<long, long, long, long>> drawn;
+    for (const ADIFMapSpot &s : _spots) {
+        if (!s.hasSpotter) continue;
+        if (!drawn.insert({std::lround(s.spotterLat * 10), std::lround(s.spotterLon * 10), std::lround(s.lat * 10), std::lround(s.lon * 10)}).second)
+            continue;
+        NSBezierPath *path = [self viewPath:adif::greatCirclePath(s.spotterLat, s.spotterLon, s.lat, s.lon, 3) close:NO wraps:YES];
+        path.lineWidth = 0.8;
+        path.lineJoinStyle = NSLineJoinStyleRound;
+        [[[self bandColor:s.spot.band] colorWithAlphaComponent:0.45 * [self spotAlpha:s]] setStroke];
+        [path stroke];
+    }
+}
+
+// Show: a marker at each station spotted; Labels: its call beside it, where there's room.
+- (void)drawSpots:(MapDrawCtx &)d {
+    if (!_style[kLayerSpots].show) return;
+    const MapPalette &pal = *d.pal;
+    CGFloat ink = d.ink;
+    NSShadow *halo = [[NSShadow alloc] init];
+    halo.shadowColor = [NSColor colorWithCalibratedWhite:pal.dark ? 0 : 1 alpha:0.9];
+    halo.shadowBlurRadius = 2;
+    NSDictionary *attrs = @{NSFontAttributeName : [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightSemibold],
+                            NSForegroundColorAttributeName : [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.9], NSShadowAttributeName : halo};
+    std::vector<NSRect> taken = d.taken;
+    // The oldest first, so the newest are on top.
+    for (size_t k = _spots.size(); k-- > 0;) {
+        const ADIFMapSpot &s = _spots[k];
+        NSPoint p = [self viewPointForLon:s.lon lat:s.lat];
+        if (!NSPointInRect(p, NSInsetRect(d.b, -12, -12))) continue;
+        bool lit = (_hover.kind == ADIFMapHit::Spot && _hover.index == k) || (_selected.kind == ADIFMapHit::Spot && _selected.index == k);
+        CGFloat alpha = [self spotAlpha:s];
+        NSColor *c = [[self bandColor:s.spot.band] colorWithAlphaComponent:alpha];
+        double r = 3 * _style.marker, ring = 6 * _style.marker;
+        NSBezierPath *dot = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(p.x - r, p.y - r, 2 * r, 2 * r)];
+        NSBezierPath *circle = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(p.x - ring, p.y - ring, 2 * ring, 2 * ring)];
+        [c setFill];
+        [dot fill];
+        circle.lineWidth = lit ? 2.2 : 1.4;
+        [c setStroke];
+        [circle stroke];
+        [[NSColor colorWithCalibratedWhite:lit ? ink : (pal.dark && darkColour(c) ? 1 : 0) alpha:lit ? 1 : 0.7 * alpha] setStroke];
+        dot.lineWidth = lit ? 1.4 : 0.8;
+        [dot stroke];
+    }
+    if (!_style[kLayerSpots].labels) return;
+    for (size_t k = 0; k < _spots.size() && k < 400; ++k) {  // the newest first get the room
+        const ADIFMapSpot &s = _spots[k];
+        NSPoint p = [self viewPointForLon:s.lon lat:s.lat];
+        NSString *text = ADIFString(s.spot.activator);
+        NSSize sz = [text sizeWithAttributes:attrs];
+        double gap = 6 * _style.marker + 2;
+        NSRect r = NSMakeRect(p.x + gap, p.y - sz.height / 2, sz.width, sz.height);
+        if (!NSIntersectsRect(r, d.b)) continue;
+        bool clear = true;
+        for (const NSRect &t : taken) clear &= !NSIntersectsRect(NSInsetRect(t, -2, -1), r);
+        if (!clear) continue;
+        [text drawAtPoint:r.origin withAttributes:attrs];
+        taken.push_back(r);
+    }
+}
+
+- (size_t)spotAt:(NSPoint)p {
+    if (!_style[kLayerSpots].show) return (size_t)-1;
+    size_t best = (size_t)-1;
+    double bestDistance = 6 * _style.marker + 2;
+    for (size_t k = 0; k < _spots.size(); ++k) {  // newest first: on top
+        NSPoint q = [self viewPointForLon:_spots[k].lon lat:_spots[k].lat];
+        double dist = std::hypot(q.x - p.x, q.y - p.y);
+        if (dist < bestDistance) best = k, bestDistance = dist - 0.01;
+    }
+    return best;
+}
 
 @end

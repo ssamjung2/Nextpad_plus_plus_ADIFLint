@@ -4461,6 +4461,215 @@ int main(int argc, char **argv) {
                 [setw orderOut:nil];
             }
 
+            // ── Spots: Spothole and PSKReporter from fixtures written now (their times matter), and a
+            // DX cluster on a loopback port that sends a login prompt and, once logged in, a spot. ──
+            {
+                long long now = (long long)time(nullptr);
+                NSString *spotDir = [tmp stringByAppendingPathComponent:@"spotfeeds"];
+                for (NSString *sub in @[ @"spothole", @"pskreporter" ])
+                    [[NSFileManager defaultManager] createDirectoryAtPath:[spotDir stringByAppendingPathComponent:sub]
+                                              withIntermediateDirectories:YES
+                                                               attributes:nil
+                                                                    error:nil];
+                [[NSFileManager defaultManager] copyItemAtPath:[@(argv[2]) stringByAppendingPathComponent:@"spothole/options.json"]
+                                                        toPath:[spotDir stringByAppendingPathComponent:@"spothole/options.json"]
+                                                         error:nil];
+                NSString *mapSpots = [NSString stringWithFormat:
+                    @"[{\"id\":\"m1\",\"dx_call\":\"JA1XYZ\",\"freq\":14025000,\"mode\":\"CW\",\"time\":%lld,\"activities\":[],\"activity_refs\":[],"
+                    @"\"dx_grid\":\"PM95\",\"dx_latitude\":35.6,\"dx_longitude\":139.7,\"dx_location_good\":false,\"de_call\":\"W3LPL-#\","
+                    @"\"de_latitude\":39.3,\"de_longitude\":-76.6,\"comment\":\"CW 20 dB 25 WPM CQ\",\"source\":\"RBN\",\"received_time\":%lld},"
+                    @"{\"id\":\"m2\",\"dx_call\":\"K9ABC\",\"freq\":7185000,\"mode\":\"SSB\",\"time\":%lld,\"activities\":[\"POTA\"],"
+                    @"\"activity_refs\":[{\"id\":\"US-1234\",\"activity\":\"POTA\",\"name\":\"Test Park\",\"grid\":\"EN53xb\"}],\"dx_latitude\":43.07,"
+                    @"\"dx_longitude\":-89.4,\"dx_location_good\":true,\"de_call\":\"N9XYZ\",\"source\":\"POTA\",\"received_time\":%lld},"
+                    @"{\"id\":\"m3\",\"dx_call\":\"W7SOTA\",\"freq\":14062000,\"mode\":\"CW\",\"time\":%lld,\"activities\":[\"SOTA\"],"
+                    @"\"activity_refs\":[{\"id\":\"W7A/AE-001\"}],\"source\":\"SOTA\",\"received_time\":%lld},"
+                    @"{\"id\":\"m4\",\"dx_call\":\"VK2OLD\",\"freq\":14025000,\"mode\":\"CW\",\"time\":%lld,\"source\":\"Cluster\",\"received_time\":%lld}]",
+                    now - 300, now - 290, now - 120, now - 100, now - 60, now - 50, now - 5000, now - 4990];
+                [mapSpots writeToFile:[spotDir stringByAppendingPathComponent:@"spothole/map-spots.json"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
+                NSString *psk = [NSString stringWithFormat:
+                    @"<?xml version=\"1.0\"?><receptionReports><receptionReport receiverCallsign=\"G4RCV\" receiverLocator=\"IO91wm\" "
+                    @"senderCallsign=\"K9TST\" senderLocator=\"EN52\" frequency=\"14074123\" flowStartSeconds=\"%lld\" mode=\"FT8\" sNR=\"-15\" />"
+                    @"</receptionReports>", now - 200];
+                [psk writeToFile:[spotDir stringByAppendingPathComponent:@"pskreporter/query.xml"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
+                std::string fixtures = getenv("ADIFLINT_FAKE_LOOKUP_DIR") ?: "";
+                setenv("ADIFLINT_FAKE_LOOKUP_DIR", spotDir.UTF8String, 1);
+                NSString *spotLog = [spotDir stringByAppendingPathComponent:@"uploads.log"];
+                auto requests = [&]() {
+                    return std::string(([NSString stringWithContentsOfFile:spotLog encoding:NSUTF8StringEncoding error:nil] ?: @"").UTF8String);
+                };
+                auto count = [](const std::string &hay, const std::string &needle) {
+                    size_t n = 0;
+                    for (size_t p = hay.find(needle); p != std::string::npos; p = hay.find(needle, p + 1)) ++n;
+                    return n;
+                };
+
+                // The cluster: "login: ", then after the call a spot at today's time; it notes what it heard and when it closed.
+                __block std::string heard;
+                __block bool clientClosed = false;
+                int lfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+                sockaddr_in a{};
+                a.sin_family = AF_INET;
+                a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+                socklen_t alen = sizeof a;
+                bind(lfd, (sockaddr *)&a, sizeof a);
+                listen(lfd, 2);
+                getsockname(lfd, (sockaddr *)&a, &alen);
+                int clusterPort = ntohs(a.sin_port);
+                dispatch_source_t acceptSrc = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, (uintptr_t)lfd, 0, dispatch_get_main_queue());
+                __block dispatch_source_t readSrc = nil;
+                dispatch_source_set_event_handler(acceptSrc, ^{
+                    int cfd = accept(lfd, nullptr, nullptr);
+                    if (cfd < 0) return;
+                    const char hello[] = "Welcome to the test node\r\nlogin: ";
+                    write(cfd, hello, sizeof hello - 1);
+                    readSrc = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, (uintptr_t)cfd, 0, dispatch_get_main_queue());
+                    dispatch_source_set_event_handler(readSrc, ^{
+                        char buf[512];
+                        ssize_t n = read(cfd, buf, sizeof buf);
+                        if (n <= 0) {
+                            clientClosed = true;
+                            dispatch_source_cancel(readSrc);
+                            return;
+                        }
+                        bool first = heard.find("\r\n") == std::string::npos;
+                        heard.append(buf, (size_t)n);
+                        if (first && heard.find("\r\n") != std::string::npos) {
+                            time_t t = (time_t)time(nullptr);
+                            struct tm tm{};
+                            gmtime_r(&t, &tm);
+                            char line[160];
+                            snprintf(line, sizeof line, "DX de K1TTT:      7012.0  DL1ABC       up 1 JO62                       %02d%02dZ FN32\r\n",
+                                     tm.tm_hour, tm.tm_min);
+                            write(cfd, line, strlen(line));
+                        }
+                    });
+                    dispatch_source_set_cancel_handler(readSrc, ^{ close(cfd); });
+                    dispatch_resume(readSrc);
+                });
+                dispatch_resume(acceptSrc);
+
+                // Settings → Spots: the cluster on the loopback port, PSKReporter with an address.
+                run("Settings...");
+                NSWindow *setw = windowTitled(@"ADIF Lint Settings");
+                auto setField = [&](NSString *ident, NSString *value) {
+                    NSTextField *f = (NSTextField *)viewWithIdentifier(setw.contentView, ident);
+                    f.stringValue = value;
+                };
+                CHECK(viewWithIdentifier(setw.contentView, @"settings.spots") != nil &&
+                          ((NSButton *)viewWithIdentifier(setw.contentView, @"settings.spots.spothole")).state == NSControlStateValueOn &&
+                          ((NSButton *)viewWithIdentifier(setw.contentView, @"settings.spots.cluster")).state == NSControlStateValueOff,
+                      "Settings has Spots: Spothole on, the cluster off at first");
+                ((NSButton *)viewWithIdentifier(setw.contentView, @"settings.spots.cluster")).state = NSControlStateValueOn;
+                ((NSButton *)viewWithIdentifier(setw.contentView, @"settings.spots.psk")).state = NSControlStateValueOn;
+                setField(@"settings.spots.node", [NSString stringWithFormat:@"127.0.0.1:%d", clusterPort]);
+                setField(@"settings.spots.login", @"k9tst");
+                setField(@"settings.spots.commands", @"set/skimmer; sh/dx 5");
+                setField(@"settings.spots.email", @"test@example.org");
+                [(NSButton *)viewWithIdentifier(setw.contentView, @"settings.spots.save") performClick:nil];
+                [setw.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(setw.contentView) == 0, "Settings with Spots does not overlap");
+                [setw orderOut:nil];
+                CHECK(requests().empty(), "nothing is fetched before the Spots layer shows");
+
+                // Show the layer: the three feeds start.
+                [mapw makeKeyAndOrderFront:nil];
+                setBox(mapBox(@"show", @"spots"), true);
+                auto popoverView = [&](NSString *ident) -> NSView * {
+                    for (NSWindow *w in NSApp.windows)
+                        if (NSView *v = viewWithIdentifier(w.contentView, ident)) return v;
+                    return nil;
+                };
+                [(NSButton *)viewWithIdentifier(mapw.contentView, @"map.spots.open") performClick:nil];
+                pump(0.2);
+                NSTextField *spotStatus = (NSTextField *)popoverView(@"map.spots.status");
+                for (int k = 0; k < 40 && ![spotStatus.stringValue hasPrefix:@"4 stations on the map"]; ++k) pump(0.1);
+                std::string req = requests();
+                CHECK([spotStatus.stringValue hasPrefix:@"4 stations on the map, from 5 spots."] &&
+                          [spotStatus.stringValue containsString:@"DX cluster: connected to 127.0.0.1"] &&
+                          [spotStatus.stringValue containsString:@"as K9TST"] && [spotStatus.stringValue containsString:@"PSKReporter: 1 report of K9TST"],
+                      "the feeds' spots on the map: an RBN and a POTA spot from Spothole, the cluster's, PSKReporter's; SOTA dropped, "
+                      "the old one filtered (%s)",
+                      spotStatus.stringValue.UTF8String);
+                CHECK(count(req, "SPOTHOLE https://spothole.app/api/v3/spots?activity=") == 1 && req.find("NO_ACTIVITY") != std::string::npos &&
+                          req.find("POTA") != std::string::npos && req.find("SOTA") == std::string::npos &&
+                          req.find("allow_qrt=false&limit=1000&max_age=3600") != std::string::npos,
+                      "Spothole asked once, for the programs and plain DX, never SOTA: %s", req.c_str());
+                CHECK(count(req, "PSKREPORTER https://retrieve.pskreporter.info/query?senderCallsign=K9TST&flowStartSeconds=-3600&rronly=1"
+                                 "&appcontact=test%40example.org") == 1,
+                      "PSKReporter asked once, with the address given");
+                CHECK(heard == "K9TST\r\nset/skimmer\r\nsh/dx 5\r\n", "the cluster heard the login and the commands: '%s'", heard.c_str());
+                [mapw.contentView layoutSubtreeIfNeeded];
+                if (NSView *pv = popoverView(@"map.spots")) {
+                    CHECK(overlaps(pv.window.contentView) == 0, "the Spots popover does not overlap");
+                    snapshot(pv.window, "map-spots-popover");
+                }
+
+                // The popover's filters: a source unticked, a program chosen.
+                NSButton *fromSpothole = (NSButton *)popoverView(@"map.spots.source.0");
+                setBox(fromSpothole, false);
+                CHECK([spotStatus.stringValue hasPrefix:@"2 stations on the map"], "Spothole's spots hidden: %s", spotStatus.stringValue.UTF8String);
+                setBox(fromSpothole, true);
+                NSPopUpButton *programPop = (NSPopUpButton *)popoverView(@"map.spots.program");
+                [programPop selectItemWithTitle:@"POTA"];
+                [programPop sendAction:programPop.action to:programPop.target];
+                CHECK([spotStatus.stringValue hasPrefix:@"1 station on the map"], "only POTA spots: %s", spotStatus.stringValue.UTF8String);
+                [programPop selectItemWithTitle:@"Plain DX spots"];
+                [programPop sendAction:programPop.action to:programPop.target];
+                CHECK([spotStatus.stringValue hasPrefix:@"3 stations on the map"], "only plain DX spots: %s", spotStatus.stringValue.UTF8String);
+                [programPop selectItemAtIndex:0];
+                [programPop sendAction:programPop.action to:programPop.target];
+                for (NSWindow *w in [NSApp.windows copy])
+                    if (viewWithIdentifier(w.contentView, @"map.spots")) [w orderOut:nil];
+
+                // A click on the cluster's spot (JO62, Berlin) describes it; Use in New QSO fills New QSO.
+                [findButton(mapw.contentView, @"World") performClick:nil];
+                pump(0.1);
+                NSPoint berlin = pointFor(13.0, 52.5);
+                [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, berlin, 1)];
+                [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, berlin, 1)];
+                NSString *described = labelContaining(mapw.contentView, @"DL1ABC on 7012 kHz");
+                NSButton *useSpot = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.spots.use");
+                CHECK([described containsString:@"by K1TTT (DX cluster); not in this log."] && !useSpot.hidden,
+                      "a spot clicked: %s", described.UTF8String);
+                if (mapw) snapshot(mapw, "map-spots");
+                [useSpot performClick:nil];
+                pump(0.3);
+                NSWindow *qwSpot = qsoWindow();
+                CHECK(qwSpot && [qsoControl(qwSpot, @"CALL").stringValue isEqualToString:@"DL1ABC"] &&
+                          [qsoControl(qwSpot, @"FREQ").stringValue isEqualToString:@"7.012"] && !qsoControl(qwSpot, @"SIG"),
+                      "the spot in New QSO, with no program rows for a plain DX spot");
+                if (qwSpot) {
+                    qsoControl(qwSpot, @"CALL").stringValue = @"";
+                    [qwSpot orderOut:nil];
+                }
+
+                // Off and on again: PSKReporter isn't asked again within five minutes; the cluster closes and reconnects.
+                setBox(mapBox(@"show", @"spots"), false);
+                for (int k = 0; k < 20 && !clientClosed; ++k) pump(0.1);
+                CHECK(clientClosed, "hiding the layer closes the cluster connection");
+                setBox(mapBox(@"show", @"spots"), true);
+                pump(0.5);
+                req = requests();
+                CHECK(count(req, "PSKREPORTER ") == 1, "PSKReporter: no second query within five minutes");
+
+                // Offline: the feeds stop and say why.
+                setBox(mapBox(@"show", @"spots"), false);
+                run("Offline Mode");
+                setBox(mapBox(@"show", @"spots"), true);
+                [(NSButton *)viewWithIdentifier(mapw.contentView, @"map.spots.open") performClick:nil];
+                pump(0.2);
+                spotStatus = (NSTextField *)popoverView(@"map.spots.status");
+                CHECK([spotStatus.stringValue containsString:@"Offline mode is on"] && count(requests(), "SPOTHOLE ") == 2,
+                      "offline: no feed runs (%s)", spotStatus.stringValue.UTF8String);
+                for (NSWindow *w in [NSApp.windows copy])
+                    if (viewWithIdentifier(w.contentView, @"map.spots")) [w orderOut:nil];
+                run("Offline Mode");
+                setBox(mapBox(@"show", @"spots"), false);
+                dispatch_source_cancel(acceptSrc);
+                close(lfd);
+                setenv("ADIFLINT_FAKE_LOOKUP_DIR", fixtures.c_str(), 1);
+            }
+
             // Documentation screenshots (ADIFLINT_DOCS=1, with ADIFLINT_SNAPSHOT_DIR): the map and
             // the Log Table on the sample log above. tools/docs-screenshots.sh runs this.
             if (getenv("ADIFLINT_DOCS")) {

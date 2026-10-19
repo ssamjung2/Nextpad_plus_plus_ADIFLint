@@ -4,6 +4,9 @@
 #pragma once
 
 #include <array>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace worldmap {
 
@@ -15,5 +18,7 @@ void parkListChanged();   // POTA's park list was downloaded (Settings)
 // not showing the whole world: Settings → Map Detail's "the area shown on the Map".
 bool shownArea(std::array<double, 4> *box);
 void detailChanged();  // Map Detail regions were downloaded or removed
+// Where a spot's Use in New QSO sends its fields (New QSO, set up by ADIFLint.mm).
+void setSpotHandler(void (^handler)(const std::vector<std::pair<std::string, std::string>> &fields));
 
 }  // namespace worldmap

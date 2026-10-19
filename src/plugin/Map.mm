@@ -6,6 +6,7 @@
 #import "IotaGroups.h"
 #import "PotaParks.h"
 #import "PluginHost.h"
+#import "Spots.h"
 #import "ToolWindow.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include "adif_detail.h"
@@ -107,6 +108,14 @@ struct {
     NSTextField *cqField = nil, *ituField = nil;
     NSPopUpButton *regions = nil;
     NSMutableArray *completers = nil;
+    // Spots: the popover of their own filters, Use in New QSO, and what tells the Map of new ones.
+    NSButton *spotsButton = nil, *useSpot = nil;
+    NSPopover *spotsPopover = nil;
+    NSPopUpButton *spotAge = nil, *spotProgram = nil;
+    NSButton *spotSource[3] = {};
+    NSTextField *spotStatus = nil;
+    id spotsObserver = nil, closeObserver = nil;
+    void (^spotHandler)(const std::vector<std::pair<std::string, std::string>> &) = nil;
     adif::MapData data;
     std::vector<ADIFMapEntity> dxcc;
     std::vector<size_t> listed;   // the table's rows: indexes into data.qsos
@@ -186,6 +195,10 @@ const LayerUi kLayerUi[] = {
      N(@"Each group's reference (EU-005), and its name where there is room")},
     {kLayerCities, @"cities", N(@"Cities"), nullptr, "mapCities", "mapCityLabels", false, false, nil,
      N(@"7,300 cities and towns (Natural Earth, public domain), more as you zoom in"), N(@"City names, where they don't run into each other")},
+    {kLayerSpots, @"spots", N(@"Spots"), "mapShowSpots", "mapSpotLines", "mapSpotLabels", false, false,
+     N(@"The stations spotted now, in their band's colour, from the sources chosen in Spots... (Spothole, a DX cluster, PSKReporter); "
+     @"older spots fade"),
+     N(@"A line from each spotter to the station it heard (while Show is on)"), N(@"Each spotted station's call, where there's room")},
 };
 
 ADIFMapStyle savedStyle() {
@@ -332,6 +345,28 @@ std::string describe(const ADIFMapHit &h) {
             for (size_t qi : qsos) confirmed |= qi < mw.data.qsos.size() && mw.data.qsos[qi].confirmed;
             return "IOTA " + g.ref + " " + g.name + ": " + (qsos.empty() ? tr("not worked") : worked(qsos, confirmed)) + "." + where;
         }
+        case ADIFMapHit::Spot: {
+            if (h.index >= mw.view.spots.size()) break;
+            const ADIFMapSpot &ms = mw.view.spots[h.index];
+            const adif::Spot &sp = ms.spot;
+            std::string what = sp.khz + " kHz" + (sp.mode.empty() ? "" : " " + sp.mode);
+            std::string ref = sp.reference.empty() ? "" : " " + trf("at {ref}", {{"ref", sp.program.empty() ? sp.reference : sp.program + " " + sp.reference}}) +
+                                                        (sp.park.empty() ? "" : " (" + sp.park + ")");
+            long long age = sp.epoch > 0 ? std::max<long long>(0, (long long)time(nullptr) - sp.epoch) / 60 : -1;
+            std::string when = age < 0 ? "" : age == 0 ? tr("just now") : trp("{n} minute ago", "{n} minutes ago", age);
+            std::string by = sp.spotter.empty() ? tr(adif::spotSourceName(sp.source))
+                                                : trf("by {spotter} ({source})", {{"spotter", sp.spotter}, {"source", tr(adif::spotSourceName(sp.source))}});
+            // In this log: worked on this band, on others, or not at all.
+            bool band = false, other = false;
+            std::string call = adif::spotterCall(sp.activator);  // without a suffix after "-"
+            for (const adif::MapQso &q : mw.data.qsos)
+                if (adif::spotterCall(q.call) == call) (q.band == sp.band ? band : other) = true;
+            std::string log = band ? trf("worked on {band}", {{"band", sp.band}}) : other ? tr("worked on other bands") : tr("not in this log");
+            std::string text = trf("{call} on {what}{ref}, spotted {when} {by}; {log}.",
+                                   {{"call", sp.activator}, {"what", what}, {"ref", ref}, {"when", when}, {"by", by}, {"log", log}});
+            if (!sp.comments.empty()) text += " \u201c" + sp.comments + "\u201d";
+            return text + fromHome(ms.lat, ms.lon);
+        }
         case ADIFMapHit::Empty: return trf("{square}: no QSOs.", {{"square", h.square}}) + where;
         case ADIFMapHit::None: break;
     }
@@ -369,6 +404,7 @@ void selected(const ADIFMapHit &h) {
         for (const adif::MapPark &p : mw.data.parks)
             if (p.reference == mw.data.parks[h.index].reference && p.program == mw.data.parks[h.index].program) qsos.push_back(p.qso);
     showList(qsos);
+    mw.useSpot.hidden = h.kind != ADIFMapHit::Spot;
     mw.chosen = h.kind == ADIFMapHit::None ? "" : describe(h) + (qsos.empty() ? "" : " " + tr("Double-click a QSO to go to it in the log."));
     setStatus(mw.chosen.empty() ? mw.summary : mw.chosen);
 }
@@ -437,6 +473,7 @@ NSMenuItem *menuItem(NSMenu *menu, NSString *title, bool on, void (^action)(void
 }
 
 void refresh();
+void refreshSpots();
 void fillPrograms();
 void fillStyle();
 adif::MapFilter savedPlaceFilter();
@@ -767,6 +804,8 @@ void refresh() {
                          "park for its QSOs.");
         mw.chosen.clear();
         setStatus(mw.summary);
+        mw.useSpot.hidden = YES;
+        refreshSpots();  // the band, mode and place filters apply to spots too
     } catch (...) {
     }
 }
@@ -1094,6 +1133,179 @@ void showMoreFilters() {
     [mw.filterPopover showRelativeToRect:mw.moreFilters.bounds ofView:mw.moreFilters preferredEdge:NSRectEdgeMaxY];
 }
 
+// ── Spots ──
+
+const long long kSpotAges[] = {600, 1800, 3600};
+const char *const kSpotAgeTitles[] = {N_("10 minutes"), N_("30 minutes"), N_("1 hour")};
+const adif::SpotSource kSpotSources[] = {adif::SpotSource::Spothole, adif::SpotSource::Cluster, adif::SpotSource::PskReporter};
+
+// The Spots filter: the Map's band, mode and places, and the popover's age, sources and program.
+adif::SpotFilter spotFilter() {
+    adif::SpotFilter f;
+    adif::MapFilter places = savedPlaceFilter();
+    f.map.continents = places.continents, f.map.dxcc = places.dxcc, f.map.cq = places.cq, f.map.itu = places.itu, f.map.states = places.states,
+    f.map.counties = places.counties, f.map.regions = places.regions, f.map.potaLocations = places.potaLocations;
+    f.map.band = mw.band.indexOfSelectedItem > 0 ? ADIFStd(mw.band.titleOfSelectedItem) : "";
+    f.map.mode = mw.mode.indexOfSelectedItem > 0 ? ADIFStd(mw.mode.titleOfSelectedItem) : "";
+    f.maxAge = kSpotAges[number("mapSpotsAge", 1, 2)];
+    std::string hidden = setting("mapSpotsHidden");  // the sources unticked: "Cluster,PSKReporter"
+    for (adif::SpotSource src : kSpotSources)
+        if (hidden.find(adif::spotSourceName(src)) == std::string::npos) f.sources.insert(src);
+    std::string program = setting("mapSpotsProgram");
+    if (program == "-") f.programs = {""};
+    else if (!program.empty()) f.programs = {program};
+    return f;
+}
+
+void fillSpotsPopover() {
+    if (!mw.spotsPopover) return;
+    spotfeeds::Config c = spotfeeds::config();
+    bool on[] = {c.spothole, c.cluster, c.psk};
+    std::string hidden = setting("mapSpotsHidden");
+    for (size_t i = 0; i < 3; ++i) {
+        mw.spotSource[i].enabled = on[i];
+        mw.spotSource[i].state = on[i] && hidden.find(adif::spotSourceName(kSpotSources[i])) == std::string::npos ? NSControlStateValueOn
+                                                                                                                   : NSControlStateValueOff;
+    }
+    [mw.spotAge selectItemAtIndex:number("mapSpotsAge", 1, 2)];
+    // The programs in the spots now, after All and plain DX.
+    std::set<std::string> programs;
+    for (const adif::Spot &sp : spotfeeds::spots().spots())
+        if (!sp.program.empty()) programs.insert(sp.program);
+    std::string chosen = setting("mapSpotsProgram");
+    if (!chosen.empty() && chosen != "-") programs.insert(chosen);
+    [mw.spotProgram removeAllItems];
+    [mw.spotProgram addItemWithTitle:T(@"All programs")];
+    [mw.spotProgram addItemWithTitle:T(@"Plain DX spots")];
+    for (const std::string &p : programs) [mw.spotProgram addItemWithTitle:ADIFString(p)];
+    if (chosen == "-") [mw.spotProgram selectItemAtIndex:1];
+    else if (!chosen.empty()) [mw.spotProgram selectItemWithTitle:ADIFString(chosen)];
+    std::string st = spotfeeds::status();
+    if (!c.spothole && !c.cluster && !c.psk) st = tr("No spot source is turned on: choose them in Settings (Spots).");
+    else if (st.empty()) st = tr("Tick Show under Spots to fetch them.");
+    else
+        st = trp("{n} station on the map, from {all} spots.", "{n} stations on the map, from {all} spots.", (long long)mw.view.spots.size(),
+                 {{"all", std::to_string(spotfeeds::spots().spots().size())}}) +
+             "\n" + st;
+    mw.spotStatus.stringValue = ADIFString(st);
+}
+
+// The spots to mark: the feeds' list through the filters, one per station and band, where each is.
+void refreshSpots() {
+    if (!mw.window) return;
+    ADIFMapStyle st = mw.view.style;
+    bool show = st[kLayerSpots].show;
+    spotfeeds::setWanted(show && mw.window.visible);
+    std::vector<ADIFMapSpot> marks;
+    long long now = (long long)time(nullptr);
+    adif::SpotFilter f = spotFilter();
+    if (show) {
+        const adif::CountryTable *countries = &ADIFCountries();
+        const adif::PotaParks *parks = ADIFPotaParks().size() ? &ADIFPotaParks() : nullptr;
+        std::vector<adif::Spot> keep;
+        for (const adif::Spot &sp : spotfeeds::spots().spots())
+            if (adif::spotMatches(f, sp, now, countries, parks)) keep.push_back(sp);
+        for (adif::Spot &sp : adif::latestPerStation(keep)) {
+            adif::SpotPlace at = adif::spotPlace(sp, countries);
+            if (!at.ok) continue;
+            ADIFMapSpot m;
+            m.lat = at.lat, m.lon = at.lon, m.exact = at.exact;
+            adif::SpotPlace by = adif::spotterPlace(sp, countries);
+            if (by.ok) m.hasSpotter = true, m.spotterLat = by.lat, m.spotterLon = by.lon;
+            m.spot = std::move(sp);
+            marks.push_back(std::move(m));
+        }
+    }
+    [mw.view setSpots:marks now:now maxAge:f.maxAge];
+    fillSpotsPopover();
+}
+
+void useSelectedSpot() {
+    ADIFMapHit h = mw.view.selectedHit;
+    if (h.kind != ADIFMapHit::Spot || h.index >= mw.view.spots.size() || !mw.spotHandler) return;
+    const adif::Spot &sp = mw.view.spots[h.index].spot;
+    mw.spotHandler(adif::spotQsoFields(sp));
+    setStatus(trf("Copied {call} ({khz} kHz {mode}) to New QSO.", {{"call", sp.activator}, {"khz", sp.khz}, {"mode", sp.mode}}));
+}
+
+void showSpotsPopover() {
+    if (!mw.spotsPopover) {
+        NSTextField *help = [NSTextField wrappingLabelWithString:T(@"The spots the Spots layer shows. Where they come from is set in Settings (Spots); "
+                                                                 @"the Map's band, mode and place filters apply to them too.")];
+        help.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        help.textColor = NSColor.secondaryLabelColor;
+        mw.spotAge = ADIFPopup(@[ @(kSpotAgeTitles[0]), @(kSpotAgeTitles[1]), @(kSpotAgeTitles[2]) ]);
+        mw.spotAge.identifier = @"map.spots.age";
+        ADIFOnAction(mw.spotAge, ^{
+            setSetting("mapSpotsAge", std::to_string(mw.spotAge.indexOfSelectedItem));
+            refreshSpots();
+        });
+        NSMutableArray *sources = [NSMutableArray array];
+        for (size_t i = 0; i < 3; ++i) {
+            mw.spotSource[i] = ADIFCheckbox(@(adif::spotSourceName(kSpotSources[i])), true);
+            mw.spotSource[i].identifier = [NSString stringWithFormat:@"map.spots.source.%zu", i];
+            ADIFOnAction(mw.spotSource[i], ^{
+                std::string hidden;
+                for (size_t k = 0; k < 3; ++k)
+                    if (mw.spotSource[k].enabled && mw.spotSource[k].state != NSControlStateValueOn)
+                        hidden += (hidden.empty() ? "" : ",") + std::string(adif::spotSourceName(kSpotSources[k]));
+                setSetting("mapSpotsHidden", hidden);
+                refreshSpots();
+            });
+            [sources addObject:mw.spotSource[i]];
+        }
+        NSStackView *sourceRow = [NSStackView stackViewWithViews:sources];
+        sourceRow.spacing = 12;
+        mw.spotProgram = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+        mw.spotProgram.identifier = @"map.spots.program";
+        ADIFOnAction(mw.spotProgram, ^{
+            NSInteger i = mw.spotProgram.indexOfSelectedItem;
+            setSetting("mapSpotsProgram", i <= 0 ? "" : i == 1 ? "-" : ADIFStd(mw.spotProgram.titleOfSelectedItem));
+            refreshSpots();
+        });
+        mw.spotStatus = [NSTextField wrappingLabelWithString:@""];
+        mw.spotStatus.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        mw.spotStatus.textColor = NSColor.secondaryLabelColor;
+        mw.spotStatus.identifier = @"map.spots.status";
+        NSButton *settings = [NSButton buttonWithTitle:T(@"Settings...") target:nil action:nil];
+        ADIFOnAction(settings, ^{ openSettings(-4); });
+        NSGridView *grid = [NSGridView gridViewWithViews:@[
+            @[ ADIFLabel(@"Newer than:"), mw.spotAge ], @[ ADIFLabel(@"From:"), sourceRow ], @[ ADIFLabel(@"Program:"), mw.spotProgram ],
+            @[ [NSGridCell emptyContentView], settings ]
+        ]];
+        grid.rowSpacing = 8;
+        grid.columnSpacing = 10;
+        [grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
+        grid.rowAlignment = NSGridRowAlignmentFirstBaseline;
+        NSView *content = [[NSView alloc] initWithFrame:NSZeroRect];
+        content.identifier = @"map.spots";
+        for (NSView *v in @[ help, grid, mw.spotStatus ]) {
+            v.translatesAutoresizingMaskIntoConstraints = NO;
+            [content addSubview:v];
+        }
+        [NSLayoutConstraint activateConstraints:@[
+            [help.topAnchor constraintEqualToAnchor:content.topAnchor constant:14],
+            [help.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:14],
+            [help.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-14],
+            [help.widthAnchor constraintEqualToAnchor:grid.widthAnchor],
+            [grid.widthAnchor constraintGreaterThanOrEqualToConstant:420],
+            [grid.topAnchor constraintEqualToAnchor:help.bottomAnchor constant:10],
+            [grid.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:14],
+            [mw.spotStatus.topAnchor constraintEqualToAnchor:grid.bottomAnchor constant:10],
+            [mw.spotStatus.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:14],
+            [mw.spotStatus.widthAnchor constraintEqualToAnchor:grid.widthAnchor],
+            [mw.spotStatus.bottomAnchor constraintEqualToAnchor:content.bottomAnchor constant:-14],
+        ]];
+        NSViewController *vc = [[NSViewController alloc] init];
+        vc.view = content;
+        mw.spotsPopover = [[NSPopover alloc] init];
+        mw.spotsPopover.contentViewController = vc;
+        mw.spotsPopover.behavior = NSPopoverBehaviorTransient;
+    }
+    fillSpotsPopover();
+    [mw.spotsPopover showRelativeToRect:mw.spotsButton.bounds ofView:mw.spotsButton preferredEdge:NSRectEdgeMaxY];
+}
+
 // A Labels box works while its layer shows (outlined, or its worked areas).
 void labelsFollow() {
     for (const LayerUi &l : kLayerUi)
@@ -1103,8 +1315,10 @@ void labelsFollow() {
 // A layer's box changed (0 Show, 1 Overlay, 2 Labels). Ticking Show turns that layer's Overlay
 // and Labels on too: the worked areas among all of them, named.
 void layerChanged(MapLayerId id, int which) {
-    if (which == 0 && mw.show[id].state == NSControlStateValueOn)
-        mw.overlay[id].state = mw.labels[id].state = NSControlStateValueOn;
+    if (which == 0 && mw.show[id].state == NSControlStateValueOn) {
+        if (id != kLayerSpots) mw.overlay[id].state = NSControlStateValueOn;  // spots: lines from the spotters only when asked
+        mw.labels[id].state = NSControlStateValueOn;
+    }
     for (const LayerUi &l : kLayerUi) {
         if (l.showKey) saveFlag(l.showKey, mw.show[l.id].state == NSControlStateValueOn);
         saveFlag(l.overlayKey, mw.overlay[l.id].state == NSControlStateValueOn);
@@ -1113,6 +1327,7 @@ void layerChanged(MapLayerId id, int which) {
     labelsFollow();
     applyStyle();
     fillStyle();
+    if (id == kLayerSpots) refreshSpots();
     bool on = which != 2 && (which == 0 ? mw.show[id] : mw.overlay[id]).state == NSControlStateValueOn;
     if (on && id == kLayerIota && ADIFIotaGroups().empty()) setStatus("IOTA: download IOTA's group list first, in Settings (IOTA Groups).");
     if (on && id == kLayerPota && !ADIFPotaParks().size())
@@ -1165,7 +1380,7 @@ void cmdMap() {
             NSTextField *title = ADIFLabel(l.title);
             title.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightMedium];
             [header addObject:title];
-            mw.show[l.id] = l.showKey ? box(saved[l.id].show, @"show", l, l.showTip, N(@"Show worked %@")) : nil;
+            mw.show[l.id] = l.showKey ? box(saved[l.id].show, @"show", l, l.showTip, l.id == kLayerSpots ? N(@"Show %@") : N(@"Show worked %@")) : nil;
             mw.overlay[l.id] = box(saved[l.id].overlay, @"overlay", l, l.overlayTip, N(@"Overlay %@"));
             mw.labels[l.id] = box(saved[l.id].labels, @"labels", l, l.labelsTip, N(@"Labels for %@"));
             [showRow addObject:mw.show[l.id] ?: [NSGridCell emptyContentView]];
@@ -1270,8 +1485,12 @@ void cmdMap() {
             refresh();
         });
         mw.clearFilters.identifier = @"map.filter.clear";
-        NSStackView *filters =
-            [NSStackView stackViewWithViews:@[ ADIFLabel(@"Filters:"), mw.band, mw.mode, mw.dates, mw.confirmed, mw.moreFilters, mw.clearFilters ]];
+        mw.spotsButton = smallButton(@"Spots...", @"The spots the Spots layer shows: how new, from which sources, which program; and what the "
+                                                  @"sources are doing", ^{ showSpotsPopover(); });
+        mw.spotsButton.identifier = @"map.spots.open";
+        NSStackView *filters = [NSStackView
+            stackViewWithViews:@[ ADIFLabel(@"Filters:"), mw.band, mw.mode, mw.dates, mw.confirmed, mw.moreFilters, mw.clearFilters, mw.spotsButton ]];
+        [filters setCustomSpacing:24 afterView:mw.clearFilters];
         filters.spacing = 8;
         NSStackView *zoomRow =
             [NSStackView stackViewWithViews:@[ ADIFLabel(@"Zoom:"), out, mw.zoomLabel, in, fit, world, mw.region, mw.projection, styleButton, save ]];
@@ -1307,7 +1526,11 @@ void cmdMap() {
         mw.status = [NSTextField wrappingLabelWithString:@""];
         mw.status.maximumNumberOfLines = 3;
         mw.status.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
-        for (NSView *v in @[ mw.target, layers, markers, filters, zoomRow, mw.view, scroll, mw.status ]) {
+        mw.useSpot = smallButton(@"Use in New QSO", @"Fill New QSO with the spot chosen on the map: its call, frequency, band, mode and reference",
+                                 ^{ useSelectedSpot(); });
+        mw.useSpot.identifier = @"map.spots.use";
+        mw.useSpot.hidden = YES;
+        for (NSView *v in @[ mw.target, layers, markers, filters, zoomRow, mw.view, scroll, mw.status, mw.useSpot ]) {
             v.translatesAutoresizingMaskIntoConstraints = NO;
             [root addSubview:v];
         }
@@ -1336,11 +1559,22 @@ void cmdMap() {
             [scroll.heightAnchor constraintEqualToConstant:120],
             [mw.status.topAnchor constraintEqualToAnchor:scroll.bottomAnchor constant:8],
             [mw.status.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
-            [mw.status.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-m],
+            [mw.status.trailingAnchor constraintEqualToAnchor:mw.useSpot.leadingAnchor constant:-8],
+            [mw.useSpot.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-m],
+            [mw.useSpot.topAnchor constraintEqualToAnchor:mw.status.topAnchor],
             [mw.status.bottomAnchor constraintEqualToAnchor:root.bottomAnchor constant:-m],
             [mw.status.heightAnchor constraintGreaterThanOrEqualToConstant:30],
         ]];
         [mw.window center];
+        // New spots redraw the layer; closing the window stops the feeds.
+        mw.spotsObserver = [[NSNotificationCenter defaultCenter] addObserverForName:ADIFSpotsChangedNotification
+                                                                             object:nil
+                                                                              queue:nil
+                                                                         usingBlock:^(NSNotification *) { refreshSpots(); }];
+        mw.closeObserver = [[NSNotificationCenter defaultCenter] addObserverForName:NSWindowWillCloseNotification
+                                                                             object:mw.window
+                                                                              queue:nil
+                                                                         usingBlock:^(NSNotification *) { spotfeeds::setWanted(false); }];
     }
     if (!mw.sunTimer)
         mw.sunTimer = [NSTimer scheduledTimerWithTimeInterval:60
@@ -1353,7 +1587,10 @@ void cmdMap() {
     refresh();
     [mw.window makeKeyAndOrderFront:nil];
     [mw.window makeFirstResponder:mw.view];
+    refreshSpots();  // the feeds start once the window shows
 }
+
+void setSpotHandler(void (^handler)(const std::vector<std::pair<std::string, std::string>> &fields)) { mw.spotHandler = handler; }
 
 void iotaGroupsChanged() {
     if (mw.view) mw.view.needsDisplay = YES;

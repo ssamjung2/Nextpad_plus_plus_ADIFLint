@@ -278,6 +278,34 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     return _contacts;
 }
 
+- (void)setSpots:(const std::vector<ADIFMapSpot> &)spots now:(long long)now maxAge:(long long)maxAge {
+    // Keep the spot under the pointer and the one chosen, by their station and band.
+    auto same = [&](ADIFMapHit &h) {
+        if (h.kind != ADIFMapHit::Spot) return;
+        if (h.index >= _spots.size()) return (void)(h = ADIFMapHit());
+        const adif::Spot &was = _spots[h.index].spot;
+        for (size_t k = 0; k < spots.size(); ++k)
+            if (spots[k].spot.activator == was.activator && spots[k].spot.band == was.band) return (void)(h.index = k);
+        h = ADIFMapHit();
+    };
+    std::vector<ADIFMapSpot> old;
+    old.swap(_spots);
+    _spots = old;  // `same` reads the old list
+    same(_hover);
+    same(_selected);
+    _spots = spots;
+    _spotsNow = now, _spotMaxAge = maxAge;
+    self.needsDisplay = YES;
+}
+
+- (const std::vector<ADIFMapSpot> &)spots {
+    return _spots;
+}
+
+- (ADIFMapHit)selectedHit {
+    return _selected;
+}
+
 - (void)setParkFilter:(const adif::MapFilter &)filter on:(BOOL)on {
     _parkFilter = filter, _filterParks = on;
     _parksPlacedFor = {};
@@ -832,6 +860,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     [self drawParkRings];
     [self drawCities:d];
     [self drawLines:d];
+    [self drawSpotLines:d];
     [self drawSquares:d];
     [self drawGridLabels:d];
     [self drawRings:d];
@@ -840,6 +869,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     [self drawPrograms:d];
     [self drawParkPins];
     if (_style[kLayerPota].labels) [self drawParkLabelsIn:d.b];
+    [self drawSpots:d];
     [self drawMine:d];
     [self drawSelection:d];
     CGContextRestoreGState(d.ctx);
@@ -1025,6 +1055,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     if (![self lonLatAt:p lon:&lon lat:&lat]) return h;
     h.square = adif::squareAt(lon, lat);
     if (h.square.empty()) return h;
+    if (size_t k = [self spotAt:p]; k != (size_t)-1) return h.kind = ADIFMapHit::Spot, h.index = k, h;  // drawn on top
     // POTA: the pins (drawn last, on top), the rings, then the counts.
     [self placeParks];
     {  // a pin first (they're on top), else the nearest ring or dot within reach

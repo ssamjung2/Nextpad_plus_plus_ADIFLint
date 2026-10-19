@@ -6,6 +6,8 @@
 
 #include "adif_upload.h"
 
+#include <algorithm>
+
 // Endpoints (checked 2026-10-07):
 //   QRZ.com XML 1.34: https://xmldata.qrz.com/xml/current/  login with username, password, agent
 //     (GET or POST; this client POSTs so the password is not in a URL), then ?s=KEY;callsign=
@@ -940,6 +942,57 @@ void ADIFFetchSpotholeSpots(NSString *agent, NSString *programs, void (^done)(NS
         NSArray *spots = spotObjects(body, &problem);
         done(spots, problem ? T(@"Spothole sent something other than a list of spots") : nil);
     });
+}
+
+void ADIFFetchSpotholeMapSpots(NSString *agent, NSString *programs, long long receivedSince, long long maxAge,
+                               void (^done)(NSArray<NSDictionary *> *spots, NSString *error)) {
+    NSURLComponents *c = [NSURLComponents componentsWithString:@"https://spothole.app/api/v3/spots"];
+    NSMutableArray *q = [NSMutableArray arrayWithArray:@[
+        [NSURLQueryItem queryItemWithName:@"activity" value:programs], [NSURLQueryItem queryItemWithName:@"allow_qrt" value:@"false"],
+        [NSURLQueryItem queryItemWithName:@"limit" value:@"1000"]
+    ]];
+    if (receivedSince > 0) [q addObject:[NSURLQueryItem queryItemWithName:@"received_since" value:@(receivedSince).stringValue]];
+    else [q addObject:[NSURLQueryItem queryItemWithName:@"max_age" value:@(std::max<long long>(60, maxAge)).stringValue]];
+    c.queryItems = q;
+    if (NSString *dir = fakeNet()) {
+        fakeUploadLog([@"SPOTHOLE " stringByAppendingString:c.URL.absoluteString]);
+        NSData *d = [NSData dataWithContentsOfFile:[dir stringByAppendingPathComponent:@"spothole/map-spots.json"]];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSString *error = nil;
+            NSArray *spots = spotObjects(d, &error);
+            done(spots, spots ? nil : T(@"Spothole sent something other than a list of spots"));
+        });
+        return;
+    }
+    NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:c.URL];
+    [r setValue:agent forHTTPHeaderField:@"User-Agent"];
+    [r setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+    httpSend(r, ^(NSData *body, NSString *error) {
+        if (error) {
+            done(nil, error);
+            return;
+        }
+        NSString *problem = nil;
+        NSArray *spots = spotObjects(body, &problem);
+        done(spots, problem ? T(@"Spothole sent something other than a list of spots") : nil);
+    });
+}
+
+void ADIFFetchPskReports(NSString *agent, NSString *url, void (^done)(NSData *xml, NSString *error)) {
+    if (NSString *dir = fakeNet()) {
+        fakeUploadLog([@"PSKREPORTER " stringByAppendingString:url]);
+        NSData *d = [NSData dataWithContentsOfFile:[dir stringByAppendingPathComponent:@"pskreporter/query.xml"]];
+        dispatch_async(dispatch_get_main_queue(), ^{ done(d, d ? nil : @"no test PSKReporter answer"); });
+        return;
+    }
+    NSURL *u = [NSURL URLWithString:url];
+    if (!u) {
+        dispatch_async(dispatch_get_main_queue(), ^{ done(nil, T(@"unexpected response")); });
+        return;
+    }
+    NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:u];
+    [r setValue:agent forHTTPHeaderField:@"User-Agent"];
+    httpSend(r, done);
 }
 
 void ADIFDownloadLotwUsers(NSString *agent, void (^done)(NSData *body, NSString *error)) {

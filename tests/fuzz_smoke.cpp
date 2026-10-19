@@ -23,6 +23,7 @@
 #include "adif_regions.h"
 #include "adif_pmtiles.h"
 #include "adif_mvt.h"
+#include "adif_spots.h"
 
 #include <chrono>
 #include <cmath>
@@ -503,6 +504,89 @@ int main(int argc, char **argv) {
             }
         }
         std::printf("map detail files: %d mutations, %zu tiles still decoded\n", iterations * 4, decoded);
+    }
+
+    // A DX cluster's stream: telnet bytes in any chunks, spot lines mutated. Lines stay bounded and
+    // printable, every refusal is a 3-byte IAC DONT/WONT, and a parsed spot is well formed.
+    {
+        const std::string good[] = {"DX de G4XYZ:     14285.0  M0TRT/P      SSB POTA GB-0001 tnx 73         1234Z\r\n",
+                                    "DX de DJ9IE-#:    14034.9 UN7BBD       CW   4dB Q:5*+              17 1444Z 14\r\n",
+                                    "DX de K1TTT:      7012.0  JA1XYZ       up 1 FN42                       0712Z FN32\r\n",
+                                    "\xFF\xFB\x01\xFF\xFD\x18\xFF\xFA\x18\x01\xFF\xF0login: "};
+        size_t spots = 0;
+        for (int k = 0; k < iterations * 4; ++k) {
+            std::string stream;
+            for (int n = 0; n < 4; ++n) stream += good[rng() % 4];
+            for (int e = 1 + (int)(rng() % 6); e > 0; --e) {
+                size_t at = rng() % stream.size();
+                switch (rng() % 3) {
+                    case 0: stream[at] = (char)(rng() & 0xff); break;
+                    case 1: stream.erase(at, 1 + rng() % 4); break;
+                    default: stream.insert(at, 1, (char)(rng() & 0xff)); break;
+                }
+                if (stream.empty()) stream = "x";
+            }
+            adif::TelnetLines tl(200);
+            std::vector<std::string> lines;
+            std::string reply;
+            for (size_t at = 0; at < stream.size();) {
+                size_t n = 1 + rng() % 16;
+                tl.feed(std::string_view(stream).substr(at, n), &lines, &reply);
+                at += n;
+            }
+            bool ok = reply.size() % 3 == 0 && tl.pending().size() <= 200;
+            for (size_t i = 0; i < reply.size(); i += 3) ok &= (unsigned char)reply[i] == 255 && ((unsigned char)reply[i + 1] == 254 || (unsigned char)reply[i + 1] == 252);
+            for (const std::string &l : lines) {
+                ok &= l.size() <= 200;
+                for (unsigned char c : l) ok &= c >= 32 && c < 127;
+                adif::Spot sp;
+                if (adif::parseClusterSpot(l, 1791407517, &sp)) {
+                    ++spots;
+                    ok &= !sp.activator.empty() && !sp.spotter.empty() && !sp.khz.empty() && sp.epoch <= 1791407517 + 600 &&
+                          sp.epoch > 1791407517 - 2 * 86400 && sp.time.size() == 5;
+                }
+                adif::clusterPrompt(l);
+            }
+            if (!ok) {
+                std::printf("FAIL cluster stream: %s\n", stream.c_str());
+                ++gFailures;
+                break;
+            }
+        }
+        std::printf("cluster streams: %d mutated, %zu spots still read\n", iterations * 4, spots);
+        // PSKReporter's answer, mutated: reports stay bounded and well formed.
+        const std::string xml = "<receptionReports currentSeconds=\"1791407517\"><receptionReport receiverCallsign='JA1XYZ' "
+                                "receiverLocator='PM95vq' senderCallsign='K9ABC' frequency='7074123' flowStartSeconds='1791407400' "
+                                "mode='FT8' sNR='-12' /><receptionReport receiverCallsign=\"KB1MBX\" frequency=14070987 "
+                                "flowStartSeconds=1791407000 /></receptionReports>";
+        size_t reports = 0;
+        for (int k = 0; k < iterations * 4; ++k) {
+            std::string x = xml;
+            for (int e = 1 + (int)(rng() % 6); e > 0; --e) {
+                size_t at = rng() % x.size();
+                switch (rng() % 3) {
+                    case 0: x[at] = (char)(rng() & 0xff); break;
+                    case 1: x.erase(at, 1 + rng() % 4); break;
+                    default: x.insert(at, 1, (char)(rng() & 0xff)); break;
+                }
+                if (x.empty()) x = "x";
+            }
+            std::vector<adif::Spot> got;
+            std::string why;
+            adif::parsePskReports(x, &got, &why, 5);
+            bool ok = got.size() <= 5;
+            for (const adif::Spot &sp : got) {
+                ok &= !sp.activator.empty() && sp.activator.size() <= 20 && !sp.khz.empty() && sp.epoch > 0;
+                for (unsigned char c : sp.activator + sp.spotter + sp.grid + sp.mode) ok &= c >= 32 && c < 127;
+            }
+            reports += got.size();
+            if (!ok) {
+                std::printf("FAIL PSKReporter reports: %s\n", x.c_str());
+                ++gFailures;
+                break;
+            }
+        }
+        std::printf("PSKReporter answers: %d mutated, %zu reports still read\n", iterations * 4, reports);
     }
 
     // The Map's worked areas: the area at any point (also off the Earth and across the 180th

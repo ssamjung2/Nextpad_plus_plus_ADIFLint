@@ -16,6 +16,7 @@
 #include "adif_tools.h"
 #include "adif_upload.h"
 #include "adif_programs.h"
+#include "adif_spots.h"
 #include "adif_formats.h"
 
 #include <sys/stat.h>
@@ -1968,12 +1969,7 @@ std::set<std::string> workedReferences() {
     return out;
 }
 
-struct Spot {
-    std::string time, activator, khz, mode, reference, park, location, spotter, comments, band;
-    std::string key;  // spotId, so a refresh keeps the selection on the same spot
-    std::string program, grid;    // Spothole: the program (GMA, WWBOTA...) and where the reference is
-    std::vector<std::string> refs;  // Spothole: every reference of the spot
-};
+using adif::Spot;
 
 enum { kSpotsPota, kSpotsWwff, kSpotsSpothole };
 
@@ -2076,6 +2072,7 @@ std::vector<Spot> spotholeSpots(NSArray<NSDictionary *> *list) {
     std::vector<Spot> all;
     for (NSDictionary *d in list) {
         Spot sp;
+        sp.source = adif::SpotSource::Spothole;
         sp.activator = jsonString(d, @"dx_call", 20);
         for (char &c : sp.activator) c = (char)std::toupper((unsigned char)c);
         id freq = d[@"freq"];
@@ -2089,6 +2086,7 @@ std::vector<Spot> spotholeSpots(NSArray<NSDictionary *> *list) {
         if (adif::khzToMHz(sp.khz).empty()) continue;
         std::string t = jsonString(d, @"time_iso", 40);  // "2026-10-10T16:27:47+00:00"
         sp.time = t.size() >= 16 ? t.substr(11, 5) : t;
+        sp.epoch = adif::spotEpoch(t);
         sp.mode = jsonString(d, @"mode", 12);
         for (char &c : sp.mode) c = (char)std::toupper((unsigned char)c);
         NSArray *acts = [d[@"activities"] isKindOfClass:NSArray.class] ? d[@"activities"] : @[];
@@ -2182,12 +2180,15 @@ void spotsFetch() {
             std::vector<Spot> all;
             for (NSDictionary *d in list) {
                 Spot sp;
+                sp.source = adif::SpotSource::Wwff;
+                sp.program = "WWFF";
                 sp.activator = jsonString(d, @"activator", 20);
                 sp.key = jsonString(d, @"id", 20);
                 sp.khz = jsonString(d, @"frequency_khz", 12);
                 if (sp.activator.empty() || adif::khzToMHz(sp.khz).empty()) continue;
                 std::string t = jsonString(d, @"spot_time_formatted", 30);
                 sp.time = t.size() >= 16 ? t.substr(11, 5) : t;
+                sp.epoch = adif::spotEpoch(t);
                 sp.mode = jsonString(d, @"mode", 12);
                 for (char &c : sp.mode) c = (char)std::toupper((unsigned char)c);
                 sp.reference = jsonString(d, @"reference", 20);
@@ -2211,12 +2212,15 @@ void spotsFetch() {
         std::vector<Spot> all;
         for (NSDictionary *d in list) {
             Spot sp;
+            sp.source = adif::SpotSource::Pota;
+            sp.program = "POTA";
             sp.activator = jsonString(d, @"activator", 20);
             sp.key = jsonString(d, @"spotId", 20);
             sp.khz = jsonString(d, @"frequency", 12);
             if (sp.activator.empty() || adif::khzToMHz(sp.khz).empty()) continue;
             std::string t = jsonString(d, @"spotTime", 30);  // "2026-10-07T21:11:57" (UTC)
             sp.time = t.size() >= 16 ? t.substr(11, 5) : t;
+            sp.epoch = adif::spotEpoch(t);
             sp.mode = jsonString(d, @"mode", 12);
             for (char &c : sp.mode) c = (char)std::toupper((unsigned char)c);
             sp.reference = jsonString(d, @"reference", 20);

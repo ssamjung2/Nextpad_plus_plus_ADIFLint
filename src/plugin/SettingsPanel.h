@@ -63,7 +63,7 @@
 - (void)setOffline:(BOOL)on;
 
 - (void)showWelcome;                   // first run: a welcome, and Your Station at the top
-- (void)showSource:(NSInteger)source;  // show the window with that source's first field focused (-3: country data)
+- (void)showSource:(NSInteger)source;  // show the window with that source's first field focused (-3: country data, -4: spots)
 - (void)refresh;                       // reload what is saved
 
 @end

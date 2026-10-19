@@ -1,0 +1,54 @@
+// The spot feeds behind the Map's Spots layer: Spothole, a DX cluster (telnet, your callsign as
+// the login) and PSKReporter (who hears your callsign). Each runs only while the layer shows
+// and only if it is turned on in Settings → Spots; none runs in offline mode. Their spots go
+// into one list; ADIFSpotsChangedNotification says it changed.
+// AppKit, Foundation and Network.framework.
+#pragma once
+
+#import <Cocoa/Cocoa.h>
+
+#include "adif_spots.h"
+
+#include <string>
+
+extern NSString *const ADIFSpotsChangedNotification;
+
+// A Spothole spot (GET /api/v3/spots): dx_call, freq (Hz), mode, time (Unix seconds) or time_iso,
+// activities (the first is the program), activity_refs (id, name, grid), dx_grid, dx_latitude and
+// dx_longitude with dx_location_good, de_call, de_grid, de_latitude and de_longitude, comment,
+// source, id. Empty activator when it isn't usable. Spothole's received_time goes to `received`.
+adif::Spot ADIFSpotholeSpot(NSDictionary *d, long long *received = nullptr);
+
+namespace spotfeeds {
+
+// The Map's Spots layer turned on or off (or the Map closed): the feeds turned on in Settings
+// start or stop.
+void setWanted(bool wanted);
+bool wanted();
+// Every spot the feeds have now, newest first.
+const adif::SpotList &spots();
+// What each feed is doing, one line each, for the Map ("DX cluster: connected to ...").
+std::string status();
+
+// Settings → Spots, saved in ADIFLint.ini.
+struct Config {
+    bool spothole = true;
+    bool cluster = false;
+    std::string host, login, commands;  // login: "" is Your Station's callsign; commands: sent after it, ";" between
+    int port = 0;
+    bool psk = false;
+    std::string email;  // PSKReporter's appcontact, when given
+};
+Config config();
+void setConfig(const Config &c);  // saved, then the feeds restart as needed
+
+// The cluster nodes Settings suggests: host, port and a note.
+struct Node {
+    const char *host;
+    int port;
+    const char *note;
+};
+extern const Node kNodes[];
+extern const size_t kNodeCount;
+
+}  // namespace spotfeeds

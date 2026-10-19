@@ -2,6 +2,8 @@
 #import "L10n.h"
 
 #import "Lookup.h"
+#import "Spots.h"
+#import "ToolWindow.h"
 
 // Flipped, so the sections start at the top of the scroll view.
 @interface ADIFSettingsDocument : NSView
@@ -26,6 +28,11 @@
     NSArray<NSButton *> *_editorBoxes;
     NSButton *_offline;
     NSPopUpButton *_language;
+    NSView *_spotsView;
+    NSButton *_spotsSpothole, *_spotsCluster, *_spotsPsk;
+    NSComboBox *_spotsNode;
+    NSTextField *_spotsLogin, *_spotsCommands, *_spotsEmail, *_spotsStatus;
+    id _spotsObserver;
     NSPopUpButton *_detailRegion, *_detailLevel, *_detailInstalled;
     NSButton *_detailCheck, *_detailDownload, *_detailStop, *_detailRemove;
     NSTextField *_detailStatus, *_detailSummary;
@@ -56,7 +63,9 @@ static NSString *colon(NSString *label) { return TF(@"{label}:", @{@"label" : la
 // The label column, the same in every section so the fields line up: the widest label, and at
 // least 80 points (longer in some languages).
 static CGFloat labelColumnWidth() {
-    NSMutableArray<NSString *> *labels = [NSMutableArray arrayWithArray:@[ T(@"Callsign:"), T(@"Grid:"), T(@"Logs folder:") ]];
+    NSMutableArray<NSString *> *labels = [NSMutableArray arrayWithArray:@[
+        T(@"Callsign:"), T(@"Grid:"), T(@"Logs folder:"), colon(T(@"Node")), colon(T(@"Login")), colon(T(@"Then send")), colon(T(@"Your email"))
+    ]];
     for (NSInteger s = 0; s < ADIFSourceCount; ++s) {
         [labels addObject:colon(ADIFSourceUserLabel((ADIFSource)s))];
         [labels addObject:colon(ADIFSourceSecretLabel((ADIFSource)s))];
@@ -98,7 +107,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     _welcome.hidden = YES;
     [views addObject:_welcome];
     for (NSView *section in @[ [self stationSection], [self editorSection], [self languageSection], [self offlineSection], [self keyboardSection], [self countrySection], [self lotwSection],
-                                 [self potaSection], [self iotaSection], [self mapDetailSection] ]) {
+                                 [self potaSection], [self iotaSection], [self mapDetailSection], [self spotsSection] ]) {
         [views addObject:section];
         NSBox *line = [[NSBox alloc] init];
         line.boxType = NSBoxSeparator;
@@ -567,7 +576,104 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     _status[(NSUInteger)s].textColor = ok ? NSColor.secondaryLabelColor : NSColor.systemRedColor;
 }
 
+- (NSView *)spotsSection {
+    NSTextField *help = wrapping(@"Where the Map's Spots layer gets its spots. Nothing is fetched until you tick Show under Spots on the Map, and "
+                                 @"only while the Map is open; nothing at all in Offline Mode.",
+                                 NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    _spotsSpothole = [NSButton checkboxWithTitle:T(@"Spothole: POTA, WWFF, GMA and other programs, and the DX clusters and RBN it reads "
+                                                   @"(spothole.app, every 2 minutes; SOTA left out)")
+                                          target:self
+                                          action:@selector(spotsChanged:)];
+    _spotsCluster = [NSButton checkboxWithTitle:T(@"A DX cluster (telnet), logged in with your callsign") target:self action:@selector(spotsChanged:)];
+    _spotsNode = [[NSComboBox alloc] initWithFrame:NSZeroRect];
+    _spotsNode.placeholderString = T(@"host:port");
+    NSMutableArray *tips = [NSMutableArray array];
+    for (size_t i = 0; i < spotfeeds::kNodeCount; ++i) {
+        NSString *node = [NSString stringWithFormat:@"%s:%d", spotfeeds::kNodes[i].host, spotfeeds::kNodes[i].port];
+        [_spotsNode addItemWithObjectValue:node];
+        [tips addObject:[NSString stringWithFormat:@"%@: %@", node, T(@(spotfeeds::kNodes[i].note))]];
+    }
+    _spotsNode.toolTip = [tips componentsJoinedByString:@"\n"];
+    _spotsLogin = [NSTextField textFieldWithString:@""];
+    _spotsLogin.placeholderString = T(@"your callsign (Your Station)");
+    _spotsCommands = [NSTextField textFieldWithString:@""];
+    _spotsCommands.placeholderString = T(@"optional, e.g. set/skimmer");
+    _spotsCommands.toolTip = T(@"Commands to send after logging in, \";\" between them; they're the node's own (see its help)");
+    for (NSTextField *f in @[ _spotsNode, _spotsLogin, _spotsCommands ]) [f.widthAnchor constraintEqualToConstant:300].active = YES;
+    _spotsPsk = [NSButton checkboxWithTitle:T(@"PSKReporter: the stations that heard your callsign (every 5 minutes)") target:self action:@selector(spotsChanged:)];
+    _spotsEmail = [NSTextField textFieldWithString:@""];
+    _spotsEmail.placeholderString = T(@"optional");
+    _spotsEmail.toolTip = T(@"PSKReporter asks the programs that query it for a contact email address (appcontact), in case of a problem. "
+                            @"Leave it empty to send none.");
+    [_spotsEmail.widthAnchor constraintEqualToConstant:300].active = YES;
+    NSGridView *grid = [NSGridView gridViewWithViews:@[
+        @[ [NSTextField labelWithString:colon(T(@"Node"))], _spotsNode ], @[ [NSTextField labelWithString:colon(T(@"Login"))], _spotsLogin ],
+        @[ [NSTextField labelWithString:colon(T(@"Then send"))], _spotsCommands ]
+    ]];
+    NSGridView *pskGrid = [NSGridView gridViewWithViews:@[ @[ [NSTextField labelWithString:colon(T(@"Your email"))], _spotsEmail ] ]];
+    for (NSGridView *g in @[ grid, pskGrid ]) {
+        g.rowSpacing = 6;
+        g.columnSpacing = 8;
+        g.rowAlignment = NSGridRowAlignmentFirstBaseline;
+        [g columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
+        [g columnAtIndex:0].width = labelColumnWidth();
+    }
+    NSButton *save = [NSButton buttonWithTitle:T(@"Save") target:self action:@selector(spotsChanged:)];
+    _spotsStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    _spotsSpothole.identifier = @"settings.spots.spothole", _spotsCluster.identifier = @"settings.spots.cluster";
+    _spotsPsk.identifier = @"settings.spots.psk", _spotsNode.identifier = @"settings.spots.node";
+    _spotsLogin.identifier = @"settings.spots.login", _spotsCommands.identifier = @"settings.spots.commands";
+    _spotsEmail.identifier = @"settings.spots.email", save.identifier = @"settings.spots.save";
+    if (!_spotsObserver)
+        _spotsObserver = [[NSNotificationCenter defaultCenter] addObserverForName:ADIFSpotsChangedNotification
+                                                                           object:nil
+                                                                            queue:nil
+                                                                       usingBlock:^(NSNotification *) { [self fillSpotsStatus]; }];
+    _spotsView = sectionStack(@[ sectionTitle(@"Spots"), help, _spotsSpothole, _spotsCluster, grid, _spotsPsk, pskGrid, save, _spotsStatus ],
+                              @"settings.spots");
+    [self fillSpots];
+    return _spotsView;
+}
+
+- (void)fillSpots {
+    spotfeeds::Config c = spotfeeds::config();
+    _spotsSpothole.state = c.spothole ? NSControlStateValueOn : NSControlStateValueOff;
+    _spotsCluster.state = c.cluster ? NSControlStateValueOn : NSControlStateValueOff;
+    _spotsPsk.state = c.psk ? NSControlStateValueOn : NSControlStateValueOff;
+    _spotsNode.stringValue = c.host.empty() ? @"" : [NSString stringWithFormat:@"%s:%d", c.host.c_str(), c.port];
+    _spotsLogin.stringValue = @(c.login.c_str());
+    _spotsCommands.stringValue = @(c.commands.c_str());
+    _spotsEmail.stringValue = @(c.email.c_str());
+    [self fillSpotsStatus];
+}
+
+- (void)fillSpotsStatus {
+    std::string st = spotfeeds::status();
+    _spotsStatus.stringValue = st.empty() ? T(@"Tick Show under Spots on the Map to fetch them.") : @(st.c_str());
+}
+
+- (void)spotsChanged:(id)sender {
+    spotfeeds::Config c;
+    c.spothole = _spotsSpothole.state == NSControlStateValueOn;
+    c.cluster = _spotsCluster.state == NSControlStateValueOn;
+    c.psk = _spotsPsk.state == NSControlStateValueOn;
+    // "host:port", or a host alone (DXSpider nodes listen on 7300; telnet's own port is 23).
+    std::string node = ADIFStd([_spotsNode.stringValue stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet]);
+    size_t colonAt = node.rfind(':');
+    if (colonAt != std::string::npos && colonAt + 1 < node.size() && node.find_first_not_of("0123456789", colonAt + 1) == std::string::npos)
+        c.host = node.substr(0, colonAt), c.port = std::atoi(node.c_str() + colonAt + 1);
+    else
+        c.host = node, c.port = node.empty() ? 0 : 23;
+    auto trimmed = ^(NSTextField *f) { return ADIFStd([f.stringValue stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet]); };
+    c.login = trimmed(_spotsLogin);
+    c.commands = trimmed(_spotsCommands);
+    c.email = trimmed(_spotsEmail);
+    spotfeeds::setConfig(c);
+    [self fillSpots];
+}
+
 - (void)refresh {
+    [self fillSpots];
     for (NSInteger s = 0; s < ADIFSourceCount; ++s) {
         NSString *account = ADIFSavedAccount((ADIFSource)s);
         BOOL secret = ADIFHasSecret((ADIFSource)s);
@@ -585,6 +691,10 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     [_window makeKeyAndOrderFront:nil];
     if (source == -3) {  // country data
         [_countryUpdate scrollRectToVisible:_countryUpdate.bounds];
+        return;
+    }
+    if (source == -4) {  // spots
+        [_spotsView scrollRectToVisible:_spotsView.bounds];
         return;
     }
     if (source >= 0 && source < ADIFSourceCount) {

@@ -9,7 +9,7 @@ if(NOT ADIF_SANITIZE)
 endif()
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "")
 
-project(ADIFLint VERSION 1.2.0 LANGUAGES CXX OBJCXX)
+project(ADIFLint VERSION 1.3.0 LANGUAGES CXX OBJCXX)
 
 # Plugin build follows the Nextpad++ porting playbook: universal, macOS 11+,
 # ARC, a .dylib named after its plugins/ folder.
@@ -61,7 +61,8 @@ add_library(adif_core STATIC
     src/core/adif_projection.cpp
     src/core/adif_pmtiles.cpp
     src/core/adif_mvt.cpp
-    src/core/adif_i18n.cpp)
+    src/core/adif_i18n.cpp
+    src/core/adif_spots.cpp)
 target_include_directories(adif_core PUBLIC src/core)
 find_package(ZLIB REQUIRED)  # macOS ships it; gzip in PMTiles map files
 target_link_libraries(adif_core PUBLIC ZLIB::ZLIB)
@@ -116,13 +117,13 @@ add_test(NAME adiflint_tools COMMAND sh ${CMAKE_SOURCE_DIR}/tests/cli_tools.sh $
 if(NOT ADIF_SANITIZE)
     add_library(ADIFLint SHARED src/plugin/ADIFLint.mm src/plugin/RecordPanel.mm src/plugin/NewQsoPanel.mm
         src/plugin/EnrichPanel.mm src/plugin/Lookup.mm src/plugin/SettingsPanel.mm src/plugin/QsoFieldsPanel.mm
-        src/plugin/ToolWindow.mm src/plugin/LogTools.mm src/plugin/CheckLog.mm src/plugin/Families.mm src/plugin/Station.mm src/plugin/Monitor.mm src/plugin/Contest.mm src/plugin/Labels.mm src/plugin/LotwUsers.mm src/plugin/IotaGroups.mm src/plugin/PotaParks.mm src/plugin/Map.mm src/plugin/MapView.mm src/plugin/MapLayers.mm src/plugin/MapOsm.mm src/plugin/MapDetail.mm src/plugin/Network.mm src/plugin/L10n.mm
+        src/plugin/ToolWindow.mm src/plugin/LogTools.mm src/plugin/CheckLog.mm src/plugin/Families.mm src/plugin/Station.mm src/plugin/Monitor.mm src/plugin/Contest.mm src/plugin/Labels.mm src/plugin/LotwUsers.mm src/plugin/IotaGroups.mm src/plugin/PotaParks.mm src/plugin/Map.mm src/plugin/MapView.mm src/plugin/MapLayers.mm src/plugin/MapOsm.mm src/plugin/MapDetail.mm src/plugin/Network.mm src/plugin/L10n.mm src/plugin/Spots.mm
         src/plugin/Uploads.mm src/plugin/Imports.mm src/plugin/Country.mm)
     target_include_directories(ADIFLint PRIVATE
         third_party/nextpad
         third_party/scintilla/include)
     target_link_libraries(ADIFLint PRIVATE adif_core "-framework Cocoa" "-framework Security"
-        "-framework UniformTypeIdentifiers")
+        "-framework UniformTypeIdentifiers" "-framework Network")
     target_compile_definitions(ADIFLint PRIVATE ADIFLINT_VERSION="${PROJECT_VERSION}")
     target_compile_options(ADIFLint PRIVATE ${WARNINGS} $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
     # The host loads plugins/<Folder>/<Folder>.dylib, so the name must stay ADIFLint.
