@@ -27,10 +27,10 @@ NSString *ADIFSourceName(ADIFSource source) {
         case ADIFSourceLoTW: return @"LoTW";
         case ADIFSourceQRZLogbook: return @"QRZ.com Logbook";
         case ADIFSourceClubLog: return @"Club Log";
-        case ADIFSourceClubLogKey: return @"Club Log API key";
+        case ADIFSourceClubLogKey: return N(@"Club Log API key");
         case ADIFSourceEQSL: return @"eQSL";
-        case ADIFSourceTqsl: return @"TQSL certificate";
-        case ADIFSourceCountryData: return @"Country Data";
+        case ADIFSourceTqsl: return N(@"TQSL certificate");
+        case ADIFSourceCountryData: return N(@"Country Data");
     }
     return @"";
 }
@@ -40,9 +40,9 @@ ADIFCredentialKind ADIFSourceCredentialKind(ADIFSource source) {
                                                                                                        : ADIFCredentialAccount;
 }
 
-NSString *ADIFSourceUserLabel(ADIFSource source) { return source == ADIFSourceClubLog ? @"Email" : @"Username"; }
+NSString *ADIFSourceUserLabel(ADIFSource source) { return source == ADIFSourceClubLog ? T(@"Email") : T(@"Username"); }
 NSString *ADIFSourceSecretLabel(ADIFSource source) {
-    return ADIFSourceCredentialKind(source) == ADIFCredentialAPIKey && source != ADIFSourceTqsl ? @"API key" : @"Password";
+    return ADIFSourceCredentialKind(source) == ADIFCredentialAPIKey && source != ADIFSourceTqsl ? T(@"API key") : T(@"Password");
 }
 
 BOOL ADIFSourceCanTest(ADIFSource source) { return source <= ADIFSourceQRZLogbook; }
@@ -50,32 +50,32 @@ BOOL ADIFSourceCanTest(ADIFSource source) { return source <= ADIFSourceQRZLogboo
 NSString *ADIFSourceCredentialHelp(ADIFSource source) {
     switch (source) {
         case ADIFSourceQRZ:
-            return @"Your QRZ.com username and password. QRZ's callsign lookups (the XML interface) sign in with these, "
-                   @"not an API key. Grid, county and zones need a QRZ XML Logbook Data subscription.";
+            return T(@"Your QRZ.com username and password. QRZ's callsign lookups (the XML interface) sign in with these, "
+                   @"not an API key. Grid, county and zones need a QRZ XML Logbook Data subscription.");
         case ADIFSourceHamQTH:
-            return @"Your HamQTH.com username and password (a free account).";
+            return T(@"Your HamQTH.com username and password (a free account).");
         case ADIFSourceQRZLogbook:
-            return @"The API access key from your QRZ.com Logbook's settings, for Upload to and Import from QRZ.com Logbook. Each "
-                   @"logbook (callsign) has its own key; QSOs go to the logbook the key belongs to.";
+            return T(@"The API access key from your QRZ.com Logbook's settings, for Upload to and Import from QRZ.com Logbook. Each "
+                   @"logbook (callsign) has its own key; QSOs go to the logbook the key belongs to.");
         case ADIFSourceClubLog:
-            return @"The email address of your Club Log account and an Application Password (Club Log: Settings > App "
+            return T(@"The email address of your Club Log account and an Application Password (Club Log: Settings > App "
                    @"Passwords), not your normal password. Club Log blocks programs that keep sending a wrong password, "
-                   @"so uploads stop at the first sign-in error.";
+                   @"so uploads stop at the first sign-in error.");
         case ADIFSourceClubLogKey:
-            return @"Club Log gives each program that uploads its own API key. Request one at clublog.org/requestapikey.php "
+            return T(@"Club Log gives each program that uploads its own API key. Request one at clublog.org/requestapikey.php "
                    @"for your copy of ADIF Lint and paste it here. Don't share or publish it: Club Log deletes keys found "
-                   @"online.";
+                   @"online.");
         case ADIFSourceEQSL:
-            return @"Your eQSL.cc username (usually your callsign) and password. eQSL receives them over HTTPS with each "
-                   @"upload, and in the address of the InBox download, which is how eQSL documents it.";
+            return T(@"Your eQSL.cc username (usually your callsign) and password. eQSL receives them over HTTPS with each "
+                   @"upload, and in the address of the InBox download, which is how eQSL documents it.");
         case ADIFSourceTqsl:
-            return @"Only if your TQSL callsign certificate has a password: Upload to LoTW gives it to TQSL with -p. While "
+            return T(@"Only if your TQSL callsign certificate has a password: Upload to LoTW gives it to TQSL with -p. While "
                    @"TQSL runs (seconds), other programs on this Mac can see it in the process list. Leave it empty to "
-                   @"have no password, or if TQSL should ask.";
+                   @"have no password, or if TQSL should ask.");
         case ADIFSourceCountryData: return @"";
         case ADIFSourceLoTW:
-            return @"Your LoTW website username (not always your callsign) and password, not your TQSL certificate "
-                   @"password, for Import from LoTW. LoTW's report API receives them in an HTTPS request.";
+            return T(@"Your LoTW website username (not always your callsign) and password, not your TQSL certificate "
+                   @"password, for Import from LoTW. LoTW's report API receives them in an HTTPS request.");
     }
     return @"";
 }
@@ -153,7 +153,7 @@ BOOL ADIFDeleteCredential(ADIFSource source) {
 BOOL ADIFSaveCredential(ADIFSource source, NSString *user, NSString *secret, NSString **error) {
     if (ADIFSourceCredentialKind(source) == ADIFCredentialAPIKey) user = @"API key";
     if (!user.length || !secret.length) {
-        if (error) *error = @"Enter both fields.";
+        if (error) *error = T(@"Enter both fields.");
         return NO;
     }
     if (ADIFLookupFakeMode()) {
@@ -284,11 +284,11 @@ static void callbookLogin(ADIFSource source, NSString *agent, void (^done)(NSStr
             NSString *sub = [child(session, @"SubExp") stringValue];
             if (message.length) notice = [@"QRZ.com: " stringByAppendingString:message];
             else if ([sub caseInsensitiveCompare:@"non-subscriber"] == NSOrderedSame)
-                notice = @"QRZ.com returns only a few fields without an XML Logbook Data subscription.";
-            else if (sub.length) notice = [@"QRZ.com XML subscription until " stringByAppendingString:sub];
+                notice = T(@"QRZ.com returns only a few fields without an XML Logbook Data subscription.");
+            else if (sub.length) notice = TF(@"QRZ.com XML subscription until {date}", @{@"date" : sub});
         }
         if (key.length) done(key, notice, nil);
-        else done(nil, nil, [NSString stringWithFormat:T(@"%@ sign-in failed: %@"), ADIFSourceName(source), err.length ? err : @"no session"]);
+        else done(nil, nil, [NSString stringWithFormat:T(@"%@ sign-in failed: %@"), ADIFSourceName(source), err.length ? err : T(@"no session")]);
     };
     if (fakeNet()) {
         NSString *xml = source == ADIFSourceQRZ
@@ -375,7 +375,7 @@ static void callbookLogin(ADIFSource source, NSString *agent, void (^done)(NSStr
         return;
     }
     done(NO, std::map<std::string, std::string>(),
-         [NSString stringWithFormat:@"%@: %@", ADIFSourceName(_source), err.length ? err : @"unexpected response"], expired);
+         [NSString stringWithFormat:@"%@: %@", ADIFSourceName(_source), err.length ? err : T(@"unexpected response")], expired);
 }
 
 - (void)request:(NSString *)call retried:(BOOL)retried done:(ADIFCallbookDone)done {
@@ -384,7 +384,7 @@ static void callbookLogin(ADIFSource source, NSString *agent, void (^done)(NSStr
         __weak ADIFCallbookClient *weakSelf = self;
         [_waiting addObject:^(NSString *error) {
             ADIFCallbookClient *me = weakSelf;
-            if (error || !me) done(NO, std::map<std::string, std::string>(), error ?: @"The lookup was cancelled.", YES);
+            if (error || !me) done(NO, std::map<std::string, std::string>(), error ?: T(@"The lookup was cancelled."), YES);
             else [me request:call retried:retried done:done];
         }];
         if (_signingIn) return;
@@ -460,7 +460,7 @@ static NSString *lotwText(NSData *body) {
 // returns only newer records); qso_withown adds STATION_CALLSIGN, qso_mydetail
 // your station's details, qso_qsldetail the confirming station's.
 static void lotwDownload(NSString *from, NSString *to, void (^done)(NSString *adif, NSString *error)) {
-    NSString *const kBadLogin = @"LoTW did not return a report. Check your LoTW username and password in Settings.";
+    NSString *const kBadLogin = T(@"LoTW did not return a report. Check your LoTW username and password in Settings.");
     if (NSString *dir = fakeNet()) {
         NSData *body = ADIFSavedAccount(ADIFSourceLoTW)
                            ? [NSData dataWithContentsOfFile:[dir stringByAppendingPathComponent:@"lotw/lotwreport.adi"]]
@@ -479,7 +479,7 @@ static void lotwDownload(NSString *from, NSString *to, void (^done)(NSString *ad
                             [to substringWithRange:NSMakeRange(4, 2)], [to substringFromIndex:6]];
     NSURL *url = lotwURL(query);
     if (!url) {
-        dispatch_async(dispatch_get_main_queue(), ^{ done(nil, @"No LoTW account. Add one in Settings."); });
+        dispatch_async(dispatch_get_main_queue(), ^{ done(nil, T(@"No LoTW account. Add one in Settings.")); });
         return;
     }
     httpGet(url, ^(NSData *body, NSString *error) {
@@ -495,15 +495,15 @@ static void lotwDownload(NSString *from, NSString *to, void (^done)(NSString *ad
 
 void ADIFTestCredential(ADIFSource source, void (^done)(BOOL ok, NSString *message)) {
     if (!ADIFSavedAccount(source) || !ADIFHasSecret(source)) {
-        dispatch_async(dispatch_get_main_queue(), ^{ done(NO, @"Nothing saved yet."); });
+        dispatch_async(dispatch_get_main_queue(), ^{ done(NO, T(@"Nothing saved yet.")); });
         return;
     }
     if (source == ADIFSourceQRZLogbook) {
         NSString *key = savedSecret(source);
         void (^handle)(NSString *) = ^(NSString *body) {
             adif::QrzReply r = adif::parseQrzReply(body.UTF8String ?: "");
-            if (r.result == "OK") done(YES, @"QRZ.com accepted the key.");
-            else done(NO, [NSString stringWithFormat:T(@"QRZ.com: %s"), r.reason.empty() ? "the key was not accepted" : r.reason.c_str()]);
+            if (r.result == "OK") done(YES, T(@"QRZ.com accepted the key."));
+            else done(NO, [NSString stringWithFormat:T(@"QRZ.com: %s"), r.reason.empty() ? tr("the key was not accepted").c_str() : r.reason.c_str()]);
         };
         if (fakeNet()) {
             dispatch_async(dispatch_get_main_queue(), ^{ handle(@"RESULT=OK&COUNT=1"); });
@@ -528,7 +528,7 @@ void ADIFTestCredential(ADIFSource source, void (^done)(BOOL ok, NSString *messa
     }
     if (source == ADIFSourceLoTW) {
         if (fakeNet()) {
-            dispatch_async(dispatch_get_main_queue(), ^{ done(YES, @"LoTW accepted the login (test data)."); });
+            dispatch_async(dispatch_get_main_queue(), ^{ done(YES, T(@"LoTW accepted the login (test data).")); });
             return;
         }
         // A query for confirmations since today: small, and it proves the login.
@@ -539,14 +539,14 @@ void ADIFTestCredential(ADIFSource source, void (^done)(BOOL ok, NSString *messa
         NSString *today = [f stringFromDate:[NSDate date]];
         httpGet(lotwURL([@"qso_query=1&qso_qsl=yes&qso_qslsince=" stringByAppendingString:today]), ^(NSData *body, NSString *error) {
             if (error) done(NO, [@"LoTW: " stringByAppendingString:error]);
-            else if (lotwText(body)) done(YES, @"LoTW accepted the login.");
-            else done(NO, @"LoTW did not accept this username and password.");
+            else if (lotwText(body)) done(YES, T(@"LoTW accepted the login."));
+            else done(NO, T(@"LoTW did not accept this username and password."));
         });
         return;
     }
     callbookLogin(source, @"ADIFLint-test", ^(NSString *session, NSString *notice, NSString *error) {
         if (error) done(NO, error);
-        else done(YES, notice.length ? [@"Signed in. " stringByAppendingString:notice] : @"Signed in.");
+        else done(YES, notice.length ? [T(@"Signed in.") stringByAppendingFormat:@" %@", notice] : T(@"Signed in."));
     });
 }
 
@@ -555,7 +555,7 @@ void ADIFTestCredential(ADIFSource source, void (^done)(BOOL ok, NSString *messa
 static NSArray<NSDictionary *> *spotObjects(NSData *data, NSString **error) {
     id json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
     if (![json isKindOfClass:NSArray.class]) {
-        *error = @"POTA sent something other than a list of spots";
+        *error = T(@"POTA sent something other than a list of spots");
         return nil;
     }
     NSMutableArray *out = [NSMutableArray array];
@@ -629,7 +629,7 @@ static NSMutableURLRequest *multipartRequest(NSString *url, NSString *agent, con
     std::string boundary = "ADIFLint-" + std::string([NSUUID UUID].UUIDString.UTF8String);
     NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:url]];
     r.HTTPMethod = @"POST";
-    [r setValue:[NSString stringWithFormat:T(@"multipart/form-data; boundary=%s"), boundary.c_str()] forHTTPHeaderField:@"Content-Type"];
+    [r setValue:[NSString stringWithFormat:@"multipart/form-data; boundary=%s", boundary.c_str()] forHTTPHeaderField:@"Content-Type"];
     [r setValue:agent forHTTPHeaderField:@"User-Agent"];
     std::string body = adif::multipartBody(parts, boundary);
     r.HTTPBody = [NSData dataWithBytes:body.data() length:body.size()];
@@ -639,7 +639,7 @@ static NSMutableURLRequest *multipartRequest(NSString *url, NSString *agent, con
 void ADIFQrzLogbookInsert(NSString *agent, NSString *adi, BOOL replace, void (^done)(NSString *reply, NSString *error)) {
     NSString *key = savedSecret(ADIFSourceQRZLogbook);
     if (!key.length) {
-        dispatch_async(dispatch_get_main_queue(), ^{ done(nil, @"No QRZ.com Logbook API key yet. Add it in Settings."); });
+        dispatch_async(dispatch_get_main_queue(), ^{ done(nil, T(@"No QRZ.com Logbook API key yet. Add it in Settings.")); });
         return;
     }
     if (fakeNet()) {
@@ -670,7 +670,7 @@ void ADIFClubLogUpload(NSString *agent, NSString *callsign, NSString *adiFile, N
     NSString *key = savedSecret(ADIFSourceClubLogKey);
     if (!email.length || !password.length || !key.length) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            done(0, nil, @"Club Log needs your email, an Application Password and an API key. Add them in Settings.");
+            done(0, nil, T(@"Club Log needs your email, an Application Password and an API key. Add them in Settings."));
         });
         return;
     }
@@ -694,7 +694,7 @@ void ADIFClubLogUpload(NSString *agent, NSString *callsign, NSString *adiFile, N
 void ADIFEqslUpload(NSString *agent, NSString *adiFile, NSString *fileName, void (^done)(NSString *reply, NSString *error)) {
     NSString *user = ADIFSavedAccount(ADIFSourceEQSL), *password = savedSecret(ADIFSourceEQSL);
     if (!user.length || !password.length) {
-        dispatch_async(dispatch_get_main_queue(), ^{ done(nil, @"No eQSL account yet. Add it in Settings."); });
+        dispatch_async(dispatch_get_main_queue(), ^{ done(nil, T(@"No eQSL account yet. Add it in Settings.")); });
         return;
     }
     if (fakeNet()) {
@@ -743,13 +743,13 @@ static void qrzFetchPage(NSString *agent, NSString *key, std::string between, lo
         std::string page;
         std::string raw = text(data).UTF8String ?: "";
         if (!adif::parseQrzFetch(raw, &reply, &page)) {
-            done(nil, @"QRZ.com sent something unexpected");
+            done(nil, T(@"QRZ.com sent something unexpected"));
             return;
         }
         if (reply.result != "OK") {
             // No records match is not an error.
             if (reply.reason.find("no log entries") != std::string::npos || reply.count == "0") done(all, nil);
-            else done(nil, [NSString stringWithFormat:T(@"QRZ.com: %s"), reply.reason.empty() ? "FETCH failed" : reply.reason.c_str()]);
+            else done(nil, [NSString stringWithFormat:T(@"QRZ.com: %s"), reply.reason.empty() ? tr("FETCH failed").c_str() : reply.reason.c_str()]);
             return;
         }
         [all appendString:@(page.c_str()) ?: @""];
@@ -783,14 +783,14 @@ static void qrzDownload(NSString *agent, NSString *from, NSString *to, void (^do
         dispatch_async(dispatch_get_main_queue(), ^{
             adif::QrzReply reply;
             std::string page;
-            if (!body || !adif::parseQrzFetch(body.UTF8String, &reply, &page)) done(nil, @"QRZ.com sent something unexpected");
+            if (!body || !adif::parseQrzFetch(body.UTF8String, &reply, &page)) done(nil, T(@"QRZ.com sent something unexpected"));
             else done(@(page.c_str()), nil);
         });
         return;
     }
     NSString *key = savedSecret(ADIFSourceQRZLogbook);
     if (!key.length) {
-        dispatch_async(dispatch_get_main_queue(), ^{ done(nil, @"No QRZ.com Logbook API key yet. Add it in Settings."); });
+        dispatch_async(dispatch_get_main_queue(), ^{ done(nil, T(@"No QRZ.com Logbook API key yet. Add it in Settings.")); });
         return;
     }
     std::string between;
@@ -812,7 +812,7 @@ static void eqslDownload(NSString *agent, NSString *from, NSString *to, void (^d
     }
     NSString *user = ADIFSavedAccount(ADIFSourceEQSL), *password = savedSecret(ADIFSourceEQSL);
     if (!user.length || !password.length) {
-        dispatch_async(dispatch_get_main_queue(), ^{ done(nil, @"No eQSL account yet. Add it in Settings."); });
+        dispatch_async(dispatch_get_main_queue(), ^{ done(nil, T(@"No eQSL account yet. Add it in Settings.")); });
         return;
     }
     // DownloadInBox takes the login in the address (over HTTPS); that is how eQSL documents it.
@@ -841,7 +841,7 @@ static void eqslDownload(NSString *agent, NSString *from, NSString *to, void (^d
         }
         NSURL *file = [NSURL URLWithString:@(link.c_str()) relativeToURL:url];
         if (!file || ![file.host.lowercaseString hasSuffix:@"eqsl.cc"]) {
-            done(nil, @"eQSL linked to an unexpected place");
+            done(nil, T(@"eQSL linked to an unexpected place"));
             return;
         }
         NSMutableURLRequest *get = [NSMutableURLRequest requestWithURL:file.absoluteURL];
@@ -881,7 +881,7 @@ void ADIFFetchWwffSpots(NSString *agent, void (^done)(NSArray<NSDictionary *> *s
         }
         NSString *problem = nil;
         NSArray *spots = spotObjects(body, &problem);
-        done(spots, problem ? @"WWFF sent something other than a list of spots" : nil);
+        done(spots, problem ? T(@"WWFF sent something other than a list of spots") : nil);
     });
 }
 
@@ -911,7 +911,7 @@ void ADIFFetchSpotholePrograms(NSString *agent, void (^done)(NSArray<NSDictionar
             return;
         }
         NSArray *list = parse(body);
-        done(list, list ? nil : @"Spothole sent something other than its list of programs");
+        done(list, list ? nil : T(@"Spothole sent something other than its list of programs"));
     });
 }
 
@@ -938,7 +938,7 @@ void ADIFFetchSpotholeSpots(NSString *agent, NSString *programs, void (^done)(NS
         }
         NSString *problem = nil;
         NSArray *spots = spotObjects(body, &problem);
-        done(spots, problem ? @"Spothole sent something other than a list of spots" : nil);
+        done(spots, problem ? T(@"Spothole sent something other than a list of spots") : nil);
     });
 }
 
@@ -999,7 +999,7 @@ void ADIFDownloadCountryData(NSString *agent, void (^done)(NSString *ctyCsv, NSS
                                    error:nil];
         NSTextCheckingResult *m = [re firstMatchInString:page options:0 range:NSMakeRange(0, page.length)];
         if (!m) {
-            done(nil, nil, @"no Big CTY release found on country-files.com");
+            done(nil, nil, T(@"no Big CTY release found on country-files.com"));
             return;
         }
         NSString *zipURL = [page substringWithRange:m.range], *release = [page substringWithRange:[m rangeAtIndex:1]];

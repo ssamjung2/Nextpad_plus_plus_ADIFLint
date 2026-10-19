@@ -1,5 +1,7 @@
 #include "adif_labels.h"
 
+#include "adif_i18n.h"
+
 #include "adif_edit.h"
 #include "adif_spec.h"
 
@@ -91,11 +93,11 @@ std::vector<std::string> labelLines(const QslLabel &label, std::string_view myCa
 
 const std::vector<LabelSheet> &labelSheets() {
     static const std::vector<LabelSheet> kSheets = {
-        {"Avery 5160 (30 per sheet, Letter)", 8.5 * kInch, 11 * kInch, 3, 10, 2.625 * kInch, 1 * kInch, 0.5 * kInch, 0.1875 * kInch,
+        {N_("Avery 5160 (30 per sheet, Letter)"), 8.5 * kInch, 11 * kInch, 3, 10, 2.625 * kInch, 1 * kInch, 0.5 * kInch, 0.1875 * kInch,
          2.75 * kInch, 1 * kInch, 3},
-        {"Avery 5163 (10 per sheet, Letter)", 8.5 * kInch, 11 * kInch, 2, 5, 4 * kInch, 2 * kInch, 0.5 * kInch, 0.15625 * kInch,
+        {N_("Avery 5163 (10 per sheet, Letter)"), 8.5 * kInch, 11 * kInch, 2, 5, 4 * kInch, 2 * kInch, 0.5 * kInch, 0.15625 * kInch,
          4.1875 * kInch, 2 * kInch, 8},
-        {"Avery L7163 (14 per sheet, A4)", 210 * kMm, 297 * kMm, 2, 7, 99.1 * kMm, 38.1 * kMm, 15.15 * kMm, 4.65 * kMm, 101.6 * kMm,
+        {N_("Avery L7163 (14 per sheet, A4)"), 210 * kMm, 297 * kMm, 2, 7, 99.1 * kMm, 38.1 * kMm, 15.15 * kMm, 4.65 * kMm, 101.6 * kMm,
          38.1 * kMm, 5},
     };
     return kSheets;

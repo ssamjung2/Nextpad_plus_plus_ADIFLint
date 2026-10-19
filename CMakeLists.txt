@@ -104,6 +104,11 @@ target_link_libraries(pmtiles_dev PRIVATE adif_core)
 target_compile_options(pmtiles_dev PRIVATE ${WARNINGS})
 
 add_test(NAME adiflint_official COMMAND adiflint_cli --quiet ${OFFICIAL_ADI})
+# The language tables parse, every key is still in the sources, and placeholders and plurals match.
+find_program(PYTHON3 python3)
+if(PYTHON3)
+    add_test(NAME lang_check COMMAND ${PYTHON3} -I ${CMAKE_SOURCE_DIR}/tools/extract_strings.py --check)
+endif()
 add_test(NAME adiflint_tools COMMAND sh ${CMAKE_SOURCE_DIR}/tests/cli_tools.sh $<TARGET_FILE:adiflint_cli> ${OFFICIAL_ADI}
          ${CMAKE_BINARY_DIR}/cli_tools)
 
@@ -126,7 +131,8 @@ if(NOT ADIF_SANITIZE)
     # The country file sits next to the dylib, installed or built (the harness loads the built one).
     add_custom_command(TARGET ADIFLint POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/data/cty.csv $<TARGET_FILE_DIR:ADIFLint>/cty.csv
-        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/data/map-detail.bin $<TARGET_FILE_DIR:ADIFLint>/map-detail.bin)
+        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/data/map-detail.bin $<TARGET_FILE_DIR:ADIFLint>/map-detail.bin
+        COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/data/lang $<TARGET_FILE_DIR:ADIFLint>/lang)
 
     set(PLUGIN_INSTALL_DIR "$ENV{HOME}/Library/Application Support/Nextpad++/plugins/ADIFLint"
         CACHE PATH "Where 'cmake --install' puts the plugin")
@@ -145,6 +151,7 @@ if(NOT ADIF_SANITIZE)
         execute_process(COMMAND codesign --force --sign - \"\${dir}/ADIFLint.dylib.new\")
         file(RENAME \"\${dir}/ADIFLint.dylib.new\" \"\${dir}/ADIFLint.dylib\")
         file(COPY \"${CMAKE_SOURCE_DIR}/data/cty.csv\" \"${CMAKE_SOURCE_DIR}/data/cty-copyright.txt\" \"${CMAKE_SOURCE_DIR}/data/zones-license.txt\" \"${CMAKE_SOURCE_DIR}/data/map-detail.bin\" DESTINATION \"\${dir}\")
+        file(COPY \"${CMAKE_SOURCE_DIR}/data/lang\" DESTINATION \"\${dir}\")
         file(GLOB icons \"${CMAKE_SOURCE_DIR}/data/toolbar/*.png\")
         file(COPY \${icons} DESTINATION \"\${dir}\")
         message(STATUS \"Installed \${dir}/ADIFLint.dylib; restart Nextpad++ to load it\")
@@ -157,4 +164,7 @@ if(NOT ADIF_SANITIZE)
     target_compile_options(host_harness PRIVATE ${WARNINGS} -fobjc-arc)
     add_dependencies(host_harness ADIFLint)
     add_test(NAME host_harness COMMAND host_harness $<TARGET_FILE:ADIFLint> ${CMAKE_SOURCE_DIR}/tests/fixtures/lookup)
+    # Every window in every language: no text cut short, no controls overlapping (a few minutes).
+    add_test(NAME lang_layout COMMAND sh ${CMAKE_SOURCE_DIR}/tools/lang-layout-check.sh)
+    set_tests_properties(lang_layout PROPERTIES LABELS slow)
 endif()

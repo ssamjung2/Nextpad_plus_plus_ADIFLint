@@ -43,7 +43,7 @@ is saved to disk until you save the file.
 - [Importing from LoTW, QRZ.com Logbook and eQSL](#importing-from-lotw-qrzcom-logbook-and-eqsl)
 - [QSL Sync and uploading](#qsl-sync-and-uploading)
 - [Enrich](#enrich)
-- [Settings](#settings)
+- [Settings](#settings): [offline mode](#offline-mode), [language](#language)
 - [Command line](#command-line)
 - [Limits](#limits)
 
@@ -1095,6 +1095,8 @@ Rules for every source:
   Worked Before searches.
 - **Editor:** checking while typing, syntax colouring, autocomplete, and counting lengths
   in characters instead of bytes.
+- **Language:** the language of ADIF Lint's menu, windows and messages (see
+  [Language](#language)).
 - **Offline Mode:** **Work offline** makes no network requests at all (see
   [Offline mode](#offline-mode)); the same as the menu's **Offline Mode**.
 - **Keyboard Shortcuts:** where to assign them (Nextpad++'s Edit → Shortcut Mapper…, Plugin
@@ -1134,8 +1136,9 @@ Where things are kept:
   country file (`ADIFLint-cty.csv`), the LoTW user list (`ADIFLint-lotw-users.csv`), POTA's
   park list (`ADIFLint-pota-parks.csv`), IOTA's group list (`ADIFLint-iota-groups.json`), and
   the Map Detail regions (`maps/`). They survive plugin updates.
-- **The installed country file** and the Map's 1:10m detail (`map-detail.bin`) beside the
-  plugin, in `~/Library/Application Support/Nextpad++/plugins/ADIFLint/`.
+- **The installed country file**, the Map's 1:10m detail (`map-detail.bin`) and the
+  language tables (`lang/`) beside the plugin, in
+  `~/Library/Application Support/Nextpad++/plugins/ADIFLint/`.
 
 All requests use HTTPS. The QRZ.com sign-in is sent as a POST, so the password isn't in
 a URL. HamQTH's sign-in, LoTW's report API and eQSL's DownloadInBox take the login as
@@ -1157,6 +1160,25 @@ nothing is sent:
 Each says "Offline mode is on" instead. Everything that works on your Mac's own files goes
 on as usual: checking and editing logs, New QSO, the Map, the exports, and Monitor, which
 only listens to the programs on your Mac. The setting is kept until you turn it off.
+
+### Language
+
+ADIF Lint speaks English, Korean (한국어), French (Français), German (Deutsch), Spanish
+(Español) and Japanese (日本語): its menu, every window, and the messages, the problems
+found in a log among them. **Settings → Language** chooses one; **Same as Nextpad++**, the
+first choice, follows the language Nextpad++ shows (Preferences), or English when it is one
+ADIF Lint doesn't have.
+
+- The menu and new messages change at once. Windows ADIF Lint has already shown keep their
+  language until Nextpad++ starts again.
+- The translations were drafted by Claude, an AI, and are waiting for review by native
+  speakers. Anything not translated shows in English.
+- Some things stay in English in every language: this guide, the ADIF specification's
+  field descriptions (shown in New QSO's field list and tips), place names on the Map,
+  and what goes into files (headers of exported logs, Cabrillo).
+- Each language is a file, `lang/<code>.json` beside the plugin (`data/lang/` in the
+  source), keyed by the English text. To correct a translation, change its value there;
+  [CONTRIBUTING](../CONTRIBUTING.md#translations) explains how to check the result.
 
 ## Command line
 

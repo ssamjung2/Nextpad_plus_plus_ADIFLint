@@ -34,6 +34,13 @@ def unescape(s):
         c = s[i]
         if c == '\\' and i + 1 < len(s):
             e = s[i + 1]
+            if e in 'uU':
+                n = 4 if e == 'u' else 8
+                digits = s[i + 2:i + 2 + n]
+                if len(digits) == n and all(d in '0123456789abcdefABCDEF' for d in digits):
+                    out.append(chr(int(digits, 16)))
+                    i += 2 + n
+                    continue
             out.append({'n': '\n', 't': '\t', '"': '"', '\\': '\\', "'": "'", '0': '\0'}.get(e, '\\' + e))
             i += 2
         else:
@@ -128,8 +135,15 @@ def keys():
         # smallButton(@"Title", @"tip", ...) and pullDown(@"Title", @"tip"): the second too
         for m in re.finditer(r'(?:smallButton|pullDown)\(\s*' + OBJC_SEQ + r'\s*,\s*' + OBJC_SEQ, src):
             add(joined(m.group(2), True), rel)
-        for sel in ['addButton:', 'initWithTitle:', 'setStatus:', 'setHeadline:']:
-            for m in re.finditer(sel + r'\s*' + OBJC_SEQ, src):
+        for m in re.finditer(r'(?<![\w:])setStatus\(\s*' + CPP_SEQ, src):  # the Map's own status line
+            add(joined(m.group(1), False), rel)
+        for m in re.finditer(r'\bmenuItem\(\s*\w+\s*,\s*' + OBJC_SEQ, src):  # the Map's menus
+            add(joined(m.group(1), True), rel)
+        for m in re.finditer(r'setSummary:\s*' + CPP_SEQ, src):  # New QSO's summary line
+            add(joined(m.group(1), False), rel)
+        for sel in ['addButton:', 'initWithTitle:', 'setStatus:', 'setHeadline:', 'setStationStatus:', 'setMapDetailState:',
+                    'setCountryStatus:', r'setLotwUsersOn:\s*\w+\s*status:', 'setPotaStatus:', 'setIotaStatus:', 'setAccount:', 'setCredit:']:
+            for m in re.finditer(sel + r'\s*(?:\w+\s*\?\s*)?' + OBJC_SEQ, src):
                 add(joined(m.group(1), True), rel)
         for m in re.finditer(r'ADIFPopup\(\s*@\[(.*?)\]\s*\)', src, re.S):
             for item in re.finditer(OBJC_SEQ, m.group(1)):
@@ -162,7 +176,21 @@ def keys():
     return found
 
 
+PRINTF = re.compile(r'%(\d+\$)?[-+ #0\']*[\d*]*(?:\.[\d*]+)?(?:hh|h|ll|l|z|j|t|L|q)?([@diouxXeEfFgGcsp])')
+
+
+def printf_order_ok(key, text):
+    """printf fills its arguments in order: a translation keeps the key's order, or numbers
+    every one (%2$@ %1$ld) to move them."""
+    want = [m.group(0) for m in PRINTF.finditer(key.split('##')[0])]
+    got = list(PRINTF.finditer(text))
+    if got and all(m.group(1) for m in got):
+        return sorted(re.sub(r'^%\d+\$', '%', m.group(0)) for m in got) == sorted(want)
+    return [m.group(0) for m in got] == want
+
+
 def placeholders(text):
+    text = text.split('##')[0]  # a key's context isn't text
     out = re.findall(r'\{[A-Za-z0-9_]+\}', text)
     for m in re.finditer(r'%(?:\d+\$)?[-+ #0\']*[\d*]*(?:\.[\d*]+)?(?:hh|h|ll|l|z|j|t|L|q)?([@diouxXeEfFgGcsp%])', text):
         if m.group(1) != '%':
@@ -201,6 +229,8 @@ def check_table(path, known):
             for form, text in value.items():
                 if placeholders(text) != placeholders(other):
                     problems.append(f'{path}: placeholders differ in {key!r} ({form}): {text!r}')
+                elif not printf_order_ok(other, text):
+                    problems.append(f'{path}: printf placeholders out of order in {key!r} ({form}): {text!r}')
             done += 1
         elif isinstance(value, str):
             if '|' in key and key.count('{n}') == 2:
@@ -208,6 +238,8 @@ def check_table(path, known):
                 continue
             if value and placeholders(value) != placeholders(key):
                 problems.append(f'{path}: placeholders differ: {key!r} -> {value!r}')
+            elif value and not printf_order_ok(key, value):
+                problems.append(f'{path}: printf placeholders out of order (number them all to move them): {key!r} -> {value!r}')
             if value:
                 done += 1
         else:

@@ -22,6 +22,8 @@
 // LengthFix sets L to its length.
 #include "adif_lint.h"
 
+#include "adif_i18n.h"
+
 #include "adif_spec.h"
 
 #include <algorithm>
@@ -33,6 +35,9 @@
 #include <set>
 
 namespace adif {
+using i18n::tr;
+using i18n::trf;
+using i18n::trp;
 namespace {
 
 constexpr size_t npos = std::string_view::npos;
@@ -182,14 +187,14 @@ int twoDigits(std::string_view s, size_t at) { return (s[at] - '0') * 10 + (s[at
 
 // Date (§III.A): YYYYMMDD, 1930 <= YYYY, valid month and day.
 const char *dateProblem(std::string_view v) {
-    if (v.size() != 8 || !allDigits(v)) return "a Date is 8 digits, YYYYMMDD";
+    if (v.size() != 8 || !allDigits(v)) return N_("a Date is 8 digits, YYYYMMDD");
     int y = twoDigits(v, 0) * 100 + twoDigits(v, 2), m = twoDigits(v, 4), d = twoDigits(v, 6);
-    if (y < 1930) return "the year must be 1930 or later";
-    if (m < 1 || m > 12) return "the month must be 01-12";
+    if (y < 1930) return N_("the year must be 1930 or later");
+    if (m < 1 || m > 12) return N_("the month must be 01-12");
     static const int kDays[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
     bool leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
     int dim = kDays[m - 1] + (m == 2 && leap ? 1 : 0);
-    if (d < 1 || d > dim) return "the day is not in that month";
+    if (d < 1 || d > dim) return N_("the day is not in that month");
     return nullptr;
 }
 
@@ -202,17 +207,17 @@ std::string dashedDate(std::string_view d) {
 // The QSO dates an enumeration value is valid for, in words: "before 2012-09-01".
 std::string validityText(const EnumValue &x) {
     std::string out;
-    if (x.from) out = "from " + dashedDate(x.from);
-    if (x.before) out += (out.empty() ? "" : " and ") + std::string("before ") + dashedDate(x.before);
+    if (x.from) out = trf("from {date}", {{"date", dashedDate(x.from)}});
+    if (x.before) out += (out.empty() ? "" : " " + tr("and") + " ") + trf("before {date}", {{"date", dashedDate(x.before)}});
     return out;
 }
 
 // Time (§III.A): HHMM or HHMMSS.
 const char *timeProblem(std::string_view v) {
-    if ((v.size() != 4 && v.size() != 6) || !allDigits(v)) return "a Time is HHMM or HHMMSS";
-    if (twoDigits(v, 0) > 23) return "the hour must be 00-23";
-    if (twoDigits(v, 2) > 59) return "the minutes must be 00-59";
-    if (v.size() == 6 && twoDigits(v, 4) > 59) return "the seconds must be 00-59";
+    if ((v.size() != 4 && v.size() != 6) || !allDigits(v)) return N_("a Time is HHMM or HHMMSS");
+    if (twoDigits(v, 0) > 23) return N_("the hour must be 00-23");
+    if (twoDigits(v, 2) > 59) return N_("the minutes must be 00-59");
+    if (v.size() == 6 && twoDigits(v, 4) > 59) return N_("the seconds must be 00-59");
     return nullptr;
 }
 
@@ -242,18 +247,18 @@ bool isGridSquareExt(std::string_view v) {
 
 // Location (§III.A): XDDD MM.MMM, X in {E,W,N,S}, 0 <= DDD <= 180, 00.000 <= MM.MMM <= 59.999.
 const char *locationProblem(std::string_view v) {
-    if (v.size() != 11) return "a Location is 11 characters, XDDD MM.MMM";
+    if (v.size() != 11) return N_("a Location is 11 characters, XDDD MM.MMM");
     unsigned char x = up((unsigned char)v[0]);
-    if (x != 'N' && x != 'S' && x != 'E' && x != 'W') return "it must start with N, S, E or W";
+    if (x != 'N' && x != 'S' && x != 'E' && x != 'W') return N_("it must start with N, S, E or W");
     if (!isDigit(v[1]) || !isDigit(v[2]) || !isDigit(v[3]) || v[4] != ' ' || !isDigit(v[5]) || !isDigit(v[6]) ||
         v[7] != '.' || !isDigit(v[8]) || !isDigit(v[9]) || !isDigit(v[10]))
-        return "the form is XDDD MM.MMM";
+        return N_("the form is XDDD MM.MMM");
     int deg = (v[1] - '0') * 100 + twoDigits(v, 2);
-    if (deg > 180) return "degrees must be 000-180";
-    if (twoDigits(v, 5) > 59) return "minutes must be below 60";
+    if (deg > 180) return N_("degrees must be 000-180");
+    if (twoDigits(v, 5) > 59) return N_("minutes must be below 60");
     bool minutes = twoDigits(v, 5) > 0 || v.substr(8) != "000";
-    if ((x == 'N' || x == 'S') && (deg > 90 || (deg == 90 && minutes))) return "a latitude cannot exceed 90 degrees";
-    if (deg == 180 && minutes) return "a longitude cannot exceed 180 degrees";
+    if ((x == 'N' || x == 'S') && (deg > 90 || (deg == 90 && minutes))) return N_("a latitude cannot exceed 90 degrees");
+    if (deg == 180 && minutes) return N_("a longitude cannot exceed 180 degrees");
     return nullptr;
 }
 
@@ -420,7 +425,7 @@ private:
     bool consistentAt(size_t dataB, uint64_t len, LengthUnit unit, size_t next) const;
     bool parseTag(size_t lt, Tag &tag, std::string *why) const;
     size_t findNextTag(size_t from) const;
-    const char *unitWord(size_t count) const;
+    std::string unitCount(size_t count) const;  // "4 bytes", or characters
 
     void ignored(size_t b, size_t e);
     bool strayTagGap(size_t b, size_t e) const;
@@ -544,7 +549,7 @@ bool Linter::parseTag(size_t lt, Tag &tag, std::string *why) const {
         if (c == '<' || c == '\r' || c == '\n') break;
     }
     if (gt == npos) {
-        if (why) *why = "it is not closed by '>'";
+        if (why) *why = N_("it is not closed by '>'");
         return false;
     }
     tag.gt = gt;
@@ -556,25 +561,25 @@ bool Linter::parseTag(size_t lt, Tag &tag, std::string *why) const {
     if (equalsNoCase(name, "EOH") || equalsNoCase(name, "EOR")) {
         tag.kind = equalsNoCase(name, "EOH") ? TagKind::EOH : TagKind::EOR;
         if (c1 == npos) return true;
-        if (why) *why = "<EOH> and <EOR> take no length";
+        if (why) *why = N_("<EOH> and <EOR> take no length");
         return false;
     }
     if (c1 == npos) {
-        if (why) *why = inner.empty() ? "it is empty" : "it has no data length (expected <NAME:LENGTH>)";
+        if (why) *why = inner.empty() ? N_("it is empty") : N_("it has no data length (expected <NAME:LENGTH>)");
         return false;
     }
     if (name.empty()) {
-        if (why) *why = "it has no field name";
+        if (why) *why = N_("it has no field name");
         return false;
     }
     for (unsigned char c : name) {
         if (c < 32 || c == 127 || c == ',' || c == '{' || c == '}') {
-            if (why) *why = "the field name contains a character that is not allowed";
+            if (why) *why = N_("the field name contains a character that is not allowed");
             return false;
         }
     }
     if (name.front() == ' ' || name.back() == ' ') {
-        if (why) *why = "the field name begins or ends with a space";
+        if (why) *why = N_("the field name begins or ends with a space");
         return false;
     }
     size_t c2 = inner.find(':', c1 + 1);
@@ -582,7 +587,7 @@ bool Linter::parseTag(size_t lt, Tag &tag, std::string *why) const {
     tag.lenB = tag.nameE + 1;
     tag.lenE = tag.lenB + len.size();
     if (!allDigits(len)) {
-        if (why) *why = len.empty() ? "it has no data length" : "the data length must be an unsigned whole number";
+        if (why) *why = len.empty() ? N_("it has no data length") : N_("the data length must be an unsigned whole number");
         return false;
     }
     if (len.size() > kMaxLengthDigits) {
@@ -593,7 +598,7 @@ bool Linter::parseTag(size_t lt, Tag &tag, std::string *why) const {
     if (c2 != npos) {
         std::string_view type = inner.substr(c2 + 1);
         if (type.size() != 1 || !isAlpha((unsigned char)type[0])) {
-            if (why) *why = "the data type indicator must be a single letter";
+            if (why) *why = N_("the data type indicator must be a single letter");
             return false;
         }
         tag.typePos = tag.lenE + 1;
@@ -614,18 +619,18 @@ size_t Linter::findNextTag(size_t from) const {
     return n_;
 }
 
-const char *Linter::unitWord(size_t count) const {
+std::string Linter::unitCount(size_t count) const {
     bool chars = opt_.lengthUnit == LengthUnit::Characters && opt_.utf8;
-    if (count == 1) return chars ? "character" : "byte";
-    return chars ? "characters" : "bytes";
+    return chars ? trp("{n} character", "{n} characters", (long long)count, {{"n", std::to_string(count)}})
+                 : trp("{n} byte", "{n} bytes", (long long)count, {{"n", std::to_string(count)}});
 }
 
 LintResult Linter::run() {
     if (n_ >= 3 && (unsigned char)t_[0] == 0xEF && (unsigned char)t_[1] == 0xBB && (unsigned char)t_[2] == 0xBF)
         diag(Severity::Warning, 0, 3,
-             "UTF-8 byte-order mark at the start of the file. ADI files are ASCII (§III.A); some importers reject it.");
+             tr("UTF-8 byte-order mark at the start of the file. ADI files are ASCII (§III.A); some importers reject it."));
     if (n_ >= 3 && (unsigned char)t_[0] == 0xEF && (unsigned char)t_[1] == 0xBB && (unsigned char)t_[2] == 0xBF)
-        annotate("bom", "", {FieldFix{FixKind::DeleteText, "", "", kNoPos}}, "remove the byte-order mark");
+        annotate("bom", "", {FieldFix{FixKind::DeleteText, "", "", kNoPos}}, tr("remove the byte-order mark"));
     startsWithLt_ = n_ > 0 && t_[0] == '<';
     r_.model.hasBom = n_ >= 3 && (unsigned char)t_[0] == 0xEF && (unsigned char)t_[1] == 0xBB &&
                       (unsigned char)t_[2] == 0xBF;
@@ -657,7 +662,7 @@ LintResult Linter::run() {
             bool meant = inner.find(':') != npos || findField(inner) != nullptr || tag.kind != TagKind::Field;
             size_t end = tag.gt > lt ? tag.gt + 1 : lt + 1;
             diag(meant ? Severity::Error : Severity::Warning, lt, end,
-                 "'" + snippet(view(lt, end)) + "' is not a valid data specifier: " + why + ".", meant);
+                 trf("'{text}' is not a valid data specifier: {why}.", {{"text", snippet(view(lt, end))}, {"why", tr(why)}}), meant);
             pos = lt + 1;
             continue;
         }
@@ -682,15 +687,20 @@ LintResult Linter::run() {
     bool openRecord = !cur_.empty();
     endOfFile();
     if (r_.records == 0 && sawEOH_ && !openRecord)
-        diag(Severity::Info, eohB_, eohE_, "The file has a header but no records yet; an ADI file holds one or more (§IV.A.2).");
+        diag(Severity::Info, eohB_, eohE_, tr("The file has a header but no records yet; an ADI file holds one or more (§IV.A.2)."));
     static const char *const kDependsText[][2] = {{"STATE", "DXCC"}, {"CNTY", "DXCC"}, {"MY_STATE", "MY_DXCC"}, {"MY_CNTY", "MY_DXCC"}};
     for (size_t i = 0; i < 4; ++i) {
         if (dependsDiag_[i] == npos) continue;
         const char *dep = kDependsText[i][0], *on = kDependsText[i][1];
         size_t n = dependsCount_[i];
         r_.diagnostics[dependsDiag_[i]].message =
-            std::string(dep) + " depends on " + on + ", which " + (n == 1 ? std::string("this record lacks") : std::to_string(n) + " records lack, this one first") +
-            "; ADIF exports " + on + " with it (§I.E), and without it " + dep + " cannot be checked.";
+            n == 1 ? trf("{field} depends on {on}, which this record lacks; ADIF exports {on} with it (§I.E), and without it {field} cannot be checked.",
+                         {{"field", dep}, {"on", on}})
+                   : trp("{field} depends on {on}, which {n} record lacks, this one first; ADIF exports {on} with it (§I.E), and without it {field} "
+                         "cannot be checked.",
+                         "{field} depends on {on}, which {n} records lack, this one first; ADIF exports {on} with it (§I.E), and without it {field} "
+                         "cannot be checked.",
+                         (long long)n, {{"field", dep}, {"on", on}, {"n", std::to_string(n)}});
     }
 
     // pota-station: the log's usual STATION_CALLSIGN is the repair, when it has one.
@@ -745,8 +755,8 @@ void Linter::ignored(size_t b, size_t e) {
         while (i > b && (isAlnum((unsigned char)t_[i - 1]) || t_[i - 1] == '_')) --i;
         if (i == nameEnd) continue;
         diag(Severity::Warning, i, gt + 1,
-             "'" + snippet(view(i, gt + 1)) + "' looks like a data specifier without its '<', so importers ignore it "
-             "and its data (§IV.A.6).");
+             trf("'{text}' looks like a data specifier without its '<', so importers ignore it and its data (§IV.A.6).",
+                 {{"text", snippet(view(i, gt + 1))}}));
         return;
     }
 }
@@ -799,16 +809,16 @@ size_t Linter::readField(const Tag &tag) {
         resume = declaredEnd;
         if (digits.size() > 1 && digits[0] == '0') {
             diag(Severity::Warning, tag.lenB, tag.lenE,
-                 "Leading zeros in a data length are import-only (Resources §III.B); exporters must not write them.");
-            annotate("length", upper(view(tag.nameB, tag.nameE)), {}, "Fix Lengths");
+                 tr("Leading zeros in a data length are import-only (Resources §III.B); exporters must not write them."));
+            annotate("length", upper(view(tag.nameB, tag.nameE)), {}, tr("Fix Lengths"));
             r_.fixes.push_back(LengthFix{tag.lenB, tag.lenE, std::to_string(tag.length)});
         }
         if (swallows) {
             Tag inner;
             parseTag(next, inner, nullptr);
             diag(Severity::Warning, dataB, declaredEnd,
-                 "The data contains '" + snippet(view(next, inner.gt + 1)) +
-                     "', which looks like a data specifier. If this length is too long, that field is lost.");
+                 trf("The data contains '{text}', which looks like a data specifier. If this length is too long, that field is lost.",
+                     {{"text", snippet(view(next, inner.gt + 1))}}));
         }
     } else {
         sp.lengthOk = false;
@@ -817,27 +827,26 @@ size_t Linter::readField(const Tag &tag) {
         resume = next;
         std::string_view intended = view(sp.valueB, sp.valueE);
         size_t want = measureLength(intended, opt_.lengthUnit, opt_.utf8);
-        std::string msg = "Length " + std::string(digits) + " does not match the data '" + snippet(intended) + "' (" +
-                          std::to_string(want) + " " + unitWord(want) + ").";
+        std::string msg = trf("Length {length} does not match the data '{data}' ({count}).",
+                              {{"length", std::string(digits)}, {"data", snippet(intended)}, {"count", unitCount(want)}});
         if (declaredEnd == npos) {
-            msg += " It runs past the end of the file.";
+            msg += " " + tr("It runs past the end of the file.");
         } else if (declaredEnd <= next) {
-            msg += " Importers read only '" + snippet(view(dataB, declaredEnd)) + "'.";
+            msg += " " + trf("Importers read only '{text}'.", {{"text", snippet(view(dataB, declaredEnd))}});
         } else {
-            msg += " Importers also read '" + snippet(view(next, declaredEnd)) + "', swallowing what follows.";
+            msg += " " + trf("Importers also read '{text}', swallowing what follows.", {{"text", snippet(view(next, declaredEnd))}});
         }
         bool nonAscii = false;
         for (unsigned char c : intended) nonAscii |= c >= 0x80;
         if (nonAscii && opt_.utf8 && !tag.overflow) {
             LengthUnit other = opt_.lengthUnit == LengthUnit::Bytes ? LengthUnit::Characters : LengthUnit::Bytes;
             if (consistentAt(dataB, tag.length, other, next))
-                msg += other == LengthUnit::Characters
-                           ? " (It would match if lengths counted characters instead of bytes.)"
-                           : " (It would match if lengths counted bytes instead of characters.)";
+                msg += " " + (other == LengthUnit::Characters ? tr("(It would match if lengths counted characters instead of bytes.)")
+                                                              : tr("(It would match if lengths counted bytes instead of characters.)"));
         }
-        msg += " Fix Lengths corrects it.";
+        msg += " " + tr("Fix Lengths corrects it.");
         diag(Severity::Error, tag.lt, tag.gt + 1, std::move(msg), true);
-        annotate("length", upper(view(tag.nameB, tag.nameE)), {}, "Fix Lengths");
+        annotate("length", upper(view(tag.nameB, tag.nameE)), {}, tr("Fix Lengths"));
         r_.fixes.push_back(LengthFix{tag.lenB, tag.lenE, std::to_string(want)});
     }
     sp.cleanE = sp.valueE;
@@ -860,13 +869,13 @@ size_t Linter::readField(const Tag &tag) {
 
 void Linter::endHeader(const Tag &tag) {
     if (sawEOH_) {
-        diag(Severity::Error, tag.lt, tag.gt + 1, "Second <EOH>: a file has only one header (§IV.A.2).", true);
+        diag(Severity::Error, tag.lt, tag.gt + 1, tr("Second <EOH>: a file has only one header (§IV.A.2)."), true);
     } else if (sawRecord_) {
-        diag(Severity::Error, tag.lt, tag.gt + 1, "<EOH> after records: the header must come first (§IV.A.2).", true);
+        diag(Severity::Error, tag.lt, tag.gt + 1, tr("<EOH> after records: the header must come first (§IV.A.2)."), true);
     } else if (startsWithLt_) {
         diag(Severity::Warning, 0, 1,
-             "The file starts with '<', which means it has no header (§IV.A.3), yet <EOH> follows. "
-             "Put a line of text before the first '<' so importers read these fields as the header.");
+             tr("The file starts with '<', which means it has no header (§IV.A.3), yet <EOH> follows. "
+                "Put a line of text before the first '<' so importers read these fields as the header."));
     }
     validateHeader(cur_);
     closeGroup(true, &tag);
@@ -877,17 +886,17 @@ void Linter::endHeader(const Tag &tag) {
 
 void Linter::endRecord(const Tag &tag) {
     if (cur_.empty()) {
-        diag(Severity::Warning, tag.lt, tag.gt + 1, "Empty record: <EOR> with no fields before it.");
+        diag(Severity::Warning, tag.lt, tag.gt + 1, tr("Empty record: <EOR> with no fields before it."));
     } else {
         if (!sawEOH_ && !sawRecord_ && !startsWithLt_) {
             if (allWs(0, firstTag_) || (firstTag_ == 3 && n_ >= 3 && (unsigned char)t_[0] == 0xEF))
                 diag(Severity::Info, firstTag_, firstTag_ + 1,
-                     "The file does not start with '<', so strictly it begins with a header, but no <EOH> "
-                     "ends it (§IV.A.3). Remove the leading whitespace or add <EOH>.");
+                     tr("The file does not start with '<', so strictly it begins with a header, but no <EOH> "
+                        "ends it (§IV.A.3). Remove the leading whitespace or add <EOH>."));
             else
                 diag(Severity::Warning, 0, trimEnd(0, firstTag_),
-                     "Text before the first '<' begins a header (§IV.A.3), but no <EOH> ends it before the "
-                     "first record. Add <EOH> after the header.");
+                     tr("Text before the first '<' begins a header (§IV.A.3), but no <EOH> ends it before the "
+                        "first record. Add <EOH> after the header."));
         }
         validateRecord(cur_, &tag);
         ++r_.records;
@@ -906,14 +915,14 @@ void Linter::endOfFile() {
     }
     const Spec &last = cur_.back();
     if (!sawEOH_ && !sawRecord_ && allHeaderFields) {
-        diag(Severity::Error, last.tag.lt, last.tag.gt + 1, "The header is not ended by <EOH> (§IV.A.3).", true);
+        diag(Severity::Error, last.tag.lt, last.tag.gt + 1, tr("The header is not ended by <EOH> (§IV.A.3)."), true);
         validateHeader(cur_);
         closeGroup(true, nullptr);
     } else {
         diag(Severity::Error, last.tag.lt, last.tag.gt + 1,
-             "The last record is not ended by <EOR>, so importers may drop it (§IV.A.6).");
+             tr("The last record is not ended by <EOR>, so importers may drop it (§IV.A.6)."));
         if (last.lengthOk)
-            annotate("no-eor", "", {FieldFix{FixKind::InsertText, "", " <EOR>", last.cleanE}}, "add <EOR>");
+            annotate("no-eor", "", {FieldFix{FixKind::InsertText, "", " <EOR>", last.cleanE}}, tr("add <EOR>"));
         validateRecord(cur_, nullptr);
         closeGroup(false, nullptr);
     }
@@ -925,8 +934,8 @@ Linter::Fields Linter::index(const std::vector<Spec> &group, const char *where) 
         auto [it, added] = f.emplace(sp.name, &sp);
         if (added) continue;
         diagTag(Severity::Error, sp,
-                sp.name + " appears more than once in this " + where +
-                    (std::strcmp(where, "header") == 0 ? " (§III.C.1.a)." : " (§III.C.1.b)."));
+                std::strcmp(where, "header") == 0 ? trf("{field} appears more than once in this header (§III.C.1.a).", {{"field", sp.name}})
+                                                  : trf("{field} appears more than once in this record (§III.C.1.b).", {{"field", sp.name}}));
         if (!stored()) continue;
         // The same value twice, or one copy empty (a tool added the field instead of filling
         // <STATE:0>): keeping the value and removing a copy loses nothing.
@@ -934,10 +943,10 @@ Linter::Fields Linter::index(const std::vector<Spec> &group, const char *where) 
         std::string_view mine = view(sp.valueB, sp.cleanE), first = view(it->second->valueB, it->second->cleanE);
         if (lengths && (mine == first || mine.empty()))
             annotate("dup-field", sp.name, {FieldFix{FixKind::RemoveField, sp.name, "", kNoPos}},
-                     mine.empty() && !first.empty() ? "remove this empty copy" : "remove this copy");
+                     mine.empty() && !first.empty() ? tr("remove this empty copy") : tr("remove this copy"));
         else if (lengths && first.empty())
             annotate("dup-field", sp.name, {setTo(sp.name, std::string(mine)), FieldFix{FixKind::RemoveField, sp.name, "", kNoPos}},
-                     sp.name + " " + std::string(mine) + ", once");
+                     trf("{field} {value}, once", {{"field", sp.name}, {"value", std::string(mine)}}));
         else annotate("dup-field", sp.name);
     }
     return f;
@@ -958,11 +967,11 @@ void Linter::validateHeader(const std::vector<Spec> &group) {
         }
         const FieldDef *fd = findField(sp.name);
         if (!fd) {
-            diagTag(Severity::Warning, sp, "Unknown header field " + sp.name + ".");
+            diagTag(Severity::Warning, sp, trf("Unknown header field {field}.", {{"field", sp.name}}));
             continue;
         }
         if (!fd->header) {
-            diagTag(Severity::Warning, sp, sp.name + " is a QSO field, not a header field; importers may ignore it here.");
+            diagTag(Severity::Warning, sp, trf("{field} is a QSO field, not a header field; importers may ignore it here.", {{"field", sp.name}}));
             continue;
         }
         validateField(sp, f, true);
@@ -974,10 +983,10 @@ void Linter::validateHeader(const std::vector<Spec> &group) {
                   parts[2].size() == 1 && allDigits(parts[2]);
         const Spec *sp = f.at("ADIF_VER");
         if (!ok)
-            diagValue(Severity::Warning, *sp, sp->cleanE, "ADIF_VER should be X.Y.Z, e.g. 3.1.7.");
+            diagValue(Severity::Warning, *sp, sp->cleanE, tr("ADIF_VER should be X.Y.Z, e.g. 3.1.7."));
         else if (compareNoCase(ver, kSpecVersion) > 0 && ver.size() == std::strlen(kSpecVersion))
             diagValue(Severity::Info, *sp, sp->cleanE,
-                      "The file declares ADIF " + std::string(ver) + "; these checks follow ADIF " + kSpecVersion + ".");
+                      trf("The file declares ADIF {version}; these checks follow ADIF {spec}.", {{"version", std::string(ver)}, {"spec", kSpecVersion}}));
     }
     std::string_view ts = value(f, "CREATED_TIMESTAMP");
     if (!ts.empty()) {
@@ -986,7 +995,7 @@ void Linter::validateHeader(const std::vector<Spec> &group) {
                   !timeProblem(ts.substr(9));
         if (!ok)
             diagValue(Severity::Error, *sp, sp->cleanE,
-                      "CREATED_TIMESTAMP must be 'YYYYMMDD HHMMSS' (15 characters, UTC).");
+                      tr("CREATED_TIMESTAMP must be 'YYYYMMDD HHMMSS' (15 characters, UTC)."));
     }
 }
 
@@ -994,54 +1003,54 @@ void Linter::validateHeader(const std::vector<Spec> &group) {
 void Linter::defineUserField(const Spec &sp) {
     std::string_view n = std::string_view(sp.name).substr(7);
     if (n.find_first_not_of('0') == npos)
-        diagTag(Severity::Warning, sp, "In USERDEFn, n must be a positive integer (§IV.A.5).");
+        diagTag(Severity::Warning, sp, tr("In USERDEFn, n must be a positive integer (§IV.A.5)."));
     UserDef ud;
     if (sp.tag.typePos == npos) {
-        diagTag(Severity::Warning, sp, sp.name + " should give a data type indicator, e.g. <" + sp.name + ":8:N> (§IV.A.5).");
+        diagTag(Severity::Warning, sp, trf("{field} should give a data type indicator, e.g. <{field}:8:N> (§IV.A.5).", {{"field", sp.name}}));
     } else {
         char ind = t_[sp.tag.typePos];
         ud.type = typeFromIndicator(ind);
         if (ud.type == DataType::Unknown) {
-            diagTag(Severity::Error, sp, std::string("Unknown data type indicator '") + ind + "'.");
+            diagTag(Severity::Error, sp, trf("Unknown data type indicator '{indicator}'.", {{"indicator", std::string(1, ind)}}));
             ud.type = DataType::String;
         } else if (ud.type == DataType::IntlString || ud.type == DataType::IntlMultilineString) {
             diagTag(Severity::Info, sp,
-                    std::string("Type ") + typeName(ud.type) + " cannot be used in ADI files (§IV.A.1), so this user "
-                    "field can only carry data in ADX.");
+                    trf("Type {type} cannot be used in ADI files (§IV.A.1), so this user field can only carry data in ADX.",
+                        {{"type", typeName(ud.type)}}));
         }
     }
     std::string_view v = view(sp.valueB, sp.cleanE);
     size_t comma = v.find(',');
     std::string_view name = v.substr(0, comma);
     if (name.empty()) {
-        diagValue(Severity::Error, sp, sp.cleanE, sp.name + " does not name a field.");
+        diagValue(Severity::Error, sp, sp.cleanE, trf("{field} does not name a field.", {{"field", sp.name}}));
         return;
     }
     if (findField(name)) {
-        diagValue(Severity::Error, sp, sp.cleanE, "'" + std::string(name) + "' is an ADIF field name, so it cannot be a user-defined field (§IV.A.5).");
+        diagValue(Severity::Error, sp, sp.cleanE, trf("'{name}' is an ADIF field name, so it cannot be a user-defined field (§IV.A.5).", {{"name", std::string(name)}}));
         return;
     }
     for (unsigned char c : name) {
         if (c == ':' || c == '<' || c == '>' || c == '{' || c == '}' || c < 32) {
-            diagValue(Severity::Error, sp, sp.cleanE, "A user-defined field name may not contain , : < > { } (§IV.A.5).");
+            diagValue(Severity::Error, sp, sp.cleanE, tr("A user-defined field name may not contain , : < > { } (§IV.A.5)."));
             return;
         }
     }
     if (name.front() == ' ' || name.back() == ' ') {
-        diagValue(Severity::Error, sp, sp.cleanE, "A user-defined field name may not begin or end with a space (§IV.A.5).");
+        diagValue(Severity::Error, sp, sp.cleanE, tr("A user-defined field name may not begin or end with a space (§IV.A.5)."));
         return;
     }
     if (comma != npos) {
         std::string_view spec = v.substr(comma + 1);
         if (spec.size() < 2 || spec.front() != '{' || spec.back() != '}') {
-            diagValue(Severity::Error, sp, sp.cleanE, "After the field name, expected ,{A,B,C} or ,{low:high} (§IV.A.5).");
+            diagValue(Severity::Error, sp, sp.cleanE, tr("After the field name, expected ,{A,B,C} or ,{low:high} (§IV.A.5)."));
         } else {
             std::string_view inner = spec.substr(1, spec.size() - 2);
             size_t colon = inner.find(':');
             if (colon != npos) {
                 double lo = 0, hi = 0;
                 if (!parseNumber(inner.substr(0, colon), &lo) || !parseNumber(inner.substr(colon + 1), &hi) || !(lo < hi)) {
-                    diagValue(Severity::Error, sp, sp.cleanE, "A range must be {low:high} with low < high, both Numbers (§IV.A.5).");
+                    diagValue(Severity::Error, sp, sp.cleanE, tr("A range must be {low:high} with low < high, both Numbers (§IV.A.5)."));
                 } else {
                     ud.hasRange = true;
                     ud.lo = lo;
@@ -1054,7 +1063,7 @@ void Linter::defineUserField(const Spec &sp) {
     }
     std::string key = upper(name);
     if (userDefs_.count(key))
-        diagValue(Severity::Error, sp, sp.cleanE, "'" + std::string(name) + "' is defined by more than one USERDEF field.");
+        diagValue(Severity::Error, sp, sp.cleanE, trf("'{name}' is defined by more than one USERDEF field.", {{"name", std::string(name)}}));
     if (opt_.buildModel) {
         char ind = sp.tag.typePos == npos ? 0 : (char)up((unsigned char)t_[sp.tag.typePos]);
         r_.model.userFields.push_back(UserFieldInfo{std::string(name), ind, ud.values});
@@ -1079,11 +1088,13 @@ void Linter::validateRecord(const std::vector<Spec> &group, const Tag *eor) {
     need(!value(f, "QSO_DATE").empty(), "QSO_DATE");
     need(!value(f, "TIME_ON").empty(), "TIME_ON");
     need(!value(f, "CALL").empty(), "CALL");
-    need(!value(f, "BAND").empty() || !value(f, "FREQ").empty(), "BAND or FREQ");
+    std::string bandOrFreq = tr("BAND or FREQ");
+    need(!value(f, "BAND").empty() || !value(f, "FREQ").empty(), bandOrFreq.c_str());
     need(!value(f, "MODE").empty(), "MODE");
     if (!missing.empty()) {
-        std::string msg = "This record has no " + missing +
-                          ". ADIF's guideline minimum for a QSO is QSO_DATE, TIME_ON, CALL, BAND or FREQ, MODE (Resources §III.C).";
+        std::string msg = trf("This record has no {fields}. ADIF's guideline minimum for a QSO is QSO_DATE, TIME_ON, CALL, BAND or FREQ, MODE "
+                              "(Resources §III.C).",
+                              {{"fields", missing}});
         if (eor) diag(Severity::Info, eor->lt, eor->gt + 1, std::move(msg));
         else diagTag(Severity::Info, group.back(), std::move(msg));
         annotate("minimum-fields", "");
@@ -1110,8 +1121,8 @@ void Linter::checkPractice(const std::vector<Spec> &group, const Fields &f, cons
     if (const Spec *fq = at("FREQ"); fq && value(f, "BAND").empty() && parseNumber(value(f, "FREQ"), &mhz)) {
         if (const BandDef *b = bandAt(mhz)) {
             diagValue(Severity::Info, *fq, fq->cleanE,
-                      "No BAND; FREQ " + std::string(value(f, "FREQ")) + " MHz is in the " + b->name +
-                          " band. Some services, POTA among them, read BAND only.");
+                      trf("No BAND; FREQ {freq} MHz is in the {band} band. Some services, POTA among them, read BAND only.",
+                          {{"freq", std::string(value(f, "FREQ"))}, {"band", b->name}}));
             if (stored()) annotate("band-missing", "BAND", {setTo("BAND", b->name)}, std::string("BAND ") + b->name);
         }
     }
@@ -1124,7 +1135,7 @@ void Linter::checkPractice(const std::vector<Spec> &group, const Fields &f, cons
         bool lower = false;
         for (unsigned char c : v) lower |= c >= 'a' && c <= 'z';
         if (!lower) continue;
-        diagValue(Severity::Info, *sp, sp->cleanE, std::string(name) + " '" + snippet(v) + "' is usually written in upper case.");
+        diagValue(Severity::Info, *sp, sp->cleanE, trf("{field} '{value}' is usually written in upper case.", {{"field", name}, {"value", snippet(v)}}));
         if (stored()) annotate("case", name, {setTo(name, upper(v))}, upper(v));
     }
 
@@ -1133,7 +1144,7 @@ void Linter::checkPractice(const std::vector<Spec> &group, const Fields &f, cons
     if (!opt_.today.empty() && !dateProblem(date) && date > std::string_view(opt_.today)) {
         const Spec *sp = at("QSO_DATE");
         diagValue(Severity::Warning, *sp, sp->cleanE,
-                  "QSO_DATE " + std::string(date) + " is after today (UTC). POTA and other services refuse future dates.");
+                  trf("QSO_DATE {date} is after today (UTC). POTA and other services refuse future dates.", {{"date", std::string(date)}}));
         annotate("future-date", "QSO_DATE");
     }
 
@@ -1142,20 +1153,20 @@ void Linter::checkPractice(const std::vector<Spec> &group, const Fields &f, cons
     std::string_view prop = value(f, "PROP_MODE"), sat = value(f, "SAT_NAME");
     if (equalsNoCase(prop, "SAT") && sat.empty()) {
         const Spec *sp = at("PROP_MODE");
-        diagValue(Severity::Info, *sp, sp->cleanE, "PROP_MODE is SAT but SAT_NAME is missing; LoTW needs both for a satellite QSO.");
+        diagValue(Severity::Info, *sp, sp->cleanE, tr("PROP_MODE is SAT but SAT_NAME is missing; LoTW needs both for a satellite QSO."));
         annotate("sat-name", "SAT_NAME");
     } else if (!sat.empty() && !equalsNoCase(prop, "SAT")) {
         const Spec *sp = at("SAT_NAME");
         diagValue(Severity::Warning, *sp, sp->cleanE,
-                  prop.empty() ? std::string("SAT_NAME is set but PROP_MODE is missing; LoTW needs PROP_MODE SAT for a satellite QSO.")
-                               : "SAT_NAME is set but PROP_MODE is " + std::string(prop) + "; a satellite QSO is PROP_MODE SAT.");
+                  prop.empty() ? tr("SAT_NAME is set but PROP_MODE is missing; LoTW needs PROP_MODE SAT for a satellite QSO.")
+                               : trf("SAT_NAME is set but PROP_MODE is {mode}; a satellite QSO is PROP_MODE SAT.", {{"mode", std::string(prop)}}));
         annotate("sat-prop", "PROP_MODE", {setTo("PROP_MODE", "SAT")}, "PROP_MODE SAT");
     }
 
     // POTA activation records need STATION_CALLSIGN or OPERATOR (ADIF for POTA reference).
     bool pota = !value(f, "MY_POTA_REF").empty() || equalsNoCase(value(f, "MY_SIG"), "POTA");
     if (pota && station.empty() && value(f, "OPERATOR").empty()) {
-        onRecord(Severity::Info, "POTA needs STATION_CALLSIGN or OPERATOR in each record of an activation log.");
+        onRecord(Severity::Info, tr("POTA needs STATION_CALLSIGN or OPERATOR in each record of an activation log."));
         annotate("pota-station", "STATION_CALLSIGN");
         if (lastDiag_ != npos) potaStation_.push_back(lastDiag_);
     }
@@ -1166,18 +1177,18 @@ void Linter::checkIndicator(const Spec &sp, DataType expected) {
     char ind = t_[sp.tag.typePos];
     DataType given = typeFromIndicator(ind);
     if (given == DataType::Unknown)
-        diagTag(Severity::Error, sp, std::string("Unknown data type indicator '") + ind + "'.");
+        diagTag(Severity::Error, sp, trf("Unknown data type indicator '{indicator}'.", {{"indicator", std::string(1, ind)}}));
     else if (given != expected)
         diagTag(Severity::Warning, sp,
-                std::string("Type indicator '") + ind + "' (" + typeName(given) + ") does not match " + sp.name +
-                    ", which is " + typeName(expected) + ".");
+                trf("Type indicator '{indicator}' ({given}) does not match {field}, which is {type}.",
+                    {{"indicator", std::string(1, ind)}, {"given", typeName(given)}, {"field", sp.name}, {"type", typeName(expected)}}));
 }
 
 DataType Linter::appFieldType(const Spec &sp) {
     std::string_view rest = std::string_view(sp.name).substr(4);
     size_t us = rest.find('_');
     if (us == npos || us == 0 || us + 1 >= rest.size())
-        diagTag(Severity::Warning, sp, "Application-defined fields are named APP_PROGRAMID_FIELDNAME (§IV.A.4).");
+        diagTag(Severity::Warning, sp, tr("Application-defined fields are named APP_PROGRAMID_FIELDNAME (§IV.A.4)."));
     char ind = sp.tag.typePos != npos ? (char)up((unsigned char)t_[sp.tag.typePos]) : 0;
     auto it = appTypes_.find(sp.name);
     if (it == appTypes_.end()) {
@@ -1186,15 +1197,16 @@ DataType Linter::appFieldType(const Spec &sp) {
     } else if (ind && ind != (it->second ? it->second : 'M')) {
         // Untyped, the first occurrence was a MultilineString: that is its type too.
         diagTag(Severity::Error, sp,
-                (it->second ? std::string("This APP_ field was first typed '") + it->second + "'"
-                            : std::string("This APP_ field first appeared without a type, so it is a MultilineString")) +
-                    "; later occurrences must not change the type (§IV.A.4).");
+                it->second ? trf("This APP_ field was first typed '{indicator}'; later occurrences must not change the type (§IV.A.4).",
+                                 {{"indicator", std::string(1, it->second)}})
+                           : tr("This APP_ field first appeared without a type, so it is a MultilineString; later occurrences must not change "
+                                "the type (§IV.A.4)."));
     } else if (!ind) {
         ind = it->second;
     }
     if (!ind) return DataType::MultilineString;  // no indicator: MultilineString (§IV.A.4)
     DataType t = typeFromIndicator(ind);
-    if (t == DataType::Unknown) diagTag(Severity::Error, sp, std::string("Unknown data type indicator '") + ind + "'.");
+    if (t == DataType::Unknown) diagTag(Severity::Error, sp, trf("Unknown data type indicator '{indicator}'.", {{"indicator", std::string(1, ind)}}));
     return t;
 }
 
@@ -1205,12 +1217,12 @@ void Linter::validateField(const Spec &sp, const Fields &f, bool inHeader) {
     if (fd) {
         type = fd->type;
         if (fd->header && !inHeader)
-            diagTag(Severity::Warning, sp, sp.name + " is a header field; it does not belong in a record.");
+            diagTag(Severity::Warning, sp, trf("{field} is a header field; it does not belong in a record.", {{"field", sp.name}}));
         if (fd->importOnly)
-            diagTag(Severity::Warning, sp, sp.name + " is import-only (deprecated); exporters must not write it.");
+            diagTag(Severity::Warning, sp, trf("{field} is import-only (deprecated); exporters must not write it.", {{"field", sp.name}}));
         checkIndicator(sp, type);
     } else if (startsWithNoCase(sp.name, "USERDEF") && allDigits(std::string_view(sp.name).substr(7))) {
-        diagTag(Severity::Warning, sp, sp.name + " defines a user field and belongs in the header (§IV.A.5).");
+        diagTag(Severity::Warning, sp, trf("{field} defines a user field and belongs in the header (§IV.A.5).", {{"field", sp.name}}));
         return;
     } else if (startsWithNoCase(sp.name, "APP_")) {
         type = appFieldType(sp);
@@ -1220,15 +1232,15 @@ void Linter::validateField(const Spec &sp, const Fields &f, bool inHeader) {
         checkIndicator(sp, type);
     } else {
         diagTag(Severity::Warning, sp,
-                "Unknown field " + sp.name + ": not an ADIF " + kSpecVersion +
-                    " field, not APP_..., and not defined by a USERDEFn header field.");
+                trf("Unknown field {field}: not an ADIF {spec} field, not APP_..., and not defined by a USERDEFn header field.",
+                    {{"field", sp.name}, {"spec", kSpecVersion}}));
         return;
     }
     if (type == DataType::Unknown) return;
     if (type == DataType::IntlString || type == DataType::IntlMultilineString) {
         diagTag(Severity::Error, sp,
-                sp.name + " is " + typeName(type) + ", which ADI files cannot carry (§IV.A.1). Use the field without "
-                "_INTL, or an ADX file.");
+                trf("{field} is {type}, which ADI files cannot carry (§IV.A.1). Use the field without _INTL, or an ADX file.",
+                    {{"field", sp.name}, {"type", typeName(type)}}));
         return;
     }
 
@@ -1236,9 +1248,9 @@ void Linter::validateField(const Spec &sp, const Fields &f, bool inHeader) {
     if (sp.lengthOk && sp.cleanE < sp.valueE && type != DataType::MultilineString) {
         size_t want = measureLength(view(sp.valueB, sp.cleanE), opt_.lengthUnit, opt_.utf8);
         diagTag(Severity::Error, sp,
-                "The data ends with a line break, so length " + std::string(view(sp.tag.lenB, sp.tag.lenE)) +
-                    " is probably too long; it should be " + std::to_string(want) + ". Fix Lengths corrects it.");
-        annotate("length", sp.name, {}, "Fix Lengths");
+                trf("The data ends with a line break, so length {length} is probably too long; it should be {want}. Fix Lengths corrects it.",
+                    {{"length", std::string(view(sp.tag.lenB, sp.tag.lenE))}, {"want", std::to_string(want)}}));
+        annotate("length", sp.name, {}, tr("Fix Lengths"));
         r_.fixes.erase(std::remove_if(r_.fixes.begin(), r_.fixes.end(),
                                       [&](const LengthFix &x) { return x.start == sp.tag.lenB; }),
                        r_.fixes.end());
@@ -1267,15 +1279,15 @@ void Linter::checkChars(const Spec &sp, std::string_view v, size_t vEnd, bool mu
         char b[8];
         snprintf(b, sizeof b, "0x%02X", bad);
         diagValue(Severity::Error, sp, vEnd,
-                  std::string("Control character ") + b + " is not allowed in " + (multiline ? "a MultilineString" : "a String") +
-                      (multiline ? "; only CR LF line breaks are (§III.A)." : "; only ASCII 32-126 is (§III.A)."));
+                  multiline ? trf("Control character {code} is not allowed in a MultilineString; only CR LF line breaks are (§III.A).", {{"code", b}})
+                            : trf("Control character {code} is not allowed in a String; only ASCII 32-126 is (§III.A).", {{"code", b}}));
     }
     if (bareBreak)
-        diagValue(Severity::Warning, sp, vEnd, "Line breaks in a MultilineString must be CR LF (§III.A); this one is a bare CR or LF.");
+        diagValue(Severity::Warning, sp, vEnd, tr("Line breaks in a MultilineString must be CR LF (§III.A); this one is a bare CR or LF."));
     if (nonAscii)
         diagValue(Severity::Warning, sp, vEnd,
-                  "Non-ASCII text. ADI fields are ASCII only (§III.A), and programs disagree on whether such lengths "
-                  "count bytes or characters. International text belongs in _INTL fields in ADX files.");
+                  tr("Non-ASCII text. ADI fields are ASCII only (§III.A), and programs disagree on whether such lengths "
+                     "count bytes or characters. International text belongs in _INTL fields in ADX files."));
 }
 
 void Linter::checkEnumeration(const Spec &sp, std::string_view v, size_t vEnd, const FieldDef &fd, bool strict,
@@ -1307,13 +1319,13 @@ void Linter::checkEnumeration(const Spec &sp, std::string_view v, size_t vEnd, c
         for (const EnumValue *x = first; x != last; ++x) {
             if (!scope.empty() && !(x->scope && equalsNoCase(x->scope, scope))) continue;
             if (validOn(*x, qsoDate)) return;
-            when += (when.empty() ? "" : ", or ") + validityText(*x);
+            when += (when.empty() ? std::string() : tr(", or ##joins validity dates")) + validityText(*x);
             if (x->note) note = x->note;
         }
         if (when.empty()) return;
-        std::string msg = sp.name + " " + std::string(v) + " is valid only for QSOs " + when + " (§II.C); this QSO is on " +
-                          dashedDate(qsoDate) + ".";
-        if (note) msg += std::string(" ADIF: ") + note + ".";
+        std::string msg = trf("{field} {value} is valid only for QSOs {when} (§II.C); this QSO is on {date}.",
+                              {{"field", sp.name}, {"value", std::string(v)}, {"when", when}, {"date", dashedDate(qsoDate)}});
+        if (note) msg += " " + trf("ADIF: {note}.", {{"note", note}});
         diagValue(Severity::Warning, sp, vEnd, std::move(msg));
         // "replaced by GH": one code, valid on this date, is the repair.
         std::string_view n = note ? std::string_view(note) : std::string_view();
@@ -1330,8 +1342,10 @@ void Linter::checkEnumeration(const Spec &sp, std::string_view v, size_t vEnd, c
     };
     auto importOnly = [&](const EnumValue *ev) {
         if (!ev->importOnly) return;
-        std::string msg = "'" + std::string(v) + "' is an import-only (deprecated) " + sp.name + " value; exporters must not write it.";
-        if (ev->note) msg += std::string(" ADIF: ") + ev->note + (startsWithNoCase(ev->note, "replaced by ") ? "." : "");
+        std::string msg = trf("'{value}' is an import-only (deprecated) {field} value; exporters must not write it.",
+                              {{"value", std::string(v)}, {"field", sp.name}});
+        if (ev->note)
+            msg += " " + (startsWithNoCase(ev->note, "replaced by ") ? trf("ADIF: {note}.", {{"note", ev->note}}) : trf("ADIF: {note}", {{"note", ev->note}}));
         diagValue(Severity::Warning, sp, vEnd, std::move(msg));
         // The spec names the new code ("replaced by CMX" for Mexico's DF).
         std::string_view note = ev->note ? std::string_view(ev->note) : std::string_view();
@@ -1349,10 +1363,10 @@ void Linter::checkEnumeration(const Spec &sp, std::string_view v, size_t vEnd, c
             if (submode) {
                 if (const EnumValue *ev = findEnumValue(*e, key)) {
                     diagValue(Severity::Warning, sp, vEnd,
-                              "SUBMODE is set but MODE is missing; " + std::string(v) + " belongs to MODE " + ev->scope + ".");
+                              trf("SUBMODE is set but MODE is missing; {submode} belongs to MODE {mode}.", {{"submode", std::string(v)}, {"mode", ev->scope}}));
                     annotate("mode-missing", "MODE", {setTo("MODE", ev->scope)}, std::string("MODE ") + ev->scope);
                 } else
-                    diagValue(Severity::Info, sp, vEnd, "'" + std::string(v) + "' is not a registered ADIF submode.");
+                    diagValue(Severity::Info, sp, vEnd, trf("'{value}' is not a registered ADIF submode.", {{"value", std::string(v)}}));
             }
             return;
         }
@@ -1364,20 +1378,23 @@ void Linter::checkEnumeration(const Spec &sp, std::string_view v, size_t vEnd, c
         if (submode) {
             if (const EnumValue *other = findEnumValue(*e, key)) {
                 diagValue(Severity::Error, sp, vEnd,
-                          "SUBMODE " + std::string(v) + " belongs to MODE " + other->scope + ", not " + scope + ".");
+                          trf("SUBMODE {submode} belongs to MODE {mode}, not {given}.", {{"submode", std::string(v)}, {"mode", other->scope}, {"given", scope}}));
                 annotate("submode-mode", "MODE", {setTo("MODE", other->scope)}, std::string("MODE ") + other->scope);
             } else
                 diagValue(Severity::Info, sp, vEnd,
-                          "'" + std::string(v) + "' is not a registered ADIF submode of MODE " + scope + ".");
+                          trf("'{value}' is not a registered ADIF submode of MODE {mode}.", {{"value", std::string(v)}, {"mode", scope}}));
             return;
         }
         if (enumHasScope(*e, scope)) {
             // A code ADIF doesn't list for this entity: often a callbook's free text (QRZ.com
             // fills STATE from the other station's profile). Uploads still work, so a warning.
             bool keep = r_.diagnostics.size() < opt_.maxDiagnostics;
-            std::string msg = "'" + std::string(v) + "' is not one of ADIF's " + sp.name + " codes for ";
             const char *country = dxccEntityName(scope);
-            msg += (country ? titleCase(country) + " (DXCC " + scope + ")" : "DXCC entity " + scope);
+            std::string msg = trf("'{value}' is not one of ADIF's {field} codes for {entity}",
+                                  {{"value", std::string(v)},
+                                   {"field", sp.name},
+                                   {"entity", country ? trf("{country} (DXCC {code})", {{"country", titleCase(country)}, {"code", scope}})
+                                                      : trf("DXCC entity {code}", {{"code", scope}})}});
             if (keep) {
                 std::string codes;
                 size_t n = 0;
@@ -1388,10 +1405,11 @@ void Linter::checkEnumeration(const Spec &sp, std::string_view v, size_t vEnd, c
                     previous = x.value;
                     if (n++ < 10) codes += (codes.empty() ? "" : ", ") + std::string(x.value);
                 }
-                if (n) msg += ", which are " + codes + (n > 10 ? " and " + std::to_string(n - 10) + " more" : std::string()) +
-                              " (ADIF " + e->name + ")";
+                if (n)
+                    msg += n > 10 ? trf(", which are {codes} and {more} more (ADIF {table})", {{"codes", codes}, {"more", std::to_string(n - 10)}, {"table", e->name}})
+                                  : trf(", which are {codes} (ADIF {table})", {{"codes", codes}, {"table", e->name}});
             }
-            msg += ".";
+            msg += tr(".##ends a sentence");
             diagValue(Severity::Warning, sp, vEnd, std::move(msg));
             if (stored()) {
                 // ADIF's code spelled another way ("AK,Matanuska Susitna" for "AK,Matanuska-Susitna"):
@@ -1412,7 +1430,7 @@ void Linter::checkEnumeration(const Spec &sp, std::string_view v, size_t vEnd, c
                     annotate("subdivision", sp.name, {setTo(sp.name, same)}, sp.name + " " + same);
                 } else {
                     annotate("subdivision", sp.name, {FieldFix{FixKind::RemoveField, sp.name, "", kNoPos}},
-                             "remove " + sp.name + " " + std::string(v));
+                             trf("remove {field} {value}", {{"field", sp.name}, {"value", std::string(v)}}));
                     r_.diagnostics[lastDiag_].dropsData = true;
                 }
             }
@@ -1435,17 +1453,17 @@ void Linter::checkEnumeration(const Spec &sp, std::string_view v, size_t vEnd, c
     if (!ev) {
         if (strict)
             diagValue(Severity::Error, sp, vEnd,
-                      "'" + std::string(v) + "' is not a valid " + sp.name + " (ADIF " + kSpecVersion + " " + e->name +
-                          " enumeration).");
+                      trf("'{value}' is not a valid {field} (ADIF {spec} {table} enumeration).",
+                          {{"value", std::string(v)}, {"field", sp.name}, {"spec", kSpecVersion}, {"table", e->name}}));
         else
-            diagValue(Severity::Info, sp, vEnd, "'" + std::string(v) + "' is not in ADIF's " + e->name + " list.");
+            diagValue(Severity::Info, sp, vEnd, trf("'{value}' is not in ADIF's {table} list.", {{"value", std::string(v)}, {"table", e->name}}));
         submodeFix();
         // A Field Day class (1D, 2A, 12F) in ARRL_SECT: no section looks like that; it is CLASS.
         bool fieldDayClass = v.size() >= 2 && v.size() <= 3 && allDigits(v.substr(0, v.size() - 1)) &&
                              std::strchr("ABCDEFabcdef", v.back()) != nullptr;
         if (sp.name == "ARRL_SECT" && fieldDayClass && value(f, "CLASS").empty())
             annotate("field-day-class", "ARRL_SECT", {setTo("CLASS", upper(v)), FieldFix{FixKind::RemoveField, "ARRL_SECT", "", kNoPos}},
-                     "move to CLASS " + upper(v));
+                     trf("move to CLASS {class}", {{"class", upper(v)}}));
         return;
     }
     // REGION: each code is a region of one DXCC entity (§III.B.21), KO of three over time; NONE of any.
@@ -1457,13 +1475,17 @@ void Linter::checkEnumeration(const Spec &sp, std::string_view v, size_t vEnd, c
             for (const EnumValue *x = first; x != last; ++x) {
                 if (!x->scope) continue;
                 const char *name = dxccEntityName(x->scope);
-                within += (within.empty() ? "" : " or ") + std::string("DXCC ") + x->scope +
-                          (name && std::strcmp(x->scope, "0") != 0 ? " (" + titleCase(name) + ")" : std::string());
+                within += (within.empty() ? std::string() : tr(" or ##joins DXCC entities")) +
+                          (name && std::strcmp(x->scope, "0") != 0 ? trf("DXCC {code} ({country})", {{"code", x->scope}, {"country", titleCase(name)}})
+                                                                   : trf("DXCC {code}", {{"code", x->scope}}));
             }
             const char *here = dxccEntityName(dxcc);
             diagValue(Severity::Warning, sp, vEnd,
-                      "REGION " + std::string(v) + " is within " + within + ", not DXCC " + dxcc +
-                          (here && dxcc != "0" ? " (" + titleCase(here) + ")" : std::string()) + " (§III.B.21).");
+                      trf("REGION {value} is within {within}, not {entity} (§III.B.21).",
+                          {{"value", std::string(v)},
+                           {"within", within},
+                           {"entity", here && dxcc != "0" ? trf("DXCC {code} ({country})", {{"code", dxcc}, {"country", titleCase(here)}})
+                                                          : trf("DXCC {code}", {{"code", dxcc}})}}));
             annotate("region-dxcc", "REGION");
             return;
         }
@@ -1478,7 +1500,7 @@ void Linter::checkEnumeration(const Spec &sp, std::string_view v, size_t vEnd, c
 void Linter::checkValue(const Spec &sp, DataType type, std::string_view v, size_t vEnd, const FieldDef *fd,
                         const UserDef *ud, const Fields &f) {
     auto bad = [&](Severity s, const std::string &why) {
-        diagValue(s, sp, vEnd, "'" + snippet(v) + "' is not a valid " + typeName(type) + " for " + sp.name + ": " + why + ".");
+        diagValue(s, sp, vEnd, trf("'{value}' is not a valid {type} for {field}: {why}.", {{"value", snippet(v)}, {"type", typeName(type)}, {"field", sp.name}, {"why", why}}));
     };
     auto range = [&](double x) {
         bool hasMin = (fd && fd->hasMin) || (ud && ud->hasRange);
@@ -1486,9 +1508,9 @@ void Linter::checkValue(const Spec &sp, DataType type, std::string_view v, size_
         double lo = fd ? fd->minValue : ud ? ud->lo : 0;
         double hi = fd ? fd->maxValue : ud ? ud->hi : 0;
         if ((hasMin && x < lo) || (hasMax && x > hi)) {
-            std::string limits = hasMin && hasMax ? fmtNumber(lo) + " to " + fmtNumber(hi)
-                                 : hasMin       ? "at least " + fmtNumber(lo)
-                                                : "at most " + fmtNumber(hi);
+            std::string limits = hasMin && hasMax ? trf("{low} to {high}", {{"low", fmtNumber(lo)}, {"high", fmtNumber(hi)}})
+                                 : hasMin       ? trf("at least {low}", {{"low", fmtNumber(lo)}})
+                                                : trf("at most {high}", {{"high", fmtNumber(hi)}});
             // ANT_AZ and ANT_EL: "Values outside this range are import-only and must be
             // normalized for export (e.g. 370 is exported as 10)" (and 100 as 80).
             if (fd && (sp.name == "ANT_AZ" || sp.name == "ANT_EL")) {
@@ -1503,11 +1525,12 @@ void Linter::checkValue(const Spec &sp, DataType type, std::string_view v, size_
                 }
                 std::string to = fmtMHz(n == 0 ? 0 : n);
                 diagValue(Severity::Warning, sp, vEnd,
-                          sp.name + " outside " + limits + " is import-only; exporters write it normalized, " + snippet(v) + " as " + to + ".");
+                          trf("{field} outside {limits} is import-only; exporters write it normalized, {value} as {to}.",
+                              {{"field", sp.name}, {"limits", limits}, {"value", snippet(v)}, {"to", to}}));
                 annotate("normalize", sp.name, {setTo(sp.name, to)}, sp.name + " " + to);
                 return;
             }
-            diagValue(Severity::Error, sp, vEnd, sp.name + " must be " + limits + "; got " + snippet(v) + ".");
+            diagValue(Severity::Error, sp, vEnd, trf("{field} must be {limits}; got {value}.", {{"field", sp.name}, {"limits", limits}, {"value", snippet(v)}}));
         }
     };
 
@@ -1517,8 +1540,8 @@ void Linter::checkValue(const Spec &sp, DataType type, std::string_view v, size_
         const EnumDef *e = fd && fd->enumeration ? findEnum(fd->enumeration) : nullptr;
         if (!(e && findEnumValue(*e, v))) {
             diagValue(Severity::Warning, sp, vEnd,
-                      "'" + std::string(v) + "' in " + sp.name + " says there is no value; ADIF leaves the field out instead.");
-            annotate("placeholder", sp.name, {FieldFix{FixKind::RemoveField, sp.name, "", kNoPos}}, "remove " + sp.name);
+                      trf("'{value}' in {field} says there is no value; ADIF leaves the field out instead.", {{"value", std::string(v)}, {"field", sp.name}}));
+            annotate("placeholder", sp.name, {FieldFix{FixKind::RemoveField, sp.name, "", kNoPos}}, trf("remove {field}", {{"field", sp.name}}));
             return;
         }
     }
@@ -1533,7 +1556,7 @@ void Linter::checkValue(const Spec &sp, DataType type, std::string_view v, size_
             checkChars(sp, v, vEnd, false);
             auto items = split(v, ':');
             if (items.size() < 2) {
-                bad(Severity::Error, "it lists two or more counties separated by ':', such as MA,Franklin:MA,Hampshire");
+                bad(Severity::Error, tr("it lists two or more counties separated by ':', such as MA,Franklin:MA,Hampshire"));
                 break;
             }
             const EnumDef *states = findEnum("Primary_Administrative_Subdivision");
@@ -1543,7 +1566,7 @@ void Linter::checkValue(const Spec &sp, DataType type, std::string_view v, size_
                 bool usState = states && (findEnumValue(*states, st, "291") || findEnumValue(*states, st, "6") ||
                                           findEnumValue(*states, st, "110"));
                 if (comma == npos || comma + 1 >= item.size() || !usState) {
-                    bad(Severity::Warning, "'" + snippet(item) + "' is not a US county written as state,county (MA,Franklin)");
+                    bad(Severity::Warning, trf("'{item}' is not a US county written as state,county (MA,Franklin)", {{"item", snippet(item)}}));
                     break;
                 }
             }
@@ -1557,27 +1580,27 @@ void Linter::checkValue(const Spec &sp, DataType type, std::string_view v, size_
             checkChars(sp, v, vEnd, true);
             break;
         case DataType::Character:
-            if (v.size() != 1 || (unsigned char)v[0] < 32 || (unsigned char)v[0] > 126) bad(Severity::Error, "expected one ASCII character");
+            if (v.size() != 1 || (unsigned char)v[0] < 32 || (unsigned char)v[0] > 126) bad(Severity::Error, tr("expected one ASCII character"));
             break;
         case DataType::Digit:
-            if (v.size() != 1 || !isDigit((unsigned char)v[0])) bad(Severity::Error, "expected one digit");
+            if (v.size() != 1 || !isDigit((unsigned char)v[0])) bad(Severity::Error, tr("expected one digit"));
             break;
         case DataType::Boolean:
-            if (v.size() != 1 || std::strchr("YyNn", v[0]) == nullptr) bad(Severity::Error, "expected Y or N");
+            if (v.size() != 1 || std::strchr("YyNn", v[0]) == nullptr) bad(Severity::Error, tr("expected Y or N"));
             break;
         case DataType::Integer:
         case DataType::PositiveInteger: {
             bool positive = type == DataType::PositiveInteger;
             double x = 0;
-            if (!parseInteger(v, !positive) || !parseNumber(v, &x)) bad(Severity::Error, positive ? "expected digits only" : "expected digits with an optional leading minus");
-            else if (positive && x <= 0) bad(Severity::Error, "it must be greater than 0");
+            if (!parseInteger(v, !positive) || !parseNumber(v, &x)) bad(Severity::Error, positive ? tr("expected digits only") : tr("expected digits with an optional leading minus"));
+            else if (positive && x <= 0) bad(Severity::Error, tr("it must be greater than 0"));
             else range(x);
             break;
         }
         case DataType::Number: {
             double x = 0;
             if (!parseNumber(v, &x)) {
-                bad(Severity::Error, "expected digits with an optional '-' and at most one '.' (no '+' or ',')");
+                bad(Severity::Error, tr("expected digits with an optional '-' and at most one '.' (no '+' or ',')"));
                 // Power with its unit (WSJT-X writes what you type: 30W, 5 w, 1.5kW): ADIF wants watts.
                 if ((sp.name == "TX_PWR" || sp.name == "RX_PWR") && stored()) {
                     std::string_view num = v, unit;
@@ -1601,7 +1624,7 @@ void Linter::checkValue(const Spec &sp, DataType type, std::string_view v, size_
         }
         case DataType::Date:
             if (const char *why = dateProblem(v)) {
-                bad(Severity::Error, why);
+                bad(Severity::Error, tr(why));
                 // 2026-10-06, 2026/10/06, 2026.10.06: year first, so the order is not in doubt.
                 std::string digits;
                 for (char c : v)
@@ -1613,7 +1636,7 @@ void Linter::checkValue(const Spec &sp, DataType type, std::string_view v, size_
             break;
         case DataType::Time:
             if (const char *why = timeProblem(v)) {
-                bad(Severity::Error, why);
+                bad(Severity::Error, tr(why));
                 // 22:30 or 22:30:15.
                 std::string digits;
                 bool colons = (v.size() == 5 && v[2] == ':') || (v.size() == 8 && v[2] == ':' && v[5] == ':');
@@ -1633,22 +1656,23 @@ void Linter::checkValue(const Spec &sp, DataType type, std::string_view v, size_
                 if (!found) {
                     std::string list;
                     for (const std::string &x : ud->values) list += (list.empty() ? "" : ", ") + x;
-                    diagValue(Severity::Error, sp, vEnd, "'" + snippet(v) + "' is not one of the values defined for " + sp.name + ": " + list + ".");
+                    diagValue(Severity::Error, sp, vEnd,
+                              trf("'{value}' is not one of the values defined for {field}: {list}.", {{"value", snippet(v)}, {"field", sp.name}, {"list", list}}));
                 }
             }
             break;
         case DataType::GridSquare:
-            if (!isGridSquare(v)) bad(Severity::Error, "expected a 2, 4, 6 or 8 character Maidenhead locator such as FN31pr");
+            if (!isGridSquare(v)) bad(Severity::Error, tr("expected a 2, 4, 6 or 8 character Maidenhead locator such as FN31pr"));
             break;
         case DataType::GridSquareExt:
             // "On export, the field length must be 2 or 4. On import, if the field length is
             // greater than 4, the additional characters must be ignored." (GRIDSQUARE_EXT)
             if (v.size() > 4 && isGridSquareExt(v.substr(0, 4))) {
                 diagValue(Severity::Warning, sp, vEnd,
-                          sp.name + " has " + std::to_string(v.size()) + " characters; it is 2 or 4, and importers ignore the rest.");
+                          trf("{field} has {n} characters; it is 2 or 4, and importers ignore the rest.", {{"field", sp.name}, {"n", std::to_string(v.size())}}));
                 annotate("grid-ext-length", sp.name, {setTo(sp.name, std::string(v.substr(0, 4)))}, sp.name + " " + std::string(v.substr(0, 4)));
             } else if (!isGridSquareExt(v)) {
-                bad(Severity::Error, "expected locator characters 9-10 (A-X) and optionally 11-12 (digits)");
+                bad(Severity::Error, tr("expected locator characters 9-10 (A-X) and optionally 11-12 (digits)"));
             }
             break;
         case DataType::GridSquareList: {
@@ -1656,7 +1680,7 @@ void Linter::checkValue(const Spec &sp, DataType type, std::string_view v, size_
             bool ok = true;
             for (std::string_view g : grids)
                 if (!isGridSquare(g)) {
-                    bad(Severity::Error, "'" + snippet(g) + "' is not a 2, 4, 6 or 8 character locator");
+                    bad(Severity::Error, trf("'{item}' is not a 2, 4, 6 or 8 character locator", {{"item", snippet(g)}}));
                     ok = false;
                     break;
                 }
@@ -1665,49 +1689,49 @@ void Linter::checkValue(const Spec &sp, DataType type, std::string_view v, size_
             if (ok && fd && (sp.name == "VUCC_GRIDS" || sp.name == "MY_VUCC_GRIDS")) {
                 for (std::string_view g : grids)
                     if (g.size() != 4 && g.size() != 6) {
-                        bad(Severity::Error, "'" + snippet(g) + "' has " + std::to_string(g.size()) +
-                                                 " characters; " + sp.name + " locators have 4 or 6");
+                        bad(Severity::Error, trf("'{item}' has {n} characters; {field} locators have 4 or 6",
+                                                 {{"item", snippet(g)}, {"n", std::to_string(g.size())}, {"field", sp.name}}));
                         ok = false;
                         break;
                     }
                 if (ok && grids.size() != 2 && grids.size() != 4)
                     diagValue(Severity::Warning, sp, vEnd,
-                              sp.name + " lists two or four adjacent locators; this has " + std::to_string(grids.size()) + ".");
+                              trf("{field} lists two or four adjacent locators; this has {n}.", {{"field", sp.name}, {"n", std::to_string(grids.size())}}));
                 else if (ok && std::all_of(grids.begin(), grids.end(), [&](std::string_view g) { return g.size() == grids[0].size(); }) &&
                          !vuccAdjacent(grids))
                     diagValue(Severity::Warning, sp, vEnd,
-                              sp.name + " " + snippet(v) + ": the locators are not adjacent (two side by side, or four in a square).");
+                              trf("{field} {value}: the locators are not adjacent (two side by side, or four in a square).", {{"field", sp.name}, {"value", snippet(v)}}));
             }
             break;
         }
         case DataType::Location:
             if (const char *why = locationProblem(v)) {
-                bad(Severity::Error, why);
+                bad(Severity::Error, tr(why));
             } else if (fd) {  // LAT and MY_LAT are latitudes (N, S); LON and MY_LON longitudes (E, W)
                 bool lat = sp.name == "LAT" || sp.name == "MY_LAT", lon = sp.name == "LON" || sp.name == "MY_LON";
                 unsigned char x = up((unsigned char)v[0]);
-                if (lat && x != 'N' && x != 'S') bad(Severity::Error, sp.name + " is a latitude, so it starts with N or S");
-                if (lon && x != 'E' && x != 'W') bad(Severity::Error, sp.name + " is a longitude, so it starts with E or W");
+                if (lat && x != 'N' && x != 'S') bad(Severity::Error, trf("{field} is a latitude, so it starts with N or S", {{"field", sp.name}}));
+                if (lon && x != 'E' && x != 'W') bad(Severity::Error, trf("{field} is a longitude, so it starts with E or W", {{"field", sp.name}}));
             }
             break;
         case DataType::IOTARefNo:
-            if (!isIota(v)) bad(Severity::Error, "expected CC-XXX, e.g. NA-001 (continent, dash, 3 digits)");
+            if (!isIota(v)) bad(Severity::Error, tr("expected CC-XXX, e.g. NA-001 (continent, dash, 3 digits)"));
             break;
         case DataType::POTARef:
-            if (!isPotaRef(v)) bad(Severity::Error, "expected a park reference such as K-5033 or VE-5082@CA-AB");
+            if (!isPotaRef(v)) bad(Severity::Error, tr("expected a park reference such as K-5033 or VE-5082@CA-AB"));
             break;
         case DataType::POTARefList:
             for (std::string_view p : split(v, ','))
                 if (!isPotaRef(p)) {
-                    bad(Severity::Error, "'" + snippet(p) + "' is not a park reference such as K-5033");
+                    bad(Severity::Error, trf("'{item}' is not a park reference such as K-5033", {{"item", snippet(p)}}));
                     break;
                 }
             break;
         case DataType::SOTARef:
-            if (!isSotaRef(v)) bad(Severity::Warning, "expected a SOTA reference such as W2/WE-003 or G/LD-003");
+            if (!isSotaRef(v)) bad(Severity::Warning, tr("expected a SOTA reference such as W2/WE-003 or G/LD-003"));
             break;
         case DataType::WWFFRef:
-            if (!isWwffRef(v)) bad(Severity::Error, "expected a WWFF reference such as KFF-4655");
+            if (!isWwffRef(v)) bad(Severity::Error, tr("expected a WWFF reference such as KFF-4655"));
             break;
         case DataType::CreditList:
         case DataType::AwardList: {
@@ -1717,15 +1741,15 @@ void Linter::checkValue(const Spec &sp, DataType type, std::string_view v, size_
                 std::string_view name = item.substr(0, colon);
                 if (credit && findEnumValue(*credit, name)) {
                 } else if (award && findEnumValue(*award, name)) {
-                    diagValue(Severity::Warning, sp, vEnd, "'" + std::string(name) + "' is an Award value; AwardList is import-only. Use Credit values.");
+                    diagValue(Severity::Warning, sp, vEnd, trf("'{value}' is an Award value; AwardList is import-only. Use Credit values.", {{"value", std::string(name)}}));
                 } else {
-                    bad(Severity::Error, "'" + snippet(name) + "' is not a Credit value");
+                    bad(Severity::Error, trf("'{item}' is not a Credit value", {{"item", snippet(name)}}));
                     break;
                 }
                 if (colon != npos && medium) {
                     for (std::string_view m : split(item.substr(colon + 1), '&'))
                         if (!findEnumValue(*medium, m)) {
-                            bad(Severity::Error, "'" + snippet(m) + "' is not a QSL_Medium (CARD, EQSL, LOTW)");
+                            bad(Severity::Error, trf("'{item}' is not a QSL_Medium (CARD, EQSL, LOTW)", {{"item", snippet(m)}}));
                             break;
                         }
                 }
@@ -1739,7 +1763,7 @@ void Linter::checkValue(const Spec &sp, DataType type, std::string_view v, size_
                 for (size_t i = 0; sponsors && i < sponsors->count; ++i)
                     ok |= startsWithNoCase(item, sponsors->values[i].value) && item.size() > std::strlen(sponsors->values[i].value);
                 if (!ok) {
-                    bad(Severity::Warning, "'" + snippet(item) + "' does not start with a sponsor such as ARRL_ or CQ_");
+                    bad(Severity::Warning, trf("'{item}' does not start with a sponsor such as ARRL_ or CQ_", {{"item", snippet(item)}}));
                     break;
                 }
             }
@@ -1767,12 +1791,13 @@ void Linter::checkSubdivisionAlt(const Spec &sp, std::string_view v, size_t vEnd
         size_t colon = item.find(':');
         if (colon == npos || colon == 0 || colon + 1 >= item.size()) {
             diagValue(Severity::Error, sp, vEnd,
-                      "'" + snippet(item) + "' in " + sp.name + " is not enumeration-name:code, such as NZ_Regions:Hawkes Bay/Wairoa (§III.A).");
+                      trf("'{item}' in {field} is not enumeration-name:code, such as NZ_Regions:Hawkes Bay/Wairoa (§III.A).", {{"item", snippet(item)}, {"field", sp.name}}));
             return;
         }
         std::string_view name = item.substr(0, colon);
         if (!names.insert(upper(name)).second) {
-            diagValue(Severity::Error, sp, vEnd, sp.name + " lists " + std::string(name) + " more than once; each enumeration-name appears once (§III.A).");
+            diagValue(Severity::Error, sp, vEnd,
+                      trf("{field} lists {name} more than once; each enumeration-name appears once (§III.A).", {{"field", sp.name}, {"name", std::string(name)}}));
             return;
         }
         if (!alt) continue;
@@ -1783,14 +1808,17 @@ void Linter::checkSubdivisionAlt(const Spec &sp, std::string_view v, size_t vEnd
             if (c.size() > colon && c[colon] == ':' && equalsNoCase(c.substr(0, colon), name)) known = true, scope = alt->values[i].scope;
         }
         if (!known) {
-            diagValue(Severity::Info, sp, vEnd, "ADIF " + std::string(kSpecVersion) + " lists no " + std::string(name) + " codes (§III.B.23).");
+            diagValue(Severity::Info, sp, vEnd, trf("ADIF {spec} lists no {name} codes (§III.B.23).", {{"spec", kSpecVersion}, {"name", std::string(name)}}));
         } else if (!dxcc.empty() && scope && dxcc != scope) {
             const char *country = dxccEntityName(scope);
             diagValue(Severity::Warning, sp, vEnd,
-                      std::string(name) + " codes are for DXCC " + scope + (country ? " (" + titleCase(country) + ")" : std::string()) +
-                          ", not DXCC " + dxcc + " (§III.B.23).");
+                      trf("{name} codes are for {entity}, not DXCC {code} (§III.B.23).",
+                          {{"name", std::string(name)},
+                           {"entity", country ? trf("DXCC {code} ({country})", {{"code", scope}, {"country", titleCase(country)}})
+                                              : trf("DXCC {code}", {{"code", scope}})},
+                           {"code", dxcc}}));
         } else if (!findEnumValue(*alt, item)) {
-            diagValue(Severity::Warning, sp, vEnd, "'" + snippet(item) + "' is not one of ADIF's " + std::string(name) + " codes (§III.B.23).");
+            diagValue(Severity::Warning, sp, vEnd, trf("'{item}' is not one of ADIF's {name} codes (§III.B.23).", {{"item", snippet(item)}, {"name", std::string(name)}}));
         }
     }
 }
@@ -1822,8 +1850,10 @@ void Linter::checkRelations(const Fields &f, const std::vector<Spec> &group, con
         std::string_view g = value(f, grid);
         if (!sp || value(f, ext).empty() || g.size() == 8) continue;
         diagValue(Severity::Warning, *sp, sp->cleanE,
-                  std::string(ext) + " holds characters 9 and on of a locator, so " + grid + " should hold the first 8" +
-                      (g.empty() ? std::string("; it is missing.") : "; it has " + std::to_string(g.size()) + "."));
+                  g.empty() ? trf("{field} holds characters 9 and on of a locator, so {grid} should hold the first 8; it is missing.",
+                                  {{"field", ext}, {"grid", grid}})
+                            : trf("{field} holds characters 9 and on of a locator, so {grid} should hold the first 8; it has {n}.",
+                                  {{"field", ext}, {"grid", grid}, {"n", std::to_string(g.size())}}));
     }
     // "If both GRIDSQUARE and VUCC_GRIDS are exported in a QSO record, the locator in GRIDSQUARE
     // should be consistent with the locators in VUCC_GRIDS" (§III.A.1).
@@ -1839,15 +1869,16 @@ void Linter::checkRelations(const Fields &f, const std::vector<Spec> &group, con
         if (!valid || consistent) continue;
         const Spec *sp = at(grid);
         diagValue(Severity::Warning, *sp, sp->cleanE,
-                  std::string(grid) + " " + std::string(g) + " is not in " + vucc + " " + snippet(list) + "; the two should agree (§III.A.1).");
+                  trf("{grid} {value} is not in {list}; the two should agree (§III.A.1).",
+                      {{"grid", grid}, {"value", std::string(g)}, {"list", std::string(vucc) + " " + snippet(list)}}));
     }
     // QSL dates: "date QSL received (only valid if QSL_RCVD is Y, I, or V)", "date QSL sent
     // (only valid if QSL_SENT is Y, Q, or I)"; each status defaults to N.
     static const struct { const char *date, *status, *allowed, *words; } kQsl[] = {
-        {"QSLRDATE", "QSL_RCVD", "YIV", "Y, I or V"},           {"QSLSDATE", "QSL_SENT", "YQI", "Y, Q or I"},
-        {"LOTW_QSLRDATE", "LOTW_QSL_RCVD", "YIV", "Y, I or V"}, {"LOTW_QSLSDATE", "LOTW_QSL_SENT", "YQI", "Y, Q or I"},
-        {"EQSL_QSLRDATE", "EQSL_QSL_RCVD", "YIV", "Y, I or V"}, {"EQSL_QSLSDATE", "EQSL_QSL_SENT", "YQI", "Y, Q or I"},
-        {"DCL_QSLRDATE", "DCL_QSL_RCVD", "YIV", "Y, I or V"},   {"DCL_QSLSDATE", "DCL_QSL_SENT", "YQI", "Y, Q or I"},
+        {"QSLRDATE", "QSL_RCVD", "YIV", N_("Y, I or V")},           {"QSLSDATE", "QSL_SENT", "YQI", N_("Y, Q or I")},
+        {"LOTW_QSLRDATE", "LOTW_QSL_RCVD", "YIV", N_("Y, I or V")}, {"LOTW_QSLSDATE", "LOTW_QSL_SENT", "YQI", N_("Y, Q or I")},
+        {"EQSL_QSLRDATE", "EQSL_QSL_RCVD", "YIV", N_("Y, I or V")}, {"EQSL_QSLSDATE", "EQSL_QSL_SENT", "YQI", N_("Y, Q or I")},
+        {"DCL_QSLRDATE", "DCL_QSL_RCVD", "YIV", N_("Y, I or V")},   {"DCL_QSLSDATE", "DCL_QSL_SENT", "YQI", N_("Y, Q or I")},
     };
     for (const auto &q : kQsl) {
         const Spec *sp = at(q.date);
@@ -1855,8 +1886,10 @@ void Linter::checkRelations(const Fields &f, const std::vector<Spec> &group, con
         std::string status = upper(value(f, q.status));
         if (status.size() == 1 && std::strchr(q.allowed, status[0])) continue;
         diagValue(Severity::Warning, *sp, sp->cleanE,
-                  std::string(q.date) + " is only valid when " + q.status + " is " + q.words + "; here it is " +
-                      (status.empty() ? std::string("N (the default: ") + q.status + " is missing)." : status + "."));
+                  status.empty() ? trf("{date} is only valid when {status} is {allowed}; here it is N (the default: {status} is missing).",
+                                       {{"date", q.date}, {"status", q.status}, {"allowed", tr(q.words)}})
+                                 : trf("{date} is only valid when {status} is {allowed}; here it is {value}.",
+                                       {{"date", q.date}, {"status", q.status}, {"allowed", tr(q.words)}, {"value", status}}));
         annotate("qsl-date", q.status);
     }
 }
@@ -1872,12 +1905,13 @@ void Linter::checkFreqInBand(const Fields &f, const char *freqName, const char *
     if (mhz < b->lowerMHz - kTolMHz || mhz > b->upperMHz + kTolMHz) {
         const Spec *sp = f.at(freqName);
         diagValue(Severity::Warning, *sp, sp->cleanE,
-                  std::string(freqName) + " " + std::string(freq) + " MHz is outside " + bandName + " " + b->name + " (" +
-                      fmtNumber(b->lowerMHz) + "-" + fmtNumber(b->upperMHz) + " MHz).");
+                  trf("{freqField} {freq} MHz is outside {bandField} {band} ({low}-{high} MHz).",
+                      {{"freqField", freqName}, {"freq", std::string(freq)}, {"bandField", bandName}, {"band", b->name},
+                       {"low", fmtNumber(b->lowerMHz)}, {"high", fmtNumber(b->upperMHz)}}));
         // Written in kHz (14074 for 14.074 MHz)? Otherwise BAND follows FREQ.
         double inMHz = mhz / 1000;
         if (inMHz >= b->lowerMHz - kTolMHz && inMHz <= b->upperMHz + kTolMHz)
-            annotate("freq-band", freqName, {setTo(freqName, fmtMHz(inMHz))}, std::string(freqName) + " " + fmtMHz(inMHz) + " (it was kHz)");
+            annotate("freq-band", freqName, {setTo(freqName, fmtMHz(inMHz))}, trf("{field} {value} (it was kHz)", {{"field", freqName}, {"value", fmtMHz(inMHz)}}));
         else if (const BandDef *right = bandAt(mhz))
             annotate("freq-band", bandName, {setTo(bandName, right->name)}, std::string(bandName) + " " + right->name);
         else

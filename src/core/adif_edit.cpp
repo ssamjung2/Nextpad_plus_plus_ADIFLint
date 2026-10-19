@@ -1,4 +1,5 @@
 #include "adif_edit.h"
+#include "adif_i18n.h"
 
 #include "adif_spec.h"
 
@@ -6,6 +7,9 @@
 #include <set>
 
 namespace adif {
+using i18n::tr;
+using i18n::trf;
+using i18n::trp;
 namespace {
 
 bool isBlank(char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; }
@@ -320,20 +324,19 @@ std::string describeField(const DocModel &m, std::string_view name) {
     if (const FieldDef *fd = findField(name)) {
         std::string s = n + " (" + typeName(fd->type) + ")";
         if (fd->description) s += std::string(": ") + fd->description;
-        if (fd->importOnly) s += " [import-only]";
+        if (fd->importOnly) s += " " + tr("[import-only]");
         return s;
     }
     if (const UserFieldInfo *u = findUserField(m, name)) {
-        std::string s = n + " (user-defined";
-        if (u->indicator) s += std::string(", ") + typeName(typeFromIndicator(u->indicator));
-        return s + ")";
+        return u->indicator ? trf("{field} (user-defined, {type})", {{"field", n}, {"type", typeName(typeFromIndicator(u->indicator))}})
+                            : trf("{field} (user-defined)", {{"field", n}});
     }
     for (const auto &a : m.appFields)
         if (a.first == n)
-            return n + " (application-defined" +
-                   (a.second ? std::string(", ") + typeName(typeFromIndicator(a.second)) : std::string()) + ")";
-    if (n == "EOR") return "EOR: end of record";
-    if (n == "EOH") return "EOH: end of header";
+            return a.second ? trf("{field} (application-defined, {type})", {{"field", n}, {"type", typeName(typeFromIndicator(a.second))}})
+                            : trf("{field} (application-defined)", {{"field", n}});
+    if (n == "EOR") return tr("EOR: end of record");
+    if (n == "EOH") return tr("EOH: end of header");
     return n;
 }
 
@@ -345,15 +348,15 @@ FieldInfo fieldInfo(const DocModel &m, std::string_view name) {
         fi.type = typeName(fd->type);
         fi.brief = fd->description ? fd->description : "";
         fi.details = fd->details ? fd->details : fi.brief;
-        if (fd->importOnly) fi.brief += " (import-only)";
+        if (fd->importOnly) fi.brief += " " + tr("(import-only)");
     } else if (const UserFieldInfo *u = findUserField(m, name)) {
         fi.type = u->indicator ? typeName(typeFromIndicator(u->indicator)) : "";
-        fi.brief = "User-defined field, from this log's header";
+        fi.brief = tr("User-defined field, from this log's header");
         fi.details = fi.brief;
     } else if (fi.name.rfind("APP_", 0) == 0) {
         for (const auto &a : m.appFields)
             if (a.first == fi.name && a.second) fi.type = typeName(typeFromIndicator(a.second));
-        fi.brief = "Application-defined field, used in this log";
+        fi.brief = tr("Application-defined field, used in this log");
         fi.details = fi.brief;
     }
     return fi;

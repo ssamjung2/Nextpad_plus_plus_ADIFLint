@@ -9,7 +9,7 @@
 static bool required(const std::string &n) { return n == "CALL" || n == "QSO_DATE" || n == "TIME_ON" || n == "MODE"; }
 
 static NSTextField *heading(NSString *text) {
-    NSTextField *t = [NSTextField labelWithString:text];
+    NSTextField *t = [NSTextField labelWithString:T(text)];
     t.font = [NSFont boldSystemFontOfSize:NSFont.systemFontSize];
     return t;
 }
@@ -24,7 +24,7 @@ static NSTableView *makeTable(id owner, NSArray<NSArray *> *columns) {
     if (@available(macOS 11.0, *)) t.style = NSTableViewStyleFullWidth;
     for (NSArray *c in columns) {
         NSTableColumn *col = [[NSTableColumn alloc] initWithIdentifier:c[0]];
-        col.title = c[1];
+        col.title = T(c[1]);
         col.width = [c[2] doubleValue];
         col.minWidth = 50;
         [t addTableColumn:col];
@@ -73,8 +73,8 @@ static NSScrollView *scrolling(NSTableView *t) {
                                           @"specification; hover a row for the full text.")];
 
     // Left: the chosen fields.
-    NSTextField *leftTitle = heading(@"In the New QSO window");
-    _table = makeTable(self, @[ @[ @"name", @"Field", @130 ], @[ @"brief", @"Description", @220 ] ]);
+    NSTextField *leftTitle = heading(N(@"In the New QSO window"));
+    _table = makeTable(self, @[ @[ @"name", N(@"Field"), @130 ], @[ @"brief", N(@"Description"), @220 ] ]);
     NSScrollView *leftScroll = scrolling(_table);
     _up = [NSButton buttonWithTitle:T(@"Move Up") target:self action:@selector(moveUp:)];
     _down = [NSButton buttonWithTitle:T(@"Move Down") target:self action:@selector(moveDown:)];
@@ -82,7 +82,7 @@ static NSScrollView *scrolling(NSTableView *t) {
     NSStackView *leftButtons = [NSStackView stackViewWithViews:@[ _up, _down, _remove ]];
 
     // Right: everything that can be added, searchable.
-    NSTextField *rightTitle = heading(@"Fields you can add");
+    NSTextField *rightTitle = heading(N(@"Fields you can add"));
     _search = [[NSSearchField alloc] initWithFrame:NSZeroRect];
     _search.placeholderString = T(@"Search names and descriptions, e.g. park, power, grid");
     _search.delegate = self;
@@ -200,7 +200,7 @@ static NSScrollView *scrolling(NSTableView *t) {
     }
     std::stable_sort(ranked.begin(), ranked.end(), [](const auto &a, const auto &b) { return a.first < b.first; });
     for (const auto &r : ranked) _shown.push_back(r.second);
-    _count.stringValue = [NSString stringWithFormat:T(@"%zu field%@"), _shown.size(), _shown.size() == 1 ? @"" : @"s"];
+    _count.stringValue = TP(@"{n} field", @"{n} fields", (long long)_shown.size());
 }
 
 - (void)reload {
@@ -259,14 +259,14 @@ static NSScrollView *scrolling(NSTableView *t) {
         f.textColor = NSColor.secondaryLabelColor;
     } else {
         std::string text = info.brief;
-        if (tableView == _table && required(name)) text = "Required. " + text;
+        if (tableView == _table && required(name)) text = tr("Required.") + " " + text;
         f.stringValue = ADIFString(text);
         f.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
         f.textColor = NSColor.secondaryLabelColor;
     }
     NSString *tip = ADIFString(info.details.empty() ? info.brief : info.details);
     if (!info.type.empty()) tip = [NSString stringWithFormat:T(@"%@\n\nType: %@%@"), tip, ADIFString(info.type),
-                                                               info.hasValues ? @" (New QSO offers a list of values)" : @""];
+                                                               info.hasValues ? [@" " stringByAppendingString:T(@"(New QSO offers a list of values)")] : @""];
     f.toolTip = tip;
     return f;
 }

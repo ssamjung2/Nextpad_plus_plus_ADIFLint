@@ -17,17 +17,17 @@ struct FieldOption {
 };
 static const std::vector<FieldOption> &fieldOptions() {
     static const std::vector<FieldOption> options = {
-        {@"Name", {"NAME"}, 0b011, true},
-        {@"City (QTH)", {"QTH"}, 0b011, true},
-        {@"State", {"STATE"}, 0b011, true},
-        {@"County", {"CNTY"}, 0b011, true},
-        {@"Grid square", {"GRIDSQUARE"}, 0b011, true},
-        {@"Country and DXCC", {"DXCC", "COUNTRY"}, 0b100000011, true},
-        {@"CQ zone", {"CQZ"}, 0b100000011, true},
-        {@"ITU zone", {"ITUZ"}, 0b100000011, true},
-        {@"IOTA", {"IOTA"}, 0b011, true},
-        {@"Continent", {"CONT"}, 0b100000010, true},
-        {@"Latitude and longitude", {"LAT", "LON"}, 0b011, false},
+        {N(@"Name"), {"NAME"}, 0b011, true},
+        {N(@"City (QTH)"), {"QTH"}, 0b011, true},
+        {N(@"State"), {"STATE"}, 0b011, true},
+        {N(@"County"), {"CNTY"}, 0b011, true},
+        {N(@"Grid square"), {"GRIDSQUARE"}, 0b011, true},
+        {N(@"Country and DXCC"), {"DXCC", "COUNTRY"}, 0b100000011, true},
+        {N(@"CQ zone"), {"CQZ"}, 0b100000011, true},
+        {N(@"ITU zone"), {"ITUZ"}, 0b100000011, true},
+        {N(@"IOTA"), {"IOTA"}, 0b011, true},
+        {N(@"Continent"), {"CONT"}, 0b100000010, true},
+        {N(@"Latitude and longitude"), {"LAT", "LON"}, 0b011, false},
     };
     return options;
 }
@@ -73,9 +73,9 @@ static const std::vector<FieldOption> &fieldOptions() {
     NSStackView *sourceRow = [NSStackView stackViewWithViews:@[ [NSTextField labelWithString:T(@"Account:")], _account, _settings ]];
     _sourcePopup = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     struct { NSString *title; NSInteger source; } sources[] = {
-        {@"QRZ.com", ADIFSourceQRZ}, {@"HamQTH", ADIFSourceHamQTH}, {@"Country Data (offline)", ADIFSourceCountryData}};
+        {@"QRZ.com", ADIFSourceQRZ}, {@"HamQTH", ADIFSourceHamQTH}, {N(@"Country Data (offline)"), ADIFSourceCountryData}};
     for (auto &s : sources) {
-        [_sourcePopup addItemWithTitle:s.title];
+        [_sourcePopup addItemWithTitle:T(s.title)];
         _sourcePopup.lastItem.tag = s.source;
     }
     _sourcePopup.target = self;
@@ -87,7 +87,7 @@ static const std::vector<FieldOption> &fieldOptions() {
     NSMutableArray<NSArray<NSView *> *> *gridRows = [NSMutableArray array];
     NSMutableArray<NSView *> *row = [NSMutableArray array];
     for (size_t i = 0; i < fieldOptions().size(); ++i) {
-        NSButton *b = [NSButton checkboxWithTitle:fieldOptions()[i].label target:nil action:nil];
+        NSButton *b = [NSButton checkboxWithTitle:T(fieldOptions()[i].label) target:nil action:nil];
         b.state = fieldOptions()[i].on ? NSControlStateValueOn : NSControlStateValueOff;
         b.tag = (NSInteger)i;
         [_fieldBoxes addObject:b];
@@ -138,11 +138,11 @@ static const std::vector<FieldOption> &fieldOptions() {
     _table.columnAutoresizingStyle = NSTableViewLastColumnOnlyAutoresizingStyle;
     if (@available(macOS 11.0, *)) _table.style = NSTableViewStyleFullWidth;
     struct { NSString *ident, *title; CGFloat width; } cols[] = {
-        {@"use", @"", 24}, {@"record", @"Record", 56}, {@"call", @"Call", 90}, {@"field", @"Field", 110},
-        {@"current", @"Now", 110}, {@"value", @"New", 200}};
+        {@"use", @"", 24}, {@"record", N(@"Record"), 56}, {@"call", N(@"Call"), 90}, {@"field", N(@"Field"), 110},
+        {@"current", N(@"Now"), 110}, {@"value", N(@"New"), 200}};
     for (auto &c : cols) {
         NSTableColumn *col = [[NSTableColumn alloc] initWithIdentifier:c.ident];
-        col.title = c.title;
+        col.title = T(c.title);
         col.width = c.width;
         col.minWidth = c.width < 30 ? c.width : 40;
         [_table addTableColumn:col];
@@ -241,11 +241,11 @@ static const std::vector<FieldOption> &fieldOptions() {
 }
 
 - (void)setAccount:(NSString *)text {
-    _account.stringValue = text ?: @"";
+    _account.stringValue = T(text);
 }
 
 - (void)setTarget:(const std::string &)documentName {
-    _target.stringValue = TF(@"Log: {name}", @{@"name" : ADIFString(documentName)});
+    _target.stringValue = TF(T(@"Log: {name}"), @{@"name" : ADIFString(documentName)});
 }
 
 - (void)setBusy:(BOOL)busy {
@@ -267,7 +267,7 @@ static const std::vector<FieldOption> &fieldOptions() {
 }
 
 - (void)setCredit:(NSString *)text {
-    _credit.stringValue = text ?: @"";
+    _credit.stringValue = T(text);
 }
 
 - (void)setRows:(const std::vector<ADIFEnrichRow> &)rows {
@@ -285,7 +285,7 @@ static const std::vector<FieldOption> &fieldOptions() {
 - (void)updateApply {
     size_t n = 0;
     for (const ADIFEnrichRow &r : _rows) n += r.accepted;
-    _apply.title = n ? [NSString stringWithFormat:T(@"Apply %zu Change%@"), n, n == 1 ? @"" : @"s"] : @"Apply Changes";
+    _apply.title = n ? TP(@"Apply {n} Change", @"Apply {n} Changes", (long long)n) : T(@"Apply Changes");
     _apply.enabled = n > 0 && _find.enabled;
     _apply.keyEquivalent = n ? @"\r" : @"";
     _find.keyEquivalent = n ? @"" : @"\r";
@@ -325,7 +325,7 @@ static const std::vector<FieldOption> &fieldOptions() {
     else if ([ident isEqualToString:@"call"]) f.stringValue = ADIFString(r.call);
     else if ([ident isEqualToString:@"field"]) f.stringValue = ADIFString(r.field);
     else if ([ident isEqualToString:@"current"]) {
-        f.stringValue = r.current.empty() ? @"(none)" : ADIFString(r.current);
+        f.stringValue = r.current.empty() ? T(@"(none)") : ADIFString(r.current);
         f.textColor = r.current.empty() ? NSColor.tertiaryLabelColor : NSColor.systemOrangeColor;
     } else {
         f.stringValue = ADIFString(r.value);

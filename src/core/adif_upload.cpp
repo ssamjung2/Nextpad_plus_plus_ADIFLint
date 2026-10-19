@@ -1,4 +1,5 @@
 #include "adif_upload.h"
+#include "adif_i18n.h"
 
 #include "adif_spec.h"
 #include "adif_tools.h"
@@ -9,6 +10,9 @@
 #include <cstdlib>
 
 namespace adif {
+using i18n::tr;
+using i18n::trf;
+using i18n::trp;
 namespace {
 
 std::string upper(std::string_view s) {
@@ -79,11 +83,11 @@ std::vector<UploadItem> uploadItems(std::string_view text, const DocModel &m, Up
         i.done = i.status == "Y";
         i.skip = qslService ? i.status == "I" : i.status == "N";
         i.replace = !qslService && i.status == "M";
-        if (i.call.empty()) i.problem = "no CALL";
-        else if (!parseAdifDate(i.date, nullptr)) i.problem = "no valid QSO_DATE";
-        else if (!parseAdifTime(i.time, nullptr)) i.problem = "no valid TIME_ON";
-        else if (i.band.empty()) i.problem = "no BAND or FREQ";
-        else if (i.mode.empty()) i.problem = "no MODE";
+        if (i.call.empty()) i.problem = tr("no CALL");
+        else if (!parseAdifDate(i.date, nullptr)) i.problem = tr("no valid QSO_DATE");
+        else if (!parseAdifTime(i.time, nullptr)) i.problem = tr("no valid TIME_ON");
+        else if (i.band.empty()) i.problem = tr("no BAND or FREQ");
+        else if (i.mode.empty()) i.problem = tr("no MODE");
         out.push_back(std::move(i));
     }
     return out;
@@ -277,7 +281,7 @@ std::string eqslInboxLink(std::string_view html, std::string *error) {
         if (error) {
             std::string line(html.substr(e == std::string_view::npos ? 0 : e + 6));
             size_t end = line.find_first_of("<\r\n");
-            *error = e == std::string_view::npos ? "eQSL did not build the file" : std::string(trim(line.substr(0, end)));
+            *error = e == std::string_view::npos ? tr("eQSL did not build the file") : std::string(trim(line.substr(0, end)));
         }
         return "";
     }
@@ -295,25 +299,25 @@ std::string eqslInboxLink(std::string_view html, std::string *error) {
         if (p == at) at = html.find("HREF=", p + 5);
         else alt = html.find("href=", p + 5);
     }
-    if (error) *error = "eQSL built the file but its link was not found";
+    if (error) *error = tr("eQSL built the file but its link was not found");
     return "";
 }
 
 std::string tqslExitMeaning(int code) {
     switch (code) {
-        case 0: return "all QSOs were signed and uploaded";
-        case 1: return "cancelled";
-        case 2: return "rejected by LoTW";
-        case 3: return "unexpected response from the TQSL server";
-        case 4: return "TQSL error";
-        case 5: return "TQSLlib error";
-        case 6: return "unable to open the input file";
-        case 7: return "unable to open the output file";
-        case 8: return "no QSOs were processed: they were duplicates or outside the certificate's date range";
-        case 9: return "some QSOs were uploaded; others were ignored as duplicates or outside the date range";
-        case 10: return "command syntax error";
-        case 11: return "cannot reach LoTW (no network?)";
-        default: return "TQSL exit code " + std::to_string(code);
+        case 0: return tr("all QSOs were signed and uploaded");
+        case 1: return tr("cancelled");
+        case 2: return tr("rejected by LoTW");
+        case 3: return tr("unexpected response from the TQSL server");
+        case 4: return tr("TQSL error");
+        case 5: return tr("TQSLlib error");
+        case 6: return tr("unable to open the input file");
+        case 7: return tr("unable to open the output file");
+        case 8: return tr("no QSOs were processed: they were duplicates or outside the certificate's date range");
+        case 9: return tr("some QSOs were uploaded; others were ignored as duplicates or outside the date range");
+        case 10: return tr("command syntax error");
+        case 11: return tr("cannot reach LoTW (no network?)");
+        default: return trf("TQSL exit code {code}", {{"code", std::to_string(code)}});
     }
 }
 

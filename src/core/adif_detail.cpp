@@ -1,9 +1,13 @@
 #include "adif_detail.h"
+#include "adif_i18n.h"
 
 #include <cstdint>
 #include <cstring>
 
 namespace adif {
+using i18n::tr;
+using i18n::trf;
+using i18n::trp;
 namespace {
 
 // Little-endian reads that stop at the end of the bytes.
@@ -32,21 +36,21 @@ struct Reader {
 
 bool MapDetail::load(std::string_view bytes, std::string *error) {
     auto fail = [&](const char *why) {
-        if (error) *error = why;
+        if (error) *error = tr(why);
         *this = MapDetail();
         return false;
     };
     *this = MapDetail();
     Reader r{bytes};
-    if (bytes.size() < 8 || std::memcmp(bytes.data(), "ADIFMAP1", 8) != 0) return fail("not a map detail file");
+    if (bytes.size() < 8 || std::memcmp(bytes.data(), "ADIFMAP1", 8) != 0) return fail(N_("not a map detail file"));
     r.at = 8;
     uint32_t layers = r.u32();
-    if (!r.ok || layers > 64) return fail("bad layer count");
+    if (!r.ok || layers > 64) return fail(N_("bad layer count"));
     for (uint32_t l = 0; l < layers; ++l) {
         uint8_t kind = r.u8();
         uint32_t count = r.u32();
-        if (!r.ok || kind >= kDetailLayers) return fail("bad layer");
-        if (count > (bytes.size() - r.at) / 17) return fail("too many shapes for the file");  // a shape takes 17 bytes at least
+        if (!r.ok || kind >= kDetailLayers) return fail(N_("bad layer"));
+        if (count > (bytes.size() - r.at) / 17) return fail(N_("too many shapes for the file"));  // a shape takes 17 bytes at least
         auto &shapes = shapes_[kind];
         auto &pts = pts_[kind];
         for (uint32_t s = 0; s < count; ++s) {
@@ -54,7 +58,7 @@ bool MapDetail::load(std::string_view bytes, std::string *error) {
             sh.west = r.i16() / 100.0f, sh.south = r.i16() / 100.0f, sh.east = r.i16() / 100.0f, sh.north = r.i16() / 100.0f;
             sh.rank = r.u8();
             uint32_t n = r.u32();
-            if (!r.ok || n == 0 || n > (bytes.size() - r.at) / 4 + 2) return fail("bad shape");
+            if (!r.ok || n == 0 || n > (bytes.size() - r.at) / 4 + 2) return fail(N_("bad shape"));
             sh.first = pts.size() / 2, sh.count = n;
             int32_t x = r.i32(), y = r.i32();
             pts.push_back(x / 1e4f), pts.push_back(y / 1e4f);
@@ -64,24 +68,24 @@ bool MapDetail::load(std::string_view bytes, std::string *error) {
                 else x += dx, y += dy;
                 pts.push_back(x / 1e4f), pts.push_back(y / 1e4f);
             }
-            if (!r.ok) return fail("truncated shape");
+            if (!r.ok) return fail(N_("truncated shape"));
             shapes.push_back(sh);
         }
     }
     uint32_t cities = r.u32();
-    if (!r.ok || cities > (bytes.size() - r.at) / 14) return fail("bad city count");
+    if (!r.ok || cities > (bytes.size() - r.at) / 14) return fail(N_("bad city count"));
     for (uint32_t c = 0; c < cities; ++c) {
         DetailCity city;
         city.lon = r.i32() / 1e4, city.lat = r.i32() / 1e4;
         city.population = (long)r.u32();
         city.minZoom = r.u8() / 10.0;
         uint8_t len = r.u8();
-        if (!r.need(len)) return fail("truncated city");
+        if (!r.need(len)) return fail(N_("truncated city"));
         city.name.assign(bytes.data() + r.at, len);
         r.at += len;
         cities_.push_back(std::move(city));
     }
-    if (r.at != bytes.size()) return fail("bytes left over");
+    if (r.at != bytes.size()) return fail(N_("bytes left over"));
     return true;
 }
 

@@ -3517,6 +3517,37 @@ static void testI18n() {
     std::vector<std::string> ph = placeholders("%1$@ of %zu, {name} at 100%% (%.1f) {not a name}");
     CHECK(ph.size() == 4 && ph[0] == "%1$@" && ph[1] == "%zu" && ph[2] == "{name}" && ph[3] == "%.1f", "placeholders: printf and {name}, not %%");
     CHECK(fill("{a} and {b}, {c}", {{"a", "1"}, {"b", "{a}"}}) == "1 and {a}, {c}", "filling doesn't refill what it put in");
+    std::vector<std::pair<std::string, std::string>> kv = {{"a", "{b}"}, {"b", "2"}};
+    CHECK(fill("{a} {b}", kv) == "{b} 2", "a list of values fills in one pass too");
+
+    // The validator and the tools speak the table's language; what a table lacks stays English.
+    Table de;
+    de.language = "de";
+    de.strings["Unknown field {field}: not an ADIF {spec} field, not APP_..., and not defined by a USERDEFn header field."] =
+        "Unbekanntes Feld {field}: kein ADIF-{spec}-Feld.";
+    de.strings["Records"] = "Datensätze";
+    de.strings["Callsigns worked"] = "Gearbeitete Rufzeichen";
+    de.plurals["{n} other log|{n} other logs"] = {{"one", "{n} anderen Log"}, {"other", "{n} anderen Logs"}};
+    Table ko;
+    ko.language = "ko";
+    ko.strings["Records"] = "레코드";
+    use(std::make_shared<const Table>(de));
+    LintResult r = lintRecord("<FOO:1>x ");
+    expect("translated message", r, Severity::Warning, "Unbekanntes Feld FOO: kein ADIF-3.1.7-Feld.");
+    expect("untranslated message", r, Severity::Info, "is usually written", 0);
+    std::string log = std::string(kHeader) + record("");
+    LintOptions mo;
+    mo.buildModel = true;
+    LintResult m = lint(log, mo);
+    std::string rep = summaryReport(log, m.model, "x.adi");
+    CHECK(rep.find("Datensätze              1") != std::string::npos && rep.find("Gearbeitete Rufzeichen  1") != std::string::npos,
+          "German summary: labels translated, the column widened to the longest\n%s", rep.c_str());
+    use(std::make_shared<const Table>(ko));
+    rep = summaryReport(log, m.model, "x.adi");
+    CHECK(rep.find("레코드                1") != std::string::npos, "Korean summary: a Hangul syllable takes two columns\n%s", rep.c_str());
+    use(nullptr);
+    rep = summaryReport(log, m.model, "x.adi");
+    CHECK(rep.find("Records               1") != std::string::npos, "English again with no table");
 }
 
 int main(int argc, char **argv) {

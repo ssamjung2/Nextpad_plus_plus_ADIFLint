@@ -1,4 +1,5 @@
 #import "LotwUsers.h"
+#import "L10n.h"
 
 #import "Lookup.h"
 #import "Network.h"
@@ -51,8 +52,8 @@ void ADIFSetLotwUsersOn(bool on) { adifhost::setSetting("lotwUsers", on ? "1" : 
 
 NSString *ADIFLotwUsersStatus(void) {
     if (!loaded) loadCache();
-    if (!users.size()) return ADIFLotwUsersOn() ? @"Not downloaded yet: press Update." : @"Off.";
-    std::string s = grouped(users.size()) + " calls, downloaded " + listDate + (ADIFLotwUsersOn() ? "." : " (off).");
+    if (!users.size()) return ADIFLotwUsersOn() ? T(@"Not downloaded yet: press Update.") : T(@"Off.");
+    std::string s = trf(ADIFLotwUsersOn() ? "{n} calls, downloaded {date}." : "{n} calls, downloaded {date} (off).", {{"n", grouped(users.size())}, {"date", listDate}});
     return @(s.c_str());
 }
 
@@ -62,12 +63,12 @@ void ADIFUpdateLotwUsers(void (^done)(BOOL ok, NSString *message)) {
     ADIFDownloadLotwUsers(agent, ^(NSData *body, NSString *error) {
         refreshing = false;
         if (error) {
-            done(NO, [@"Could not download the LoTW user list: " stringByAppendingString:error]);
+            done(NO, TF(@"Could not download the LoTW user list: {why}", @{@"why" : error}));
             return;
         }
         adif::LotwUsers fresh;
         if (fresh.load(std::string_view((const char *)body.bytes, body.length)) < 1) {
-            done(NO, @"The download wasn't ARRL's LoTW user list; the old copy is kept.");
+            done(NO, T(@"The download wasn't ARRL's LoTW user list; the old copy is kept."));
             return;
         }
         std::string path = cachePath();
@@ -98,5 +99,5 @@ std::string ADIFLotwNote(const std::string &call) {
     struct tm tm{};
     gmtime_r(&yearAgo, &tm);
     strftime(buf, sizeof buf, "%Y-%m-%d", &tm);
-    return d >= buf ? "LoTW user (last upload " + d + ")" : "LoTW: last upload " + d;
+    return d >= buf ? trf("LoTW user (last upload {date})", {{"date", d}}) : trf("LoTW: last upload {date}", {{"date", d}});
 }

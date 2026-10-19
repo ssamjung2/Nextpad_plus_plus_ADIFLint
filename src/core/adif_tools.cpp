@@ -2,6 +2,7 @@
 
 #include "adif_enrich.h"
 #include "adif_geo.h"
+#include "adif_i18n.h"
 #include "adif_spec.h"
 #include "adif_upload.h"
 
@@ -18,6 +19,10 @@
 #include <unordered_map>
 
 namespace adif {
+using i18n::tr;
+using i18n::trf;
+using i18n::trp;
+
 namespace {
 
 const std::string kNone;
@@ -205,12 +210,37 @@ void sortEdits(std::vector<TextEdit> &edits) {
     });
 }
 
+// Columns in a monospaced font: a code point is one, an East Asian wide one (Hangul, kana, CJK) two.
+size_t textWidth(std::string_view s) {
+    size_t w = 0;
+    for (size_t i = 0; i < s.size();) {
+        unsigned char c = (unsigned char)s[i];
+        size_t n = c < 0x80 ? 1 : (c >> 5) == 6 ? 2 : (c >> 4) == 14 ? 3 : (c >> 3) == 30 ? 4 : 1;
+        if (i + n > s.size()) n = 1;
+        uint32_t cp = c;
+        if (n > 1) {
+            cp = c & (0xFF >> (n + 1));
+            for (size_t k = 1; k < n; ++k) cp = (cp << 6) | ((unsigned char)s[i + k] & 0x3F);
+        }
+        bool wide = (cp >= 0x1100 && cp <= 0x115F) || (cp >= 0x2E80 && cp <= 0xA4CF) || (cp >= 0xAC00 && cp <= 0xD7A3) ||
+                    (cp >= 0xF900 && cp <= 0xFAFF) || (cp >= 0xFE30 && cp <= 0xFE4F) || (cp >= 0xFF00 && cp <= 0xFF60) ||
+                    (cp >= 0xFFE0 && cp <= 0xFFE6) || (cp >= 0x20000 && cp <= 0x3FFFD);
+        w += wide ? 2 : 1;
+        i += n;
+    }
+    return w;
+}
+
 std::string padRight(std::string s, size_t w) {
-    if (s.size() < w) s.append(w - s.size(), ' ');
+    size_t have = textWidth(s);
+    if (have < w) s.append(w - have, ' ');
     return s;
 }
 
-std::string padLeft(const std::string &s, size_t w) { return s.size() < w ? std::string(w - s.size(), ' ') + s : s; }
+std::string padLeft(const std::string &s, size_t w) {
+    size_t have = textWidth(s);
+    return have < w ? std::string(w - have, ' ') + s : s;
+}
 
 }  // namespace
 
@@ -377,11 +407,22 @@ std::vector<std::string> tableColumns(const std::vector<Record> &recs) {
 std::string summaryReport(std::string_view text, const DocModel &m, std::string_view title) {
     std::vector<Record> recs = records(text, m);
     std::string out;
-    auto line = [&](const std::string &label, const std::string &value) { out += padRight(label, 22) + value + "\n"; };
-    auto heading = [&](const std::string &h) { out += "\n" + h + "\n" + std::string(h.size(), '-') + "\n"; };
+    // Labels in another language may be longer than the English: the column fits the longest.
+    std::vector<std::pair<std::string, std::string>> pending;
+    auto line = [&](const std::string &label, const std::string &value) { pending.emplace_back(label, value); };
+    auto flush = [&]() {
+        size_t w = 22;
+        for (const auto &l : pending) w = std::max(w, textWidth(l.first) + 2);
+        for (const auto &l : pending) out += padRight(l.first, w) + l.second + "\n";
+        pending.clear();
+    };
+    auto heading = [&](const std::string &h) {
+        flush();
+        out += "\n" + h + "\n" + std::string(textWidth(h), '-') + "\n";
+    };
     auto table = [&](const std::vector<std::pair<std::string, size_t>> &rows) {
         size_t w = 0;
-        for (const auto &r : rows) w = std::max(w, r.first.size());
+        for (const auto &r : rows) w = std::max(w, textWidth(r.first));
         for (const auto &r : rows) out += "  " + padRight(r.first, w + 2) + padLeft(std::to_string(r.second), 6) + "\n";
     };
     auto byCount = [](const std::map<std::string, size_t> &m) {
@@ -390,8 +431,8 @@ std::string summaryReport(std::string_view text, const DocModel &m, std::string_
         return v;
     };
 
-    std::string t = "Summary of " + std::string(title);
-    out += t + "\n" + std::string(t.size(), '=') + "\n\n";
+    std::string t = trf("Summary of {title}", {{"title", std::string(title)}});
+    out += t + "\n" + std::string(textWidth(t), '=') + "\n\n";
 
     size_t withCall = 0;
     std::set<std::string> calls, days, grids, stations;
@@ -408,8 +449,8 @@ std::string summaryReport(std::string_view text, const DocModel &m, std::string_
         ++withCall;
         calls.insert(lookupCall(call));
         std::string band = effectiveBand(r), mode = effectiveMode(r);
-        ++bands[band.empty() ? "(none)" : band];
-        ++modes[mode.empty() ? "(none)" : mode];
+        ++bands[band.empty() ? tr("(none)") : band];
+        ++modes[mode.empty() ? tr("(none)") : mode];
         const std::string &date = r.get("QSO_DATE");
         if (parseAdifDate(date, nullptr)) {
             days.insert(date);
@@ -442,61 +483,71 @@ std::string summaryReport(std::string_view text, const DocModel &m, std::string_
         eqslSent += equalsNoCase(r.get("EQSL_QSL_SENT"), "Y");
     }
 
-    line("Records", std::to_string(recs.size()));
-    line("QSOs (with a CALL)", std::to_string(withCall));
-    line("Callsigns worked", std::to_string(calls.size()));
-    if (!firstS.empty()) line("First QSO", firstS);
-    if (!lastS.empty()) line("Last QSO", lastS);
-    line("UTC days", std::to_string(days.size()) + (undated ? " (" + std::to_string(undated) + " QSOs without a valid date)" : ""));
+    auto of = [&](size_t n) { return trf("{n} of {total}", {{"n", std::to_string(n)}, {"total", std::to_string(withCall)}}); };
+    line(tr("Records"), std::to_string(recs.size()));
+    line(tr("QSOs (with a CALL)"), std::to_string(withCall));
+    line(tr("Callsigns worked"), std::to_string(calls.size()));
+    if (!firstS.empty()) line(tr("First QSO"), firstS);
+    if (!lastS.empty()) line(tr("Last QSO"), lastS);
+    line(tr("UTC days"), std::to_string(days.size()) +
+                             (undated ? " " + trp("({n} QSO without a valid date)", "({n} QSOs without a valid date)", (long long)undated,
+                                                  {{"n", std::to_string(undated)}})
+                                      : std::string()));
     if (!stations.empty()) {
         std::vector<std::string> v(stations.begin(), stations.end());
-        line("Station callsigns", joinList(v, ", "));
+        line(tr("Station callsigns"), joinList(v, ", "));
     }
-    if (!withCall) return out;
+    if (!withCall) {
+        flush();
+        return out;
+    }
 
     std::vector<std::pair<std::string, size_t>> bandRows(bands.begin(), bands.end());
     std::stable_sort(bandRows.begin(), bandRows.end(),
                      [](const auto &a, const auto &b) { return bandOrder(a.first) < bandOrder(b.first); });
-    heading("Bands");
+    heading(tr("Bands"));
     table(bandRows);
-    heading("Modes (SUBMODE where given)");
+    heading(tr("Modes (SUBMODE where given)"));
     table(byCount(modes));
-    heading("QSOs per UTC day");
+    heading(tr("QSOs per UTC day"));
     std::vector<std::pair<std::string, size_t>> dayRows;
     for (const auto &kv : perDay) dayRows.emplace_back(displayDate(kv.first), kv.second);
     table(dayRows);
     if (!entities.empty()) {
-        heading("DXCC entities: " + std::to_string(entities.size()));
+        heading(trf("DXCC entities: {n}", {{"n", std::to_string(entities.size())}}));
         table(byCount(entities));
     }
     if (!states.empty()) {
-        heading("States and provinces (STATE): " + std::to_string(states.size()));
+        heading(trf("States and provinces (STATE): {n}", {{"n", std::to_string(states.size())}}));
         table(std::vector<std::pair<std::string, size_t>>(states.begin(), states.end()));
     }
     if (!grids.empty()) {
-        heading("Grid squares");
-        line("  4-character grids", std::to_string(grids.size()));
+        heading(tr("Grid squares"));
+        line("  " + tr("4-character grids"), std::to_string(grids.size()));
     }
     if (!myParkCount.empty() || p2p) {
-        heading("Parks on the Air");
+        heading(tr("Parks on the Air"));
         std::vector<Activation> acts = activations(text, m);
         size_t ok = 0;
         for (const Activation &a : acts) ok += a.activated();
         if (!acts.empty())
-            line("  Activations", std::to_string(ok) + " of " + std::to_string(acts.size()) +
-                                      " park-days reach 10 QSOs (see Activation Tracker)");
-        for (const auto &kv : byCount(myParkCount)) line("  " + kv.first, std::to_string(kv.second) + " records");
-        line("  Park-to-park QSOs", std::to_string(p2p));
-        line("  Parks worked", std::to_string(hunted.size()) + " different (SIG_INFO or POTA_REF)");
+            line("  " + tr("Activations"), trp("{n} of {total} park-day reaches 10 QSOs (see Activation Tracker)",
+                                               "{n} of {total} park-days reach 10 QSOs (see Activation Tracker)", (long long)acts.size(),
+                                               {{"n", std::to_string(ok)}, {"total", std::to_string(acts.size())}}));
+        for (const auto &kv : byCount(myParkCount))
+            line("  " + kv.first, trp("{n} record", "{n} records", (long long)kv.second, {{"n", std::to_string(kv.second)}}));
+        line("  " + tr("Park-to-park QSOs"), std::to_string(p2p));
+        line("  " + tr("Parks worked"), trf("{n} different (SIG_INFO or POTA_REF)", {{"n", std::to_string(hunted.size())}}));
     }
-    heading("Confirmations and uploads");
-    line("  LoTW confirmed", std::to_string(lotwRcvd));
-    line("  eQSL confirmed", std::to_string(eqslRcvd));
-    line("  QSL cards received", std::to_string(cardRcvd));
-    line("  Uploaded to QRZ.com", std::to_string(qrzUp) + " of " + std::to_string(withCall));
-    line("  Uploaded to Club Log", std::to_string(clublogUp) + " of " + std::to_string(withCall));
-    line("  Sent to LoTW", std::to_string(lotwSent) + " of " + std::to_string(withCall));
-    line("  Sent to eQSL", std::to_string(eqslSent) + " of " + std::to_string(withCall));
+    heading(tr("Confirmations and uploads"));
+    line("  " + tr("LoTW confirmed"), std::to_string(lotwRcvd));
+    line("  " + tr("eQSL confirmed"), std::to_string(eqslRcvd));
+    line("  " + tr("QSL cards received"), std::to_string(cardRcvd));
+    line("  " + tr("Uploaded to QRZ.com"), of(qrzUp));
+    line("  " + tr("Uploaded to Club Log"), of(clublogUp));
+    line("  " + tr("Sent to LoTW"), of(lotwSent));
+    line("  " + tr("Sent to eQSL"), of(eqslSent));
+    flush();
     return out;
 }
 
@@ -617,14 +668,14 @@ std::string filterProblem(const RecordFilter &f) {
         case RecordFilter::Regex:
         case RecordFilter::Less:
         case RecordFilter::Greater:
-            if (want.empty()) return "Type the value for \"Only where\".";
+            if (want.empty()) return tr("Type the value for \"Only where\".");
             break;
         case RecordFilter::OneOf:
-            if (splitList(want).empty()) return "Type the values for \"is one of\", separated by commas.";
+            if (splitList(want).empty()) return tr("Type the values for \"is one of\", separated by commas.");
             break;
         case RecordFilter::Between:
             if (!betweenValues(want, &low, &high))
-                return "Type two values for \"is between\", low and high, separated by a comma (20261001, 20261031).";
+                return tr("Type two values for \"is between\", low and high, separated by a comma (20261001, 20261031).");
             break;
         default: break;
     }
@@ -632,7 +683,7 @@ std::string filterProblem(const RecordFilter &f) {
         try {
             std::regex re(f.value, std::regex::ECMAScript | std::regex::icase);
         } catch (const std::regex_error &e) {
-            return std::string("Not a regular expression ADIF Lint can use: ") + e.what() + ".";
+            return trf("Not a regular expression ADIF Lint can use: {why}.", {{"why", e.what()}});
         }
     }
     return "";
@@ -683,24 +734,24 @@ ChangePlan planBulkEdit(std::string_view text, const DocModel &m, const std::vec
     ChangePlan plan;
     std::vector<std::string> fields = fieldNameList(op.field);
     if (fields.empty() || !std::all_of(fields.begin(), fields.end(), [](const std::string &f) { return validFieldName(f); })) {
-        plan.skipReason = fields.size() > 1 ? "Field names are letters, digits and _, separated by commas." : "Choose a field.";
+        plan.skipReason = fields.size() > 1 ? tr("Field names are letters, digits and _, separated by commas.") : tr("Choose a field.");
         return plan;
     }
     if (op.action == BulkAction::Rename && fields.size() > 1) {
-        plan.skipReason = "Rename one field at a time.";
+        plan.skipReason = tr("Rename one field at a time.");
         return plan;
     }
     std::string newName = upperAscii(trim(op.newName));
     if (op.action == BulkAction::Set && op.value.empty()) {
-        plan.skipReason = "Enter a value (Remove deletes a field).";
+        plan.skipReason = tr("Enter a value (Remove deletes a field).");
         return plan;
     }
     if (op.action == BulkAction::Replace && op.find.empty()) {
-        plan.skipReason = "Enter the text to find.";
+        plan.skipReason = tr("Enter the text to find.");
         return plan;
     }
     if (op.action == BulkAction::Rename && (!validFieldName(newName) || newName == fields[0])) {
-        plan.skipReason = "Enter a new field name (letters, digits and _).";
+        plan.skipReason = tr("Enter a new field name (letters, digits and _).");
         return plan;
     }
     for (int gi : groups) {
@@ -724,7 +775,7 @@ ChangePlan planBulkEdit(std::string_view text, const DocModel &m, const std::vec
                 }
                 std::string cur(fieldValue(text, m.fields[occ[0]]));
                 if (op.onlyMissing && !cur.empty()) {
-                    if (!plan.skipped++) plan.skipReason = "they already have a value";
+                    if (!plan.skipped++) plan.skipReason = tr("they already have a value");
                     break;
                 }
                 if (cur == op.value) break;
@@ -770,7 +821,7 @@ ChangePlan planBulkEdit(std::string_view text, const DocModel &m, const std::vec
             case BulkAction::Rename:
                 if (occ.empty()) break;
                 if (!fieldsNamed(text, m, g, newName).empty()) {
-                    if (!plan.skipped++) plan.skipReason = "they already have " + newName;
+                    if (!plan.skipped++) plan.skipReason = trf("they already have {field}", {{"field", newName}});
                     break;
                 }
                 for (size_t idx : occ) {
@@ -791,7 +842,7 @@ ChangePlan planBulkEdit(std::string_view text, const DocModel &m, const std::vec
 ChangePlan planTimeShift(std::string_view text, const DocModel &m, const std::vector<int> &groups, long long minutes) {
     if (!minutes) {
         ChangePlan plan;
-        plan.skipReason = "Enter a shift.";
+        plan.skipReason = tr("Enter a shift.");
         return plan;
     }
     return planTimeShiftWith(text, m, groups, [minutes](long long, long long *seconds, std::string *) {
@@ -832,10 +883,10 @@ ChangePlan planTimeShiftWith(std::string_view text, const DocModel &m, const std
         auto value = [&](size_t idx) { return idx == kNoPos ? std::string_view() : fieldValue(text, m.fields[idx]); };
         long days;
         int secs;
-        std::string label = "record " + std::to_string(recordNumber(m, gi));
+        std::string label = trf("record {n}", {{"n", std::to_string(recordNumber(m, gi))}});
         if (std::string_view call = groupValue(text, m, g, "CALL"); !call.empty()) label += " (" + std::string(call) + ")";
         if (fDate == kNoPos || fTime == kNoPos || !parseAdifDate(value(fDate), &days) || !parseAdifTime(value(fTime), &secs)) {
-            skip(label + " has no valid QSO_DATE and TIME_ON");
+            skip(trf("{record} has no valid QSO_DATE and TIME_ON", {{"record", label}}));
             continue;
         }
         long long delta = 0;
@@ -883,7 +934,7 @@ ChangePlan planTimeShiftWith(std::string_view text, const DocModel &m, const std
         if (plan.changes.size() > before) ++plan.records;
     }
     for (size_t i = 0; i < reasons.size(); ++i) plan.skipReason += (i ? "; " : "") + reasons[i];
-    if (plan.skipped > reasons.size()) plan.skipReason += "; and " + std::to_string(plan.skipped - reasons.size()) + " more";
+    if (plan.skipped > reasons.size()) plan.skipReason += trf("; and {n} more", {{"n", std::to_string(plan.skipped - reasons.size())}});
     return plan;
 }
 
@@ -913,10 +964,10 @@ ChangePlan planDistance(std::string_view text, const DocModel &m, const std::vec
         ++plan.records;
     }
     plan.skipped = noGrid + has;
-    if (noGrid && has) plan.skipReason = std::to_string(noGrid) + " lack MY_GRIDSQUARE or GRIDSQUARE and " + std::to_string(has) +
-                                         " already have DISTANCE";
-    else if (noGrid) plan.skipReason = "they lack MY_GRIDSQUARE or GRIDSQUARE";
-    else if (has) plan.skipReason = "they already have DISTANCE";
+    if (noGrid && has)
+        plan.skipReason = trf("{n} lack MY_GRIDSQUARE or GRIDSQUARE and {has} already have DISTANCE", {{"n", std::to_string(noGrid)}, {"has", std::to_string(has)}});
+    else if (noGrid) plan.skipReason = tr("they lack MY_GRIDSQUARE or GRIDSQUARE");
+    else if (has) plan.skipReason = tr("they already have DISTANCE");
     return plan;
 }
 
@@ -1672,19 +1723,20 @@ std::vector<PotaFile> potaExport(std::string_view text, const DocModel &m, std::
         }
         f.qsos = a.qsos;
         if (!a.activated())
-            f.notes.push_back(std::to_string(a.qsos) + (a.qsos == 1 ? " QSO: " : " QSOs: ") + std::to_string(10 - a.qsos) +
-                              " short of the 10 for an activation");
+            f.notes.push_back(trp("{n} QSO: {short} short of the 10 for an activation", "{n} QSOs: {short} short of the 10 for an activation",
+                                  (long long)a.qsos, {{"n", std::to_string(a.qsos)}, {"short", std::to_string(10 - a.qsos)}}));
         if (a.duplicates)
-            f.notes.push_back(std::to_string(a.duplicates) + " duplicate" + (a.duplicates == 1 ? "" : "s") +
-                              " (POTA drops them, no penalty)");
+            f.notes.push_back(trp("{n} duplicate (POTA drops them, no penalty)", "{n} duplicates (POTA drops them, no penalty)",
+                                  (long long)a.duplicates, {{"n", std::to_string(a.duplicates)}}));
         if (a.invalid)
-            f.notes.push_back(std::to_string(a.invalid) + " record" + (a.invalid == 1 ? "" : "s") +
-                              " POTA would reject (missing CALL, TIME_ON, BAND or MODE, or your own call)");
-        if (f.station.empty()) f.notes.push_back("no STATION_CALLSIGN or OPERATOR: enter your callsign");
+            f.notes.push_back(trp("{n} record POTA would reject (missing CALL, TIME_ON, BAND or MODE, or your own call)",
+                                  "{n} records POTA would reject (missing CALL, TIME_ON, BAND or MODE, or your own call)", (long long)a.invalid,
+                                  {{"n", std::to_string(a.invalid)}}));
+        if (f.station.empty()) f.notes.push_back(tr("no STATION_CALLSIGN or OPERATOR: enter your callsign"));
         else if (addedStation)
-            f.notes.push_back("STATION_CALLSIGN " + f.station + " added to " + std::to_string(addedStation) +
-                              (addedStation == 1 ? " record" : " records"));
-        if (!todayUtc.empty() && a.date > todayUtc) f.notes.push_back("dated in the future");
+            f.notes.push_back(trp("STATION_CALLSIGN {call} added to {n} record", "STATION_CALLSIGN {call} added to {n} records",
+                                  (long long)addedStation, {{"call", f.station}, {"n", std::to_string(addedStation)}}));
+        if (!todayUtc.empty() && a.date > todayUtc) f.notes.push_back(tr("dated in the future"));
         out.push_back(std::move(f));
     }
     // Two files must never share a name (one would overwrite the other).
@@ -1809,14 +1861,17 @@ std::string workedSummary(std::string_view call, const std::vector<WorkedHit> &h
         if (!latest || stamp(h.contact) > stamp(latest->contact)) latest = &h;
     }
     std::sort(bands.begin(), bands.end(), [](const std::string &a, const std::string &b) { return bandOrder(a) < bandOrder(b); });
-    std::string s = upperAscii(call) + ": " + std::to_string(hits.size()) + (hits.size() == 1 ? " QSO" : " QSOs") + " in " +
-                    std::to_string(logs.size()) + (logs.size() == 1 ? " other log" : " other logs") + "; last " +
-                    displayDate(latest->contact.date) + " " + displayTime(latest->contact.time);
+    std::string qsos = trp("{n} QSO", "{n} QSOs", (long long)hits.size(), {{"n", std::to_string(hits.size())}});
+    std::string inLogs = trp("{n} other log", "{n} other logs", (long long)logs.size(), {{"n", std::to_string(logs.size())}});
+    std::string when = displayDate(latest->contact.date) + " " + displayTime(latest->contact.time);
     std::string what = latest->contact.band + (latest->contact.mode.empty() ? "" : " " + latest->contact.mode);
-    if (!what.empty() && what != " ") s += " on " + what;
-    s += " (" + latest->log + ").";
-    if (!bands.empty()) s += " Bands: " + joinList(bands, ", ") + ".";
-    if (!modes.empty()) s += " Modes: " + joinList(std::vector<std::string>(modes.begin(), modes.end()), ", ") + ".";
+    std::string s = !what.empty() && what != " "
+                        ? trf("{call}: {qsos} in {logs}; last {when} on {what} ({log}).",
+                              {{"call", upperAscii(call)}, {"qsos", qsos}, {"logs", inLogs}, {"when", when}, {"what", what}, {"log", latest->log}})
+                        : trf("{call}: {qsos} in {logs}; last {when} ({log}).",
+                              {{"call", upperAscii(call)}, {"qsos", qsos}, {"logs", inLogs}, {"when", when}, {"log", latest->log}});
+    if (!bands.empty()) s += " " + trf("Bands: {list}.", {{"list", joinList(bands, ", ")}});
+    if (!modes.empty()) s += " " + trf("Modes: {list}.", {{"list", joinList(std::vector<std::string>(modes.begin(), modes.end()), ", ")}});
     return s;
 }
 

@@ -54,12 +54,9 @@ NSString *T(NSString *english) {
 }
 
 NSString *TF(NSString *english, NSDictionary<NSString *, id> *args) {
-    std::string text = adif::i18n::tr(ADIFStd(english));
     std::vector<std::pair<std::string, std::string>> kv;
     for (NSString *k in args) kv.push_back({ADIFStd(k), ADIFStd([args[k] description])});
-    // Fill one name at a time (the core's fill takes a fixed list).
-    for (const auto &[k, v] : kv) text = adif::i18n::fill(text, {{k, v}});
-    return ADIFString(text);
+    return ADIFString(adif::i18n::fill(adif::i18n::tr(ADIFStd(english)), kv));
 }
 
 NSString *TP(NSString *one, NSString *other, long long n) { return ADIFString(adif::i18n::trp(ADIFStd(one), ADIFStd(other), n)); }

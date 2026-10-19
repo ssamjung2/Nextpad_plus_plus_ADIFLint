@@ -65,3 +65,12 @@ ranges and keeps them in the plugin config folder. Protomaps' download page disc
 hotlinking its builds (docs.protomaps.com/basemaps/downloads, read 2026-10-18), so the Map
 reads only the downloaded files, never the build, while it draws. The tests use a made-up
 stand-in (`tests/fixtures/lookup/mapdetail`, made by `tools/pmtiles_dev.cpp fixture`).
+
+## Language tables (`lang/`)
+
+`lang/ko.json`, `fr.json`, `de.json`, `es.json` and `ja.json` translate ADIF Lint's own
+texts, keyed by the English. They were drafted by Claude (an AI, Anthropic) in October 2026
+from the plugin's English texts and are part of ADIF Lint, under its licence; no other
+translation was copied. They have not yet been reviewed by native speakers. Ham-radio and
+ADIF terms (QSO, CALL, BAND, field and enumeration names), service names and the ADIF
+specification's own texts stay in English.

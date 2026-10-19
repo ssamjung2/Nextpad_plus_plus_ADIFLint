@@ -46,9 +46,9 @@ void refresh() {
     bool fieldDay = s.preset != adif::ContestPreset::Serial;
     cw.sentRow.hidden = !fieldDay;
     cw.idRow.hidden = fieldDay;
-    cw.sent.placeholderString = s.preset == adif::ContestPreset::WinterFieldDay ? @"e.g. 2O IL" : @"e.g. 1D IL";
+    cw.sent.placeholderString = s.preset == adif::ContestPreset::WinterFieldDay ? T(@"e.g. 2O IL") : T(@"e.g. 1D IL");
     bool running = setting("contestActive") == "1";
-    cw.start.title = running ? @"Stop" : @"Start";
+    cw.start.title = running ? T(@"Stop") : T(@"Start");
     [cw.w setTarget:TF(@"Log: {name}", @{@"name" : ADIFString(documentName())})];
     // This log's contest QSOs per band and mode, as the Field Days count them.
     std::string id = adif::contestIdFor(s);
@@ -87,15 +87,18 @@ void refresh() {
     int severity = -1;
     if (!problem.empty()) st = problem, severity = 2;
     else if (s.preset == adif::ContestPreset::Serial)
-        st = "New QSO asks for SRX and writes STX " + std::to_string(next) + " next, counting up" +
-             (id.empty() ? "" : ", with CONTEST_ID " + id) + ". " + plural(total, "QSO") + " so far.";
+        st = trf(id.empty() ? "New QSO asks for SRX and writes STX {n} next, counting up. {qsos} so far."
+                            : "New QSO asks for SRX and writes STX {n} next, counting up, with CONTEST_ID {id}. {qsos} so far.",
+                 {{"n", std::to_string(next)}, {"id", id}, {"qsos", plural(total, "QSO")}});
     else
-        st = std::string("New QSO asks for their CLASS and ARRL_SECT and writes CONTEST_ID ") + id + ", your exchange in STX_STRING " +
-             "and theirs in SRX_STRING. A station counts once per band and mode (CW, Phone, Digital). " +
-             (s.preset == adif::ContestPreset::WinterFieldDay ? "Not on 12, 17, 30 or 60 m, and no WSJT modes such as FT8 (2027 rules). "
-                                                               : "Bands 160, 80, 40, 20, 15 and 10 m and 6 m up (2026 rules). ") +
-             plural(total, "QSO") + " in this log.";
-    if (running) st = "Running: " + st;
+        st = trf("New QSO asks for their CLASS and ARRL_SECT and writes CONTEST_ID {id}, your exchange in STX_STRING and theirs in SRX_STRING. "
+                 "A station counts once per band and mode (CW, Phone, Digital).",
+                 {{"id", id}}) +
+             " " +
+             (s.preset == adif::ContestPreset::WinterFieldDay ? tr("Not on 12, 17, 30 or 60 m, and no WSJT modes such as FT8 (2027 rules).")
+                                                               : tr("Bands 160, 80, 40, 20, 15 and 10 m and 6 m up (2026 rules).")) +
+             " " + trf("{qsos} in this log.", {{"qsos", plural(total, "QSO")}});
+    if (running) st = trf("Running: {status}", {{"status", st}});
     [cw.w setStatus:ADIFString(st) severity:severity];
     cw.start.enabled = running || problem.empty();
 }
@@ -131,9 +134,9 @@ adif::ContestSetup setup() {
 std::string label() {
     adif::ContestSetup s = setup();
     if (s.preset == adif::ContestPreset::None) return "";
-    std::string out = adif::contestPresetName(s.preset);
+    std::string out = tr(adif::contestPresetName(s.preset));
     if (s.preset == adif::ContestPreset::Serial) return out + (s.contestId.empty() ? "" : " (" + s.contestId + ")");
-    return out + ", sending " + s.sent;
+    return out + ", " + trf("sending {exchange}", {{"exchange", s.sent}});
 }
 
 void documentChanged() {

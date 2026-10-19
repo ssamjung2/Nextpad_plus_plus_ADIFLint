@@ -1,4 +1,5 @@
 #include "adif_qsl.h"
+#include "adif_i18n.h"
 
 #include "adif_edit.h"
 #include "adif_enrich.h"
@@ -9,6 +10,9 @@
 #include <cstring>
 
 namespace adif {
+using i18n::tr;
+using i18n::trf;
+using i18n::trp;
 namespace {
 
 std::string trimmed(std::string_view s) {
@@ -102,7 +106,7 @@ std::string sortedList(const std::string &grids) {
 }
 
 std::string mismatch(const char *field, const std::string &mine, const std::string &theirs) {
-    return std::string(field) + " " + mine + " (the location: " + theirs + ")";
+    return trf("{field} {value} (the location: {theirs})", {{"field", field}, {"value", mine}, {"theirs", theirs}});
 }
 
 }  // namespace

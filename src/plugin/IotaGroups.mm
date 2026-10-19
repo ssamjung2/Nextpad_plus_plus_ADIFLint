@@ -1,4 +1,5 @@
 #import "IotaGroups.h"
+#import "L10n.h"
 
 #import "Lookup.h"
 #import "PluginHost.h"
@@ -72,20 +73,20 @@ const std::vector<adif::IotaGroup> &ADIFIotaGroups(void) {
 }
 
 NSString *ADIFIotaGroupsStatus(void) {
-    if (ADIFIotaGroups().empty()) return @"Not downloaded.";
-    return @((grouped(groups.size()) + " groups" + (listDate.empty() ? "" : ", downloaded " + listDate) + ".").c_str());
+    if (ADIFIotaGroups().empty()) return T(@"Not downloaded.");
+    return @(trf(listDate.empty() ? "{n} groups." : "{n} groups, downloaded {date}.", {{"n", grouped(groups.size())}, {"date", listDate}}).c_str());
 }
 
 void ADIFUpdateIotaGroups(void (^done)(BOOL ok, NSString *message)) {
     NSString *agent = [NSString stringWithFormat:@"ADIFLint/%s", ADIFLINT_VERSION];
     ADIFDownloadIotaGroups(agent, ^(NSData *body, NSString *error) {
         if (error) {
-            done(NO, [@"Could not download IOTA's group list: " stringByAppendingString:error]);
+            done(NO, TF(@"Could not download IOTA's group list: {why}", @{@"why" : error}));
             return;
         }
         std::vector<adif::IotaGroup> fresh = parse(body);
         if (fresh.empty()) {
-            done(NO, groups.empty() ? @"The download wasn't IOTA's group list." : @"The download wasn't IOTA's group list; the old copy is kept.");
+            done(NO, groups.empty() ? T(@"The download wasn't IOTA's group list.") : T(@"The download wasn't IOTA's group list; the old copy is kept."));
             return;
         }
         std::string path = cachePath();

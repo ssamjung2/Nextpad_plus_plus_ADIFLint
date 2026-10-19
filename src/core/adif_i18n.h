@@ -8,7 +8,8 @@
 // placeholders (%@, %zu, %s...) are filled by the caller afterwards: a translation keeps the
 // same ones, in the same order or numbered (%1$@). A plural's key is its English one and other
 // forms joined by "|"; its forms are the language's CLDR plural categories (one, other, and
-// many for French and Spanish millions).
+// many for French and Spanish millions). A key may end in "##context" where one English word
+// needs different translations ("Solid##line", "Solid##fill"); the context isn't shown.
 #pragma once
 
 #include <initializer_list>
@@ -19,6 +20,9 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+
+// Marks text for the tables that is translated where it is shown (a table's names, say).
+#define N_(text) text
 
 namespace adif::i18n {
 
@@ -47,7 +51,8 @@ const char *pluralCategory(std::string_view language, long long n);
 
 // The placeholders in a text, in order: {name}, and printf conversions (%@, %zu, %1$@...).
 std::vector<std::string> placeholders(std::string_view text);
-// {name} filled from args; others left alone.
+// {name} filled from args, in one pass (a value is never filled itself); others left alone.
 std::string fill(std::string_view text, Args args);
+std::string fill(std::string_view text, const std::vector<std::pair<std::string, std::string>> &args);
 
 }  // namespace adif::i18n

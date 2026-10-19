@@ -1,5 +1,7 @@
 #import "MapView.h"
 
+#import "L10n.h"
+
 #import "IotaGroups.h"
 #import "PluginHost.h"
 #import "PotaParks.h"
@@ -49,15 +51,15 @@ NSColor *ramp(double t, const MapPalette &p) {
 
 // QSO counts in five steps: 1, 2-4, 5-9, 10-24, 25 and more.
 int countBucket(size_t n) { return n <= 1 ? 0 : n <= 4 ? 1 : n <= 9 ? 2 : n <= 24 ? 3 : 4; }
-const char *const kCountLabels[5] = {"1 QSO", "2-4", "5-9", "10-24", "25+"};
-const char *const kModeLabels[3] = {"CW", "Phone", "Data"};
+const char *const kCountLabels[5] = {N_("1 QSO"), "2-4", "5-9", "10-24", "25+"};
+const char *const kModeLabels[3] = {"CW", N_("Phone"), N_("Data")};
 
 // ── Programs ──
 
-const ProgramInfo kPrograms[] = {{"WWFF", "WWFF (parks)"},       {"SOTA", "SOTA (summits)"},       {"IOTA", "IOTA (islands)"},        {"GMA", "GMA (mountains)"},
-                                 {"WWBOTA", "WWBOTA (bunkers)"},   {"HEMA", "HEMA (hills)"},          {"SIOTA", "SiOTA (silos)"},
-                                 {"WCA", "WCA (castles)"},         {"ILLW", "ILLW (lighthouses)"},    {"ARLHS", "ARLHS (lighthouses)"},
-                                 {"MOTA", "MOTA (mills)"},         {"ZLOTA", "ZLOTA (New Zealand)"}, {"WOTA", "WOTA (Lake District)"}};
+const ProgramInfo kPrograms[] = {{"WWFF", N_("WWFF (parks)")},       {"SOTA", N_("SOTA (summits)")},       {"IOTA", N_("IOTA (islands)")},        {"GMA", N_("GMA (mountains)")},
+                                 {"WWBOTA", N_("WWBOTA (bunkers)")},   {"HEMA", N_("HEMA (hills)")},          {"SIOTA", N_("SiOTA (silos)")},
+                                 {"WCA", N_("WCA (castles)")},         {"ILLW", N_("ILLW (lighthouses)")},    {"ARLHS", N_("ARLHS (lighthouses)")},
+                                 {"MOTA", N_("MOTA (mills)")},         {"ZLOTA", N_("ZLOTA (New Zealand)")}, {"WOTA", N_("WOTA (Lake District)")}};
 const size_t kProgramCount = sizeof(kPrograms) / sizeof(kPrograms[0]);
 
 const OverlayCache &overlay(adif::Overlay o) {
@@ -859,15 +861,17 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     std::vector<Entry> rows;
     if ([self globe]) {
         std::string centre = adif::squareAt(_pr.centerLon() >= 180 ? _pr.centerLon() - 360 : _pr.centerLon(), std::clamp(_pr.centerLat(), -89.999, 89.999));
-        rows.push_back({8, nil, [self atHome] && _hasHome ? "Centre: " + centre + " (home)" : "Centre: " + centre + (_hasHome ? "; World goes home" : "")});
+        rows.push_back({8, nil, [self atHome] && _hasHome ? trf("Centre: {grid} (home)", {{"grid", centre}})
+                                : _hasHome                 ? trf("Centre: {grid}; World goes home", {{"grid", centre}})
+                                                           : trf("Centre: {grid}", {{"grid", centre}})});
     }
-    static const char *const kBy[] = {"Colour: confirmed or not", "Colour: band (the most QSOs)", "Colour: mode (the most QSOs)",
-                                      "Colour: QSO count", "Colour: year first worked"};
+    static const char *const kBy[] = {N_("Colour: confirmed or not"), N_("Colour: band (the most QSOs)"), N_("Colour: mode (the most QSOs)"),
+                                      N_("Colour: QSO count"), N_("Colour: year first worked")};
     bool contacts = _showContacts && !_contacts.empty();
     bool areas = false;  // states, counties or zones worked, shaded in the map's colours
     for (int l : {kLayerStates, kLayerCounties, kLayerCq, kLayerItu}) areas |= _style.layer[l].show;
     if (_style[kLayerSquares].show || _style[kLayerCountries].show || contacts || areas) {
-        rows.push_back({7, nil, kBy[std::clamp(_style.colorBy, 0, 4)]});
+        rows.push_back({7, nil, tr(kBy[std::clamp(_style.colorBy, 0, 4)])});
         switch (_style.colorBy) {
             case 1:
                 if (pal.safeBands) {  // the bands with a colour, then the grey ones in one row
@@ -877,16 +881,16 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
                         if ([c isEqual:rgb(adif::kUnknownBandColour)]) others += (others.empty() ? "" : ", ") + band;
                         else rows.push_back({0, c, band});
                     }
-                    if (!others.empty()) rows.push_back({0, rgb(adif::kUnknownBandColour), "other bands: " + others});
+                    if (!others.empty()) rows.push_back({0, rgb(adif::kUnknownBandColour), trf("other bands: {bands}", {{"bands", others}})});
                 } else {
                     for (size_t i = 0; i < _bands.size() && i < 14; ++i) rows.push_back({0, [self bandColor:_bands[i]], _bands[i]});
                 }
                 break;
             case 2:
-                for (int m = 0; m < 3; ++m) rows.push_back({0, rgb(pal.qualitative[(size_t)m % pal.qualitative.size()]), kModeLabels[m]});
+                for (int m = 0; m < 3; ++m) rows.push_back({0, rgb(pal.qualitative[(size_t)m % pal.qualitative.size()]), tr(kModeLabels[m])});
                 break;
             case 3:
-                for (int k = 0; k < 5; ++k) rows.push_back({0, ramp(k / 4.0, pal), kCountLabels[k]});
+                for (int k = 0; k < 5; ++k) rows.push_back({0, ramp(k / 4.0, pal), tr(kCountLabels[k])});
                 break;
             case 4:
                 if (_maxYear && _maxYear - _minYear <= 7)
@@ -899,8 +903,8 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
                     }
                 break;
             default:
-                if (_style[kLayerSquares].show || contacts || areas) rows.push_back({0, rgb(pal.confirmed), "confirmed"}), rows.push_back({0, rgb(pal.worked), "worked"});
-                if (_style[kLayerCountries].show) rows.push_back({1, rgb(pal.dxccConfirmed), "DXCC confirmed"}), rows.push_back({1, rgb(pal.dxccWorked), "DXCC worked"});
+                if (_style[kLayerSquares].show || contacts || areas) rows.push_back({0, rgb(pal.confirmed), tr("confirmed")}), rows.push_back({0, rgb(pal.worked), tr("worked")});
+                if (_style[kLayerCountries].show) rows.push_back({1, rgb(pal.dxccConfirmed), tr("DXCC confirmed")}), rows.push_back({1, rgb(pal.dxccWorked), tr("DXCC worked")});
                 break;
         }
     }
@@ -908,22 +912,22 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     bool parks = false;
     for (const adif::MapPark &pk : _data.parks)
         if ([self programShown:pk] && ![self parkPinned:pk]) pk.program == "POTA" ? (void)(parks = true) : (void)programs.insert(pk.program);
-    if (contacts || parks || !programs.empty()) rows.push_back({7, nil, "Markers"});
-    if (contacts) rows.push_back({6, [NSColor colorWithCalibratedWhite:pal.dark ? 0.85 : 0.35 alpha:1], "contacts (exact place)"});
-    if (parks) rows.push_back({2, rgb(pal.park), "POTA parks (at the QSO's grid)"});
+    if (contacts || parks || !programs.empty()) rows.push_back({7, nil, tr("Markers")});
+    if (contacts) rows.push_back({6, [NSColor colorWithCalibratedWhite:pal.dark ? 0.85 : 0.35 alpha:1], tr("contacts (exact place)")});
+    if (parks) rows.push_back({2, rgb(pal.park), tr("POTA parks (at the QSO's grid)")});
     for (const std::string &p : programs) rows.push_back({3, [self programColor:p], p});
-    if (_style.mine && !_data.mine.empty()) rows.push_back({4, rgb(pal.me), "my station"});
-    if (_style.paths) rows.push_back({5, [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.6], "lines to contacts (in their colours)"});
+    if (_style.mine && !_data.mine.empty()) rows.push_back({4, rgb(pal.me), tr("my station")});
+    if (_style.paths) rows.push_back({5, [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.6], tr("lines to contacts (in their colours)")});
     if (_style.dayNight || _style.greyLine) {
         double at = [self qsoSunSeconds];
         time_t t = (time_t)(at >= 0 ? at : [self sunSeconds]);
         struct tm tm{};
         gmtime_r(&t, &tm);
         char when[40];
-        strftime(when, sizeof when, at >= 0 ? "Sun at the QSO: %Y-%m-%d %H:%M UTC" : "Sun now: %H:%M UTC", &tm);
+        strftime(when, sizeof when, at >= 0 ? tr("Sun at the QSO: %Y-%m-%d %H:%M UTC").c_str() : tr("Sun now: %H:%M UTC").c_str(), &tm);
         rows.push_back({7, nil, when});
-        if (_style.dayNight) rows.push_back({0, [NSColor colorWithCalibratedWhite:pal.dark ? 0.3 : 0.45 alpha:1], "night (darker)"});
-        if (_style.greyLine) rows.push_back({0, [NSColor colorWithCalibratedRed:1 green:0.70 blue:0.25 alpha:0.6], "grey line (twilight)"});
+        if (_style.dayNight) rows.push_back({0, [NSColor colorWithCalibratedWhite:pal.dark ? 0.3 : 0.45 alpha:1], tr("night (darker)")});
+        if (_style.greyLine) rows.push_back({0, [NSColor colorWithCalibratedRed:1 green:0.70 blue:0.25 alpha:0.6], tr("grey line (twilight)")});
     }
     if ((_style[kLayerPota].show || _style[kLayerPota].overlay) && ADIFPotaParks().size()) {
         std::set<std::string> hunted, activated;  // by the list's reference (K-0001 is US-0001)
@@ -932,21 +936,22 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
             if (!w.hunted.empty()) hunted.insert(p ? p->ref : ref);
             if (!w.activated.empty()) activated.insert(p ? p->ref : ref);
         }
-        rows.push_back({7, nil, "POTA parks: " + std::to_string(hunted.size()) + " hunted, " + std::to_string(activated.size()) + " activated"});
+        rows.push_back({7, nil, trf("POTA parks: {hunted} hunted, {activated} activated",
+                                    {{"hunted", std::to_string(hunted.size())}, {"activated", std::to_string(activated.size())}})});
         if (_style[kLayerPota].show) {
-            rows.push_back({10, rgb(pal.worked), "hunted (in the map's colours)"});
-            rows.push_back({11, rgb(pal.me), "activated by you"});
+            rows.push_back({10, rgb(pal.worked), tr("hunted (in the map's colours)")});
+            rows.push_back({11, rgb(pal.me), tr("activated by you")});
         }
-        if (_style[kLayerPota].overlay) rows.push_back({12, rgb(pal.park), "not worked"});
+        if (_style[kLayerPota].overlay) rows.push_back({12, rgb(pal.park), tr("not worked")});
     }
     if ((_style[kLayerIota].show || _style[kLayerIota].overlay) && !ADIFIotaGroups().empty()) {
         NSColor *tint = pal.dark ? rgb(0x4DD0E1) : rgb(0x00838F);
-        rows.push_back({7, nil, "IOTA groups"});
+        rows.push_back({7, nil, tr("IOTA groups")});
         if (_style[kLayerIota].show) {
-            rows.push_back({0, [tint colorWithAlphaComponent:0.42], "confirmed"});
-            rows.push_back({0, [tint colorWithAlphaComponent:0.22], "worked"});
+            rows.push_back({0, [tint colorWithAlphaComponent:0.42], tr("confirmed")});
+            rows.push_back({0, [tint colorWithAlphaComponent:0.22], tr("worked")});
         }
-        if (_style[kLayerIota].overlay) rows.push_back({9, [tint colorWithAlphaComponent:0.75], "not worked"});
+        if (_style[kLayerIota].overlay) rows.push_back({9, [tint colorWithAlphaComponent:0.75], tr("not worked")});
     }
     if (rows.empty()) return;
 

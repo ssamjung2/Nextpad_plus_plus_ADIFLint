@@ -1,4 +1,5 @@
 #include "adif_formats.h"
+#include "adif_i18n.h"
 
 #include "adif_spec.h"
 
@@ -8,6 +9,9 @@
 #include <map>
 
 namespace adif {
+using i18n::tr;
+using i18n::trf;
+using i18n::trp;
 namespace {
 
 std::string trim(std::string_view s) {
@@ -163,14 +167,14 @@ CsvImport importCsv(std::string_view csv) {
             if (v.size() > 1 && v[0] == '\'' && std::string("=+-@\t\r").find(v[1]) != std::string::npos) v.erase(0, 1);
             if (v.empty()) continue;
             const std::string &f = fields[c];
-            std::string row = "row " + std::to_string(r + 1);
+            std::string row = std::to_string(r + 1);
             if (f == "QSO_DATE" || f == "QSO_DATE_OFF") {
                 std::string d = normalDate(v);
-                if (d.empty()) out.notes.push_back(row + ": date \"" + v + "\" not understood (use YYYY-MM-DD)");
+                if (d.empty()) out.notes.push_back(trf("row {n}: date \"{value}\" not understood (use YYYY-MM-DD)", {{"n", row}, {"value", v}}));
                 else v = d;
             } else if (f == "TIME_ON" || f == "TIME_OFF") {
                 std::string t = normalTime(v);
-                if (t.empty()) out.notes.push_back(row + ": time \"" + v + "\" not understood (use HH:MM)");
+                if (t.empty()) out.notes.push_back(trf("row {n}: time \"{value}\" not understood (use HH:MM)", {{"n", row}, {"value", v}}));
                 else v = t;
             } else if (f == "FREQ" || f == "FREQ_RX") {
                 double x = std::atof(v.c_str());

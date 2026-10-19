@@ -42,6 +42,12 @@ Versions before 0.8.0 were development builds and were not published.
   to 18° below the horizon, the line between day and night, the sun overhead, and the
   twilight band to 6° down tinted gold; for now (each minute) or the selected QSO's time.
   The sun's place comes from NOAA's solar calculator equations.
+- **Languages**: ADIF Lint's menu, windows and messages (the problems in a log too) in
+  Korean, French, German, Spanish and Japanese, following the language Nextpad++ shows, or
+  the one chosen in **Settings → Language**. The translations were drafted by Claude, an AI,
+  and wait for review by native speakers; anything untranslated, and the user guide, stays
+  in English. The menu and new messages change at once; windows already shown change when
+  Nextpad++ starts again. The tables are `lang/*.json` beside the plugin.
 
 ### Changed
 
@@ -54,6 +60,11 @@ Versions before 0.8.0 were development builds and were not published.
 - **Upload to LoTW (TQSL)** offers the Station Location of New QSO's chosen profile, and
   remembers the last one used for each profile; before, the last location used for any
   profile was offered, so a profile's own location never applied.
+
+### Fixed
+
+- **Log Summary**: a label as long as the column ("Uploaded to Club Log") ran into its
+  value; the column now fits the longest label.
 
 ### Removed
 

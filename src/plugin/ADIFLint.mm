@@ -412,11 +412,11 @@ static void showTip(NppHandle h, intptr_t pos, const std::string &text) {
     sci(h, SCI_CALLTIPSHOW, (uintptr_t)pos, (intptr_t)text.c_str());
 }
 
-static const char *severityLabel(adif::Severity s) {
+static std::string severityLabel(adif::Severity s) {
     switch (s) {
-        case adif::Severity::Error: return "Error: ";
-        case adif::Severity::Warning: return "Warning: ";
-        case adif::Severity::Info: return "Note: ";
+        case adif::Severity::Error: return tr("Error: ");
+        case adif::Severity::Warning: return tr("Warning: ");
+        case adif::Severity::Info: return tr("Note: ");
     }
     return "";
 }
@@ -497,10 +497,9 @@ adif::LintResult lintText(std::string_view text) {
 }
 std::string structureProblem(const adif::LintResult &r) {
     if (!adif::canReformat(r))
-        return "The log has structural problems (wrong lengths or broken tags). Run Fix Lengths, then fix the errors "
-               "marked in red.";
+        return tr("The log has structural problems (wrong lengths or broken tags). Run Fix Lengths, then fix the errors marked in red.");
     for (const adif::ModelGroup &g : r.model.groups)
-        if (!g.header && g.markerB == adif::kNoPos) return "A record has no <EOR>. Add it, then try again.";
+        if (!g.header && g.markerB == adif::kNoPos) return tr("A record has no <EOR>. Add it, then try again.");
     return "";
 }
 const adif::LintResult &lint(NppHandle h) { return freshLint(h); }
@@ -732,11 +731,12 @@ static const adif::LintResult &validateNow(NppHandle h, bool showDiagnostics = t
 
 static std::string summary(const adif::LintResult &r) {
     using adifhost::plural;
-    std::string s = "ADIF " + std::string(adif::kSpecVersion) + ": " + plural(r.records, "record") + ", " +
-                    plural(r.errors, "error") + ", " + plural(r.warnings, "warning") + ", " + plural(r.infos, "note") + ".";
-    if (!r.fixes.empty()) s += "\nFix Lengths can correct " + plural(r.fixes.size(), "data length") + ".";
-    if (r.truncated) s += "\nOnly the first " + std::to_string(r.diagnostics.size()) + " problems are marked.";
-    if (r.errors || r.warnings || r.infos) s += "\nHover a squiggle for details, or use Next Problem.";
+    std::string s = trf("ADIF {version}: {records}, {errors}, {warnings}, {notes}.",
+                        {{"version", adif::kSpecVersion}, {"records", plural(r.records, "record")}, {"errors", plural(r.errors, "error")},
+                         {"warnings", plural(r.warnings, "warning")}, {"notes", plural(r.infos, "note")}});
+    if (!r.fixes.empty()) s += "\n" + trf("Fix Lengths can correct {lengths}.", {{"lengths", plural(r.fixes.size(), "data length")}});
+    if (r.truncated) s += "\n" + trf("Only the first {n} problems are marked.", {{"n", std::to_string(r.diagnostics.size())}});
+    if (r.errors || r.warnings || r.infos) s += "\n" + tr("Hover a squiggle for details, or use Next Problem.");
     return s;
 }
 
@@ -802,7 +802,7 @@ static void cmdFixLengths() {
     try {
         NppHandle h = currentScintilla();
         if (sci(h, SCI_GETREADONLY)) {
-            showTip(h, sci(h, SCI_GETCURRENTPOS), "ADIF Lint: this document is read-only.");
+            showTip(h, sci(h, SCI_GETCURRENTPOS), tr("ADIF Lint: this document is read-only."));
             return;
         }
         g.manualBuffers.insert(currentBuffer());
@@ -810,7 +810,7 @@ static void cmdFixLengths() {
         adif::LintResult r = lintNow(h);  // a copy: the edits below change the document
         if (r.fixes.empty()) {
             validateNow(h);
-            showTip(h, sci(h, SCI_GETCURRENTPOS), "ADIF Lint: no data lengths need fixing.");
+            showTip(h, sci(h, SCI_GETCURRENTPOS), tr("ADIF Lint: no data lengths need fixing."));
             return;
         }
         size_t count = r.fixes.size();
@@ -833,8 +833,7 @@ static void cmdFixLengths() {
         }
         const adif::LintResult &after = validateNow(h);
         showTip(h, sci(h, SCI_GETCURRENTPOS),
-                "Fixed " + std::to_string(count) + " data length" + (count == 1 ? "" : "s") + " (one undo step).\n" +
-                    summary(after));
+                trf("Fixed {lengths} (one undo step).", {{"lengths", adifhost::plural(count, "data length")}}) + "\n" + summary(after));
     } catch (...) {
     }
 }
@@ -846,7 +845,7 @@ static void gotoProblem(bool forward) {
         const adif::LintResult &r = validateNow(h);  // fresh positions
         intptr_t caret = sci(h, SCI_GETCURRENTPOS);
         if (r.diagnostics.empty()) {
-            showTip(h, caret, "ADIF Lint: no problems found.");
+            showTip(h, caret, tr("ADIF Lint: no problems found."));
             return;
         }
         const adif::Diagnostic *target = nullptr;
@@ -883,7 +882,7 @@ static void reformatAs(adif::Layout layout) {
     try {
         NppHandle h = currentScintilla();
         if (sci(h, SCI_GETREADONLY)) {
-            showTip(h, sci(h, SCI_GETCURRENTPOS), "ADIF Lint: this document is read-only.");
+            showTip(h, sci(h, SCI_GETCURRENTPOS), tr("ADIF Lint: this document is read-only."));
             return;
         }
         g.manualBuffers.insert(currentBuffer());
@@ -891,17 +890,17 @@ static void reformatAs(adif::Layout layout) {
         adif::LintResult r = lintNow(h);
         if (!adif::canReformat(r)) {
             validateNow(h);
-            std::string why = "ADIF Lint: reformatting needs every data length right and every tag well formed, so "
-                              "that no data is moved by mistake.";
-            if (!r.fixes.empty()) why += " Run Fix Lengths first.";
-            if (r.structuralErrors) why += " Then fix the remaining errors in red.";
+            std::string why = tr("ADIF Lint: reformatting needs every data length right and every tag well formed, so that no data is moved by "
+                                 "mistake.");
+            if (!r.fixes.empty()) why += " " + tr("Run Fix Lengths first.");
+            if (r.structuralErrors) why += " " + tr("Then fix the remaining errors in red.");
             showTip(h, sci(h, SCI_GETCURRENTPOS), wrap(why));
             return;
         }
         std::string_view text = docText(h);
         std::string out = adif::reformat(text, r.model, layout, eolString(h));
         if (out == text) {
-            showTip(h, sci(h, SCI_GETCURRENTPOS), "ADIF Lint: already in that layout.");
+            showTip(h, sci(h, SCI_GETCURRENTPOS), tr("ADIF Lint: already in that layout."));
             return;
         }
         // Keep the caret on the same field.
@@ -920,8 +919,8 @@ static void reformatAs(adif::Layout layout) {
             sci(h, SCI_SCROLLCARET);
         }
         showTip(h, sci(h, SCI_GETCURRENTPOS),
-                layout == adif::Layout::RecordPerLine ? "Reformatted: one record per line (one undo step)."
-                                                      : "Reformatted: one field per line (one undo step).");
+                layout == adif::Layout::RecordPerLine ? tr("Reformatted: one record per line (one undo step).")
+                                                      : tr("Reformatted: one field per line (one undo step)."));
     } catch (...) {
     }
 }
@@ -1065,8 +1064,7 @@ static void insertChosenName(intptr_t start, std::string name) {
     if (!values.empty()) {
         showList(h, ListKind::Values, after, values, '\n');
     } else {
-        showTip(h, after, wrap(adif::describeField(g.last.model, name) +
-                               ". Type the data; its length is filled in when you move on."));
+        showTip(h, after, wrap(adif::describeField(g.last.model, name) + ". " + tr("Type the data; its length is filled in when you move on.")));
     }
 }
 
@@ -1249,12 +1247,13 @@ static void logHealth(NppHandle h, const adif::LintResult &r, std::string *line,
             size_t n = (size_t)std::count_if(items.begin(), items.end(), [](const adif::UploadItem &i) { return adif::uploadWanted(i); });
             if (used && n) waiting += (waiting.empty() ? "" : ", ") + std::string(s == adif::UploadService::QRZ ? "QRZ" : adif::uploadServiceName(s)) + " " + std::to_string(n);
         }
-        if (!waiting.empty()) out += "  ·  to upload: " + waiting;
+        if (!waiting.empty()) out += "  ·  " + trf("to upload: {services}", {{"services", waiting}});
         // Today's activation.
         std::string today = utcNow("%Y%m%d");
         for (const adif::Activation &a : adif::activations(text, r.model, adifhost::setting("stationCall"))) {
             if (a.date != today) continue;
-            out += "  ·  " + a.park + " today: " + std::to_string(a.qsos) + (a.activated() ? " QSOs, activated" : " of " + std::to_string(a.needed));
+            out += "  ·  " + (a.activated() ? trf("{park} today: {n} QSOs, activated", {{"park", a.park}, {"n", std::to_string(a.qsos)}})
+                                            : trf("{park} today: {n} of {needed}", {{"park", a.park}, {"n", std::to_string(a.qsos)}, {"needed", std::to_string(a.needed)}}));
             break;
         }
     }
@@ -1272,7 +1271,7 @@ static ADIFPanelSnapshot buildSnapshot(NppHandle h) {
     g.panelGroupStart = -1;
     g.panelNames.clear();
     if (!isAdifBuffer(currentBuffer())) {
-        s.title = "Not an ADIF document (.adi). Use Check Log to treat it as one.";
+        s.title = tr("Not an ADIF document (.adi). Use Check Log to treat it as one.");
         return s;
     }
     const adif::LintResult &r = freshLint(h);
@@ -1283,16 +1282,16 @@ static ADIFPanelSnapshot buildSnapshot(NppHandle h) {
     int gi = adif::groupAt(m, (size_t)caret);
     if (gi < 0 && !m.groups.empty()) gi = 0;
     if (gi < 0) {
-        s.title = "No fields yet. Type '<' to add one.";
+        s.title = tr("No fields yet. Type '<' to add one.");
         return s;
     }
     const adif::ModelGroup &grp = m.groups[(size_t)gi];
     size_t start = adif::groupStart(m, grp);
     intptr_t line = sci(h, SCI_LINEFROMPOSITION, start) + 1;
     s.hasGroup = true;
-    s.title = grp.header ? "Header" : "Record " + std::to_string(adif::recordNumber(m, gi)) + " of " +
-                                          std::to_string(adif::recordCount(m));
-    s.title += "  ·  line " + std::to_string(line);
+    s.title = grp.header ? tr("Header")
+                         : trf("Record {n} of {count}", {{"n", std::to_string(adif::recordNumber(m, gi))}, {"count", std::to_string(adif::recordCount(m))}});
+    s.title += "  ·  " + trf("line {n}", {{"n", std::to_string(line)}});
     s.canPrevious = gi > 0;
     s.canNext = (size_t)gi + 1 < m.groups.size();
     g.panelGroupStart = (intptr_t)start;
@@ -1598,10 +1597,10 @@ static QsoCheck checkQso(NppHandle h) {
             if (c.fields[i].first == name && c.rows[i].first < severity) c.rows[i] = {severity, message};
     };
     for (const char *req : {"CALL", "QSO_DATE", "TIME_ON", "MODE"})
-        if (get(req).empty()) mark(req, 2, "Required");
+        if (get(req).empty()) mark(req, 2, tr("Required"));
     if (get("BAND").empty() && get("FREQ").empty()) {
-        mark("BAND", 2, "BAND or FREQ is required");
-        mark("FREQ", 2, "BAND or FREQ is required");
+        mark("BAND", 2, tr("BAND or FREQ is required"));
+        mark("FREQ", 2, tr("BAND or FREQ is required"));
     }
 
     // Lint the record after this log's header, so USERDEF fields are known.
@@ -1647,9 +1646,9 @@ static QsoCheck checkQso(NppHandle h) {
         std::vector<int> dup = adif::contestDupes(text, doc.model, adif::contestIdFor(contestNow), qso);
         std::string cat = adif::modeCategory(get("MODE"));
         if (!dup.empty()) {
-            c.summary = call + " is already in the contest on " + adif::effectiveBand(qso) + " " +
-                        (cat == "CW" ? "CW" : cat == "PH" ? "Phone" : "Digital") + " (record " + std::to_string(dup.back()) +
-                        "): a station counts once per band and mode.";
+            c.summary = trf("{call} is already in the contest on {band} {mode} (record {n}): a station counts once per band and mode.",
+                            {{"call", call}, {"band", adif::effectiveBand(qso)}, {"mode", cat == "CW" ? "CW" : cat == "PH" ? tr("Phone") : tr("Digital")},
+                             {"n", std::to_string(dup.back())}});
             c.severity = 1;
         }
         std::string rule = adif::contestRuleProblem(contestNow.preset, qso);
@@ -1662,11 +1661,12 @@ static QsoCheck checkQso(NppHandle h) {
         qso.fields = c.fields;
         std::vector<int> same = adif::sameContactAs(text, doc.model, qso);
         if (!same.empty()) {
-            c.summary = call + " is already in this log on " + get("BAND") + " " + get("MODE") + " this UTC day (record " +
-                        std::to_string(same.back()) + ").";
+            c.summary = trf("{call} is already in this log on {band} {mode} this UTC day (record {n}).",
+                            {{"call", call}, {"band", get("BAND")}, {"mode", get("MODE")}, {"n", std::to_string(same.back())}});
             c.severity = 1;
         } else if (size_t n = adif::timesWorkedAs(text, doc.model, call)) {
-            c.summary = call + " is in this log " + std::to_string(n) + (n == 1 ? " time" : " times") + " on other bands, modes or days.";
+            c.summary = trp("{call} is in this log {n} time on other bands, modes or days.", "{call} is in this log {n} times on other bands, modes or days.",
+                            (long long)n, {{"call", call}});
             c.severity = 0;
         }
     }
@@ -1773,7 +1773,7 @@ static void logQso() {
             if (f.first == "CALL") call = f.second;
             if (f.first == "MODE") mode = f.second;
         }
-        std::string done = "Logged " + call + " as record " + std::to_string(adif::recordCount(after.model)) + ".";
+        std::string done = trf("Logged {call} as record {n}.", {{"call", call}, {"n", std::to_string(adif::recordCount(after.model))}});
         if (c.severity == 1) done += " " + c.summary;
         // Ready for the next contact: carried fields keep their values.
         for (const adif::QsoField &q : g.qsoFields) {
@@ -1913,9 +1913,11 @@ static void showQsoRows(NppHandle h, const adif::LintResult &r) {
     if (g.qsoCarryHidden)
         for (const auto &f : adif::hiddenStationFields(text, r.model, shown))
             if (std::none_of(mine.begin(), mine.end(), [&](const auto &m) { return m.first == f.first; }))
-                note += (note.empty() ? "Also written, from the last record: " : ", ") + f.first + " " + f.second;
+                note += (note.empty() ? "" : ", ") + f.first + " " + f.second;
+    if (!note.empty()) note = trf("Also written, from the last record: {fields}", {{"fields", note}});
     if (!fromStation.empty())
-        note = "Also written, from the " + station::stationLabel() + ": " + fromStation + (note.empty() ? "" : ". " + note);
+        note = trf("Also written, from the {station}: {fields}", {{"station", station::stationLabel()}, {"fields", fromStation}}) +
+               (note.empty() ? "" : ". " + note);
     [g.qso setNote:@(note.c_str())];
     std::vector<adif::StationProfile> profiles = station::profiles();
     NSMutableArray *names = [NSMutableArray array];
@@ -2055,7 +2057,7 @@ static void runLookup() {
     if (source < 2) return;
     ADIFSource src = source == 2 ? ADIFSourceQRZ : ADIFSourceHamQTH;
     if (!ADIFSavedAccount(src) || !ADIFHasSecret(src)) {
-        g.lookup.found = std::string("No ") + ADIFSourceName(src).UTF8String + " account: add one in Settings";
+        g.lookup.found = trf("No {service} account: add one in Settings", {{"service", ADIFSourceName(src).UTF8String}});
         showLookupInfo();
         return;
     }
@@ -2087,7 +2089,7 @@ static void runLookup() {
                      std::string where = f["QTH"] + (f["STATE"].empty() ? "" : (f["QTH"].empty() ? "" : ", ") + f["STATE"]);
                      g.lookup.found = name + ": " + (f["NAME"].empty() ? base : f["NAME"]) + (where.empty() ? "" : ", " + where) +
                                       (f["GRIDSQUARE"].empty() ? "" : " (" + f["GRIDSQUARE"] + ")") +
-                                      (away ? " (home address; away now)" : "");
+                                      (away ? " " + tr("(home address; away now)") : "");
                      showLookupInfo();
                      scheduleQsoCheck();
                  }];
@@ -2158,7 +2160,7 @@ static void cmdNewQso() {
         const adif::LintResult &r = lintNow(h);
         if (!isBlank(text) && r.model.fields.empty() && r.model.groups.empty()) {
             showTip(h, sci(h, SCI_GETCURRENTPOS),
-                    "ADIF Lint: New QSO adds records to an ADIF log. Open an .adi file, or start a new empty document.");
+                    tr("ADIF Lint: New QSO adds records to an ADIF log. Open an .adi file, or start a new empty document."));
             return;
         }
         g.manualBuffers.insert(currentBuffer());
@@ -2183,16 +2185,16 @@ static void enrichUpdateAccount() {
     ADIFSource src = (ADIFSource)g.enrich.panel.source;
     if (src == ADIFSourceCountryData) {
         [g.enrich.panel setAccount:ADIFCountryDataStatus()];
-        [g.enrich.panel setCredit:@"Country data by Jim Reisert AD1C (country-files.com)"];
+        [g.enrich.panel setCredit:T(@"Country data by Jim Reisert AD1C (country-files.com)")];
         return;
     }
     NSString *account = ADIFSavedAccount(src);
-    NSString *text = ADIFLookupFakeMode() ? @"Test data (no network)"
+    NSString *text = ADIFLookupFakeMode() ? T(@"Test data (no network)")
                      : account && ADIFHasSecret(src) ? [NSString stringWithFormat:T(@"%@ (saved in your Keychain)"), account]
-                                                     : @"None yet. Add one in Settings.";
+                                                     : T(@"None yet. Add one in Settings.");
     [g.enrich.panel setAccount:text];
     // HamQTH asks that its data be credited where users see it.
-    [g.enrich.panel setCredit:src == ADIFSourceHamQTH ? @"Callbook data from HamQTH.com" : @""];
+    [g.enrich.panel setCredit:src == ADIFSourceHamQTH ? T(@"Callbook data from HamQTH.com") : @""];
 }
 
 static void setAutoValidate(bool on);
@@ -2249,7 +2251,7 @@ static void openSettings(NSInteger source) {
             NSOpenPanel *panel = [NSOpenPanel openPanel];
             panel.canChooseDirectories = YES;
             panel.canChooseFiles = NO;
-            panel.message = @"Choose the folder of logs that Worked Before searches";
+            panel.message = T(@"Choose the folder of logs that Worked Before searches");
             std::string dir;
             if (const char *test = getenv("ADIFLINT_TEST_FOLDER")) dir = test;
             else if ([panel runModal] == NSModalResponseOK) dir = panel.URL.path.UTF8String ?: "";
@@ -2260,6 +2262,10 @@ static void openSettings(NSInteger source) {
         };
         g.settings.onStationProfiles = ^{ station::cmdStationProfiles(); };
         g.settings.onOfflineToggled = ^(BOOL on) { ADIFSetOffline(on); };
+        g.settings.onLanguageChosen = ^(NSString *code) {
+            adifhost::setSetting("uiLanguage", ADIFStd(code));
+            ADIFLoadLanguage();
+        };
         g.settings.onMapDetailCheck = ^(NSString *choice, NSInteger zoom) {
             [g.settings setMapDetailState:@"Checking..." ok:YES checked:NO busy:YES];
             mapdetail::check(choice.UTF8String ?: "", (int)zoom, ^(BOOL ok, NSString *message) {
@@ -2301,6 +2307,7 @@ static void openSettings(NSInteger source) {
                     logsFolder:ADIFString(adifhost::setting("logsFolder"))];
     refreshSettingsOptions();
     [g.settings setOffline:ADIFOffline()];
+    [g.settings setLanguage:ADIFString(adifhost::setting("uiLanguage"))];
     refreshMapDetail();
     [g.settings showSource:source];
 }
@@ -2359,7 +2366,7 @@ static void enrichFinish() {
                 adif::FieldMap f = adif::countryFields(countries, adif::groupValue(text, r.model, r.model.groups[(size_t)gi], "CALL"));
                 if (f.empty()) continue;
                 ++matched;
-                adif::proposeChanges(text, r.model, gi, f, opt, "From the call's prefix (AD1C country file)", changes, &rejected);
+                adif::proposeChanges(text, r.model, gi, f, opt, tr("From the call's prefix (AD1C country file)"), changes, &rejected);
             }
         } else {
             for (int gi : scope) {
@@ -2377,30 +2384,33 @@ static void enrichFinish() {
         }
         [g.enrich.panel setRows:rows];
 
-        std::string status = g.enrich.cancelled ? "Stopped. " : "";
+        std::string status = g.enrich.cancelled ? tr("Stopped.") + " " : "";
         if (g.enrich.source == ADIFSourceCountryData) {
-            status += std::to_string(matched) + " of " + std::to_string(scope.size()) + " calls have a known prefix. ";
+            status += trf("{n} of {count} calls have a known prefix.", {{"n", std::to_string(matched)}, {"count", std::to_string(scope.size())}}) + " ";
         } else {
-            status += "Found " + std::to_string(g.enrich.found.size()) + " of " + std::to_string(g.enrich.calls.size()) + " calls";
-            if (g.enrich.notFound) status += " (" + std::to_string(g.enrich.notFound) + " not found)";
-            if (g.enrich.failed) status += "; " + std::to_string(g.enrich.failed) + " lookups failed: " + g.enrich.firstError;
+            status += trf("Found {n} of {count} calls", {{"n", std::to_string(g.enrich.found.size())}, {"count", std::to_string(g.enrich.calls.size())}});
+            if (g.enrich.notFound) status += " " + trf("({n} not found)", {{"n", std::to_string(g.enrich.notFound)}});
+            if (g.enrich.failed)
+                status += "; " + trf("{n} lookups failed: {why}", {{"n", std::to_string(g.enrich.failed)}, {"why", g.enrich.firstError}});
             status += ". ";
             if (size_t n = g.enrich.recordsComplete)
-                status += n == 1 ? std::string("1 record already had these fields, so its call was not looked up. ")
-                                 : std::to_string(n) + " records already had these fields, so their calls were not looked up. ";
+                status += trp("{n} record already had these fields, so its call was not looked up.",
+                              "{n} records already had these fields, so their calls were not looked up.", (long long)n) +
+                          " ";
         }
-        status += changes.empty() ? "Nothing to add: those records already have these fields."
-                                  : std::to_string(changes.size()) + " changes for " + std::to_string(records.size()) +
-                                        " records. Untick any you don't want, then Apply.";
+        status += changes.empty() ? tr("Nothing to add: those records already have these fields.")
+                                  : trf("{changes} changes for {records} records. Untick any you don't want, then Apply.",
+                                        {{"changes", std::to_string(changes.size())}, {"records", std::to_string(records.size())}});
         if (!rejected.empty()) {
             const adif::EnrichChange &x = rejected.front();
-            status += " Left out " + std::to_string(rejected.size()) + (rejected.size() == 1 ? " value" : " values") +
-                      " that ADIF Lint would report, such as " + x.call + " " + x.field + " " + x.value + ": " + x.note;
+            status += " " + trp("Left out {n} value that ADIF Lint would report, such as {example}",
+                                "Left out {n} values that ADIF Lint would report, such as {example}", (long long)rejected.size(),
+                                {{"example", x.call + " " + x.field + " " + x.value + ": " + x.note}});
         }
         if (g.enrich.client.notice) status += std::string(" ") + g.enrich.client.notice.UTF8String;
         [g.enrich.panel setStatus:@(status.c_str()) severity:g.enrich.failed ? 1 : -1];
     } catch (...) {
-        enrichFail(@"Something went wrong while comparing the data with the log.");
+        enrichFail(T(@"Something went wrong while comparing the data with the log."));
     }
 }
 
@@ -2425,7 +2435,7 @@ static void enrichNextLookup() {
                   --x.inFlight;
                   ++x.done;
                   if (fatal) {
-                      enrichFail(error ?: @"The lookup failed.");
+                      enrichFail(error ?: T(@"The lookup failed."));
                       return;
                   }
                   if (found) x.found[call.UTF8String] = src == ADIFSourceQRZ ? adif::mapQrz(raw) : adif::mapHamQth(raw);
@@ -2435,13 +2445,13 @@ static void enrichNextLookup() {
                   } else ++x.notFound;
                   double total = (double)x.calls.size(), elapsed = CFAbsoluteTimeGetCurrent() - x.started;
                   [x.panel setProgress:(double)x.done / total];
-                  std::string st = "Looked up " + std::to_string(x.done) + " of " + std::to_string(x.calls.size()) + " calls";
+                  std::string st = trf("Looked up {n} of {count} calls", {{"n", std::to_string(x.done)}, {"count", std::to_string(x.calls.size())}});
                   if (x.done >= 8 && x.done < x.calls.size()) {
                       long left = std::lround(elapsed / (double)x.done * (total - (double)x.done));
-                      st += left < 90 ? ", about " + std::to_string(std::max(1L, left)) + " seconds left"
-                                      : ", about " + std::to_string((left + 30) / 60) + " minutes left";
+                      st += ", " + (left < 90 ? trf("about {n} seconds left", {{"n", std::to_string(std::max(1L, left))}})
+                                              : trf("about {n} minutes left", {{"n", std::to_string((left + 30) / 60)}}));
                   }
-                  if (x.parallel == 1 && x.failed) st += " (one at a time after an error)";
+                  if (x.parallel == 1 && x.failed) st += " " + tr("(one at a time after an error)");
                   [x.panel setStatus:@((st + "...").c_str()) severity:-1];
                   if (x.parallel == 1)
                       dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(),
@@ -2533,7 +2543,7 @@ static void enrichFind() {
         [e.panel setStatus:[NSString stringWithFormat:T(@"Looking up %zu calls, %zu at a time..."), e.calls.size(), e.parallel] severity:-1];
         enrichNextLookup();
     } catch (...) {
-        enrichFail(@"Something went wrong starting the lookups.");
+        enrichFail(T(@"Something went wrong starting the lookups."));
     }
 }
 
@@ -2574,9 +2584,9 @@ static void enrichApply() {
         edits = adif::mergeEdits(edits, adif::markModified(text, r.model, changedData, lengthUnit(), docUtf8(h)));
         if (!edits.empty()) applyEdits(h, edits);
         validateNow(h, g.autoValidate);
-        std::string status = "Applied " + std::to_string(verified.size()) + " changes to " + std::to_string(records.size()) +
-                             " records (one undo step).";
-        if (skipped) status += " Skipped " + std::to_string(skipped) + " whose record changed since Find Data.";
+        std::string status = trf("Applied {changes} changes to {records} records (one undo step).",
+                                 {{"changes", std::to_string(verified.size())}, {"records", std::to_string(records.size())}});
+        if (skipped) status += " " + trf("Skipped {n} whose record changed since Find Data.", {{"n", std::to_string(skipped)}});
         e.changes.clear();
         [e.panel setRows:std::vector<ADIFEnrichRow>()];
         [e.panel setStatus:@(status.c_str()) severity:skipped ? 1 : -1];
@@ -2607,9 +2617,9 @@ static void openEnrich(ADIFSource source) {
         }
         adifhost::setSetting("enrichLast", std::to_string((long)source));
         if (g.enrich.panel.source != source || !g.enrich.panel.window.visible) {
-            NSString *title = source == ADIFSourceQRZ          ? @"Enrich from QRZ.com"
-                              : source == ADIFSourceHamQTH     ? @"Enrich from HamQTH"
-                                                               : @"Enrich from Country Data";
+            NSString *title = source == ADIFSourceQRZ          ? T(@"Enrich from QRZ.com")
+                              : source == ADIFSourceHamQTH     ? T(@"Enrich from HamQTH")
+                                                               : T(@"Enrich from Country Data");
             [g.enrich.panel setSource:source title:title];
             g.enrich.client = nil;
             g.enrich.changes.clear();
@@ -2670,7 +2680,7 @@ static void refreshMapDetail() {
     std::array<double, 4> box{};
     NSMutableArray *choices = [NSMutableArray array], *levels = [NSMutableArray array], *have = [NSMutableArray array];
     for (const mapdetail::Choice &c : mapdetail::choices(worldmap::shownArea(&box))) [choices addObject:@[ @(c.id.c_str()), @(c.name.c_str()) ]];
-    for (const mapdetail::Level &l : mapdetail::levels()) [levels addObject:@[ @(l.zoom), @(l.title) ]];
+    for (const mapdetail::Level &l : mapdetail::levels()) [levels addObject:@[ @(l.zoom), @(tr(l.title).c_str()) ]];
     for (const mapdetail::Region &r : mapdetail::regions()) {
         char size[32];
         snprintf(size, sizeof size, r.bytes >= 1000000 ? "%.0f MB" : "%.0f KB", r.bytes >= 1000000 ? r.bytes / 1e6 : std::max(1.0, r.bytes / 1e3));
@@ -2755,7 +2765,7 @@ static void onDwellStart(intptr_t pos) {
         if ((intptr_t)d.start > pos) break;  // sorted by start
         if (pos >= (intptr_t)d.end) continue;
         if (shown == 3) {
-            text += "\n(more problems here)";
+            text += "\n" + tr("(more problems here)");
             break;
         }
         text += (text.empty() ? "" : "\n") + wrap(severityLabel(d.severity) + d.message);
@@ -2849,11 +2859,20 @@ extern "C" NPP_EXPORT void beNotified(SCNotification *n) {
                     languageObservers[0] = [[NSNotificationCenter defaultCenter] addObserverForName:@"NPPLocalizationChanged"
                                                                                              object:nil
                                                                                               queue:nil
-                                                                                         usingBlock:^(NSNotification *) { ADIFLoadLanguage(); }];
+                                                                                         usingBlock:^(NSNotification *) {
+                                                                                             ADIFLoadLanguage();
+                                                                                             [g.settings setLanguage:ADIFString(adifhost::setting("uiLanguage"))];
+                                                                                         }];
                     languageObservers[1] = [[NSNotificationCenter defaultCenter] addObserverForName:ADIFLanguageChangedNotification
                                                                                              object:nil
                                                                                               queue:nil
-                                                                                         usingBlock:^(NSNotification *) { retitleMenus(); }];
+                                                                                         usingBlock:^(NSNotification *) {
+                                                                                             retitleMenus();
+                                                                                             // The problems are worded in the language
+                                                                                             // they were found in: find them again.
+                                                                                             g.lastLength = -1;
+                                                                                             runScheduled();
+                                                                                         }];
                 }
                 static id detailObserver;
                 if (!detailObserver)

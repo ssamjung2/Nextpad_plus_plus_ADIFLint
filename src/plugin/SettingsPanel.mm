@@ -25,13 +25,14 @@
     NSTextField *_welcome, *_stationCall, *_stationGrid, *_logsFolder, *_stationStatus;
     NSArray<NSButton *> *_editorBoxes;
     NSButton *_offline;
+    NSPopUpButton *_language;
     NSPopUpButton *_detailRegion, *_detailLevel, *_detailInstalled;
     NSButton *_detailCheck, *_detailDownload, *_detailStop, *_detailRemove;
     NSTextField *_detailStatus, *_detailSummary;
 }
 
 static NSTextField *sectionTitle(NSString *text) {
-    NSTextField *title = [NSTextField labelWithString:text];
+    NSTextField *title = [NSTextField labelWithString:T(text)];
     title.font = [NSFont boldSystemFontOfSize:NSFont.systemFontSize + 1];
     return title;
 }
@@ -49,8 +50,24 @@ static NSStackView *sectionStack(NSArray<NSView *> *views, NSString *identifier)
 // Fixed text width: wrapping labels need it to work out their height.
 static const CGFloat kTextWidth = 520;
 
+// "Callsign:" in the language in use (French puts a space before the colon).
+static NSString *colon(NSString *label) { return TF(@"{label}:", @{@"label" : label}); }
+
+// The label column, the same in every section so the fields line up: the widest label, and at
+// least 80 points (longer in some languages).
+static CGFloat labelColumnWidth() {
+    NSMutableArray<NSString *> *labels = [NSMutableArray arrayWithArray:@[ T(@"Callsign:"), T(@"Grid:"), T(@"Logs folder:") ]];
+    for (NSInteger s = 0; s < ADIFSourceCount; ++s) {
+        [labels addObject:colon(ADIFSourceUserLabel((ADIFSource)s))];
+        [labels addObject:colon(ADIFSourceSecretLabel((ADIFSource)s))];
+    }
+    CGFloat w = 80;
+    for (NSString *l in labels) w = MAX(w, ceil([NSTextField labelWithString:l].intrinsicContentSize.width));
+    return w;
+}
+
 static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
-    NSTextField *t = [NSTextField wrappingLabelWithString:text ?: @""];
+    NSTextField *t = [NSTextField wrappingLabelWithString:T(text)];
     t.font = [NSFont systemFontOfSize:size];
     t.textColor = color;
     t.preferredMaxLayoutWidth = kTextWidth;
@@ -80,7 +97,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
                         NSFont.systemFontSize, NSColor.labelColor);
     _welcome.hidden = YES;
     [views addObject:_welcome];
-    for (NSView *section in @[ [self stationSection], [self editorSection], [self offlineSection], [self keyboardSection], [self countrySection], [self lotwSection],
+    for (NSView *section in @[ [self stationSection], [self editorSection], [self languageSection], [self offlineSection], [self keyboardSection], [self countrySection], [self lotwSection],
                                  [self potaSection], [self iotaSection], [self mapDetailSection] ]) {
         [views addObject:section];
         NSBox *line = [[NSBox alloc] init];
@@ -161,7 +178,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     grid.columnSpacing = 8;
     grid.rowAlignment = NSGridRowAlignmentFirstBaseline;
     [grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
-    [grid columnAtIndex:0].width = 80;
+    [grid columnAtIndex:0].width = labelColumnWidth();
     NSButton *save = [NSButton buttonWithTitle:T(@"Save") target:self action:@selector(saveStation:)];
     NSButton *profiles = [NSButton buttonWithTitle:T(@"Station Profiles...") target:self action:@selector(stationProfiles:)];
     profiles.toolTip = T(@"Named sets of your station's fields (home, portable, a club station) for New QSO and activations");
@@ -188,22 +205,22 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
 - (void)setStationCall:(NSString *)call grid:(NSString *)grid logsFolder:(NSString *)folder {
     _stationCall.stringValue = call ?: @"";
     _stationGrid.stringValue = grid ?: @"";
-    _logsFolder.stringValue = folder.length ? folder.stringByAbbreviatingWithTildeInPath : @"(none)";
+    _logsFolder.stringValue = folder.length ? folder.stringByAbbreviatingWithTildeInPath : T(@"(none)");
 }
 
 - (void)setStationStatus:(NSString *)text ok:(BOOL)ok {
-    _stationStatus.stringValue = text ?: @"";
+    _stationStatus.stringValue = T(text);
     _stationStatus.textColor = ok ? NSColor.secondaryLabelColor : NSColor.systemRedColor;
 }
 
 - (NSView *)editorSection {
     NSArray<NSString *> *titles = @[
-        @"Check .adi files while typing (problem marks)", @"Colour ADIF syntax",
-        @"Autocomplete field names and values, with lengths", @"Count lengths in characters, not bytes (for UTF-8 logs)"
+        N(@"Check .adi files while typing (problem marks)"), N(@"Colour ADIF syntax"),
+        N(@"Autocomplete field names and values, with lengths"), N(@"Count lengths in characters, not bytes (for UTF-8 logs)")
     ];
     NSMutableArray<NSButton *> *boxes = [NSMutableArray array];
     for (NSUInteger i = 0; i < titles.count; ++i) {
-        NSButton *b = [NSButton checkboxWithTitle:titles[i] target:self action:@selector(editorOption:)];
+        NSButton *b = [NSButton checkboxWithTitle:T(titles[i]) target:self action:@selector(editorOption:)];
         b.tag = (NSInteger)i;
         [boxes addObject:b];
     }
@@ -221,6 +238,40 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     BOOL on[] = {validate, colour, autocomplete, characters};
     for (NSUInteger i = 0; i < _editorBoxes.count && i < 4; ++i)
         _editorBoxes[i].state = on[i] ? NSControlStateValueOn : NSControlStateValueOff;
+}
+
+- (NSView *)languageSection {
+    _language = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    _language.identifier = @"settings.language.popup";
+    [_language addItemWithTitle:@"-"];  // Nextpad++'s language, named in setLanguage:
+    _language.lastItem.representedObject = @"";
+    for (const auto &[code, name] : ADIFLanguages()) {
+        [_language addItemWithTitle:@(name.c_str())];
+        _language.lastItem.representedObject = @(code.c_str());
+    }
+    _language.target = self;
+    _language.action = @selector(languageChosen:);
+    NSTextField *help = wrapping(@"The language of ADIF Lint's menu, windows and messages. The translations were drafted by Claude, "
+                                 @"an AI, and are waiting for review by native speakers; anything not yet translated shows in "
+                                 @"English, and so does the User Guide. The menu and new messages change at once; windows ADIF "
+                                 @"Lint has already shown change when Nextpad++ starts again.",
+                                 NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    NSStackView *row = [NSStackView stackViewWithViews:@[ [NSTextField labelWithString:T(@"Language:")], _language ]];
+    row.spacing = 8;
+    return sectionStack(@[ sectionTitle(@"Language"), help, row ], @"settings.language");
+}
+
+- (void)languageChosen:(id)sender {
+    if (self.onLanguageChosen) self.onLanguageChosen(_language.selectedItem.representedObject ?: @"");
+}
+
+- (void)setLanguage:(NSString *)code {
+    std::string host = ADIFHostLanguage(), hostName = "English";
+    for (const auto &[c, name] : ADIFLanguages())
+        if (c == host) hostName = name;
+    [_language itemAtIndex:0].title = TF(@"Same as Nextpad++ ({language})", @{@"language" : @(hostName.c_str())});
+    NSInteger at = [_language indexOfItemWithRepresentedObject:code ?: @""];
+    [_language selectItemAtIndex:at < 0 ? 0 : at];
 }
 
 - (NSView *)offlineSection {
@@ -297,7 +348,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
 }
 
 - (void)setMapDetailState:(NSString *)message ok:(BOOL)ok checked:(BOOL)checked busy:(BOOL)busy {
-    _detailStatus.stringValue = message ?: @"";
+    _detailStatus.stringValue = T(message);
     _detailStatus.textColor = ok ? NSColor.secondaryLabelColor : NSColor.systemRedColor;
     _detailDownload.enabled = checked && !busy;
     _detailStop.enabled = busy;
@@ -399,7 +450,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
 - (void)setLotwUsersOn:(BOOL)on status:(NSString *)text ok:(BOOL)ok {
     _lotwOn.state = on ? NSControlStateValueOn : NSControlStateValueOff;
     _lotwUpdate.enabled = YES;
-    _lotwStatus.stringValue = text ?: @"";
+    _lotwStatus.stringValue = T(text);
     _lotwStatus.textColor = ok ? NSColor.secondaryLabelColor : NSColor.systemRedColor;
 }
 
@@ -423,7 +474,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
 
 - (void)setPotaStatus:(NSString *)text ok:(BOOL)ok {
     _potaUpdate.enabled = YES;
-    _potaStatus.stringValue = text ?: @"";
+    _potaStatus.stringValue = T(text);
     _potaStatus.textColor = ok ? NSColor.secondaryLabelColor : NSColor.systemRedColor;
 }
 
@@ -447,7 +498,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
 
 - (void)setIotaStatus:(NSString *)text ok:(BOOL)ok {
     _iotaUpdate.enabled = YES;
-    _iotaStatus.stringValue = text ?: @"";
+    _iotaStatus.stringValue = T(text);
     _iotaStatus.textColor = ok ? NSColor.secondaryLabelColor : NSColor.systemRedColor;
 }
 
@@ -459,12 +510,12 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
 
 - (void)setCountryStatus:(NSString *)text ok:(BOOL)ok {
     _countryUpdate.enabled = YES;
-    _countryStatus.stringValue = text ?: @"";
+    _countryStatus.stringValue = T(text);
     _countryStatus.textColor = ok ? NSColor.secondaryLabelColor : NSColor.systemRedColor;
 }
 
 - (NSView *)sectionFor:(ADIFSource)source {
-    NSTextField *title = [NSTextField labelWithString:ADIFSourceName(source)];
+    NSTextField *title = [NSTextField labelWithString:T(ADIFSourceName(source))];
     title.font = [NSFont boldSystemFontOfSize:NSFont.systemFontSize + 1];
     NSTextField *help = wrapping(ADIFSourceCredentialHelp(source), NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
 
@@ -475,14 +526,14 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     secret.placeholderString = ADIFSourceSecretLabel(source);
     for (NSTextField *f in @[ user, secret ]) [f.widthAnchor constraintEqualToConstant:300].active = YES;
     NSGridView *grid = [NSGridView gridViewWithViews:@[
-        @[ [NSTextField labelWithString:[ADIFSourceUserLabel(source) stringByAppendingString:@":"]], user ],
-        @[ [NSTextField labelWithString:[ADIFSourceSecretLabel(source) stringByAppendingString:@":"]], secret ],
+        @[ [NSTextField labelWithString:colon(ADIFSourceUserLabel(source))], user ],
+        @[ [NSTextField labelWithString:colon(ADIFSourceSecretLabel(source))], secret ],
     ]];
     grid.rowSpacing = 6;
     grid.columnSpacing = 8;
     grid.rowAlignment = NSGridRowAlignmentFirstBaseline;
     [grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
-    [grid columnAtIndex:0].width = 80;
+    [grid columnAtIndex:0].width = labelColumnWidth();
     [grid rowAtIndex:0].hidden = apiKey;
 
     NSButton *save = [NSButton buttonWithTitle:T(@"Save") target:self action:@selector(save:)];
@@ -512,7 +563,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
 }
 
 - (void)setStatus:(NSString *)text ok:(BOOL)ok forSource:(NSInteger)s {
-    _status[(NSUInteger)s].stringValue = text ?: @"";
+    _status[(NSUInteger)s].stringValue = T(text);
     _status[(NSUInteger)s].textColor = ok ? NSColor.secondaryLabelColor : NSColor.systemRedColor;
 }
 
@@ -524,8 +575,8 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
         _user[(NSUInteger)s].stringValue = apiKey ? @"" : (account ?: @"");
         _secret[(NSUInteger)s].stringValue = @"";
         _secret[(NSUInteger)s].placeholderString =
-            secret ? @"Saved in your Keychain (type to replace)" : ADIFSourceSecretLabel((ADIFSource)s);
-        [self setStatus:secret ? @"Saved." : @"Not set." ok:YES forSource:s];
+            secret ? T(@"Saved in your Keychain (type to replace)") : ADIFSourceSecretLabel((ADIFSource)s);
+        [self setStatus:secret ? N(@"Saved.") : N(@"Not set.") ok:YES forSource:s];
     }
 }
 
@@ -551,7 +602,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     NSString *secret = _secret[(NSUInteger)s].stringValue;
     NSString *error = nil;
     if (!ADIFSaveCredential((ADIFSource)s, user, secret, &error)) {
-        [self setStatus:error ?: @"Could not save." ok:NO forSource:s];
+        [self setStatus:error ?: N(@"Could not save.") ok:NO forSource:s];
         return;
     }
     _secret[(NSUInteger)s].stringValue = @"";  // do not keep the secret in the window

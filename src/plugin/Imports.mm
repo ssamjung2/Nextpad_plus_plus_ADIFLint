@@ -46,7 +46,7 @@ NSString *accountLine(adif::ImportSite s) {
     ADIFSource src = accountSource(s);
     if (!ADIFSavedAccount(src) || !ADIFHasSecret(src))
         return [NSString stringWithFormat:T(@"No %@ account yet: add it in Settings."), ADIFSourceName(src)];
-    if (s == adif::ImportSite::QRZLogbook) return @"QRZ.com Logbook API key saved in your Keychain";
+    if (s == adif::ImportSite::QRZLogbook) return T(@"QRZ.com Logbook API key saved in your Keychain");
     return [NSString stringWithFormat:T(@"%@ (saved in your Keychain)"), ADIFSavedAccount(src)];
 }
 
@@ -84,7 +84,7 @@ size_t countTicked(Import &u) {
 
 void updateApplyButton(Import &u) {
     size_t n = countTicked(u);
-    u.apply.title = n ? [NSString stringWithFormat:T(@"Apply %zu Change%@"), n, n == 1 ? @"" : @"s"] : @"Apply Changes";
+    u.apply.title = n ? TP(@"Apply {n} Change", @"Apply {n} Changes", (long long)n) : T(@"Apply Changes");
     u.apply.enabled = n > 0 && !u.running;
 }
 
@@ -126,26 +126,26 @@ void plan(Import &u, bool keepTicks) {
                 case adif::ImportItem::Kind::Add:
                     if (!q.problem.empty()) {
                         ++cannot;
-                        action = "can't add";
+                        action = tr("can't add");
                         changes = q.problem;
                         severity = 2;
                     } else {
                         ++add;
-                        action = "add";
-                        changes = "new record";
+                        action = tr("add");
+                        changes = tr("new record");
                         severity = 3;
                     }
                     break;
                 case adif::ImportItem::Kind::Update:
                     ++update;
-                    action = "update";
+                    action = tr("update");
                     changes = changeSummary(i);
                     break;
                 case adif::ImportItem::Kind::InLog:
                     ++inLog;
                     if (!includeInLog) continue;
-                    action = "in log";
-                    changes = "nothing to add";
+                    action = tr("in log");
+                    changes = tr("nothing to add");
                     severity = 0;
                     break;
             }
@@ -158,11 +158,14 @@ void plan(Import &u, bool keepTicks) {
             u.rowItem.push_back(k);
         }
         [u.w setRows:rows severities:sev keys:keys ticks:ticks keepTicks:keepTicks];
-        std::string range = u.from.empty() ? "" : " from " + dashed(u.from) + " to " + dashed(u.to);
-        std::string st = plural(u.qsos.size(), "QSO") + " downloaded from " + adif::importSiteName(u.site) + range + ": " +
-                         plural(add, "QSO") + " to add, " + plural(update, "record") + " to update, " + std::to_string(inLog) +
-                         " already in the log with nothing to add" + (cannot ? ", " + std::to_string(cannot) + " that can't be added" : "") +
-                         ". Untick any you don't want, then Apply.";
+        std::string from = u.from.empty() ? trf("{qsos} downloaded from {site}", {{"qsos", plural(u.qsos.size(), "QSO")}, {"site", adif::importSiteName(u.site)}})
+                                          : trf("{qsos} downloaded from {site} from {from} to {to}",
+                                                {{"qsos", plural(u.qsos.size(), "QSO")}, {"site", adif::importSiteName(u.site)}, {"from", dashed(u.from)}, {"to", dashed(u.to)}});
+        std::string st = from + ": " +
+                         trf("{add} to add, {update} to update, {n} already in the log with nothing to add",
+                             {{"add", plural(add, "QSO")}, {"update", plural(update, "record")}, {"n", std::to_string(inLog)}}) +
+                         (cannot ? ", " + trf("{n} that can't be added", {{"n", std::to_string(cannot)}}) : "") + ". " +
+                         tr("Untick any you don't want, then Apply.");
         [u.w setStatus:ADIFString(st) severity:-1];
     } catch (...) {
         [u.w setStatus:@"Something went wrong comparing the download with the log." severity:2];
@@ -198,7 +201,7 @@ void startDownload(Import &u) {
         }
     }
     setRunning(u, true);
-    [u.w setStatus:ADIFString(std::string("Downloading your QSOs from ") + adif::importSiteName(u.site) + "...") severity:-1];
+    [u.w setStatus:ADIFString(trf("Downloading your QSOs from {site}...", {{"site", adif::importSiteName(u.site)}})) severity:-1];
     Import *pu = &u;
     ADIFDownloadSiteQsos(u.site, ADIFString(u.from), ADIFString(u.to), ^(NSString *adifText, NSString *error) {
         setRunning(*pu, false);
@@ -283,13 +286,14 @@ void applyImport(Import &u) {
                 if (structureProblem(sr).empty()) {
                     bool changed = false;
                     merged = adif::sortedByTime(merged, sr.model, eolText, &changed);
-                    if (changed) note = ", sorted by date and time";
+                    if (changed) note = "sorted";
                 }
             }
         }
         adifhost::apply(h, {adif::TextEdit{0, text.size(), merged}});
-        std::string st = "Added " + plural(adds.size(), "QSO") + " and updated " + plural(updated.size(), "record") + " from " +
-                         adif::importSiteName(u.site) + note + " (one undo step).";
+        std::string st = trf(note.empty() ? "Added {qsos} and updated {records} from {site} (one undo step)."
+                                          : "Added {qsos} and updated {records} from {site}, sorted by date and time (one undo step).",
+                             {{"qsos", plural(adds.size(), "QSO")}, {"records", plural(updated.size(), "record")}, {"site", adif::importSiteName(u.site)}});
         u.downloaded = false;  // applied: download again to compare afresh
         u.qsos.clear();
         plan(u, false);
@@ -338,9 +342,9 @@ void openImport(adif::ImportSite s) {
         u.apply = [w addButton:@"Apply Changes" trailing:YES action:^{ applyImport(*pu); }];
         [w setDefaultButton:u.download];
         w.onTicksChanged = ^{ updateApplyButton(*pu); };
-        [w setStatus:ADIFString(std::string("Download your QSOs from ") + adif::importSiteName(s) +
-                                ": QSOs this log lacks are added, and the ones it has gain the site's confirmation. "
-                                "Nothing changes until you press Apply.")
+        [w setStatus:ADIFString(trf("Download your QSOs from {site}: QSOs this log lacks are added, and the ones it has gain the site's confirmation. "
+                                    "Nothing changes until you press Apply.",
+                                    {{"site", adif::importSiteName(s)}}))
               severity:-1];
         setRunning(u, false);
     }

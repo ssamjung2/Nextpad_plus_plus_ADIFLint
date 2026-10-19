@@ -1,4 +1,5 @@
 #include "adif_import.h"
+#include "adif_i18n.h"
 
 #include "adif_spec.h"
 
@@ -8,6 +9,9 @@
 #include <set>
 
 namespace adif {
+using i18n::tr;
+using i18n::trf;
+using i18n::trp;
 namespace {
 
 std::string trimmedCopy(std::string_view s) {
@@ -88,10 +92,10 @@ void finish(SiteQso &q, std::string_view today) {
     q.band = get(q.fields, "BAND");
     if (q.band.empty()) q.band = bandForFrequency(get(q.fields, "FREQ"));
     q.mode = get(q.fields, "MODE");
-    if (q.call.empty()) q.problem = "no CALL";
-    else if (qsoMinutes(q.date, q.time) < 0) q.problem = "no valid QSO_DATE and TIME_ON";
-    else if (q.band.empty()) q.problem = "no BAND or FREQ";
-    else if (q.mode.empty()) q.problem = "no MODE";
+    if (q.call.empty()) q.problem = tr("no CALL");
+    else if (qsoMinutes(q.date, q.time) < 0) q.problem = tr("no valid QSO_DATE and TIME_ON");
+    else if (q.band.empty()) q.problem = tr("no BAND or FREQ");
+    else if (q.mode.empty()) q.problem = tr("no MODE");
 }
 
 // The update's fields in record order: the other station's details, then each
@@ -301,7 +305,7 @@ std::vector<ImportItem> planImport(std::string_view logText, const DocModel &log
         EnrichOptions opt;
         opt.fields = updateOrder(q.update);
         opt.perQsoData = true;  // the site's data describes this QSO
-        std::string note = std::string(q.confirmed ? "Confirmed in " : "In ") + importSiteName(site);
+        std::string note = q.confirmed ? trf("Confirmed in {site}", {{"site", importSiteName(site)}}) : trf("In {site}", {{"site", importSiteName(site)}});
         proposeChanges(logText, log, c.group, q.update, opt, note, item.changes);
         item.kind = item.changes.empty() ? ImportItem::Kind::InLog : ImportItem::Kind::Update;
     }

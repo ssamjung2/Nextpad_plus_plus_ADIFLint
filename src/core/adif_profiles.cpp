@@ -1,4 +1,5 @@
 #include "adif_profiles.h"
+#include "adif_i18n.h"
 
 #include "adif_edit.h"
 #include "adif_lint.h"
@@ -7,6 +8,9 @@
 #include <algorithm>
 
 namespace adif {
+using i18n::tr;
+using i18n::trf;
+using i18n::trp;
 namespace {
 
 std::string upper(std::string_view s) {
@@ -112,13 +116,15 @@ std::vector<std::string> parseReferences(Program p, std::string_view typed, std:
     if (why) {
         why->clear();
         if (bad && !bad->empty())
-            *why = std::string("Not a ") + programName(p) + " reference: " + bad->front() +
-                   (p == Program::POTA ? " (e.g. US-7929)" : p == Program::WWFF ? " (e.g. KFF-1234)" : " (e.g. W7A/AE-001)");
+            *why = trf("Not a {program} reference: {ref} (e.g. {example})",
+                       {{"program", programName(p)},
+                        {"ref", bad->front()},
+                        {"example", p == Program::POTA ? "US-7929" : p == Program::WWFF ? "KFF-1234" : "W7A/AE-001"}});
         else if (p != Program::POTA && refs.size() > 1)
-            *why = std::string(programName(p)) + " takes one reference per log (" +
-                   (p == Program::WWFF ? "MY_WWFF_REF" : "MY_SOTA_REF") + " holds one).";
+            *why = trf("{program} takes one reference per log ({field} holds one).",
+                       {{"program", programName(p)}, {"field", p == Program::WWFF ? "MY_WWFF_REF" : "MY_SOTA_REF"}});
         else if (refs.empty())
-            *why = "Type the reference you're activating.";
+            *why = tr("Type the reference you're activating.");
     }
     return refs;
 }

@@ -1,4 +1,5 @@
 #include "adif_capture.h"
+#include "adif_i18n.h"
 
 #include "adif_edit.h"
 #include "adif_lint.h"
@@ -10,6 +11,9 @@
 #include <cstring>
 
 namespace adif {
+using i18n::tr;
+using i18n::trf;
+using i18n::trp;
 namespace {
 
 constexpr uint32_t kWsjtxMagic = 0xadbccbda;
@@ -307,8 +311,8 @@ void normalizeCaptured(FieldList &fields, std::string *problem) {
         std::string missing;
         for (const char *n : {"CALL", "QSO_DATE", "TIME_ON", "MODE"})
             if (get(n).empty()) missing += (missing.empty() ? "" : ", ") + std::string(n);
-        if (get("BAND").empty() && get("FREQ").empty()) missing += (missing.empty() ? "" : ", ") + std::string("BAND or FREQ");
-        if (!missing.empty()) *problem = "no " + missing;
+        if (get("BAND").empty() && get("FREQ").empty()) missing += (missing.empty() ? "" : ", ") + tr("BAND or FREQ");
+        if (!missing.empty()) *problem = trf("no {fields}", {{"fields", missing}});
     }
     fields = std::move(out);
 }
@@ -505,7 +509,7 @@ std::vector<CapturedQso> parseCapture(std::string_view bytes, std::string_view s
 
 std::string captureRefusal(std::string_view text, const LintResult &r) {
     if (text.find_first_not_of(" \t\r\n") == std::string_view::npos) return "";
-    if (!canReformat(r)) return "The log has structural problems (wrong lengths or broken tags): run Fix Lengths on it.";
+    if (!canReformat(r)) return tr("The log has structural problems (wrong lengths or broken tags): run Fix Lengths on it.");
     bool records = false, header = false;
     for (const ModelGroup &g : r.model.groups) {
         if (g.header) {
@@ -513,9 +517,9 @@ std::string captureRefusal(std::string_view text, const LintResult &r) {
             continue;
         }
         records = true;
-        if (g.markerB == kNoPos) return "A record in the log has no <EOR>.";
+        if (g.markerB == kNoPos) return tr("A record in the log has no <EOR>.");
     }
-    if (!records && !header) return "It isn't an ADIF log.";
+    if (!records && !header) return tr("It isn't an ADIF log.");
     return "";
 }
 

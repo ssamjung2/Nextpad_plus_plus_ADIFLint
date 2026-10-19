@@ -239,18 +239,18 @@ enum class Where { Active, Disk, Queue };
 Where whereTo(std::string *why) {
     std::string t = target();
     if (t.empty()) {
-        *why = "no log chosen";
+        *why = tr("no log chosen");
         return Where::Queue;
     }
     if (path() == t) return Where::Active;
     bool known = false;
     std::vector<std::string> open = openFiles(&known);
     if (!known) {
-        *why = baseName(t) + " may be open in Nextpad++; switch to it";
+        *why = trf("{file} may be open in Nextpad++; switch to it", {{"file", baseName(t)}});
         return Where::Queue;
     }
     if (std::find(open.begin(), open.end(), t) != open.end()) {
-        *why = baseName(t) + " is open in another tab; switch to it";
+        *why = trf("{file} is open in another tab; switch to it", {{"file", baseName(t)}});
         return Where::Queue;
     }
     return Where::Disk;
@@ -269,7 +269,7 @@ adif::CaptureFormat format(const std::string &eol, bool utf8) {
 bool writeActive(const std::vector<adif::CapturedQso> &qsos, std::vector<adif::CaptureOutcome> *outs, std::string *why) {
     NppHandle h = scintilla();
     if (readOnly(h)) {
-        *why = "the log is read-only";
+        *why = tr("the log is read-only");
         return false;
     }
     std::string before(text(h)), after = before;
@@ -284,7 +284,7 @@ bool writeDisk(const std::vector<adif::CapturedQso> &qsos, std::vector<adif::Cap
     if ([[NSFileManager defaultManager] fileExistsAtPath:file]) {
         NSData *d = [NSData dataWithContentsOfFile:file];
         if (!d) {
-            *why = "can't read " + baseName(target());
+            *why = trf("can't read {file}", {{"file", baseName(target())}});
             return false;
         }
         before.assign((const char *)d.bytes, d.length);
@@ -295,7 +295,7 @@ bool writeDisk(const std::vector<adif::CapturedQso> &qsos, std::vector<adif::Cap
     if (after == before) return true;
     NSError *error = nil;
     if (![[NSData dataWithBytes:after.data() length:after.size()] writeToFile:file options:NSDataWritingAtomic error:&error]) {
-        *why = "can't write " + baseName(target()) + ": " + ADIFStd(error.localizedDescription ?: @"?");
+        *why = trf("can't write {file}: {why}", {{"file", baseName(target())}, {"why", ADIFStd(error.localizedDescription ?: @"?")}});
         return false;
     }
     return true;
@@ -322,14 +322,14 @@ void addRow(const adif::CapturedQso &q, const std::string &result, int severity,
 }
 
 std::string outcomeText(const adif::CaptureOutcome &o, bool disk, int *severity) {
-    std::string where = disk ? " (in the file)" : "";
+    std::string where = disk ? " " + tr("(in the file)") : "";
     *severity = 3;
     switch (o.result) {
-        case adif::CaptureResult::Added: return "Added as record " + std::to_string(o.record) + where;
-        case adif::CaptureResult::Replaced: return "Replaced record " + std::to_string(o.record) + where;
-        case adif::CaptureResult::Deleted: return "Deleted record " + std::to_string(o.record) + where;
-        case adif::CaptureResult::Duplicate: *severity = 0; return "Already in the log (record " + std::to_string(o.record) + ")";
-        case adif::CaptureResult::NotFound: *severity = 1; return "Not in the log, nothing to change";
+        case adif::CaptureResult::Added: return trf("Added as record {n}", {{"n", std::to_string(o.record)}}) + where;
+        case adif::CaptureResult::Replaced: return trf("Replaced record {n}", {{"n", std::to_string(o.record)}}) + where;
+        case adif::CaptureResult::Deleted: return trf("Deleted record {n}", {{"n", std::to_string(o.record)}}) + where;
+        case adif::CaptureResult::Duplicate: *severity = 0; return trf("Already in the log (record {n})", {{"n", std::to_string(o.record)}});
+        case adif::CaptureResult::NotFound: *severity = 1; return tr("Not in the log, nothing to change");
     }
     return "";
 }
@@ -344,10 +344,10 @@ void markQueuedRows(const std::vector<adif::CaptureOutcome> &outs, size_t count,
         queued[i]->queued = false;
         size_t k = i + (count > queued.size() ? count - queued.size() : 0);
         if (k < outs.size() && k < count) {
-            queued[i]->result = outcomeText(outs[k], disk, &queued[i]->severity) + ", from the queue";
+            queued[i]->result = outcomeText(outs[k], disk, &queued[i]->severity) + ", " + tr("from the queue");
             queued[i]->record = outs[k].record;
         } else {
-            queued[i]->result = "Added from the queue";
+            queued[i]->result = tr("Added from the queue");
             queued[i]->severity = 3;
         }
         queued[i]->log = target();
@@ -380,12 +380,12 @@ void enqueue(const std::vector<adif::CapturedQso> &qsos, const std::string &why,
         if (q.kind == adif::CapturedQso::Kind::Add)
             for (const adif::Record &k : known) dup = dup || adif::sameQso(k, cand, dupe);
         if (dup) {
-            if (!quietDuplicates) addRow(q, "Already waiting or in the log", 0);
+            if (!quietDuplicates) addRow(q, tr("Already waiting or in the log"), 0);
             continue;
         }
         queue.push_back(q);
         known.push_back(cand);
-        addRow(q, "Queued: " + why, severity, true);
+        addRow(q, trf("Queued: {why}", {{"why", why}}), severity, true);
     }
     saveQueue(queue);
 }
@@ -409,7 +409,7 @@ void deliver(const std::vector<adif::CapturedQso> &qsos, bool quietDuplicates) {
     bool ok = where == Where::Active ? writeActive(all, &outs, &why) : writeDisk(all, &outs, &why);
     if (!ok) {
         if (!qsos.empty()) enqueue(qsos, why, 2, quietDuplicates);
-        m.note = "Can't add to " + baseName(target()) + ": " + why;
+        m.note = trf("Can't add to {file}: {why}", {{"file", baseName(target())}, {"why", why}});
         m.noteSeverity = 2;
         return;
     }
@@ -428,7 +428,7 @@ void deliver(const std::vector<adif::CapturedQso> &qsos, bool quietDuplicates) {
     size_t total = 0;
     for (const adif::CaptureOutcome &o : outs) total += o.result == adif::CaptureResult::Added;
     if (total) {
-        m.note = "Added " + plural(total, "QSO") + " to " + baseName(target()) + (disk ? " (written to the file)." : ".");
+        m.note = trf(disk ? "Added {qsos} to {file} (written to the file)." : "Added {qsos} to {file}.", {{"qsos", plural(total, "QSO")}, {"file", baseName(target())}});
         m.noteSeverity = 3;
     }
 }
@@ -437,7 +437,7 @@ void route(std::vector<adif::CapturedQso> qsos, bool quietDuplicates) {
     std::vector<adif::CapturedQso> good;
     for (adif::CapturedQso &q : qsos) {
         if (q.kind != adif::CapturedQso::Kind::Delete && !q.problem.empty()) {
-            addRow(q, "Not logged: " + q.problem, 2);
+            addRow(q, trf("Not logged: {why}", {{"why", q.problem}}), 2);
             continue;
         }
         // The same QSO from two sources at once (WSJT-X's UDP message and its log file).
@@ -459,7 +459,7 @@ void route(std::vector<adif::CapturedQso> qsos, bool quietDuplicates) {
             }
         }
         if (twice) {
-            if (!quietDuplicates) addRow(q, "Same QSO as from another source just now", 0);
+            if (!quietDuplicates) addRow(q, tr("Same QSO as from another source just now"), 0);
             continue;
         }
         good.push_back(std::move(q));
@@ -507,11 +507,11 @@ bool allow(Listener &l) {
 // activity): those are dropped quietly; only messages with QSOs count toward the limit.
 void received(Source s, const std::string &bytes) {
     Listener &l = m.listeners[s];
-    const char *hint = s == kTcp ? "Logger over TCP" : s == kN1mm ? "N1MM Logger+" : s == kWsjtx ? "WSJT-X" : "ADIF over UDP";
+    const char *hint = s == kTcp ? "Logger over TCP" : s == kN1mm ? "N1MM Logger+" : s == kWsjtx ? "WSJT-X" : "ADIF over UDP";  // for the parser
     std::vector<adif::CapturedQso> qsos = adif::parseCapture(bytes, hint);
     if (qsos.empty()) return;
     if (!allow(l)) {
-        m.note = std::string(kSources[s].name) + ": more than " + std::to_string(kMaxPerSecond) + " QSOs a second; the rest dropped.";
+        m.note = trf("{source}: more than {n} QSOs a second; the rest dropped.", {{"source", kSources[s].name}, {"n", std::to_string(kMaxPerSecond)}});
         m.noteSeverity = 1;
         refresh();
         return;
@@ -534,7 +534,7 @@ int openUdp(Source s, int p, std::string *problem) {
     in_addr groupAddr{};
     bool multicast = !group.empty();
     if (multicast && (inet_pton(AF_INET, group.c_str(), &groupAddr) != 1 || !IN_MULTICAST(ntohl(groupAddr.s_addr)))) {
-        *problem = group + " is not a multicast group (224.0.0.0 to 239.255.255.255)";
+        *problem = trf("{group} is not a multicast group (224.0.0.0 to 239.255.255.255)", {{"group", group}});
         return -1;
     }
     int fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -559,10 +559,11 @@ int openUdp(Source s, int p, std::string *problem) {
         int e = errno;
         close(fd);
         if (e == EADDRINUSE)
-            *problem = "port " + std::to_string(p) + " is in use by another program" +
-                       (s == kWsjtx && !multicast ? " (GridTracker or JTAlert?); use a multicast group in WSJT-X and here" : "");
+            *problem = trf(s == kWsjtx && !multicast ? "port {port} is in use by another program (GridTracker or JTAlert?); use a multicast group in WSJT-X and here"
+                                                     : "port {port} is in use by another program",
+                           {{"port", std::to_string(p)}});
         else
-            *problem = "can't listen on port " + std::to_string(p) + ": " + std::strerror(e);
+            *problem = trf("can't listen on port {port}: {why}", {{"port", std::to_string(p)}, {"why", std::strerror(e)}});
         return -1;
     }
     if (multicast) {
@@ -574,7 +575,7 @@ int openUdp(Source s, int p, std::string *problem) {
             joined |= setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mr, sizeof mr) == 0;
         }
         if (!joined) {
-            *problem = "can't join " + group + ": " + std::strerror(errno);
+            *problem = trf("can't join {group}: {why}", {{"group", group}, {"why", std::strerror(errno)}});
             close(fd);
             return -1;
         }
@@ -658,7 +659,7 @@ void readTcp(const std::shared_ptr<TcpClient> &c) {
             c->buffer.append(buf, (size_t)n);
             c->last = now();
             if (c->buffer.size() > kMaxMessage) {
-                m.note = "TCP: a connection sent more than 64 KB; closed.";
+                m.note = tr("TCP: a connection sent more than 64 KB; closed.");
                 m.noteSeverity = 1;
                 closeClient(c, false);
                 refresh();
@@ -728,8 +729,8 @@ void startTcp() {
     if (fd < 0 || bind(fd, (sockaddr *)&a, sizeof a) != 0 || listen(fd, (int)kMaxTcpClients) != 0) {
         int e = errno;
         if (fd >= 0) close(fd);
-        l.status = "TCP: " + (e == EADDRINUSE ? "port " + std::to_string(p) + " is in use by another program"
-                                              : "can't listen on port " + std::to_string(p) + ": " + std::strerror(e));
+        l.status = "TCP: " + (e == EADDRINUSE ? trf("port {port} is in use by another program", {{"port", std::to_string(p)}})
+                                              : trf("can't listen on port {port}: {why}", {{"port", std::to_string(p)}, {"why", std::strerror(e)}}));
         l.severity = 2;
         return;
     }
@@ -783,7 +784,7 @@ void openVnode(const std::shared_ptr<Watch> &w) {
 void readWatch(const std::shared_ptr<Watch> &w) {
     struct stat st{};
     if (stat(w->path.c_str(), &st) != 0) {
-        w->status = baseName(w->path) + ": waiting for the file";
+        w->status = trf("{file}: waiting for the file", {{"file", baseName(w->path)}});
         w->seen = false;
         return;
     }
@@ -814,7 +815,7 @@ void readWatch(const std::shared_ptr<Watch> &w) {
     if (eor == std::string::npos) {
         if (chunk.size() > (1u << 20)) {  // a megabyte without a record: not an ADIF log
             w->offset = st.st_size;
-            w->status = baseName(w->path) + ": no ADIF records";
+            w->status = trf("{file}: no ADIF records", {{"file", baseName(w->path)}});
             saveOffsets();
         }
         return;
@@ -918,7 +919,7 @@ void restartIfRunning() {
 std::string chooseFile(const char *testVariable, NSString *message) {
     if (const char *test = getenv(testVariable)) return test;
     NSOpenPanel *p = [NSOpenPanel openPanel];
-    p.message = message;
+    p.message = T(message);
     p.canChooseFiles = YES;
     p.canChooseDirectories = NO;
     p.allowsMultipleSelection = NO;
@@ -934,13 +935,13 @@ void setTarget(const std::string &p) {
     if (p.empty()) return;
     std::vector<std::string> files = watchedFiles();
     if (std::find(files.begin(), files.end(), p) != files.end()) {
-        m.note = baseName(p) + " is a watched file: QSOs added to it would come straight back. Choose another log.";
+        m.note = trf("{file} is a watched file: QSOs added to it would come straight back. Choose another log.", {{"file", baseName(p)}});
         m.noteSeverity = 2;
         refresh();
         return;
     }
     setSetting("monitorTarget", p);
-    m.note = "Captured QSOs go into " + baseName(p) + ".";
+    m.note = trf("Captured QSOs go into {file}.", {{"file", baseName(p)}});
     m.noteSeverity = -1;
     deliver({}, false);
     refresh();
@@ -949,7 +950,7 @@ void setTarget(const std::string &p) {
 void addWatch(const std::string &p) {
     if (p.empty()) return;
     if (p == target()) {
-        m.note = baseName(p) + " is the log QSOs go into; it can't also be watched.";
+        m.note = trf("{file} is the log QSOs go into; it can't also be watched.", {{"file", baseName(p)}});
         m.noteSeverity = 2;
         refresh();
         return;
@@ -957,7 +958,7 @@ void addWatch(const std::string &p) {
     std::vector<std::string> files = watchedFiles();
     if (std::find(files.begin(), files.end(), p) == files.end()) files.push_back(p);
     setSetting("monitorFiles", join(files, "|"));
-    m.note = "Watching " + baseName(p) + ": QSOs added to it from now on are captured.";
+    m.note = trf("Watching {file}: QSOs added to it from now on are captured.", {{"file", baseName(p)}});
     m.noteSeverity = -1;
     restartIfRunning();
 }
@@ -968,12 +969,12 @@ void copyRows() {
         if (r >= 0 && (size_t)r < m.rows.size() && m.rows[(size_t)r].qso.kind == adif::CapturedQso::Kind::Add)
             out += adif::buildRecord(m.rows[(size_t)r].qso.fields, adif::Layout::RecordPerLine, "\n", lengthUnit(), true).text;
     if (out.empty()) {
-        m.note = "Select the QSOs to copy.";
+        m.note = tr("Select the QSOs to copy.");
         m.noteSeverity = 1;
     } else {
         [[NSPasteboard generalPasteboard] clearContents];
         [[NSPasteboard generalPasteboard] setString:ADIFString(out) forType:NSPasteboardTypeString];
-        m.note = "Copied as ADIF records.";
+        m.note = tr("Copied as ADIF records.");
         m.noteSeverity = -1;
     }
     refresh();
@@ -984,7 +985,7 @@ void goToRow(NSInteger row) {
     const Row &r = m.rows[(size_t)row];
     if (!r.record || r.log.empty()) return;
     if (path() != r.log) {
-        m.note = "Open " + baseName(r.log) + " to see record " + std::to_string(r.record) + ".";
+        m.note = trf("Open {file} to see record {n}.", {{"file", baseName(r.log)}, {"n", std::to_string(r.record)}});
         m.noteSeverity = -1;
         refresh();
         return;
@@ -1004,32 +1005,32 @@ void goToRow(NSInteger row) {
 void refresh() {
     if (!m.w) return;
     std::string t = target();
-    m.targetLabel.stringValue = t.empty() ? @"(none chosen)" : ADIFString(t).stringByAbbreviatingWithTildeInPath;
+    m.targetLabel.stringValue = t.empty() ? T(@"(none chosen)") : ADIFString(t).stringByAbbreviatingWithTildeInPath;
     [m.w setTarget:t.empty() ? T(@"Log: none chosen")
                              : TF(path() == t ? @"Log: {name} (open)" : @"Log: {name}", @{@"name" : ADIFString(baseName(t))})];
     std::vector<std::string> files;
     for (const std::string &f : watchedFiles()) files.push_back(baseName(f));
-    m.filesLabel.stringValue = files.empty() ? @"none" : ADIFString(join(files, ", "));
-    m.startStop.title = m.running ? @"Stop" : @"Start";
+    m.filesLabel.stringValue = files.empty() ? T(@"none") : ADIFString(join(files, ", "));
+    m.startStop.title = m.running ? T(@"Stop") : T(@"Start");
     size_t queued = queuedCount();
     m.flush.enabled = queued > 0;
-    m.flush.title = queued ? ADIFString("Add " + plural(queued, "Queued QSO")) : @"Add Queued QSOs";
+    m.flush.title = queued ? ADIFString("Add " + plural(queued, "Queued QSO")) : T(@"Add Queued QSOs");
 
     std::vector<std::string> on, problems;
     for (const Listener &l : m.listeners)
         if (!l.status.empty()) (l.severity == 2 ? problems : on).push_back(l.status);
-    for (const auto &w : m.watches) on.push_back("file " + w->status);
-    if (m.running && on.empty() && problems.empty()) problems.push_back("nothing to listen to: tick a source or watch a file");
-    if (m.running) [m.w setHeadline:ADIFString(on.empty() ? std::string("Not listening") : "Listening: " + join(on, " · ")) severity:on.empty() ? 2 : 3];
+    for (const auto &w : m.watches) on.push_back(trf("file {status}", {{"status", w->status}}));
+    if (m.running && on.empty() && problems.empty()) problems.push_back(tr("nothing to listen to: tick a source or watch a file"));
+    if (m.running) [m.w setHeadline:ADIFString(on.empty() ? tr("Not listening") : trf("Listening: {list}", {{"list", join(on, " · ")}})) severity:on.empty() ? 2 : 3];
     else [m.w setHeadline:@"Stopped" severity:-1];
     std::string status = join(problems, "; ");
     int severity = problems.empty() ? m.noteSeverity : 2;
     if (!m.note.empty()) status += (status.empty() ? "" : ". ") + m.note;
     else if (problems.empty()) severity = -1;
     if (status.empty())
-        status = m.running ? "Waiting for QSOs. Log one in WSJT-X (or the program you set up) and it appears here."
-                           : "Choose the log captured QSOs go into, tick the programs to listen to, then Start. It only "
-                             "listens on this Mac unless you allow other computers; it never sends anything.";
+        status = m.running ? tr("Waiting for QSOs. Log one in WSJT-X (or the program you set up) and it appears here.")
+                           : tr("Choose the log captured QSOs go into, tick the programs to listen to, then Start. It only listens on this Mac unless "
+                                "you allow other computers; it never sends anything.");
     [m.w setStatus:ADIFString(status) severity:severity];
 
     std::vector<std::vector<std::string>> rows;
@@ -1060,11 +1061,11 @@ void cmdMonitor() {
         m.targetLabel.lineBreakMode = NSLineBreakByTruncatingMiddle;
         [m.targetLabel.widthAnchor constraintLessThanOrEqualToConstant:380].active = YES;
         NSButton *choose = [NSButton buttonWithTitle:T(@"Choose...") target:nil action:nil];
-        ADIFOnAction(choose, ^{ setTarget(chooseFile("ADIFLINT_TEST_TARGET", @"Choose the log captured QSOs go into")); });
+        ADIFOnAction(choose, ^{ setTarget(chooseFile("ADIFLINT_TEST_TARGET", N(@"Choose the log captured QSOs go into"))); });
         NSButton *useOpen = [NSButton buttonWithTitle:T(@"Use the Open Log") target:nil action:nil];
         ADIFOnAction(useOpen, ^{
             if (path().empty()) {
-                m.note = "Save this document as an .adi file first.";
+                m.note = tr("Save this document as an .adi file first.");
                 m.noteSeverity = 2;
                 refresh();
                 return;
@@ -1093,7 +1094,7 @@ void cmdMonitor() {
                 restartIfRunning();
             });
         };
-        sourceRow(kWsjtx, @"WSJT-X, JTDX, JS8Call (UDP Server) port");
+        sourceRow(kWsjtx, N(@"WSJT-X, JTDX, JS8Call (UDP Server) port"));
         m.multicast = ADIFTextField(@"none", 110);
         m.multicast.stringValue = ADIFString(setting("monitorMulticast"));
         m.multicast.cell.sendsActionOnEndEditing = YES;
@@ -1106,10 +1107,10 @@ void cmdMonitor() {
             restartIfRunning();
         });
         [w addOptionRow:@[ m.checks[kWsjtx], m.ports[kWsjtx], ADIFLabel(@"multicast group:"), m.multicast ]];
-        sourceRow(kAdif, @"ADIF over UDP port");
-        sourceRow(kN1mm, @"N1MM Logger+ contacts (XML) port");
+        sourceRow(kAdif, N(@"ADIF over UDP port"));
+        sourceRow(kN1mm, N(@"N1MM Logger+ contacts (XML) port"));
         [w addOptionRow:@[ m.checks[kAdif], m.ports[kAdif], m.checks[kN1mm], m.ports[kN1mm] ]];
-        sourceRow(kTcp, @"Logger commands over TCP (DXKeeper, HRD form) port");
+        sourceRow(kTcp, N(@"Logger commands over TCP (DXKeeper, HRD form) port"));
         [w addOptionRow:@[ m.checks[kTcp], m.ports[kTcp] ]];
 
         m.filesLabel = ADIFLabel(@"");
@@ -1119,19 +1120,19 @@ void cmdMonitor() {
         ADIFOnAction(wsjtx, ^{
             std::string p = wsjtxLogPath();
             if (![[NSFileManager defaultManager] fileExistsAtPath:ADIFString(p)]) {
-                m.note = "WSJT-X's log isn't at " + ADIFStd(ADIFString(p).stringByAbbreviatingWithTildeInPath) +
-                         " yet (it appears with the first QSO WSJT-X logs). Watching it anyway.";
+                m.note = trf("WSJT-X's log isn't at {path} yet (it appears with the first QSO WSJT-X logs). Watching it anyway.",
+                             {{"path", ADIFStd(ADIFString(p).stringByAbbreviatingWithTildeInPath)}});
                 m.noteSeverity = 1;
             }
             addWatch(p);
         });
         NSButton *addFile = [NSButton buttonWithTitle:T(@"Add File...") target:nil action:nil];
-        ADIFOnAction(addFile, ^{ addWatch(chooseFile("ADIFLINT_TEST_WATCH", @"Choose a log file another program adds QSOs to")); });
+        ADIFOnAction(addFile, ^{ addWatch(chooseFile("ADIFLINT_TEST_WATCH", N(@"Choose a log file another program adds QSOs to"))); });
         NSButton *clearFiles = [NSButton buttonWithTitle:T(@"Stop Watching") target:nil action:nil];
         ADIFOnAction(clearFiles, ^{
             setSetting("monitorFiles", "");
             setSetting("monitorFileOffsets", "");
-            m.note = "No files watched.";
+            m.note = tr("No files watched.");
             m.noteSeverity = -1;
             restartIfRunning();
         });

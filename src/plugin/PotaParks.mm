@@ -1,4 +1,5 @@
 #import "PotaParks.h"
+#import "L10n.h"
 
 #import "Lookup.h"
 #import "PluginHost.h"
@@ -49,8 +50,9 @@ const adif::PotaParks &ADIFPotaParks(void) {
 }
 
 NSString *ADIFPotaParksStatus(void) {
-    if (!ADIFPotaParks().size()) return @"Not downloaded.";
-    std::string s = grouped(parks.size()) + " parks (" + grouped(parks.active()) + " active)" + (listDate.empty() ? "" : ", downloaded " + listDate) + ".";
+    if (!ADIFPotaParks().size()) return T(@"Not downloaded.");
+    std::string s = trf(listDate.empty() ? "{n} parks ({active} active)." : "{n} parks ({active} active), downloaded {date}.",
+                        {{"n", grouped(parks.size())}, {"active", grouped(parks.active())}, {"date", listDate}});
     return @(s.c_str());
 }
 
@@ -58,12 +60,12 @@ void ADIFUpdatePotaParks(void (^done)(BOOL ok, NSString *message)) {
     NSString *agent = [NSString stringWithFormat:@"ADIFLint/%s", ADIFLINT_VERSION];
     ADIFDownloadPotaParks(agent, ^(NSData *body, NSString *error) {
         if (error) {
-            done(NO, [@"Could not download POTA's park list: " stringByAppendingString:error]);
+            done(NO, TF(@"Could not download POTA's park list: {why}", @{@"why" : error}));
             return;
         }
         adif::PotaParks fresh;
         if (body.length > 64 * 1024 * 1024 || !fresh.load(std::string_view((const char *)body.bytes, body.length))) {
-            done(NO, parks.size() ? @"The download wasn't POTA's park list; the old copy is kept." : @"The download wasn't POTA's park list.");
+            done(NO, parks.size() ? T(@"The download wasn't POTA's park list; the old copy is kept.") : T(@"The download wasn't POTA's park list."));
             return;
         }
         std::string path = cachePath();

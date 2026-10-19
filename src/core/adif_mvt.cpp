@@ -1,9 +1,12 @@
 #include "adif_mvt.h"
+#include "adif_i18n.h"
 
 #include <cstring>
 #include <limits>
 
 namespace adif::mvt {
+using adif::i18n::tr;
+using adif::i18n::trf;
 namespace {
 
 // Protocol buffers' wire format (protobuf.dev, encoding): each field a varint key, number << 3
@@ -193,19 +196,19 @@ bool decode(std::string_view tile, std::vector<Layer> *out, std::string *why) {
     uint32_t n = 0, wire = 0;
     while (!r.done()) {
         if (!r.key(&n, &wire)) {
-            if (why) *why = "not a vector tile";
+            if (why) *why = tr("not a vector tile");
             return false;
         }
         if (n == 3 && wire == 2) {
             std::string_view s;
             Layer l;
             if (!r.bytes(&s) || !decodeLayer(s, &l)) {
-                if (why) *why = "a damaged layer";
+                if (why) *why = tr("a damaged layer");
                 return false;
             }
             out->push_back(std::move(l));
         } else if (!r.skip(wire)) {
-            if (why) *why = "a damaged field";
+            if (why) *why = tr("a damaged field");
             return false;
         }
     }

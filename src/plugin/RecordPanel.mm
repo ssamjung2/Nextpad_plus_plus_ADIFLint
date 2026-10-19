@@ -75,14 +75,14 @@ static NSButton *symbolButton(NSString *symbol, NSString *fallback, NSString *ti
     _table.menu.delegate = self;  // right-click: the problem's repair
     if (@available(macOS 11.0, *)) _table.style = NSTableViewStyleFullWidth;
     struct { NSString *ident, *title, *tip; CGFloat width; } cols[] = {
-        {kPosColumn, @"#", @"Position in the record: sort by it for the file's order", 30},
-        {kFieldColumn, @"Field", @"Sort by field name", 130},
-        {kValueColumn, @"Value", @"Sort by value", 150},
-        {kNoteColumn, @"Problem", @"Sort by problem: errors first", 160}};
+        {kPosColumn, @"#", N(@"Position in the record: sort by it for the file's order"), 30},
+        {kFieldColumn, N(@"Field"), N(@"Sort by field name"), 130},
+        {kValueColumn, N(@"Value"), N(@"Sort by value"), 150},
+        {kNoteColumn, N(@"Problem"), N(@"Sort by problem: errors first"), 160}};
     for (auto &c : cols) {
         NSTableColumn *col = [[NSTableColumn alloc] initWithIdentifier:c.ident];
-        col.title = c.title;
-        col.headerToolTip = c.tip;
+        col.title = T(c.title);
+        col.headerToolTip = T(c.tip);
         col.width = c.width;
         col.minWidth = c.ident == kPosColumn ? 26 : 60;
         // Click a heading to sort the rows shown; the record itself is not changed.
@@ -368,14 +368,14 @@ static NSButton *symbolButton(NSString *symbol, NSString *fallback, NSString *ti
     [menu removeAllItems];
     NSInteger row = [self snapshotRowFor:_table.clickedRow];
     if (row >= 0 && !_snapshot.rows[(size_t)row].repair.empty()) {
-        NSMenuItem *item = [menu addItemWithTitle:[@"Repair: " stringByAppendingString:ADIFString(_snapshot.rows[(size_t)row].repair)]
+        NSMenuItem *item = [menu addItemWithTitle:TF(@"Repair: {repair}", @{@"repair" : ADIFString(_snapshot.rows[(size_t)row].repair)})
                                            action:@selector(repairRow:)
                                     keyEquivalent:@""];
         item.target = self;
         item.tag = row;
     }
     if (!_snapshot.footerRepair.empty()) {
-        NSMenuItem *item = [menu addItemWithTitle:[@"Repair Record: " stringByAppendingString:ADIFString(_snapshot.footerRepair)]
+        NSMenuItem *item = [menu addItemWithTitle:TF(@"Repair Record: {repair}", @{@"repair" : ADIFString(_snapshot.footerRepair)})
                                            action:@selector(repairRow:)
                                     keyEquivalent:@""];
         item.target = self;

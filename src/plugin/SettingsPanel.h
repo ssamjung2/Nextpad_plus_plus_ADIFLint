@@ -54,6 +54,10 @@
 // After a check, while downloading, and when done: what to say, and which buttons work.
 - (void)setMapDetailState:(NSString *)message ok:(BOOL)ok checked:(BOOL)checked busy:(BOOL)busy;
 
+// Language: "" for Nextpad++'s, else a code from ADIFLanguages() (L10n.h).
+@property(nonatomic, copy) void (^onLanguageChosen)(NSString *code);
+- (void)setLanguage:(NSString *)code;
+
 // Offline Mode: no network requests (Network.h).
 @property(nonatomic, copy) void (^onOfflineToggled)(BOOL on);
 - (void)setOffline:(BOOL)on;

@@ -157,35 +157,35 @@ struct LayerUi {
     NSString *showTip, *overlayTip, *labelsTip;
 };
 const LayerUi kLayerUi[] = {
-    {kLayerSquares, @"grid", @"Grid squares", "mapSquares", "mapGrid", "mapLabels", true, true, @"Each grid square worked, in the map's colours",
-     @"The Maidenhead grid: its fields (20 x 10 degrees), and its squares (2 x 1) when zoomed in",
-     @"Field names (FN, EM...), and square names (FN31) when zoomed in"},
-    {kLayerCountries, @"countries", @"Countries", "mapDxcc", "mapCountries", "mapCountryLabels", true, false,
-     @"Each DXCC entity worked, its own land shaded (Alaska apart from the United States, Sardinia from Italy, Scotland from England); "
-     @"a dot for one too small to shade",
-     @"Every country outlined, coasts and borders (Natural Earth, public domain)", @"Each country's name, where it fits inside the country on screen"},
-    {kLayerStates, @"states", @"US states", "mapShowStates", "mapUsStates", "mapStateLabels", false, false,
-     @"Each US state worked, shaded: from STATE, else where the QSO was", @"State lines (Natural Earth, public domain)",
-     @"Each state's postal code, where it fits"},
-    {kLayerCounties, @"counties", @"US counties", "mapShowCounties", "mapCounties", "mapCountyLabels", false, false,
-     @"Each US county worked, shaded: from CNTY, else where the QSO was (LAT/LON or a 6-character grid)",
-     @"County lines (Natural Earth, public domain), from 2.5x zoom", @"Each county's name, where it fits"},
-    {kLayerCq, @"cq", @"CQ zones", "mapShowCq", "mapCqZones", "mapCqLabels", false, false,
-     @"Each CQ zone worked, shaded: from CQZ, else where the QSO was, else the country data",
-     @"CQ zones 1-40 (HB9HIL's hamradio-zones-geojson, MIT); approximate", @"The CQ zones' numbers"},
-    {kLayerItu, @"itu", @"ITU zones", "mapShowItu", "mapItuZones", "mapItuLabels", false, false,
-     @"Each ITU zone worked, shaded: from ITUZ, else where the QSO was, else the country data",
-     @"ITU zones 1-90 (HB9HIL's hamradio-zones-geojson, MIT); approximate", @"The ITU zones' numbers"},
-    {kLayerPota, @"pota", @"POTA", "mapShowPota", "mapPota", "mapPotaLabels", true, false,
-     @"The POTA parks you hunted (a pin) and activated (a pin with a star), at the parks themselves with POTA's park list "
-     @"(Settings, POTA Parks), else at the QSO's grid",
-     @"Every active POTA park you haven't worked, as a dot (needs POTA's park list, from Settings)",
-     @"Each park's reference (US-1234): the parks you worked always, the others once zoomed in to a few hundred, and names once zoomed in to fewer"},
-    {kLayerIota, @"iota", @"IOTA", "mapShowIota", "mapIota", "mapIotaLabels", false, false,
-     @"The IOTA groups in your log, filled in (needs IOTA's group list, from Settings)", @"Every IOTA group's box, dashed",
-     @"Each group's reference (EU-005), and its name where there is room"},
-    {kLayerCities, @"cities", @"Cities", nullptr, "mapCities", "mapCityLabels", false, false, nil,
-     @"7,300 cities and towns (Natural Earth, public domain), more as you zoom in", @"City names, where they don't run into each other"},
+    {kLayerSquares, @"grid", N(@"Grid squares"), "mapSquares", "mapGrid", "mapLabels", true, true, N(@"Each grid square worked, in the map's colours"),
+     N(@"The Maidenhead grid: its fields (20 x 10 degrees), and its squares (2 x 1) when zoomed in"),
+     N(@"Field names (FN, EM...), and square names (FN31) when zoomed in")},
+    {kLayerCountries, @"countries", N(@"Countries"), "mapDxcc", "mapCountries", "mapCountryLabels", true, false,
+     N(@"Each DXCC entity worked, its own land shaded (Alaska apart from the United States, Sardinia from Italy, Scotland from England); "
+     @"a dot for one too small to shade"),
+     N(@"Every country outlined, coasts and borders (Natural Earth, public domain)"), N(@"Each country's name, where it fits inside the country on screen")},
+    {kLayerStates, @"states", N(@"US states"), "mapShowStates", "mapUsStates", "mapStateLabels", false, false,
+     N(@"Each US state worked, shaded: from STATE, else where the QSO was"), N(@"State lines (Natural Earth, public domain)"),
+     N(@"Each state's postal code, where it fits")},
+    {kLayerCounties, @"counties", N(@"US counties"), "mapShowCounties", "mapCounties", "mapCountyLabels", false, false,
+     N(@"Each US county worked, shaded: from CNTY, else where the QSO was (LAT/LON or a 6-character grid)"),
+     N(@"County lines (Natural Earth, public domain), from 2.5x zoom"), N(@"Each county's name, where it fits")},
+    {kLayerCq, @"cq", N(@"CQ zones"), "mapShowCq", "mapCqZones", "mapCqLabels", false, false,
+     N(@"Each CQ zone worked, shaded: from CQZ, else where the QSO was, else the country data"),
+     N(@"CQ zones 1-40 (HB9HIL's hamradio-zones-geojson, MIT); approximate"), N(@"The CQ zones' numbers")},
+    {kLayerItu, @"itu", N(@"ITU zones"), "mapShowItu", "mapItuZones", "mapItuLabels", false, false,
+     N(@"Each ITU zone worked, shaded: from ITUZ, else where the QSO was, else the country data"),
+     N(@"ITU zones 1-90 (HB9HIL's hamradio-zones-geojson, MIT); approximate"), N(@"The ITU zones' numbers")},
+    {kLayerPota, @"pota", N(@"POTA"), "mapShowPota", "mapPota", "mapPotaLabels", true, false,
+     N(@"The POTA parks you hunted (a pin) and activated (a pin with a star), at the parks themselves with POTA's park list "
+     @"(Settings, POTA Parks), else at the QSO's grid"),
+     N(@"Every active POTA park you haven't worked, as a dot (needs POTA's park list, from Settings)"),
+     N(@"Each park's reference (US-1234): the parks you worked always, the others once zoomed in to a few hundred, and names once zoomed in to fewer")},
+    {kLayerIota, @"iota", N(@"IOTA"), "mapShowIota", "mapIota", "mapIotaLabels", false, false,
+     N(@"The IOTA groups in your log, filled in (needs IOTA's group list, from Settings)"), N(@"Every IOTA group's box, dashed"),
+     N(@"Each group's reference (EU-005), and its name where there is room")},
+    {kLayerCities, @"cities", N(@"Cities"), nullptr, "mapCities", "mapCityLabels", false, false, nil,
+     N(@"7,300 cities and towns (Natural Earth, public domain), more as you zoom in"), N(@"City names, where they don't run into each other")},
 };
 
 ADIFMapStyle savedStyle() {
@@ -220,7 +220,7 @@ ADIFMapStyle savedStyle() {
     return s;
 }
 
-void setStatus(const std::string &text) { mw.status.stringValue = ADIFString(text); }
+void setStatus(const std::string &text) { mw.status.stringValue = ADIFString(tr(text)); }  // a fixed text is translated
 
 std::string callsOf(const std::vector<size_t> &qsos) {
     std::vector<std::string> calls;
@@ -232,43 +232,52 @@ std::string callsOf(const std::vector<size_t> &qsos) {
     return out;
 }
 
+// "{km} km at {bearing}° from {home}." from home to a place, or "" without a home.
+std::string fromHome(double lat, double lon) {
+    double hlat, hlon;
+    if (mw.home.empty() || !adif::gridToLatLon(mw.home, &hlat, &hlon)) return "";
+    char bearing[16];
+    snprintf(bearing, sizeof bearing, "%.0f", adif::initialBearing(hlat, hlon, lat, lon));
+    return " " + trf("{km} km at {bearing}° from {home}.", {{"km", std::to_string(std::lround(adif::greatCircleKm(hlat, hlon, lat, lon)))},
+                                                              {"bearing", bearing}, {"home", mw.home}});
+}
+
+// "3 QSOs, confirmed (K1AB, W2CD)" or "3 QSOs (K1AB, W2CD)".
+std::string worked(const std::vector<size_t> &qsos, bool confirmed) {
+    return trf(confirmed ? "{qsos}, confirmed ({calls})" : "{qsos} ({calls})", {{"qsos", plural(qsos.size(), "QSO")}, {"calls", callsOf(qsos)}});
+}
+
 std::string describe(const ADIFMapHit &h) {
     std::string where;
     if (!mw.home.empty() && !h.square.empty()) {
         std::string d = adif::gridDistanceText(mw.home, h.square);
-        if (!d.empty()) where = " " + d + " from " + mw.home + ".";
+        if (!d.empty()) where = " " + trf("{distance} from {home}.", {{"distance", d}, {"home", mw.home}});
     }
     switch (h.kind) {
         case ADIFMapHit::Square: {
             const adif::MapSquare &sq = mw.data.squares[h.index];
-            return sq.grid + ": " + plural(sq.qsos, "QSO") + (sq.confirmed ? ", confirmed" : "") + " (" + callsOf(sq.qsoIndex) + ")." + where;
+            return sq.grid + ": " + worked(sq.qsoIndex, sq.confirmed) + "." + where;
         }
         case ADIFMapHit::Dxcc: {
             const ADIFMapEntity &e = mw.dxcc[h.index];
-            return e.name + " (DXCC " + std::to_string(e.dxcc) + "): " + plural(e.qsos.size(), "QSO") + (e.confirmed ? ", confirmed" : "") + " (" +
-                   callsOf(e.qsos) + ")";
+            return trf("{name} (DXCC {n})", {{"name", e.name}, {"n", std::to_string(e.dxcc)}}) + ": " + worked(e.qsos, e.confirmed);
         }
         case ADIFMapHit::Park: {
             const adif::MapPark &p = mw.data.parks[h.index];
             size_t n = 0;
             for (const adif::MapPark &o : mw.data.parks) n += o.reference == p.reference && o.program == p.program;
             const adif::MapQso &q = mw.data.qsos[p.qso];
-            return p.program + " " + p.reference + ": " + plural(n, "QSO") + ", in " + p.grid + " (" + q.call + " " + q.date + ")";
+            return trf("{program} {ref}: {qsos}, in {grid} ({call} {date})",
+                       {{"program", p.program}, {"ref", p.reference}, {"qsos", plural(n, "QSO")}, {"grid", p.grid}, {"call", q.call}, {"date", q.date}});
         }
         case ADIFMapHit::Contact: {
             const ADIFMapContact &c = mw.view.contacts[h.index];
             const adif::MapQso &q = mw.data.qsos[c.qsos[0]];
             char at[64];
             snprintf(at, sizeof at, "%.4f %c, %.4f %c", std::fabs(c.lat), c.lat < 0 ? 'S' : 'N', std::fabs(c.lon), c.lon < 0 ? 'W' : 'E');
-            std::string from;
-            double hlat, hlon;
-            if (!mw.home.empty() && adif::gridToLatLon(mw.home, &hlat, &hlon)) {
-                char d[96];
-                snprintf(d, sizeof d, " %ld km at %.0f° from %s.", std::lround(adif::greatCircleKm(hlat, hlon, c.lat, c.lon)),
-                         adif::initialBearing(hlat, hlon, c.lat, c.lon), mw.home.c_str());
-                from = d;
-            }
-            return callsOf(c.qsos) + ": " + plural(c.qsos.size(), "QSO") + " at " + at + " (from " + q.locatedBy + ")." + from;
+            return trf("{calls}: {qsos} at {place} (from {source}).",
+                       {{"calls", callsOf(c.qsos)}, {"qsos", plural(c.qsos.size(), "QSO")}, {"place", at}, {"source", q.locatedBy}}) +
+                   fromHome(c.lat, c.lon);
         }
         case ADIFMapHit::Pota: {
             if (h.index >= ADIFPotaParks().size()) break;
@@ -278,19 +287,14 @@ std::string describe(const ADIFMapHit &h) {
             if (!w.hunted.empty()) {
                 bool confirmed = false;
                 for (size_t qi : w.hunted) confirmed |= qi < mw.data.qsos.size() && mw.data.qsos[qi].confirmed;
-                what = "hunted, " + plural(w.hunted.size(), "QSO") + (confirmed ? ", confirmed" : "") + " (" + callsOf(w.hunted) + ")";
+                what = trf("hunted, {qsos}", {{"qsos", worked(w.hunted, confirmed)}});
             }
-            if (!w.activated.empty()) what += (what.empty() ? "" : "; ") + std::string("activated by you, ") + plural(w.activated.size(), "QSO");
-            if (what.empty()) what = "not worked";
-            std::string from;
-            double hlat, hlon;
-            if (!mw.home.empty() && adif::gridToLatLon(mw.home, &hlat, &hlon)) {
-                char d[96];
-                snprintf(d, sizeof d, " %ld km at %.0f° from %s.", std::lround(adif::greatCircleKm(hlat, hlon, p.lat, p.lon)),
-                         adif::initialBearing(hlat, hlon, p.lat, p.lon), mw.home.c_str());
-                from = d;
-            }
-            return "POTA " + p.ref + " " + p.name + " (" + p.location + (p.active ? "" : ", inactive") + "): " + what + "." + from;
+            if (!w.activated.empty())
+                what += (what.empty() ? "" : "; ") + trf("activated by you, {qsos}", {{"qsos", plural(w.activated.size(), "QSO")}});
+            if (what.empty()) what = tr("not worked");
+            return trf(p.active ? "POTA {ref} {name} ({location}): {what}." : "POTA {ref} {name} ({location}, inactive): {what}.",
+                       {{"ref", p.ref}, {"name", p.name}, {"location", p.location}, {"what", what}}) +
+                   fromHome(p.lat, p.lon);
         }
         case ADIFMapHit::Area: {
             const adif::AreaIndex &index = adif::areaIndex(layerOverlay(h.layer));
@@ -307,19 +311,18 @@ std::string describe(const ADIFMapHit &h) {
                 byField += from == adif::AreaFrom::Field, byPlace += from == adif::AreaFrom::Location, byCty += from == adif::AreaFrom::CountryFile;
             }
             static const char *const kField[] = {"", "", "STATE", "CNTY", "CQZ", "ITUZ"};
-            std::string title = h.layer == kLayerCq    ? "CQ zone " + name
-                                : h.layer == kLayerItu ? "ITU zone " + name
+            std::string title = h.layer == kLayerCq    ? trf("CQ zone {n}", {{"n", name}})
+                                : h.layer == kLayerItu ? trf("ITU zone {n}", {{"n", name}})
                                 : h.layer == kLayerCounties && name.size() > 3 ? name.substr(3) + ", " + name.substr(0, 2)
                                                                                  : name;
             std::string from;
             auto part = [&](size_t n, const std::string &how) {
-                if (n) from += (from.empty() ? "" : ", ") + std::to_string(n) + " " + how;
+                if (n) from += (from.empty() ? "" : ", ") + how;
             };
-            part(byField, std::string("by ") + kField[h.layer]);
-            part(byPlace, "by where the QSO was");
-            part(byCty, "by the country data");
-            return title + ": " + plural(qsos.size(), "QSO") + (confirmed ? ", confirmed" : "") + " (" + callsOf(qsos) + ")" +
-                   (from.empty() ? "" : "; " + from) + "." + where;
+            part(byField, trf("{n} by {field}", {{"n", std::to_string(byField)}, {"field", kField[h.layer]}}));
+            part(byPlace, trf("{n} by where the QSO was", {{"n", std::to_string(byPlace)}}));
+            part(byCty, trf("{n} by the country data", {{"n", std::to_string(byCty)}}));
+            return title + ": " + worked(qsos, confirmed) + (from.empty() ? "" : "; " + from) + "." + where;
         }
         case ADIFMapHit::Iota: {
             if (h.index >= ADIFIotaGroups().size()) break;
@@ -327,10 +330,9 @@ std::string describe(const ADIFMapHit &h) {
             std::vector<size_t> qsos = [mw.view iotaQsos:g.ref];
             bool confirmed = false;
             for (size_t qi : qsos) confirmed |= qi < mw.data.qsos.size() && mw.data.qsos[qi].confirmed;
-            return "IOTA " + g.ref + " " + g.name + ": " +
-                   (qsos.empty() ? "not worked" : plural(qsos.size(), "QSO") + (confirmed ? ", confirmed" : "") + " (" + callsOf(qsos) + ")") + "." + where;
+            return "IOTA " + g.ref + " " + g.name + ": " + (qsos.empty() ? tr("not worked") : worked(qsos, confirmed)) + "." + where;
         }
-        case ADIFMapHit::Empty: return h.square + ": no QSOs." + where;
+        case ADIFMapHit::Empty: return trf("{square}: no QSOs.", {{"square", h.square}}) + where;
         case ADIFMapHit::None: break;
     }
     return "";
@@ -342,7 +344,7 @@ void showList(const std::vector<size_t> &qsos) {
     for (size_t i : qsos) {
         if (i >= mw.data.qsos.size()) continue;
         const adif::MapQso &q = mw.data.qsos[i];
-        rows.push_back({std::to_string(q.record), q.call, q.date, q.time, q.band, q.mode, q.grid, q.confirmed ? "yes" : ""});
+        rows.push_back({std::to_string(q.record), q.call, q.date, q.time, q.band, q.mode, q.grid, q.confirmed ? tr("yes") : ""});
     }
     mw.list.rows = rows;
     [mw.table reloadData];
@@ -367,7 +369,7 @@ void selected(const ADIFMapHit &h) {
         for (const adif::MapPark &p : mw.data.parks)
             if (p.reference == mw.data.parks[h.index].reference && p.program == mw.data.parks[h.index].program) qsos.push_back(p.qso);
     showList(qsos);
-    mw.chosen = h.kind == ADIFMapHit::None ? "" : describe(h) + (qsos.empty() ? "" : " Double-click a QSO to go to it in the log.");
+    mw.chosen = h.kind == ADIFMapHit::None ? "" : describe(h) + (qsos.empty() ? "" : " " + tr("Double-click a QSO to go to it in the log."));
     setStatus(mw.chosen.empty() ? mw.summary : mw.chosen);
 }
 
@@ -397,7 +399,7 @@ void applyProjection() {
     }
     adif::Projector pr(kinds[p], clat, clon);
     [mw.view setProjector:pr home:home ? ADIFString(mw.home) : @"" lat:lat lon:lon];
-    [mw.projection itemAtIndex:3].title = home ? [NSString stringWithFormat:T(@"Globe from %@"), ADIFString(mw.home)] : @"Globe";
+    [mw.projection itemAtIndex:3].title = home ? [NSString stringWithFormat:T(@"Globe from %@"), ADIFString(mw.home)] : T(@"Globe");
     [mw.projection selectItemAtIndex:p];
 }
 
@@ -427,7 +429,7 @@ NSImage *swatch(NSColor *color, bool diamond) {
 }
 
 NSMenuItem *menuItem(NSMenu *menu, NSString *title, bool on, void (^action)(void)) {
-    NSMenuItem *i = [menu addItemWithTitle:title action:nil keyEquivalent:@""];
+    NSMenuItem *i = [menu addItemWithTitle:T(title) action:nil keyEquivalent:@""];
     i.state = on ? NSControlStateValueOn : NSControlStateValueOff;
     if (action) ADIFBlockMenuItem(i, action);
     else i.enabled = NO;
@@ -474,8 +476,8 @@ void fillPrograms() {
     [menu addItem:[NSMenuItem separatorItem]];
     for (const auto &[key, label] : list) {
         size_t n = refs.count(key) ? refs[key].size() : 0;
-        NSString *title = n ? [NSString stringWithFormat:T(@"%@: %zu"), ADIFString(label), n]
-                            : [NSString stringWithFormat:T(@"%@: none in this log"), ADIFString(label)];
+        NSString *title = n ? [NSString stringWithFormat:@"%@: %zu", ADIFString(tr(label)), n]
+                            : [NSString stringWithFormat:T(@"%@: none in this log"), ADIFString(tr(label))];
         std::string k = key;
         NSMenuItem *item = menuItem(menu, title, !hidden.count(key), ^{
             std::set<std::string> h = hiddenPrograms();
@@ -504,7 +506,7 @@ struct StyleChoice {
     NSArray<NSString *> *titles;  // a popup; nil: a checkbox
     NSString *title, *tip;
 };
-NSArray<NSString *> *const kPaletteTitles = @[ @"Standard", @"Colour-blind safe", @"High contrast", @"Light (for printing)", @"Night (red)" ];
+NSArray<NSString *> *const kPaletteTitles = @[ N(@"Standard"), N(@"Colour-blind safe"), N(@"High contrast"), N(@"Light (for printing)"), N(@"Night (red)") ];
 
 void fillStyle() {
     if (!mw.styleWindow) return;
@@ -557,39 +559,39 @@ void showStyleOptions() {
                 control = box;
             }
             control.identifier = c.ident;
-            control.toolTip = c.tip;
+            control.toolTip = T(c.tip);
             [rows addObject:@[ c.titles ? ADIFLabel(c.title) : [NSGridCell emptyContentView], control ]];
         };
-        section(@"Colours");
-        add({"mapPalette", @"map.style.palette", 0, kPaletteTitles, @"Palette:",
-             @"Colour-blind safe: colours that stay apart for red-green and blue-yellow colour blindness. Light: for printing. Night (red): red on "
-             @"black, to keep your night vision"});
-        section(@"Markers");
-        add({"mapMarkerSize", @"map.style.size", 1, @[ @"Small", @"Medium", @"Large", @"Extra large" ], @"Size:", nil});
-        add({"mapMarkerShape", @"map.style.shape", 0, @[ @"By layer: dots, triangles, diamonds", @"All circles", @"All squares" ], @"Shape:", nil});
-        add({"mapContactMarker", @"map.style.contact", 0, @[ @"Pins", @"Dots", @"Crosshairs" ], @"Contacts:", nil});
-        section(@"Worked areas");
-        add({"mapSquareFill", @"map.style.fill", 0, @[ @"Solid", @"See-through", @"Outlines" ], @"Grid squares:", nil});
-        add({"mapAreaShade", @"map.style.shade", 1, @[ @"Light", @"Medium", @"Strong" ], @"Other areas:",
-             @"How strongly worked countries, states, counties and zones are shaded"});
-        section(@"Lines to contacts");
-        add({"mapLineStyle", @"map.style.line", 0, @[ @"Solid", @"Dashed", @"Dotted" ], @"Line:", nil});
-        add({"mapLineWidth", @"map.style.width", 1, @[ @"Thin", @"Medium", @"Thick" ], @"Width:", nil});
-        add({"mapLineOpacity", @"map.style.strength", 1, @[ @"Faint", @"Medium", @"Solid" ], @"Strength:",
-             @"Each line is its contact's marker colour; this is how strongly it shows"});
-        add({"mapArcs", @"map.style.arcs", 1, nil, @"Arch over the globe",
-             @"On the globe, draw each line as an arch rising over it (for looks: the true path, and the beam heading, is the straight line "
-             @"you get with this off)"});
-        section(@"On the map");
-        add({"mapLegend", @"map.style.legend", 1, nil, @"Legend", nil});
-        add({"mapRings", @"map.style.rings", 0, nil, @"Distance rings from my grid", nil});
-        add({"mapDayNight", @"map.style.dayNight", 0, nil, @"Day and night", @"The night side shaded, deeper as the sun goes further down, and the "
-                                                                              @"line between day and night; the sun where it is overhead"});
-        add({"mapGreyLine", @"map.style.greyLine", 0, nil, @"Grey line",
-             @"The twilight band, where the sun has set but is less than 6 degrees down (civil twilight), tinted gold: a common time for "
-             @"long-distance openings"});
-        add({"mapSunTime", @"map.style.sunTime", 0, @[ @"Now", @"The selected QSO's time" ], @"Sun at:",
-             @"Draw day and night for now (updated each minute), or for the time of the QSO you clicked"});
+        section(N(@"Colours"));
+        add({"mapPalette", @"map.style.palette", 0, kPaletteTitles, N(@"Palette:"),
+             N(@"Colour-blind safe: colours that stay apart for red-green and blue-yellow colour blindness. Light: for printing. Night (red): red on "
+             @"black, to keep your night vision")});
+        section(N(@"Markers"));
+        add({"mapMarkerSize", @"map.style.size", 1, @[ N(@"Small"), N(@"Medium##size"), N(@"Large"), N(@"Extra large") ], N(@"Size:"), nil});
+        add({"mapMarkerShape", @"map.style.shape", 0, @[ N(@"By layer: dots, triangles, diamonds"), N(@"All circles"), N(@"All squares") ], N(@"Shape:"), nil});
+        add({"mapContactMarker", @"map.style.contact", 0, @[ N(@"Pins"), N(@"Dots"), N(@"Crosshairs") ], N(@"Contacts:"), nil});
+        section(N(@"Worked areas"));
+        add({"mapSquareFill", @"map.style.fill", 0, @[ N(@"Solid##fill"), N(@"See-through"), N(@"Outlines") ], N(@"Grid squares:"), nil});
+        add({"mapAreaShade", @"map.style.shade", 1, @[ N(@"Light##shade"), N(@"Medium##shade"), N(@"Strong##shade") ], N(@"Other areas:"),
+             N(@"How strongly worked countries, states, counties and zones are shaded")});
+        section(N(@"Lines to contacts"));
+        add({"mapLineStyle", @"map.style.line", 0, @[ N(@"Solid##line"), N(@"Dashed"), N(@"Dotted") ], N(@"Line:"), nil});
+        add({"mapLineWidth", @"map.style.width", 1, @[ N(@"Thin"), N(@"Medium##width"), N(@"Thick") ], N(@"Width:"), nil});
+        add({"mapLineOpacity", @"map.style.strength", 1, @[ N(@"Faint"), N(@"Medium##strength"), N(@"Solid##strength") ], N(@"Strength:"),
+             N(@"Each line is its contact's marker colour; this is how strongly it shows")});
+        add({"mapArcs", @"map.style.arcs", 1, nil, N(@"Arch over the globe"),
+             N(@"On the globe, draw each line as an arch rising over it (for looks: the true path, and the beam heading, is the straight line "
+             @"you get with this off)")});
+        section(N(@"On the map"));
+        add({"mapLegend", @"map.style.legend", 1, nil, N(@"Legend"), nil});
+        add({"mapRings", @"map.style.rings", 0, nil, N(@"Distance rings from my grid"), nil});
+        add({"mapDayNight", @"map.style.dayNight", 0, nil, N(@"Day and night"), N(@"The night side shaded, deeper as the sun goes further down, and the "
+                                                                              @"line between day and night; the sun where it is overhead")});
+        add({"mapGreyLine", @"map.style.greyLine", 0, nil, N(@"Grey line"),
+             N(@"The twilight band, where the sun has set but is less than 6 degrees down (civil twilight), tinted gold: a common time for "
+             @"long-distance openings")});
+        add({"mapSunTime", @"map.style.sunTime", 0, @[ N(@"Now"), N(@"The selected QSO's time") ], N(@"Sun at:"),
+             N(@"Draw day and night for now (updated each minute), or for the time of the QSO you clicked")});
         NSButton *reset = [NSButton buttonWithTitle:T(@"Reset to Defaults") target:nil action:nil];
         reset.identifier = @"map.style.reset";
         ADIFOnAction(reset, ^{
@@ -654,7 +656,7 @@ void refresh() {
         const adif::LintResult &r = lint(h);
         std::string_view text = adifhost::text(h);
         mw.buffer = buffer();
-        mw.target.stringValue = TF(@"Log: {name}", @{@"name" : ADIFString(documentName())});
+        mw.target.stringValue = TF(T(@"Log: {name}"), @{@"name" : ADIFString(documentName())});
         // The bands, modes and years in the log, for the filters.
         std::set<std::string> bands, modes, years;
         std::map<std::string, size_t> qsosPerBand;
@@ -666,13 +668,13 @@ void refresh() {
         auto fill = [](NSPopUpButton *p, NSArray<NSString *> *first, const std::vector<std::string> &items) {
             NSString *keep = p.indexOfSelectedItem > 0 ? p.titleOfSelectedItem : nil;
             [p removeAllItems];
-            [p addItemsWithTitles:first];
+            for (NSString *f in first) [p addItemWithTitle:T(f)];
             for (const std::string &i : items) [p addItemWithTitle:ADIFString(i)];
             if (keep && [p itemWithTitle:keep]) [p selectItemWithTitle:keep];
         };
-        fill(mw.band, @[ @"All bands" ], std::vector<std::string>(bands.begin(), bands.end()));
-        fill(mw.mode, @[ @"All modes" ], std::vector<std::string>(modes.begin(), modes.end()));
-        fill(mw.dates, @[ @"All dates", @"Last 30 days", @"Last 12 months", @"This year" ], std::vector<std::string>(years.rbegin(), years.rend()));
+        fill(mw.band, @[ N(@"All bands") ], std::vector<std::string>(bands.begin(), bands.end()));
+        fill(mw.mode, @[ N(@"All modes") ], std::vector<std::string>(modes.begin(), modes.end()));
+        fill(mw.dates, @[ N(@"All dates"), N(@"Last 30 days"), N(@"Last 12 months"), N(@"This year") ], std::vector<std::string>(years.rbegin(), years.rend()));
         adif::MapFilter f;
         f.band = mw.band.indexOfSelectedItem > 0 ? ADIFStd(mw.band.titleOfSelectedItem) : "";
         f.mode = mw.mode.indexOfSelectedItem > 0 ? ADIFStd(mw.mode.titleOfSelectedItem) : "";
@@ -747,18 +749,22 @@ void refresh() {
         for (const adif::MapQso &q : mw.data.qsos) located += q.located;
         std::set<std::string> parkRefs, otherRefs;
         for (const adif::MapPark &p : mw.data.parks) (p.program == "POTA" ? parkRefs : otherRefs).insert(p.program + " " + p.reference);
-        mw.summary = plural(mw.data.squares.size(), "grid square") + " (" + std::to_string(confirmedSquares) + " confirmed), " +
-                     std::to_string(mw.dxcc.size()) + " DXCC (" + std::to_string(confirmedDxcc) + " confirmed), " +
-                     plural(parkRefs.size(), "POTA park") + " where the QSO has a grid, " + plural(otherRefs.size(), "other reference") +
-                     " (WWFF, IOTA, SOTA... under Other programs)" + (mw.home.empty() ? "" : "; home " + mw.home) + ". " +
-                     (mw.data.withoutGrid ? plural(mw.data.withoutGrid, "QSO") + " without GRIDSQUARE " + (mw.data.withoutGrid == 1 ? "isn't" : "aren't") +
-                                                " on the squares. "
-                                          : "") +
-                     plural(located, "QSO") + " with an exact place (Contacts" +
-                     (mw.data.unusedLatLon ? "; " + std::to_string(mw.data.unusedLatLon) + " LAT/LON not used: a placeholder, or far from the QSO's grid" : "") +
-                     "). "
-                     "The legend shows the colours. Scroll or pinch to zoom, drag to move (on the globe, to turn it), "
-                     "click a square, dot, pin or park for its QSOs.";
+        mw.summary = trf("{squares} ({confirmed} confirmed), {dxcc} DXCC ({dxccConfirmed} confirmed), {parks} where the QSO has a grid, "
+                         "{others} (WWFF, IOTA, SOTA... under Other programs)",
+                         {{"squares", plural(mw.data.squares.size(), "grid square")}, {"confirmed", std::to_string(confirmedSquares)},
+                          {"dxcc", std::to_string(mw.dxcc.size())}, {"dxccConfirmed", std::to_string(confirmedDxcc)},
+                          {"parks", plural(parkRefs.size(), "POTA park")}, {"others", plural(otherRefs.size(), "other reference")}}) +
+                     (mw.home.empty() ? "" : "; " + trf("home {grid}", {{"grid", mw.home}})) + ". ";
+        if (mw.data.withoutGrid)
+            mw.summary += trp("{n} QSO without GRIDSQUARE isn't on the squares.", "{n} QSOs without GRIDSQUARE aren't on the squares.",
+                              (long long)mw.data.withoutGrid) +
+                          " ";
+        mw.summary += (mw.data.unusedLatLon ? trf("{qsos} with an exact place (Contacts; {n} LAT/LON not used: a placeholder, or far from the QSO's grid).",
+                                                  {{"qsos", plural(located, "QSO")}, {"n", std::to_string(mw.data.unusedLatLon)}})
+                                            : trf("{qsos} with an exact place (Contacts).", {{"qsos", plural(located, "QSO")}})) +
+                      " " +
+                      tr("The legend shows the colours. Scroll or pinch to zoom, drag to move (on the globe, to turn it), click a square, dot, pin or "
+                         "park for its QSOs.");
         mw.chosen.clear();
         setStatus(mw.summary);
     } catch (...) {
@@ -874,7 +880,7 @@ size_t placeKinds(const adif::MapFilter &f) {
 
 void updateFilterButton() {
     size_t n = placeKinds(savedPlaceFilter());
-    mw.moreFilters.title = n ? [NSString stringWithFormat:T(@"More Filters (%zu)..."), n] : @"More Filters...";
+    mw.moreFilters.title = n ? [NSString stringWithFormat:T(@"More Filters (%zu)..."), n] : T(@"More Filters...");
     mw.clearFilters.enabled = n > 0 || mw.band.indexOfSelectedItem > 0 || mw.mode.indexOfSelectedItem > 0 || mw.dates.indexOfSelectedItem > 0 ||
                               mw.confirmed.indexOfSelectedItem > 0;
 }
@@ -946,7 +952,7 @@ void fillPlaceControls() {
     NSMenu *menu = mw.regions.menu;
     [menu removeAllItems];
     std::set<std::string> chosen = f.regions;
-    [menu addItemWithTitle:chosen.empty() ? @"Any region" : [NSString stringWithFormat:T(@"%zu region%s"), chosen.size(), chosen.size() == 1 ? "" : "s"]
+    [menu addItemWithTitle:chosen.empty() ? T(@"Any region") : TP(@"{n} region", @"{n} regions", (long long)chosen.size())
                     action:nil
              keyEquivalent:@""];
     std::string kind;
@@ -954,10 +960,10 @@ void fillPlaceControls() {
         if (r.kind != kind) {
             kind = r.kind;
             [menu addItem:[NSMenuItem separatorItem]];
-            NSMenuItem *head = [menu addItemWithTitle:ADIFString(kind) action:nil keyEquivalent:@""];
+            NSMenuItem *head = [menu addItemWithTitle:ADIFString(tr(kind)) action:nil keyEquivalent:@""];
             head.enabled = NO;
         }
-        NSMenuItem *item = [menu addItemWithTitle:ADIFString(r.name) action:nil keyEquivalent:@""];
+        NSMenuItem *item = [menu addItemWithTitle:ADIFString(tr(r.name)) action:nil keyEquivalent:@""];
         item.state = chosen.count(r.id) ? NSControlStateValueOn : NSControlStateValueOff;
         item.indentationLevel = 1;
         std::string id = r.id;
@@ -980,7 +986,7 @@ void showMoreFilters() {
         auto tokenField = [](NSString *ident, NSString *placeholder, NSArray<NSString *> *candidates, NSString *separators) {
             NSTokenField *t = [[NSTokenField alloc] initWithFrame:NSMakeRect(0, 0, 380, 24)];
             t.identifier = ident;
-            t.placeholderString = placeholder;
+            t.placeholderString = T(placeholder);
             t.tokenizingCharacterSet = [NSCharacterSet characterSetWithCharactersInString:separators];
             ADIFTokenCompleter *c = [[ADIFTokenCompleter alloc] init];
             c.candidates = candidates;
@@ -1007,10 +1013,10 @@ void showMoreFilters() {
                 b = e + 1;
             }
         for (const std::string &l : locs) [locations addObject:ADIFString(l)];
-        mw.dxccTokens = tokenField(@"map.filter.dxcc", @"Countries (DXCC), e.g. Italy, Canada", dxccNames, @";");
-        mw.stateTokens = tokenField(@"map.filter.states", @"US states, e.g. WI, IL", states, @", ");
-        mw.countyTokens = tokenField(@"map.filter.counties", @"US counties, e.g. WI,Dane; WI,Milwaukee", counties, @";");
-        mw.potaTokens = tokenField(@"map.filter.pota", @"POTA locations, e.g. US-WI, CA-ON", locations, @", ");
+        mw.dxccTokens = tokenField(@"map.filter.dxcc", N(@"Countries (DXCC), e.g. Italy, Canada"), dxccNames, @";");
+        mw.stateTokens = tokenField(@"map.filter.states", N(@"US states, e.g. WI, IL"), states, @", ");
+        mw.countyTokens = tokenField(@"map.filter.counties", N(@"US counties, e.g. WI,Dane; WI,Milwaukee"), counties, @";");
+        mw.potaTokens = tokenField(@"map.filter.pota", N(@"POTA locations, e.g. US-WI, CA-ON"), locations, @", ");
         NSMutableArray *conts = [NSMutableArray array];
         for (int i = 0; i < 7; ++i) {
             mw.continent[i] = ADIFCheckbox(@(kContinents[i]), false);
@@ -1026,8 +1032,8 @@ void showMoreFilters() {
             ADIFOnAction(f, ^{ placeFiltersChanged(); });
             return f;
         };
-        mw.cqField = zoneField(@"map.filter.cq", @"e.g. 3, 4, 5");
-        mw.ituField = zoneField(@"map.filter.itu", @"e.g. 6, 7, 8");
+        mw.cqField = zoneField(@"map.filter.cq", N(@"e.g. 3, 4, 5"));
+        mw.ituField = zoneField(@"map.filter.itu", N(@"e.g. 6, 7, 8"));
         NSStackView *zones = [NSStackView stackViewWithViews:@[ mw.cqField, ADIFLabel(@"ITU zones:"), mw.ituField ]];
         zones.spacing = 8;
         mw.regions = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:YES];
@@ -1070,10 +1076,12 @@ void showMoreFilters() {
             [help.topAnchor constraintEqualToAnchor:content.topAnchor constant:14],
             [help.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:14],
             [help.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-14],
-            [help.widthAnchor constraintEqualToConstant:500],
+            // The grid sets the width (its labels are longer in some languages); the help wraps to it.
+            [help.widthAnchor constraintEqualToAnchor:grid.widthAnchor],
+            [grid.widthAnchor constraintGreaterThanOrEqualToConstant:500],
             [grid.topAnchor constraintEqualToAnchor:help.bottomAnchor constant:10],
             [grid.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:14],
-            [grid.trailingAnchor constraintLessThanOrEqualToAnchor:content.trailingAnchor constant:-14],
+            [grid.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-14],
             [grid.bottomAnchor constraintEqualToAnchor:content.bottomAnchor constant:-14],
         ]];
         NSViewController *vc = [[NSViewController alloc] init];
@@ -1112,16 +1120,16 @@ void layerChanged(MapLayerId id, int which) {
 }
 
 NSButton *smallButton(NSString *title, NSString *tip, void (^action)(void)) {
-    NSButton *b = [NSButton buttonWithTitle:title target:nil action:nil];
-    b.toolTip = tip;
+    NSButton *b = [NSButton buttonWithTitle:T(title) target:nil action:nil];
+    b.toolTip = T(tip);
     ADIFOnAction(b, action);
     return b;
 }
 
 NSPopUpButton *pullDown(NSString *title, NSString *tip) {
     NSPopUpButton *p = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:YES];
-    [p addItemWithTitle:title];
-    p.toolTip = tip;
+    [p addItemWithTitle:T(title)];
+    p.toolTip = T(tip);
     return p;
 }
 
@@ -1149,17 +1157,17 @@ void cmdMap() {
         auto box = [](bool on, NSString *kind, const LayerUi &l, NSString *tip, NSString *spoken) {
             NSButton *b = ADIFCheckbox(@"", on);
             b.identifier = [NSString stringWithFormat:@"map.%@.%@", kind, l.ident];
-            b.toolTip = tip;
-            b.accessibilityLabel = [NSString stringWithFormat:spoken, l.title];
+            b.toolTip = T(tip);
+            b.accessibilityLabel = [NSString stringWithFormat:T(spoken), T(l.title)];
             return b;
         };
         for (const LayerUi &l : kLayerUi) {
             NSTextField *title = ADIFLabel(l.title);
             title.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightMedium];
             [header addObject:title];
-            mw.show[l.id] = l.showKey ? box(saved[l.id].show, @"show", l, l.showTip, @"Show worked %@") : nil;
-            mw.overlay[l.id] = box(saved[l.id].overlay, @"overlay", l, l.overlayTip, @"Overlay %@");
-            mw.labels[l.id] = box(saved[l.id].labels, @"labels", l, l.labelsTip, @"Labels for %@");
+            mw.show[l.id] = l.showKey ? box(saved[l.id].show, @"show", l, l.showTip, N(@"Show worked %@")) : nil;
+            mw.overlay[l.id] = box(saved[l.id].overlay, @"overlay", l, l.overlayTip, N(@"Overlay %@"));
+            mw.labels[l.id] = box(saved[l.id].labels, @"labels", l, l.labelsTip, N(@"Labels for %@"));
             [showRow addObject:mw.show[l.id] ?: [NSGridCell emptyContentView]];
             [overlayRow addObject:mw.overlay[l.id]];
             [labelsRow addObject:mw.labels[l.id]];
@@ -1212,12 +1220,12 @@ void cmdMap() {
                 NSString *name;
                 double w, s, e, n;
             };
-            static const Box kRegions[] = {{@"Africa", -20, -36, 53, 38},           {@"Antarctica", -180, -90, 180, -60},
-                                           {@"Asia", 25, -11, 180, 78},             {@"Europe", -25, 34, 45, 72},
-                                           {@"North America", -170, 5, -50, 75},    {@"Oceania", 110, -48, 180, 0},
-                                           {@"South America", -82, -56, -34, 13}};
+            static const Box kRegions[] = {{N(@"Africa"), -20, -36, 53, 38},           {N(@"Antarctica"), -180, -90, 180, -60},
+                                           {N(@"Asia"), 25, -11, 180, 78},             {N(@"Europe"), -25, 34, 45, 72},
+                                           {N(@"North America"), -170, 5, -50, 75},    {N(@"Oceania"), 110, -48, 180, 0},
+                                           {N(@"South America"), -82, -56, -34, 13}};
             for (const Box &b : kRegions) {
-                NSMenuItem *item = [mw.region.menu addItemWithTitle:b.name action:nil keyEquivalent:@""];
+                NSMenuItem *item = [mw.region.menu addItemWithTitle:T(b.name) action:nil keyEquivalent:@""];
                 Box rbox = b;
                 ADIFBlockMenuItem(item, ^{ [mw.view showWest:rbox.w south:rbox.s east:rbox.e north:rbox.n]; });
             }
@@ -1279,11 +1287,11 @@ void cmdMap() {
         mw.list = [[ADIFMapList alloc] init];
         mw.list.onActivate = ^(NSInteger rowIndex) { goToQso(rowIndex); };
         mw.table = [[NSTableView alloc] initWithFrame:NSZeroRect];
-        const char *titles[] = {"Record", "Call", "Date", "UTC", "Band", "Mode", "Grid", "Confirmed"};
+        const char *titles[] = {N_("Record"), N_("Call"), N_("Date"), "UTC", N_("Band"), N_("Mode"), N_("Grid"), N_("Confirmed")};
         const CGFloat widths[] = {60, 100, 90, 60, 60, 70, 80, 80};
         for (size_t i = 0; i < 8; ++i) {
             NSTableColumn *c = [[NSTableColumn alloc] initWithIdentifier:[NSString stringWithFormat:@"%zu", i]];
-            c.title = @(titles[i]);
+            c.title = @(tr(titles[i]).c_str());
             c.width = widths[i];
             [mw.table addTableColumn:c];
         }

@@ -16,7 +16,7 @@ using namespace adifhost;
 
 namespace {
 
-const char *kShow[] = {"All problems", "With a repair", "Errors", "Warnings", "Notes"};
+const char *kShow[] = {N_("All problems"), N_("With a repair"), N_("Errors"), N_("Warnings"), N_("Notes")};
 
 // One row: a problem, or with grouping on, every record with the same problem.
 struct Row {
@@ -91,7 +91,7 @@ size_t tickedRepairs() {
 
 void updateButtons(const adif::LintResult &r) {
     size_t n = tickedRepairs();
-    chk.repair.title = n ? [NSString stringWithFormat:T(@"Repair %zu Ticked"), n] : @"Repair Ticked";
+    chk.repair.title = n ? [NSString stringWithFormat:T(@"Repair %zu Ticked"), n] : T(@"Repair Ticked");
     chk.repair.enabled = n > 0;
     chk.fixLengths.enabled = !r.fixes.empty();
 }
@@ -136,18 +136,18 @@ void plan(bool keepTicks) {
             [chk.w setHeadline:@"No problems found." severity:3];
         } else {
             std::string head = plural(r.errors, "error") + ", " + plural(r.warnings, "warning") + ", " + plural(r.infos, "note");
-            if (repairable) head += "  ·  " + std::to_string(repairable) + " can be repaired";
+            if (repairable) head += "  ·  " + trf("{n} can be repaired", {{"n", std::to_string(repairable)}});
             [chk.w setHeadline:ADIFString(head) severity:r.errors ? 2 : r.warnings ? 1 : 0];
         }
         std::string st;
         if (r.structuralErrors)
-            st = "Wrong data lengths or broken tags leave some records' boundaries unclear: press Fix Lengths first. Their other "
-                 "repairs wait until then.";
+            st = tr("Wrong data lengths or broken tags leave some records' boundaries unclear: press Fix Lengths first. Their other repairs wait "
+                    "until then.");
         else if (repairable)
-            st = "Ticked rows with a repair are fixed together as one undo step. Click a row to see it in the editor.";
+            st = tr("Ticked rows with a repair are fixed together as one undo step. Click a row to see it in the editor.");
         else
-            st = "Click a row to see it in the editor. Rows without a repair need your judgement.";
-        if (r.truncated) st += " Only the first " + std::to_string(r.diagnostics.size()) + " problems are listed.";
+            st = tr("Click a row to see it in the editor. Rows without a repair need your judgement.");
+        if (r.truncated) st += " " + trf("Only the first {n} problems are listed.", {{"n", std::to_string(r.diagnostics.size())}});
         [chk.w setStatus:ADIFString(st) severity:r.structuralErrors ? 1 : -1];
         updateButtons(r);
     } catch (...) {
@@ -179,16 +179,16 @@ void repairTicked() {
         size_t applied = 0;
         std::vector<adif::TextEdit> edits = adif::quickFixEdits(text(h), r.model, todo, lengthUnit(), utf8(h), &applied);
         if (edits.empty()) {
-            [chk.w setStatus:todo.empty() ? @"The log changed since the list was made; it has been checked again."
-                                          : @"Those repairs wait for Fix Lengths (their records have wrong lengths)."
+            [chk.w setStatus:todo.empty() ? N(@"The log changed since the list was made; it has been checked again.")
+                                          : N(@"Those repairs wait for Fix Lengths (their records have wrong lengths).")
                     severity:1];
             plan(true);
             return;
         }
         adifhost::apply(h, edits);
         plan(true);
-        [chk.w setStatus:ADIFString("Repaired " + plural(applied, "problem") +
-                                    " (one undo step). A repair can reveal another: the list shows what is left.")
+        [chk.w setStatus:ADIFString(trf("Repaired {problems} (one undo step). A repair can reveal another: the list shows what is left.",
+                                        {{"problems", plural(applied, "problem")}}))
                 severity:3];
     } catch (...) {
         [chk.w setStatus:@"Something went wrong repairing the log." severity:2];

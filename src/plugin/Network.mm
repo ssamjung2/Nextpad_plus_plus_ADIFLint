@@ -16,7 +16,7 @@ void ADIFSetOffline(BOOL on) {
 }
 
 NSString *ADIFOfflineReason(void) {
-    return @"Offline mode is on, so ADIF Lint makes no network requests (ADIF Lint menu: Offline Mode).";
+    return T(@"Offline mode is on, so ADIF Lint makes no network requests (ADIF Lint menu: Offline Mode).");
 }
 
 BOOL ADIFOpenURL(NSString *url) {
@@ -25,7 +25,7 @@ BOOL ADIFOpenURL(NSString *url) {
     bool web = [u.scheme caseInsensitiveCompare:@"http"] == NSOrderedSame || [u.scheme caseInsensitiveCompare:@"https"] == NSOrderedSame;
     if (web && ADIFOffline()) {
         if (const char *log = getenv("ADIFLINT_TEST_URL_LOG")) {  // tests: no alert
-            [[NSString stringWithFormat:T(@"refused %@\n"), url] writeToFile:@(log) atomically:YES encoding:NSUTF8StringEncoding error:nil];
+            [[NSString stringWithFormat:@"refused %@\n", url] writeToFile:@(log) atomically:YES encoding:NSUTF8StringEncoding error:nil];
             return NO;
         }
         NSAlert *alert = [[NSAlert alloc] init];
@@ -38,7 +38,7 @@ BOOL ADIFOpenURL(NSString *url) {
         return NO;
     }
     if (const char *log = getenv("ADIFLINT_TEST_URL_LOG")) {
-        [[NSString stringWithFormat:T(@"opened %@\n"), url] writeToFile:@(log) atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        [[NSString stringWithFormat:@"opened %@\n", url] writeToFile:@(log) atomically:YES encoding:NSUTF8StringEncoding error:nil];
         return YES;
     }
     return [[NSWorkspace sharedWorkspace] openURL:u];
@@ -63,7 +63,7 @@ NSURLSession *downloadSession() {
 }
 
 // Who is asking, as servers like to know: the program and where to find it.
-NSString *userAgent() { return [NSString stringWithFormat:T(@"ADIFLint/%s (+https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint)"), ADIFLINT_VERSION]; }
+NSString *userAgent() { return [NSString stringWithFormat:@"ADIFLint/%s (+https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint)", ADIFLINT_VERSION]; }
 
 NSString *fixture(NSURL *url) {
     const char *dir = getenv("ADIFLINT_FAKE_LOOKUP_DIR");
@@ -124,7 +124,7 @@ NSURLSessionTask *ADIFFetchRange(NSURL *url, uint64_t offset, uint64_t length, N
             d = [h readDataOfLength:(NSUInteger)std::min<unsigned long long>(length, size - offset)];
         }
         [h closeFile];
-        NSString *why = d ? nil : etag.length && ![etag isEqualToString:tag] ? @"The file changed on the server (HTTP 412)." : @"HTTP 416 (fixture)";
+        NSString *why = d ? nil : etag.length && ![etag isEqualToString:tag] ? T(@"The file changed on the server (HTTP 412).") : @"HTTP 416 (fixture)";
         later(^{ done(d, d ? tag : nil, why); });
         return nil;
     }
@@ -139,8 +139,8 @@ NSURLSessionTask *ADIFFetchRange(NSURL *url, uint64_t offset, uint64_t length, N
               NSHTTPURLResponse *http = [response isKindOfClass:NSHTTPURLResponse.class] ? (NSHTTPURLResponse *)response : nil;
               NSString *tag = [http valueForHTTPHeaderField:@"ETag"];
               NSString *problem = nil;
-              if (err) problem = err.code == NSURLErrorCancelled ? @"Stopped." : err.localizedDescription;
-              else if (http.statusCode == 412) problem = @"The file changed on the server while it was being read (HTTP 412).";
+              if (err) problem = err.code == NSURLErrorCancelled ? T(@"Stopped.") : err.localizedDescription;
+              else if (http.statusCode == 412) problem = T(@"The file changed on the server while it was being read (HTTP 412).");
               else if (http.statusCode != 206) problem = [NSString stringWithFormat:T(@"HTTP %ld from %@ (expected 206 for a range)"), (long)http.statusCode, url.host];
               else if (data.length != length) {
                   // A range past the end of the file comes back short: fine when it reaches the end
@@ -148,9 +148,9 @@ NSURLSessionTask *ADIFFetchRange(NSURL *url, uint64_t offset, uint64_t length, N
                   NSString *range = [http valueForHTTPHeaderField:@"Content-Range"];
                   NSRange slash = [range rangeOfString:@"/" options:NSBackwardsSearch];
                   unsigned long long total = slash.location != NSNotFound ? strtoull([range substringFromIndex:slash.location + 1].UTF8String, nullptr, 10) : 0;
-                  if (data.length > length || offset + data.length != total) problem = @"The server sent a different length than asked for.";
+                  if (data.length > length || offset + data.length != total) problem = T(@"The server sent a different length than asked for.");
               }
-              else if (etag.length && tag.length && ![tag isEqualToString:etag]) problem = @"The file changed on the server while it was being read.";
+              else if (etag.length && tag.length && ![tag isEqualToString:etag]) problem = T(@"The file changed on the server while it was being read (HTTP 412).");
               later(^{ done(problem ? nil : data, problem ? nil : (tag ?: etag), problem); });
           }];
     [task resume];

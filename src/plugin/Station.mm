@@ -78,7 +78,7 @@ struct Editor {
 
 void editorShow() {
     if (!ed.w) return;
-    [ed.w setTarget:[@"Kept in " stringByAppendingString:ADIFString(profilesPath()).stringByAbbreviatingWithTildeInPath]];
+    [ed.w setTarget:TF(@"Kept in {path}", @{@"path" : ADIFString(profilesPath()).stringByAbbreviatingWithTildeInPath})];
     ed.list = profiles();
     std::vector<std::vector<std::string>> rows;
     std::vector<std::string> keys;
@@ -101,9 +101,9 @@ void editorEdit(NSInteger row, size_t column, NSString *typed) {
     while (!v.empty() && (v.front() == ' ' || v.front() == '\t')) v.erase(v.begin());
     std::string problem;
     if (column == 0) {
-        if (v.empty()) problem = "A profile needs a name.";
+        if (v.empty()) problem = tr("A profile needs a name.");
         for (const adif::StationProfile &o : ed.list)
-            if (&o != &p && o.name == v) problem = "Another profile is called " + v + ".";
+            if (&o != &p && o.name == v) problem = trf("Another profile is called {name}.", {{"name", v}});
         if (problem.empty()) p.name = v;
     } else if (column == 9) {
         p.tqslLocation = v;
@@ -113,9 +113,9 @@ void editorEdit(NSInteger row, size_t column, NSString *typed) {
             for (char &c : v) c = (char)std::toupper((unsigned char)c);
         double watts = 0;
         if (field == "MY_GRIDSQUARE" && !v.empty() && !adif::isAdifGridSquare(v))
-            problem = "A grid is a 4, 6 or 8 character Maidenhead locator, such as EN52 or EN52wa.";
+            problem = tr("A grid is a 4, 6 or 8 character Maidenhead locator, such as EN52 or EN52wa.");
         else if (field == "TX_PWR" && !v.empty() && !adif::parseAdifNumber(v, &watts))
-            problem = "Power is a number of watts, such as 5 or 100.";
+            problem = tr("Power is a number of watts, such as 5 or 100.");
         if (field == "MY_GRIDSQUARE" && v.size() >= 4) {
             for (size_t i = 0; i < 2; ++i) v[i] = (char)std::toupper((unsigned char)v[i]);
             for (size_t i = 4; i < v.size() && i < 6; ++i) v[i] = (char)std::tolower((unsigned char)v[i]);
@@ -158,7 +158,7 @@ void cmdStationProfiles() {
         ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"Station Profiles" size:NSMakeSize(980, 420) headline:NO];
         ed.w = w;
         std::vector<ADIFToolColumn> cols{{"name", "Profile", 120}};
-        const char *titles[] = {"Callsign", "Operator", "Grid", "State", "County", "Rig", "Antenna", "Power (W)"};
+        const char *titles[] = {N_("Callsign"), N_("Operator"), N_("Grid"), N_("State"), N_("County"), N_("Rig"), N_("Antenna"), N_("Power (W)")};
         for (size_t i = 0; i < 8; ++i) cols.push_back({kProfileColumns[i], titles[i], i >= 5 && i <= 6 ? 110.0 : 80.0});
         cols.push_back({"tqsl", "TQSL Location", 120});
         [w setColumns:cols checkboxes:NO sortable:NO];
@@ -171,7 +171,7 @@ void cmdStationProfiles() {
             adif::StationProfile p;
             int n = (int)ed.list.size() + 1;
             for (bool taken = true; taken; ++n) {
-                p.name = "Profile " + std::to_string(n);
+                p.name = trf("Profile {n}", {{"n", std::to_string(n)}});
                 taken = std::any_of(ed.list.begin(), ed.list.end(), [&](const adif::StationProfile &o) { return o.name == p.name; });
             }
             p.set("STATION_CALLSIGN", setting("stationCall"));
@@ -208,7 +208,7 @@ void cmdStationProfiles() {
                 if ((size_t)r < ed.list.size()) ed.list.erase(ed.list.begin() + r);
             save(ed.list);
             editorShow();
-            [ed.w setStatus:ADIFString("Removed " + std::to_string(sel.size()) + (sel.size() == 1 ? " profile." : " profiles."))
+            [ed.w setStatus:ADIFString(trp("Removed {n} profile.", "Removed {n} profiles.", (long long)sel.size()))
                     severity:-1];
             stationChanged();
         }];
@@ -251,9 +251,9 @@ std::string stationLabel() {
     std::string out;
     NSInteger i = chosenProfile();
     std::vector<adif::StationProfile> list = profiles();
-    if (i >= 1 && (size_t)i <= list.size()) out = "profile " + list[(size_t)i - 1].name;
+    if (i >= 1 && (size_t)i <= list.size()) out = trf("profile {name}", {{"name", list[(size_t)i - 1].name}});
     Activation a = activation();
-    if (a.active) out += (out.empty() ? "" : ", ") + std::string("activating ") + joined(a.refs, ", ");
+    if (a.active) out += (out.empty() ? "" : ", ") + trf("activating {refs}", {{"refs", joined(a.refs, ", ")}});
     return out;
 }
 
@@ -264,12 +264,14 @@ std::string activationProgress(std::string_view text, const adif::DocModel &m) {
     for (const adif::Activation &act : adif::programActivations(text, m, a.program, setting("stationCall"))) {
         if (std::find(a.refs.begin(), a.refs.end(), act.park) == a.refs.end()) continue;
         if (a.program != adif::Program::WWFF && act.date != today) continue;
-        std::string what = a.program == adif::Program::SOTA ? " stations" : "";
-        std::string line = act.park + (a.program == adif::Program::POTA ? " today: " : ": ") + std::to_string(act.qsos) +
-                           (act.activated() ? what + ", activated" : " of " + std::to_string(act.needed) + what);
+        bool sota = a.program == adif::Program::SOTA, pota = a.program == adif::Program::POTA;
+        adif::i18n::Args args = {{"park", act.park}, {"n", std::to_string(act.qsos)}, {"needed", std::to_string(act.needed)}};
+        std::string line = act.activated() ? trf(pota ? "{park} today: {n}, activated" : sota ? "{park}: {n} stations, activated" : "{park}: {n}, activated", args)
+                                           : trf(pota ? "{park} today: {n} of {needed}" : sota ? "{park}: {n} of {needed} stations" : "{park}: {n} of {needed}",
+                                                 args);
         out += (out.empty() ? "" : "  ·  ") + line;
     }
-    if (out.empty()) out = joined(a.refs, ", ") + ": no QSOs yet";
+    if (out.empty()) out = trf("{refs}: no QSOs yet", {{"refs", joined(a.refs, ", ")}});
     return out;
 }
 
@@ -308,7 +310,7 @@ std::string callFor(NSInteger profileIndex) {
 // Refresh the window: what was typed, the file it would start, and the references' history.
 void starterShow() {
     if (!st.w) return;
-    [st.w setTarget:[@"Open log: " stringByAppendingString:ADIFString(documentName())]];
+    [st.w setTarget:TF(@"Open log: {name}", @{@"name" : ADIFString(documentName())})];
     std::vector<adif::StationProfile> list = profiles();
     NSInteger keep = st.profile.indexOfSelectedItem;
     [st.profile removeAllItems];
@@ -335,12 +337,12 @@ void starterShow() {
     std::string status;
     int severity = -1;
     if (!why.empty() && !ADIFStd(st.refs.stringValue).empty()) status = why, severity = 2;
-    else if (a.active) status = "Activating " + joined(a.refs, ", ") + ". New QSO writes " + programName(a.program) +
-                                " fields in every QSO; Finish checks the log and opens the export.";
-    else status = "Choose the program and the references, then Start: New QSO opens with your station and the "
-                  "activation's fields filled in.";
+    else if (a.active)
+        status = trf("Activating {refs}. New QSO writes {program} fields in every QSO; Finish checks the log and opens the export.",
+                     {{"refs", joined(a.refs, ", ")}, {"program", programName(a.program)}});
+    else status = tr("Choose the program and the references, then Start: New QSO opens with your station and the activation's fields filled in.");
     if (call.empty() && newFile && severity < 0)
-        status += " No callsign yet: add it in Settings (Your Station) or a profile.", severity = 1;
+        status += " " + tr("No callsign yet: add it in Settings (Your Station) or a profile."), severity = 1;
     [st.w setStatus:ADIFString(status) severity:severity];
 }
 
@@ -350,7 +352,7 @@ void startActivation() {
     std::string why;
     std::vector<std::string> refs = adif::parseReferences(p, ADIFStd(st.refs.stringValue), &bad, &why);
     if (!why.empty() || refs.empty()) {
-        [st.w setStatus:ADIFString(why.empty() ? std::string("Type a reference.") : why) severity:2];
+        [st.w setStatus:ADIFString(why.empty() ? tr("Type a reference.") : why) severity:2];
         return;
     }
     NSInteger profile = st.profile.indexOfSelectedItem;
@@ -369,7 +371,7 @@ void startActivation() {
             NSData *data = [NSData dataWithBytes:header.data() length:header.size()];
             NSError *error = nil;
             if (![data writeToFile:ADIFString(path) options:NSDataWritingAtomic error:&error]) {
-                [st.w setStatus:[@"Could not create the log: " stringByAppendingString:error.localizedDescription ?: @"?"]
+                [st.w setStatus:TF(@"Could not create the log: {why}", @{@"why" : error.localizedDescription ?: @"?"})
                         severity:2];
                 return;
             }
@@ -379,8 +381,8 @@ void startActivation() {
             [st.w setStatus:@"Nextpad++ did not open the new log. Open it from the folder, then New QSO." severity:2];
             return;
         }
-        [st.w setStatus:ADIFString(std::string(existed ? "Opened " : "Started ") + ADIFStd(ADIFString(path).lastPathComponent) +
-                                   "; New QSO opens on it.")
+        [st.w setStatus:ADIFString(trf(existed ? "Opened {file}; New QSO opens on it." : "Started {file}; New QSO opens on it.",
+                                       {{"file", ADIFStd(ADIFString(path).lastPathComponent)}}))
                 severity:3];
     } else {
         setSetting("activationLog", path());
@@ -395,8 +397,7 @@ void finishActivation() {
     if (!a.active) return;
     std::string log = setting("activationLog");
     if (!log.empty() && log != path()) {
-        [st.w setStatus:ADIFString("Switch to the activation's log (" + ADIFStd(ADIFString(log).lastPathComponent) +
-                                   ") first, then Finish.")
+        [st.w setStatus:ADIFString(trf("Switch to the activation's log ({file}) first, then Finish.", {{"file", ADIFStd(ADIFString(log).lastPathComponent)}}))
                 severity:2];
         return;
     }
@@ -404,11 +405,12 @@ void finishActivation() {
     stationChanged();
     checklog::cmdCheckLog();
     logtools::openActivationExport(a.program);
-    std::string next = a.program == adif::Program::POTA ? "upload each park's file on pota.app (My Log Uploads)"
-                       : a.program == adif::Program::WWFF ? "send the file to your national WWFF log manager"
-                                                          : "upload the file to the SOTA database";
-    [st.w setStatus:ADIFString("Finished " + joined(a.refs, ", ") + ". Repair anything Check Log lists, save the files in "
-                               "Export, then " + next + ". Upload... sends the QSOs to QRZ.com, LoTW, Club Log or eQSL.")
+    std::string next = a.program == adif::Program::POTA ? tr("upload each park's file on pota.app (My Log Uploads)")
+                       : a.program == adif::Program::WWFF ? tr("send the file to your national WWFF log manager")
+                                                          : tr("upload the file to the SOTA database");
+    [st.w setStatus:ADIFString(trf("Finished {refs}. Repair anything Check Log lists, save the files in Export, then {next}. Upload... sends the QSOs "
+                                   "to QRZ.com, LoTW, Club Log or eQSL.",
+                                   {{"refs", joined(a.refs, ", ")}, {"next", next}}))
             severity:3];
     starterShow();
     st.pota.hidden = a.program != adif::Program::POTA;
@@ -440,7 +442,7 @@ void cmdStartActivation() {
             panel.canChooseDirectories = YES;
             panel.canChooseFiles = NO;
             panel.canCreateDirectories = YES;
-            panel.message = @"Choose the folder for activation logs";
+            panel.message = T(@"Choose the folder for activation logs");
             std::string dir;
             if (const char *test = getenv("ADIFLINT_TEST_FOLDER")) dir = test;
             else if ([panel runModal] == NSModalResponseOK) dir = ADIFStd(panel.URL.path);

@@ -1063,6 +1063,7 @@ void bulkZoneInfo() {
                                                            off < 0 ? '-' : '+', (long)labs(off) / 3600, (long)labs(off) % 3600 / 60,
                                                            abbr.length ? [NSString stringWithFormat:@" (%@)", abbr] : @""];
     bulk.zoneInfo.textColor = NSColor.secondaryLabelColor;
+    bulk.zoneInfo.toolTip = bulk.zoneInfo.stringValue;  // in full, when a long language cuts it short
 }
 
 void bulkLayout() {
@@ -1084,7 +1085,7 @@ void bulkLayout() {
     switch (kind) {
         case adif::RecordFilter::OneOf: bulk.filterValue.placeholderString = @"A, B, C"; break;
         case adif::RecordFilter::Pattern: bulk.filterValue.placeholderString = T(@"e.g. K*/P (* any, ? one)"); break;
-        case adif::RecordFilter::Regex: bulk.filterValue.placeholderString = @"e.g. ^73\\b"; break;
+        case adif::RecordFilter::Regex: bulk.filterValue.placeholderString = T(@"e.g. ^73\\b"); break;
         case adif::RecordFilter::Between: bulk.filterValue.placeholderString = T(@"low, high"); break;
         case adif::RecordFilter::Less:
         case adif::RecordFilter::Greater: bulk.filterValue.placeholderString = T(@"number, date or text"); break;
@@ -1271,7 +1272,7 @@ void bulkPreview() {
         }
         [bulk.w setStatus:ADIFString(status) severity:sev];
         bulk.apply.enabled = YES;
-        bulk.apply.title = TP(@"Apply {n} Change", @"Apply {n} Changes", (long long)plan.changes.size());
+        bulk.apply.title = TP(T(@"Apply {n} Change"), T(@"Apply {n} Changes"), (long long)plan.changes.size());
         [bulk.w setDefaultButton:bulk.apply];
     } catch (...) {
         [bulk.w setStatus:@"Something went wrong preparing the changes." severity:2];
@@ -1382,7 +1383,7 @@ void openBulkEdit(bool shift, bool fromTable) {
             [w addOptionRow:@[ ADIFLabel(@"Records:"), bulk.scope ]];
             bulk.useFilter = ADIFCheckbox(@"Only where", NO);
             bulk.filterField = ADIFComboBox(@[], 140);
-            bulk.filterField.placeholderString = @"field";
+            bulk.filterField.placeholderString = T(@"field");
             bulk.filterNot = ADIFCheckbox(@"not", NO);
             bulk.filterNot.toolTip = T(@"The records that don't match: not is, not contains, not between...");
             bulk.filterKind = ADIFPopup(@[ @"is", @"contains", @"starts with", @"ends with", @"is one of", @"matches pattern",
@@ -1519,7 +1520,7 @@ void dupesFind() {
             return;
         }
         dupes.remove.enabled = YES;
-        dupes.remove.title = TP(@"Remove {n} Record", @"Remove {n} Records", (long long)records);
+        dupes.remove.title = TP(T(@"Remove {n} Record"), T(@"Remove {n} Records"), (long long)records);
         [dupes.w setDefaultButton:dupes.remove];
         [dupes.w setStatus:ADIFString(trf("{qsos} logged more than once: {records} to remove. Each keeps the record with the most fields. "
                                           "Untick any to leave alone.",
@@ -1621,7 +1622,7 @@ void cmpUpdateButton() {
     std::vector<bool> ticks = [cmp.w ticked];
     for (size_t i = 0; i < ticks.size() && i < cmp.shown.size(); ++i) n += ticks[i] && cmpTickable(cmp.rows[cmp.shown[i]]);
     cmp.apply.enabled = cmp.ready && n > 0;
-    cmp.apply.title = n ? [NSString stringWithFormat:T(@"Apply %zu"), n] : @"Apply";
+    cmp.apply.title = n ? [NSString stringWithFormat:T(@"Apply %zu"), n] : T(@"Apply");
 }
 
 // The table, as the Show popup filters it; ticks kept for rows still shown.
@@ -1849,7 +1850,7 @@ void potaPlan() {
         }
         [pota.w setRows:rows severities:sev];
         pota.save.enabled = !pota.files.empty();
-        pota.save.title = TP(@"Save {n} File", @"Save {n} Files", (long long)pota.files.size());
+        pota.save.title = TP(T(@"Save {n} File"), T(@"Save {n} Files"), (long long)pota.files.size());
         if (pota.files.empty()) {
             [pota.w setStatus:prog == adif::Program::WWFF   ? N(@"No WWFF activations in this log: records need MY_WWFF_REF, or MY_SIG WWFF and MY_SIG_INFO.")
                               : prog == adif::Program::SOTA ? N(@"No SOTA activations in this log: records need MY_SOTA_REF, or MY_SIG SOTA and MY_SIG_INFO.")
@@ -2165,7 +2166,7 @@ void spotsFetch() {
     if (spots.loading) return;
     spots.loading = true;
     if (spots.all.empty()) spotsShow();
-    NSString *agent = [NSString stringWithFormat:T(@"ADIF Lint/%s (Nextpad++ plugin; https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint)"),
+    NSString *agent = [NSString stringWithFormat:@"ADIF Lint/%s (Nextpad++ plugin; https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint)",
                                                  ADIFLINT_VERSION];
     if (spots.program.indexOfSelectedItem == kSpotsSpothole) return spotholeFetch(agent);
     adif::Program program = spots.program.indexOfSelectedItem == kSpotsWwff ? adif::Program::WWFF : adif::Program::POTA;
@@ -2305,7 +2306,7 @@ void csvPlan() {
     [csvIn.w setStatus:ADIFString(st) severity:csvIn.data.notes.empty() ? -1 : 1];
     if (!csvIn.data.records.empty()) {
         csvIn.add.enabled = YES;
-        csvIn.add.title = TP(@"Add {n} QSO", @"Add {n} QSOs", (long long)csvIn.data.records.size());
+        csvIn.add.title = TP(T(@"Add {n} QSO"), T(@"Add {n} QSOs"), (long long)csvIn.data.records.size());
         [csvIn.w setDefaultButton:csvIn.add];
     }
 }
@@ -2592,7 +2593,7 @@ void openOrganize(bool seeded, const std::vector<adif::SortKey> &seedKeys, const
         org.doSort = ADIFCheckbox(@"Sort the records by:", YES);
         for (size_t i = 0; i < kSortKeys; ++i) {
             org.key[i] = ADIFComboBox(@[], 180);
-            org.key[i].placeholderString = i == 0 ? @"e.g. BAND" : @"(optional)";
+            org.key[i].placeholderString = i == 0 ? T(@"e.g. BAND") : T(@"(optional)");
             org.dir[i] = ADIFPopup(@[ @"Ascending", @"Descending" ]);
             ADIFOnAction(org.key[i], ^{ orgStatus(); });
             ADIFOnAction(org.dir[i], ^{ orgStatus(); });
@@ -2791,7 +2792,7 @@ void cmdLogTable() {
         w.onHeaderMenuOpen = ^(NSInteger column) {
             table.menuColumn = column;
             std::string field = tableField(column);
-            table.removeItem.title = field.empty() ? @"Remove Field from Every Record"
+            table.removeItem.title = field.empty() ? T(@"Remove Field from Every Record")
                                                    : ADIFString("Remove " + field + " from Every Record");
             table.removeItem.enabled = !field.empty();
         };

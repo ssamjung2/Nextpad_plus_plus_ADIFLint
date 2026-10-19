@@ -4,3 +4,5 @@ dist/
 *.dylib
 *.zip
 .DS_Store
+drafts/
+__pycache__/

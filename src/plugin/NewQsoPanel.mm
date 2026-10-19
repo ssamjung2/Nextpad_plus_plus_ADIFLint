@@ -108,7 +108,7 @@ static NSColor *severityColor(int severity) { return severity < 0 ? NSColor.seco
     _contest.translatesAutoresizingMaskIntoConstraints = NO;
 
     _lookup = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    [_lookup addItemsWithTitles:@[ @"Off", @"Country data", @"QRZ.com", @"HamQTH" ]];
+    [_lookup addItemsWithTitles:@[ T(@"Off"), T(@"Country data"), @"QRZ.com", @"HamQTH" ]];  // chosen by index
     _lookup.target = self;
     _lookup.action = @selector(lookupChanged:);
     _lookup.toolTip = T(@"Look the call up as you type and fill the fields that are still empty: country and zones from the "
@@ -208,7 +208,7 @@ static NSColor *severityColor(int severity) { return severity < 0 ? NSColor.seco
         control.delegate = self;
     }
     control.stringValue = ADIFString(row.value);
-    control.placeholderString = row.required ? @"required" : @"";
+    control.placeholderString = row.required ? T(@"required") : @"";
     control.toolTip = ADIFString(row.description);
     control.font = [NSFont monospacedSystemFontOfSize:NSFont.systemFontSize weight:NSFontWeightRegular];
     control.translatesAutoresizingMaskIntoConstraints = NO;
@@ -298,7 +298,7 @@ static NSColor *severityColor(int severity) { return severity < 0 ? NSColor.seco
 }
 
 - (void)setSummary:(const std::string &)text severity:(int)severity {
-    _summary.stringValue = ADIFString(text);
+    _summary.stringValue = ADIFString(tr(text));  // a fixed text in the user's language
     _summary.textColor = severityColor(severity);
 }
 
@@ -356,7 +356,7 @@ static NSColor *severityColor(int severity) { return severity < 0 ? NSColor.seco
 }
 
 - (void)setTarget:(const std::string &)documentName {
-    _target.stringValue = [@"Logging to: " stringByAppendingString:ADIFString(documentName)];
+    _target.stringValue = [T(@"Logging to: ") stringByAppendingString:ADIFString(documentName)];
 }
 
 // ── Time ────────────────────────────────────────────────────────────────────

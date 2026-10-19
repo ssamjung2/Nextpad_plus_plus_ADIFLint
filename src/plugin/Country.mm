@@ -45,15 +45,15 @@ const adif::CountryTable &ADIFCountries(void) {
     if (!gLoaded) {
         gLoaded = true;
         std::string release = adifhost::setting("countryRelease");
-        if (loadFile(downloadedPath())) gSource = (release.empty() ? std::string("downloaded") : release) + ", downloaded";
-        else if (loadFile(pluginDir() + "/cty.csv")) gSource = "installed with ADIF Lint";
+        if (loadFile(downloadedPath())) gSource = release.empty() ? tr("downloaded") : trf("{release}, downloaded", {{"release", release}});
+        else if (loadFile(pluginDir() + "/cty.csv")) gSource = tr("installed with ADIF Lint");
     }
     return gTable;
 }
 
 NSString *ADIFCountryDataStatus(void) {
     const adif::CountryTable &t = ADIFCountries();
-    if (t.empty()) return @"No country data: press Update to download AD1C's country file.";
+    if (t.empty()) return T(@"No country data: press Update to download AD1C's country file.");
     return [NSString stringWithFormat:T(@"%zu DXCC entities and prefixes (%s)."), t.entities(), gSource.c_str()];
 }
 
@@ -68,19 +68,19 @@ void ADIFUpdateCountryData(void (^done)(BOOL ok, NSString *message)) {
         std::string problem;
         std::string text = csv.UTF8String ?: "";
         if (!t.load(text, &problem)) {
-            done(NO, [@"The download was not a country file: " stringByAppendingString:@(problem.c_str())]);
+            done(NO, TF(@"The download was not a country file: {why}", @{@"why" : @(problem.c_str())}));
             return;
         }
         std::string path = downloadedPath();
         NSData *d = [NSData dataWithBytes:text.data() length:text.size()];
         if (path.empty() || ![d writeToFile:@(path.c_str()) atomically:YES]) {
-            done(NO, @"Could not save the country file in the plugin config folder.");
+            done(NO, T(@"Could not save the country file in the plugin config folder."));
             return;
         }
         adifhost::setSetting("countryRelease", release.UTF8String ?: "");
         gTable = std::move(t);
         gLoaded = true;
-        gSource = std::string(release.UTF8String ?: "") + ", downloaded";
+        gSource = trf("{release}, downloaded", {{"release", release.UTF8String ?: ""}});
         done(YES, [NSString stringWithFormat:T(@"Updated to %@: %zu entities."), release, gTable.entities()]);
     });
 }

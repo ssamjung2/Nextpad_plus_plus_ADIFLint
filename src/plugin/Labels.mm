@@ -62,7 +62,7 @@ void plan() {
         const adif::LabelSheet &sheet = chosenSheet();
         lw.labels = adif::qslLabels(text, r.model, lw.groups, sheet.perLabel);
         std::string me = myCall(text, r.model), closing = ADIFStd(lw.closing.stringValue);
-        lw.from.placeholderString = me.empty() ? @"your callsign" : ADIFString(me);
+        lw.from.placeholderString = me.empty() ? T(@"your callsign") : ADIFString(me);
         std::vector<std::vector<std::string>> rows;
         for (size_t i = 0; i < lw.labels.size(); ++i) {
             std::vector<std::string> lines = adif::labelLines(lw.labels[i], me, closing);
@@ -76,13 +76,15 @@ void plan() {
         size_t pages = lw.labels.empty() ? 0 : ((size_t)start - 1 + lw.labels.size() + perPage - 1) / perPage;
         lw.save.enabled = !lw.labels.empty();
         lw.mark.enabled = !lw.groups.empty();
-        lw.mark.title = lw.groups.empty() ? @"Mark as Sent" : ADIFString("Mark " + plural(lw.groups.size(), "QSO") + " as Sent");
+        lw.mark.title = lw.groups.empty() ? T(@"Mark as Sent") : ADIFString(trf("Mark {qsos} as Sent", {{"qsos", plural(lw.groups.size(), "QSO")}}));
         std::string st = lw.labels.empty()
-                             ? (lw.which.indexOfSelectedItem == 1 ? "No records in the editor selection."
-                                                                  : "No cards to send: no record has QSL_SENT R (requested) or Q (queued).")
-                             : plural(lw.labels.size(), "label") + " for " + plural(lw.groups.size(), "QSO") + ", " + plural(pages, "page") +
-                                   ". Save PDF... and print it at 100% (no scaling); try a page on plain paper against a sheet first. "
-                                   "Mark as Sent then sets QSL_SENT Y and QSLSDATE today (one undo step).";
+                             ? (lw.which.indexOfSelectedItem == 1 ? tr("No records in the editor selection.")
+                                                                  : tr("No cards to send: no record has QSL_SENT R (requested) or Q (queued)."))
+                             : trf("{labels} for {qsos}, {pages}.", {{"labels", plural(lw.labels.size(), "label")}, {"qsos", plural(lw.groups.size(), "QSO")},
+                                                                    {"pages", plural(pages, "page")}}) +
+                                   " " +
+                                   tr("Save PDF... and print it at 100% (no scaling); try a page on plain paper against a sheet first. Mark as Sent then "
+                                      "sets QSL_SENT Y and QSLSDATE today (one undo step).");
         [lw.w setStatus:ADIFString(st) severity:lw.labels.empty() ? 1 : -1];
     } catch (...) {
     }
@@ -105,7 +107,7 @@ bool writePdf(const std::string &path, const adif::LabelSheet &sheet, size_t sta
     CFURLRef url = (__bridge CFURLRef)[NSURL fileURLWithPath:ADIFString(path)];
     CGContextRef pdf = CGPDFContextCreateWithURL(url, &box, nullptr);
     if (!pdf) {
-        *error = "could not create the file";
+        *error = tr("could not create the file");
         return false;
     }
     size_t perPage = (size_t)(sheet.columns * sheet.rows);
@@ -165,14 +167,14 @@ void savePdf() {
         const adif::LabelSheet &sheet = chosenSheet();
         size_t start = (size_t)std::max(1L, (long)lw.start.integerValue) - 1;
         if (!writePdf(path, sheet, start % (size_t)(sheet.columns * sheet.rows), me, ADIFStd(lw.closing.stringValue), &error)) {
-            [lw.w setStatus:ADIFString("Could not save the labels: " + error + ".") severity:2];
+            [lw.w setStatus:ADIFString(trf("Could not save the labels: {why}.", {{"why", error}})) severity:2];
             return;
         }
         setSetting("labelSheet", std::to_string(lw.sheet.indexOfSelectedItem));
         setSetting("labelClosing", ADIFStd(lw.closing.stringValue));
         if (!getenv("ADIFLINT_TEST_SAVE_DIR")) [[NSWorkspace sharedWorkspace] openURL:[NSURL fileURLWithPath:ADIFString(path)]];
-        [lw.w setStatus:ADIFString("Saved " + plural(lw.labels.size(), "label") + " to " + ADIFStd(ADIFString(path).lastPathComponent) +
-                                   ". Print it at 100%, then Mark as Sent.")
+        [lw.w setStatus:ADIFString(trf("Saved {labels} to {file}. Print it at 100%, then Mark as Sent.",
+                                       {{"labels", plural(lw.labels.size(), "label")}, {"file", ADIFStd(ADIFString(path).lastPathComponent)}}))
                 severity:3];
     } catch (...) {
         [lw.w setStatus:@"Something went wrong saving the labels." severity:2];
@@ -196,7 +198,7 @@ void markSent() {
         if (groups.empty()) return;
         adifhost::apply(h, adif::cellEdits(text, r.model, adif::qslSentChanges(groups, utcNow("%Y%m%d")), lengthUnit(), utf8(h)));
         plan();
-        [lw.w setStatus:ADIFString("Marked " + plural(groups.size(), "QSO") + " QSL_SENT Y with today's QSLSDATE (one undo step).")
+        [lw.w setStatus:ADIFString(trf("Marked {qsos} QSL_SENT Y with today's QSLSDATE (one undo step).", {{"qsos", plural(groups.size(), "QSO")}}))
                 severity:3];
     } catch (...) {
         [lw.w setStatus:@"Something went wrong marking the QSOs." severity:2];
@@ -212,7 +214,7 @@ void cmdQslLabels() {
         [w addOptionRow:@[ ADIFLabel(@"Export:"), families::popup(families::kExport, families::kExportLabels) ]];
         lw.which = ADIFPopup(@[ @"Cards to send (QSL_SENT R or Q)", @"Records in the editor selection" ]);
         NSMutableArray *sheets = [NSMutableArray array];
-        for (const adif::LabelSheet &s : adif::labelSheets()) [sheets addObject:ADIFString(s.name)];
+        for (const adif::LabelSheet &s : adif::labelSheets()) [sheets addObject:ADIFString(tr(s.name))];
         lw.sheet = ADIFPopup(sheets);
         NSInteger keep = (NSInteger)std::atoi(setting("labelSheet").c_str());
         if (keep > 0 && keep < lw.sheet.numberOfItems) [lw.sheet selectItemAtIndex:keep];
@@ -222,7 +224,7 @@ void cmdQslLabels() {
         lw.start.toolTip = T(@"The first free label on the sheet (counting across, then down), to use a sheet already started");
         lw.from = ADIFTextField(@"your callsign", 100);
         lw.closing = ADIFTextField(@"TNX QSO 73", 160);
-        lw.closing.stringValue = setting("labelClosing").empty() ? @"TNX QSO 73" : ADIFString(setting("labelClosing"));
+        lw.closing.stringValue = setting("labelClosing").empty() ? T(@"TNX QSO 73") : ADIFString(setting("labelClosing"));
         [w addOptionRow:@[ ADIFLabel(@"Start at label:"), lw.start, ADIFLabel(@"From:"), lw.from, ADIFLabel(@"Closing:"), lw.closing ]];
         for (NSControl *c in @[ lw.which, lw.sheet ]) ADIFOnAction(c, ^{ plan(); });
         for (NSTextField *f in @[ lw.start, lw.from, lw.closing ])

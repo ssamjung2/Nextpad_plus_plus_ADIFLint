@@ -1,10 +1,14 @@
 #include "adif_country.h"
+#include "adif_i18n.h"
 
 #include "adif_spec.h"
 
 #include <cstdlib>
 
 namespace adif {
+using i18n::tr;
+using i18n::trf;
+using i18n::trp;
 namespace {
 
 std::string upper(std::string_view s) {
@@ -97,7 +101,7 @@ bool CountryTable::load(std::string_view csv, std::string *error) {
             p = q;
         }
     }
-    if (entities_.empty() && error) *error = "no entities found (is this AD1C's cty.csv?)";
+    if (entities_.empty() && error) *error = tr("no entities found (is this AD1C's cty.csv?)");
     return !entities_.empty();
 }
 

@@ -1,6 +1,7 @@
 #import "MapDetail.h"
 
 #import "Map.h"
+#import "L10n.h"
 #import "Network.h"
 #import "PluginHost.h"
 
@@ -200,7 +201,7 @@ void readDirectories(unsigned gen, void (^done)(BOOL ok, NSString *message)) {
     if (gen != job.generation) return;
     if (job.extract->planned()) return done(YES, nil);
     std::vector<pm::Range> ranges = job.extract->directoryRanges();
-    if (ranges.empty()) return done(NO, @"The build's directories didn't lead to the region's tiles.");
+    if (ranges.empty()) return done(NO, T(@"The build's directories didn't lead to the region's tiles."));
     __block size_t left = ranges.size();
     __block BOOL failed = NO;
     for (const pm::Range &r : ranges) {
@@ -210,7 +211,7 @@ void readDirectories(unsigned gen, void (^done)(BOOL ok, NSString *message)) {
             std::string why;
             if (error || !job.extract->addDirectories(range, std::string_view((const char *)bytes.bytes, bytes.length), &why)) {
                 failed = YES;
-                return done(NO, error ?: [@"Reading the build's directories: " stringByAppendingString:@(why.c_str())]);
+                return done(NO, error ?: TF(@"Reading the build's directories: {why}", @{@"why" : @(why.c_str())}));
             }
             if (--left == 0) readDirectories(gen, done);
         }));
@@ -247,8 +248,8 @@ void finish() {
     job.checked = false;
     changed();
     if (finished)
-        finished(moved, moved ? @(("Downloaded " + job.where.name + ": " + bytesText(total) + ". Zoom in on the Map to see it.").c_str())
-                              : [@"Couldn't keep the download: " stringByAppendingString:err.localizedDescription ?: @"unknown error"]);
+        finished(moved, moved ? @(trf("Downloaded {region}: {size}. Zoom in on the Map to see it.", {{"region", job.where.name}, {"size", bytesText(total)}}).c_str())
+                              : TF(@"Couldn't keep the download: {why}", @{@"why" : err.localizedDescription ?: T(@"unknown error")}));
 }
 
 void fetchRange(size_t i) {
@@ -259,10 +260,10 @@ void fetchRange(size_t i) {
         if (gen != job.generation || !job.downloading) return;
         --job.inFlight;
         if (error) {
-            bool changedOnServer = [error containsString:@"412"] || [error containsString:@"changed"];
-            if (!changedOnServer && ![error isEqualToString:@"Stopped."] && job.tries[i]++ < 2) return fetchRange(i);  // once or twice more
-            return fail(changedOnServer ? @"Protomaps published a new build while this one was downloading. Check Size again for the new one."
-                                        : [@"The download stopped: " stringByAppendingString:error]);
+            bool changedOnServer = [error containsString:@"412"];  // every "it changed" message says HTTP 412, in any language
+            if (!changedOnServer && ![error isEqualToString:T(@"Stopped.")] && job.tries[i]++ < 2) return fetchRange(i);  // once or twice more
+            return fail(changedOnServer ? T(@"Protomaps published a new build while this one was downloading. Check Size again for the new one.")
+                                        : TF(@"The download stopped: {why}", @{@"why" : error}));
         }
         job.ready[i] = job.extract->copyFrom(i, std::string_view((const char *)bytes.bytes, bytes.length));
         while (job.ready.count(job.written)) {
@@ -270,13 +271,13 @@ void fetchRange(size_t i) {
             @try {
                 [job.out writeData:[NSData dataWithBytes:chunk.data() length:chunk.size()]];
             } @catch (NSException *e) {
-                return fail([@"Couldn't write the map file: " stringByAppendingString:e.reason ?: @"disk full?"]);
+                return fail(TF(@"Couldn't write the map file: {why}", @{@"why" : e.reason ?: T(@"disk full?")}));
             }
             job.done += chunk.size();
             job.ready.erase(job.written++);
         }
         if (job.progress)
-            job.progress(@(("Downloading " + job.where.name + ": " + bytesText(job.done) + " of " + bytesText(job.total) + "...").c_str()));
+            job.progress(@(trf("Downloading {region}: {done} of {total}...", {{"region", job.where.name}, {"done", bytesText(job.done)}, {"total", bytesText(job.total)}}).c_str()));
         if (job.written == job.ranges.size()) return finish();
         pump();
     }));
@@ -290,7 +291,7 @@ void pump() {
 
 std::vector<Choice> choices(bool mapOpen) {
     std::vector<Choice> out;
-    if (mapOpen) out.push_back({"view", "The area shown on the Map"});
+    if (mapOpen) out.push_back({"view", tr("The area shown on the Map")});
     std::vector<std::pair<std::string, std::string>> states;
     const adif::AreaIndex &si = adif::areaIndex(adif::Overlay::UsStates);
     for (size_t i = 0; i < si.size(); ++i) {
@@ -309,7 +310,7 @@ std::vector<Choice> choices(bool mapOpen) {
 }
 
 const std::vector<Level> &levels() {
-    static const std::vector<Level> l = {{15, "Streets and buildings (zoom 15)"}, {13, "Roads and towns (zoom 13)"}, {11, "Main roads (zoom 11)"}};
+    static const std::vector<Level> l = {{15, N_("Streets and buildings (zoom 15)")}, {13, N_("Roads and towns (zoom 13)")}, {11, N_("Main roads (zoom 11)")}};
     return l;
 }
 
@@ -327,14 +328,14 @@ const std::vector<Region> &regions() {
 
 bool remove(const std::string &path, std::string *why) {
     if (job.downloading) {
-        if (why) *why = "Wait for the download to finish, or stop it.";
+        if (why) *why = tr("Wait for the download to finish, or stop it.");
         return false;
     }
     bool known = false;
     for (const Region &r : regions()) known |= r.path == path;
     NSError *err = nil;
     if (!known || ![[NSFileManager defaultManager] removeItemAtPath:@(path.c_str()) error:&err]) {
-        if (why) *why = err ? std::string(err.localizedDescription.UTF8String ?: "") : "not a downloaded region";
+        if (why) *why = err ? std::string(err.localizedDescription.UTF8String ?: "") : tr("not a downloaded region");
         return false;
     }
     changed();
@@ -343,14 +344,15 @@ bool remove(const std::string &path, std::string *why) {
 
 NSString *status() {
     const std::vector<Region> &r = regions();
-    if (r.empty()) return @"None downloaded yet.";
+    if (r.empty()) return T(@"None downloaded yet.");
     uint64_t total = 0;
     std::string names;
     for (const Region &x : r) {
         total += x.bytes;
-        names += (names.empty() ? "" : "; ") + x.name + " (zoom " + std::to_string(x.maxZoom) + ", " + bytesText(x.bytes) + ", build " + buildDate(x.build) + ")";
+        names += (names.empty() ? "" : "; ") + trf("{region} (zoom {zoom}, {size}, build {date})", {{"region", x.name}, {"zoom", std::to_string(x.maxZoom)},
+                                                                                                {"size", bytesText(x.bytes)}, {"date", buildDate(x.build)}});
     }
-    return @((adifhost::plural(r.size(), "region") + ", " + bytesText(total) + ": " + names + ".").c_str());
+    return @(trf("{regions}, {size}: {list}.", {{"regions", adifhost::plural(r.size(), "region")}, {"size", bytesText(total)}, {"list", names}}).c_str());
 }
 
 bool busy() { return job.checking || job.downloading; }
@@ -365,20 +367,21 @@ void stop() {
     job.checked = false;
     void (^finished)(BOOL, NSString *) = job.finished;
     job.finished = nil;
-    if (was && finished) finished(NO, @"Stopped. Nothing was kept.");
+    if (was && finished) finished(NO, T(@"Stopped. Nothing was kept."));
 }
 
 void check(const std::string &choice, int zoom, void (^done)(BOOL ok, NSString *message)) {
-    if (busy()) return done(NO, @"A download is under way; stop it first.");
-    if (mapsDir().empty()) return done(NO, @"Nextpad++ has no plugin settings folder to keep maps in.");
+    if (busy()) return done(NO, T(@"A download is under way; stop it first."));
+    if (mapsDir().empty()) return done(NO, T(@"Nextpad++ has no plugin settings folder to keep maps in."));
     Area where;
-    if (!area(choice, &where)) return done(NO, choice == "view" ? @"Open the Map first, and show the area you want." : @"That region isn't known.");
+    if (!area(choice, &where)) return done(NO, choice == "view" ? T(@"Open the Map first, and show the area you want.") : T(@"That region isn't known."));
     // About how many tiles at the top zoom (the region's box): too many for one file is refused.
     double tilesAcross = (pm::tileX(where.bounds[2], zoom) - pm::tileX(where.bounds[0], zoom) + 1) *
                          (pm::tileY(where.bounds[1], zoom) - pm::tileY(where.bounds[3], zoom) + 1);
     if (tilesAcross > 4e6)
-        return done(NO, @((where.name + " is too large for this much detail (some " + grouped((uint64_t)tilesAcross) +
-                           " tiles): choose less detail, or a smaller region (a state, or the area shown on the Map).")
+        return done(NO, @(trf("{region} is too large for this much detail (some {tiles} tiles): choose less detail, or a smaller region (a state, "
+                              "or the area shown on the Map).",
+                              {{"region", where.name}, {"tiles", grouped((uint64_t)tilesAcross)}})
                               .c_str()));
     unsigned gen = ++job.generation;
     job.choice = choice, job.zoom = zoom, job.where = where;
@@ -406,7 +409,7 @@ void check(const std::string &choice, int zoom, void (^done)(BOOL ok, NSString *
                         continue;
                     if (!newest || [key compare:newest] == NSOrderedDescending) newest = key;
                 }
-                if (!newest) return end(NO, error ? [@"Protomaps' list of builds: " stringByAppendingString:error] : @"Protomaps' list of builds had none.");
+                if (!newest) return end(NO, error ? TF(@"Protomaps' list of builds: {why}", @{@"why" : error}) : T(@"Protomaps' list of builds had none."));
                 job.build = [newest substringToIndex:8].UTF8String;
                 job.url = [NSURL URLWithString:[@(kBuildBase) stringByAppendingString:newest]];
                 job.etag = nil;
@@ -414,8 +417,8 @@ void check(const std::string &choice, int zoom, void (^done)(BOOL ok, NSString *
                     if (gen != job.generation) return;
                     std::string why;
                     if (err || !job.extract->start(std::string_view((const char *)first.bytes, first.length), &why))
-                        return end(NO, err ?: [@"Protomaps' build: " stringByAppendingString:@(why.c_str())]);
-                    if (job.extract->source().tileType != pm::kMvt) return end(NO, @"Protomaps' build isn't vector tiles.");
+                        return end(NO, err ?: TF(@"Protomaps' build: {why}", @{@"why" : @(why.c_str())}));
+                    if (job.extract->source().tileType != pm::kMvt) return end(NO, T(@"Protomaps' build isn't vector tiles."));
                     job.etag = etag;
                     pm::Range m = job.extract->metadataRange();
                     track(ADIFFetchRange(job.url, m.offset, m.length, job.etag, ^(NSData *meta, NSString *, NSString *err2) {
@@ -426,12 +429,14 @@ void check(const std::string &choice, int zoom, void (^done)(BOOL ok, NSString *
                         readDirectories(gen, ^(BOOL ok, NSString *message) {
                             if (!ok) return end(NO, message);
                             job.total = job.extract->tileBytes();
-                            if (job.extract->tileCount() == 0) return end(NO, @(("Protomaps' build has no map tiles for " + where.name + ".").c_str()));
-                            const char *level = "";
+                            if (job.extract->tileCount() == 0) return end(NO, @(trf("Protomaps' build has no map tiles for {region}.", {{"region", where.name}}).c_str()));
+                            std::string level;
                             for (const Level &l : levels())
-                                if (l.zoom == zoom) level = l.title;
-                            end(YES, @((where.name + ", " + level + ": " + bytesText(job.total) + " (" + grouped(job.extract->tileCount()) +
-                                        " map tiles) from Protomaps' OpenStreetMap build of " + buildDate(job.build) + ". Press Download to fetch it.")
+                                if (l.zoom == zoom) level = tr(l.title);
+                            end(YES, @(trf("{region}, {level}: {size} ({tiles} map tiles) from Protomaps' OpenStreetMap build of {date}. Press "
+                                           "Download to fetch it.",
+                                           {{"region", where.name}, {"level", level}, {"size", bytesText(job.total)},
+                                            {"tiles", grouped(job.extract->tileCount())}, {"date", buildDate(job.build)}})
                                            .c_str()));
                         });
                     }));
@@ -442,19 +447,19 @@ void check(const std::string &choice, int zoom, void (^done)(BOOL ok, NSString *
 }
 
 void download(void (^progress)(NSString *message), void (^done)(BOOL ok, NSString *message)) {
-    if (!job.checked || job.downloading || !job.extract) return done(NO, @"Check Size first.");
+    if (!job.checked || job.downloading || !job.extract) return done(NO, T(@"Check Size first."));
     std::string dir = mapsDir();
     [[NSFileManager defaultManager] createDirectoryAtPath:@(dir.c_str()) withIntermediateDirectories:YES attributes:nil error:nil];
     NSNumber *free = [[NSFileManager defaultManager] attributesOfFileSystemForPath:@(dir.c_str()) error:nil][NSFileSystemFreeSize];
     if (free && free.unsignedLongLongValue < job.total + (200ull << 20))  // the region, and room to spare
-        return done(NO, @(("Not enough free disk space: " + job.where.name + " needs " + bytesText(job.total) + ", and " +
-                           bytesText(free.unsignedLongLongValue) + " is free.")
+        return done(NO, @(trf("Not enough free disk space: {region} needs {size}, and {free} is free.",
+                              {{"region", job.where.name}, {"size", bytesText(job.total)}, {"free", bytesText(free.unsignedLongLongValue)}})
                               .c_str()));
     job.partial = [NSString stringWithFormat:@"%s/.download-%@.partial", dir.c_str(), NSUUID.UUID.UUIDString];
     if (![[NSFileManager defaultManager] createFileAtPath:job.partial contents:nil attributes:nil] ||
         !(job.out = [NSFileHandle fileHandleForWritingAtPath:job.partial])) {
         job.partial = nil;
-        return done(NO, @"Couldn't create the map file in the plugin's settings folder.");
+        return done(NO, T(@"Couldn't create the map file in the plugin's settings folder."));
     }
     std::string head = job.extract->head();
     [job.out writeData:[NSData dataWithBytes:head.data() length:head.size()]];
@@ -465,7 +470,7 @@ void download(void (^progress)(NSString *message), void (^done)(BOOL ok, NSStrin
     job.progress = progress;
     job.finished = done;
     if (job.ranges.empty()) return finish();
-    progress(@(("Downloading " + job.where.name + ": " + bytesText(job.total) + "...").c_str()));
+    progress(@(trf("Downloading {region}: {size}...", {{"region", job.where.name}, {"size", bytesText(job.total)}}).c_str()));
     pump();
 }
 

@@ -1,4 +1,5 @@
 #include "adif_programs.h"
+#include "adif_i18n.h"
 
 #include "adif_enrich.h"
 #include "adif_lint.h"
@@ -10,6 +11,9 @@
 #include <tuple>
 
 namespace adif {
+using i18n::tr;
+using i18n::trf;
+using i18n::trp;
 namespace {
 
 std::string up(std::string_view s) {
@@ -195,17 +199,19 @@ std::vector<PotaFile> programExport(Program p, std::string_view text, const DocM
         }
         f.qsos = a.qsos;
         if (p == Program::SOTA && !a.activated())
-            f.notes.push_back(std::to_string(a.qsos) + (a.qsos == 1 ? " station: " : " stations: ") +
-                              std::to_string(4 - a.qsos) + " more for the summit's points");
-        if (p == Program::WWFF) f.notes.push_back("WWFF counts 44 QSOs per reference, over any number of days");
-        if (a.duplicates) f.notes.push_back(std::to_string(a.duplicates) + " repeated");
+            f.notes.push_back(trp("{n} station: {more} more for the summit's points", "{n} stations: {more} more for the summit's points",
+                                  (long long)a.qsos, {{"n", std::to_string(a.qsos)}, {"more", std::to_string(4 - a.qsos)}}));
+        if (p == Program::WWFF) f.notes.push_back(tr("WWFF counts 44 QSOs per reference, over any number of days"));
+        if (a.duplicates) f.notes.push_back(trf("{n} repeated", {{"n", std::to_string(a.duplicates)}}));
         if (a.invalid)
-            f.notes.push_back(std::to_string(a.invalid) + (a.invalid == 1 ? " record" : " records") +
-                              " missing CALL, TIME_ON, BAND or MODE, or working your own call");
-        if (f.station.empty()) f.notes.push_back("no STATION_CALLSIGN or OPERATOR: enter your callsign");
-        else if (added) f.notes.push_back("STATION_CALLSIGN " + f.station + " added to " + std::to_string(added) +
-                                          (added == 1 ? " record" : " records"));
-        if (!todayUtc.empty() && a.lastDate > todayUtc) f.notes.push_back("dated in the future");
+            f.notes.push_back(trp("{n} record missing CALL, TIME_ON, BAND or MODE, or working your own call",
+                                  "{n} records missing CALL, TIME_ON, BAND or MODE, or working your own call", (long long)a.invalid,
+                                  {{"n", std::to_string(a.invalid)}}));
+        if (f.station.empty()) f.notes.push_back(tr("no STATION_CALLSIGN or OPERATOR: enter your callsign"));
+        else if (added)
+            f.notes.push_back(trp("STATION_CALLSIGN {call} added to {n} record", "STATION_CALLSIGN {call} added to {n} records",
+                                  (long long)added, {{"call", f.station}, {"n", std::to_string(added)}}));
+        if (!todayUtc.empty() && a.lastDate > todayUtc) f.notes.push_back(tr("dated in the future"));
         out.push_back(std::move(f));
     }
     std::set<std::string> names;
@@ -274,10 +280,14 @@ ReferenceHistory referenceHistory(std::string_view ref, const std::vector<Worked
 std::string referenceSummary(std::string_view ref, const ReferenceHistory &h) {
     std::string r = up(ref.substr(0, ref.find('@')));
     // WWFF first: KFF-1234 also has the shape of a POTA park.
-    std::string kind = isAdifWwffRef(r) ? "reference" : isPotaRef(r) ? "park" : isAdifSotaRef(r) ? "summit" : "reference";
-    if (!h.qsos) return r + ": a new " + kind + "!";
-    return r + ": worked " + std::to_string(h.qsos) + (h.qsos == 1 ? " time" : " times") + " before, last " +
-           displayDate(h.lastDate) + (h.lastLog.empty() ? "" : " (" + h.lastLog + ")");
+    if (!h.qsos) {
+        if (!isAdifWwffRef(r) && isPotaRef(r)) return trf("{ref}: a new park!", {{"ref", r}});
+        if (!isAdifWwffRef(r) && isAdifSotaRef(r)) return trf("{ref}: a new summit!", {{"ref", r}});
+        return trf("{ref}: a new reference!", {{"ref", r}});
+    }
+    std::string s = trp("{ref}: worked {n} time before, last {date}", "{ref}: worked {n} times before, last {date}", (long long)h.qsos,
+                        {{"ref", r}, {"n", std::to_string(h.qsos)}, {"date", displayDate(h.lastDate)}});
+    return h.lastLog.empty() ? s : s + " (" + h.lastLog + ")";
 }
 
 }  // namespace adif

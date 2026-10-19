@@ -174,10 +174,13 @@ std::string tr(std::string_view english) {
         auto it = t->strings.find(std::string(english));
         if (it != t->strings.end() && !it->second.empty()) return it->second;
     }
-    return std::string(english);
+    return std::string(english.substr(0, english.find("##")));  // a context ("Solid##line") isn't shown
 }
 
-std::string fill(std::string_view text, Args args) {
+namespace {
+
+template <class Pairs>
+std::string fillFrom(std::string_view text, const Pairs &args) {
     std::string out;
     out.reserve(text.size() + 16);
     for (size_t i = 0; i < text.size();) {
@@ -187,7 +190,7 @@ std::string fill(std::string_view text, Args args) {
                 std::string_view name = text.substr(i + 1, close - i - 1);
                 bool done = false;
                 for (const auto &[k, v] : args)
-                    if (k == name) {
+                    if (std::string_view(k) == name) {
                         out += v, done = true;
                         break;
                     }
@@ -201,6 +204,12 @@ std::string fill(std::string_view text, Args args) {
     }
     return out;
 }
+
+}  // namespace
+
+std::string fill(std::string_view text, Args args) { return fillFrom(text, args); }
+
+std::string fill(std::string_view text, const std::vector<std::pair<std::string, std::string>> &args) { return fillFrom(text, args); }
 
 std::string trf(std::string_view english, Args args) { return fill(tr(english), args); }
 

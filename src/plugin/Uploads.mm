@@ -136,7 +136,7 @@ void runTqsl(const std::string &path, NSArray<NSString *> *args, Upload *u, void
     task.standardInput = [NSFileHandle fileHandleWithNullDevice];
     NSError *err = nil;
     if (![task launchAndReturnError:&err]) {
-        done(-1, [@"Could not start TQSL: " stringByAppendingString:err.localizedDescription ?: @"unknown error"]);
+        done(-1, TF(@"Could not start TQSL: {why}", @{@"why" : err.localizedDescription ?: T(@"unknown error")}));
         return;
     }
     u->task = task;
@@ -173,16 +173,16 @@ NSString *accountLine(adif::UploadService s) {
     auto saved = [](ADIFSource src) { return ADIFSavedAccount(src) && ADIFHasSecret(src); };
     switch (s) {
         case adif::UploadService::QRZ:
-            return saved(ADIFSourceQRZLogbook) ? @"QRZ.com Logbook API key saved in your Keychain"
-                                               : @"No QRZ.com Logbook API key yet: add it in Settings.";
+            return saved(ADIFSourceQRZLogbook) ? T(@"QRZ.com Logbook API key saved in your Keychain")
+                                               : T(@"No QRZ.com Logbook API key yet: add it in Settings.");
         case adif::UploadService::ClubLog:
-            if (!saved(ADIFSourceClubLog)) return @"No Club Log account yet: add it in Settings.";
-            if (!saved(ADIFSourceClubLogKey)) return @"No Club Log API key yet: add it in Settings.";
+            if (!saved(ADIFSourceClubLog)) return T(@"No Club Log account yet: add it in Settings.");
+            if (!saved(ADIFSourceClubLogKey)) return T(@"No Club Log API key yet: add it in Settings.");
             return [NSString stringWithFormat:T(@"%@ (Application Password and API key in your Keychain)"),
                                               ADIFSavedAccount(ADIFSourceClubLog)];
         case adif::UploadService::EQSL:
             return saved(ADIFSourceEQSL) ? [NSString stringWithFormat:T(@"%@ (saved in your Keychain)"), ADIFSavedAccount(ADIFSourceEQSL)]
-                                         : @"No eQSL account yet: add it in Settings.";
+                                         : T(@"No eQSL account yet: add it in Settings.");
         case adif::UploadService::LoTW: return @"";
     }
     return @"";
@@ -193,7 +193,7 @@ size_t updateUploadButton(Upload &u) {
     std::vector<bool> ticks = [u.w ticked];
     size_t n = 0;
     for (size_t i = 0; i < ticks.size() && i < u.items.size(); ++i) n += ticks[i] && u.items[i].problem.empty();
-    u.upload.title = [NSString stringWithFormat:T(@"Upload %zu QSO%@"), n, n == 1 ? @"" : @"s"];
+    u.upload.title = TP(@"Upload {n} QSO", @"Upload {n} QSOs", (long long)n);
     u.upload.enabled = n > 0 && !u.running && !u.results;
     return n;
 }
@@ -219,7 +219,7 @@ void plan(Upload &u, bool keepTicks = false) {
         if (u.account) u.account.stringValue = accountLine(u.service);
         if (u.tqsl) {
             std::string p = tqslPath();
-            u.tqsl.stringValue = p.empty() ? @"not found: choose it" : [ADIFString(p) stringByAbbreviatingWithTildeInPath];
+            u.tqsl.stringValue = p.empty() ? T(@"not found: choose it") : [ADIFString(p) stringByAbbreviatingWithTildeInPath];
         }
         bool includeDone = u.includeDone.state == NSControlStateValueOn;
         std::set<int> sel;
@@ -265,10 +265,10 @@ void plan(Upload &u, bool keepTicks = false) {
                 std::string why = adif::lotwLocationProblem(recordOf[i.group], *location);
                 if (!why.empty()) {
                     ++refused;
-                    i.problem = "TQSL would refuse it: " + why;
+                    i.problem = trf("TQSL would refuse it: {why}", {{"why", why}});
                     for (const adif::TqslLocation &l : locations)
                         if (&l != location && adif::lotwLocationProblem(recordOf[i.group], l).empty()) {
-                            i.problem += "; it matches " + l.name;
+                            i.problem += "; " + trf("it matches {location}", {{"location", l.name}});
                             ++elsewhere;
                             otherName = l.name;
                             break;
@@ -277,11 +277,11 @@ void plan(Upload &u, bool keepTicks = false) {
             }
             if (i.done) ++done;
             if ((i.done || i.skip) && !includeDone) continue;
-            std::string status = !i.problem.empty() ? "can't send: " + i.problem
-                                 : i.done            ? std::string("sent ") + adif::displayDate(std::string(adif::groupValue(
-                                                                   text, r.model, r.model.groups[(size_t)i.group], f.date)))
-                                 : i.skip            ? std::string(f.status) + " " + i.status + ": not to be sent"
-                                 : i.replace         ? "changed since upload"
+            std::string status = !i.problem.empty() ? trf("can't send: {why}", {{"why", i.problem}})
+                                 : i.done            ? trf("sent {date}", {{"date", adif::displayDate(std::string(adif::groupValue(
+                                                                                  text, r.model, r.model.groups[(size_t)i.group], f.date)))}})
+                                 : i.skip            ? trf("{field} {status}: not to be sent", {{"field", f.status}, {"status", i.status}})
+                                 : i.replace         ? tr("changed since upload")
                                                      : "";
             rows.push_back({std::to_string(i.record), i.call, adif::displayDate(i.date), adif::displayTime(i.time), i.band, i.mode,
                             status, ""});
@@ -301,25 +301,29 @@ void plan(Upload &u, bool keepTicks = false) {
         [u.w setRows:rows severities:sev keys:keys ticks:ticks keepTicks:keepTicks];
         wanted = updateUploadButton(u);
         std::string st;
-        if (!adif::recordCount(r.model)) st = "This document has no ADIF records.";
+        std::string service = adif::uploadServiceName(u.service);
+        if (!adif::recordCount(r.model)) st = tr("This document has no ADIF records.");
         else if (!wanted)
-            st = "Nothing to send: " + plural(done, "QSO") + " already sent to " + adif::uploadServiceName(u.service) +
-                 (problems ? ", " + plural(problems, "record") + " missing what it needs" : "") + ".";
+            st = problems ? trf("Nothing to send: {qsos} already sent to {service}, {records} missing what it needs.",
+                                {{"qsos", plural(done, "QSO")}, {"service", service}, {"records", plural(problems, "record")}})
+                          : trf("Nothing to send: {qsos} already sent to {service}.", {{"qsos", plural(done, "QSO")}, {"service", service}});
         else
-            st = plural(wanted, "QSO") + " ticked to send to " + adif::uploadServiceName(u.service) +
-                 (done && !includeDone ? " (" + std::to_string(done) + " already sent are not listed)" : "") +
-                 ". Nothing is sent until you press Upload; afterwards each one sent gets " + f.status + " Y and " + f.date +
-                 ".";
+            st = trf(done && !includeDone ? "{qsos} ticked to send to {service} ({n} already sent are not listed)." : "{qsos} ticked to send to {service}.",
+                     {{"qsos", plural(wanted, "QSO")}, {"service", service}, {"n", std::to_string(done)}}) +
+                 " " +
+                 trf("Nothing is sent until you press Upload; afterwards each one sent gets {status} Y and {date}.",
+                     {{"status", f.status}, {"date", f.date}});
         int severity = r.structuralErrors ? 1 : -1;
         if (u.service == adif::UploadService::LoTW && !ADIFStd(u.location.stringValue).empty() && !stationData.empty() && !location) {
-            st += " TQSL has no Station Location named " + ADIFStd(u.location.stringValue) + " (" + plural(locations.size(), "location") +
-                  " in " + ADIFStd(ADIFString(stationData).stringByAbbreviatingWithTildeInPath) + ").";
+            st += " " + trf("TQSL has no Station Location named {name} ({locations} in {file}).",
+                            {{"name", ADIFStd(u.location.stringValue)}, {"locations", plural(locations.size(), "location")},
+                             {"file", ADIFStd(ADIFString(stationData).stringByAbbreviatingWithTildeInPath)}});
             severity = std::max(severity, 1);
         } else if (refused) {
-            st += " " + plural(refused, "QSO") + " disagree with the Station Location " + location->name +
-                  " (call, grid, state, county or zones), so TQSL would refuse them" +
-                  (elsewhere ? "; " + std::to_string(elsewhere) + " match " + (elsewhere == refused ? otherName : "another location") +
-                                   ": upload those with that location"
+            st += " " + trf("{qsos} disagree with the Station Location {name} (call, grid, state, county or zones), so TQSL would refuse them",
+                            {{"qsos", plural(refused, "QSO")}, {"name", location->name}}) +
+                  (elsewhere ? "; " + trf("{n} match {location}: upload those with that location",
+                                          {{"n", std::to_string(elsewhere)}, {"location", elsewhere == refused ? otherName : tr("another location")}})
                              : "") +
                   ".";
             severity = std::max(severity, 1);
@@ -364,8 +368,8 @@ void finish(Upload &u, const std::string &summary, int severity) {
     }
     adif::UploadFields f = adif::uploadFields(u.service);
     std::string st = summary;
-    if (!groups.empty()) st += " Marked " + plural(groups.size(), "record") + " " + f.status + " Y (one undo step).";
-    if (moved) st += " " + plural(moved, "record") + " changed or were in another document, so their status was not set.";
+    if (!groups.empty()) st += " " + trf("Marked {records} {status} Y (one undo step).", {{"records", plural(groups.size(), "record")}, {"status", f.status}});
+    if (moved) st += " " + trf("{records} changed or were in another document, so their status was not set.", {{"records", plural(moved, "record")}});
     [u.w setStatus:ADIFString(st) severity:severity];
 }
 
@@ -385,10 +389,10 @@ void sendNext(Upload &u) {
         if (u.inFlight) return;  // the last answers are still coming
         size_t ok = 0;
         for (const Upload::Sent &s : u.sent) ok += s.ok;
-        std::string summary = u.fatal.empty() ? (u.cancelled ? "Stopped. " : "") + std::string("Sent ") + std::to_string(ok) +
-                                                     " of " + std::to_string(u.sent.size()) + " to " +
-                                                     adif::uploadServiceName(u.service) + "."
-                                              : u.fatal + " Sent " + std::to_string(ok) + " before that.";
+        std::string summary = u.fatal.empty() ? (u.cancelled ? tr("Stopped.") + " " : "") +
+                                                    trf("Sent {n} of {count} to {service}.", {{"n", std::to_string(ok)}, {"count", std::to_string(u.sent.size())},
+                                                                                             {"service", adif::uploadServiceName(u.service)}})
+                                              : u.fatal + " " + trf("Sent {n} before that.", {{"n", std::to_string(ok)}});
         finish(u, summary, !u.fatal.empty() ? 2 : ok == u.sent.size() ? 3 : 1);
         return;
     }
@@ -397,8 +401,8 @@ void sendNext(Upload &u) {
     if (u.inFlight >= limit) return;
     size_t i = u.next++;
     ++u.inFlight;
-    [u.w setStatus:ADIFString("Sending " + std::to_string(i + 1) + " of " + std::to_string(u.sent.size()) + ": " + u.sent[i].call +
-                              (qrz ? " (3 at a time)..." : "..."))
+    [u.w setStatus:ADIFString(trf(qrz ? "Sending {n} of {count}: {call} (3 at a time)..." : "Sending {n} of {count}: {call}...",
+                                  {{"n", std::to_string(i + 1)}, {"count", std::to_string(u.sent.size())}, {"call", u.sent[i].call}}))
              severity:-1];
     Upload *pu = &u;
     unsigned run = u.run;
@@ -414,18 +418,19 @@ void sendNext(Upload &u) {
         bool replace = u.items[u.sent[i].row].replace || u.items[u.sent[i].row].done;
         ADIFQrzLogbookInsert(agent(), ADIFString(u.sent[i].adi), replace, ^(NSString *reply, NSString *error) {
             if (error) {
-                recordResult(*pu, i, false, "not sent: " + ADIFStd(error), 2);
-                pu->fatal = "Stopped: " + ADIFStd(error) + ".";
+                recordResult(*pu, i, false, trf("not sent: {why}", {{"why", ADIFStd(error)}}), 2);
+                pu->fatal = trf("Stopped: {why}.", {{"why", ADIFStd(error)}});
             } else {
                 adif::QrzReply q = adif::parseQrzReply(ADIFStd(reply));
-                if (q.ok()) recordResult(*pu, i, true, q.result == "REPLACE" ? "replaced (LOGID " + q.logid + ")" : "uploaded (LOGID " + q.logid + ")", 3);
-                else if (q.duplicate()) recordResult(*pu, i, true, "already in the logbook", 3);
+                if (q.ok())
+                    recordResult(*pu, i, true, trf(q.result == "REPLACE" ? "replaced (LOGID {id})" : "uploaded (LOGID {id})", {{"id", q.logid}}), 3);
+                else if (q.duplicate()) recordResult(*pu, i, true, tr("already in the logbook"), 3);
                 else if (q.result == "AUTH" || q.result.empty()) {
-                    recordResult(*pu, i, false, "refused", 2);
-                    pu->fatal = "QRZ.com refused the upload" + (q.reason.empty() ? std::string(".") : ": " + q.reason + ".") +
-                                " Check the API key in Settings.";
+                    recordResult(*pu, i, false, tr("refused"), 2);
+                    pu->fatal = (q.reason.empty() ? tr("QRZ.com refused the upload.") : trf("QRZ.com refused the upload: {why}.", {{"why", q.reason}})) + " " +
+                                tr("Check the API key in Settings.");
                 } else {
-                    recordResult(*pu, i, false, "rejected: " + q.reason, 2);
+                    recordResult(*pu, i, false, trf("rejected: {why}", {{"why", q.reason}}), 2);
                 }
             }
             later();
@@ -434,19 +439,19 @@ void sendNext(Upload &u) {
         std::string file = u.sent[i].adi;
         ADIFEqslUpload(agent(), ADIFString(file), @"adiflint.adi", ^(NSString *reply, NSString *error) {
             if (error) {
-                recordResult(*pu, i, false, "not sent: " + ADIFStd(error), 2);
-                pu->fatal = "Stopped: " + ADIFStd(error) + ".";
+                recordResult(*pu, i, false, trf("not sent: {why}", {{"why", ADIFStd(error)}}), 2);
+                pu->fatal = trf("Stopped: {why}.", {{"why", ADIFStd(error)}});
             } else {
                 adif::EqslReply e = adif::parseEqslReply(ADIFStd(reply));
                 if (!e.errors.empty()) {
-                    recordResult(*pu, i, false, "error: " + e.errors.front(), 2);
+                    recordResult(*pu, i, false, trf("error: {why}", {{"why", e.errors.front()}}), 2);
                     pu->fatal = "eQSL: " + e.errors.front() + ".";  // sign-in or service errors stop the run
                 } else if (e.added == 1) {
-                    recordResult(*pu, i, true, "uploaded", 3);
+                    recordResult(*pu, i, true, tr("uploaded"), 3);
                 } else if (e.duplicate) {
-                    recordResult(*pu, i, true, "already on eQSL", 3);
+                    recordResult(*pu, i, true, tr("already on eQSL"), 3);
                 } else {
-                    recordResult(*pu, i, false, "rejected: " + (e.warnings.empty() ? std::string("no result") : e.warnings.front()), 2);
+                    recordResult(*pu, i, false, trf("rejected: {why}", {{"why", e.warnings.empty() ? tr("no result") : e.warnings.front()}}), 2);
                 }
             }
             later();
@@ -519,23 +524,24 @@ void startUpload(Upload &u) {
                 }
                 setSetting("clublogCall", call);
                 std::string file = adif::uploadFile(text, r.model, groups, ADIFLINT_VERSION, utcNow("%Y%m%d %H%M%S"));
-                [u.w setStatus:ADIFString("Sending " + plural(groups.size(), "QSO") + " to Club Log...") severity:-1];
+                [u.w setStatus:ADIFString(trf("Sending {qsos} to Club Log...", {{"qsos", plural(groups.size(), "QSO")}})) severity:-1];
                 ADIFClubLogUpload(agent(), ADIFString(call), ADIFString(file), @"adiflint.adi",
                                   ^(NSInteger status, NSString *message, NSString *error) {
                                       bool ok = !error && status == 200;
                                       std::string msg = ADIFStd(message);
                                       for (size_t i = 0; i < pu->sent.size(); ++i)
-                                          recordResult(*pu, i, ok, ok ? "queued at Club Log" : "not sent", ok ? 3 : 2);
+                                          recordResult(*pu, i, ok, ok ? tr("queued at Club Log") : tr("not sent"), ok ? 3 : 2);
                                       if (ok)
-                                          finish(*pu, "Club Log accepted " + plural(pu->sent.size(), "QSO") +
-                                                          "; it processes uploads within a minute or so.",
+                                          finish(*pu, trf("Club Log accepted {qsos}; it processes uploads within a minute or so.",
+                                                          {{"qsos", plural(pu->sent.size(), "QSO")}}),
                                                  3);
                                       else
                                           finish(*pu, error ? "Club Log: " + ADIFStd(error) + "."
-                                                            : "Club Log refused the upload (HTTP " + std::to_string(status) + ")" +
-                                                                  (msg.empty() ? "." : ": " + msg) +
-                                                                  (status == 403 ? " Check the email, Application Password and API "
-                                                                                   "key in Settings before trying again."
+                                                            : (msg.empty() ? trf("Club Log refused the upload (HTTP {status}).", {{"status", std::to_string(status)}})
+                                                                           : trf("Club Log refused the upload (HTTP {status}): {why}",
+                                                                                 {{"status", std::to_string(status)}, {"why", msg}})) +
+                                                                  (status == 403 ? " " + tr("Check the email, Application Password and API key in Settings before "
+                                                                                            "trying again.")
                                                                                  : ""),
                                                  2);
                                   });
@@ -564,7 +570,7 @@ void startUpload(Upload &u) {
                     return;
                 }
                 chmod(tmp.fileSystemRepresentation, 0600);
-                [u.w setStatus:ADIFString("TQSL is signing and uploading " + plural(groups.size(), "QSO") + "...") severity:-1];
+                [u.w setStatus:ADIFString(trf("TQSL is signing and uploading {qsos}...", {{"qsos", plural(groups.size(), "QSO")}})) severity:-1];
                 // -x batch, -d no date dialog, -u upload, -a compliant: sign valid QSOs, skip duplicates and out-of-range ones.
                 NSMutableArray *args = [@[ @"-x", @"-d", @"-u", @"-a", @"compliant", @"-l", ADIFString(loc) ] mutableCopy];
                 if (NSString *pw = ADIFTqslPassword()) [args addObjectsFromArray:@[ @"-p", pw ]];  // TQSL's documented -p
@@ -576,14 +582,11 @@ void startUpload(Upload &u) {
                             if (out.size() > 600) out = "..." + out.substr(out.size() - 600);
                             bool ok = code == 0;
                             for (size_t i = 0; i < pu->sent.size(); ++i)
-                                recordResult(*pu, i, ok, ok ? "uploaded" : "see below", ok ? 3 : code == 9 || code == 8 ? 1 : 2);
+                                recordResult(*pu, i, ok, ok ? tr("uploaded") : tr("see below"), ok ? 3 : code == 9 || code == 8 ? 1 : 2);
                             std::string meaning = code < 0 ? ADIFStd(output) : adif::tqslExitMeaning(code);
                             std::string summary = "TQSL: " + meaning + "." +
-                                                  (!ok && code >= 0 && !out.empty() ? " Its report: " + out : "") +
-                                                  (code == 8 || code == 9
-                                                       ? " Records were not marked, since TQSL does not say which QSOs it "
-                                                         "skipped."
-                                                       : "");
+                                                  (!ok && code >= 0 && !out.empty() ? " " + trf("Its report: {report}", {{"report", out}}) : "") +
+                                                  (code == 8 || code == 9 ? " " + tr("Records were not marked, since TQSL does not say which QSOs it skipped.") : "");
                             finish(*pu, summary, ok ? 3 : code == 9 ? 1 : 2);
                         });
                 break;
@@ -637,7 +640,7 @@ void openUpload(adif::UploadService s) {
                 if (const char *env = getenv("ADIFLINT_TEST_OPEN_FILE")) p = env;
                 else {
                     NSOpenPanel *op = [NSOpenPanel openPanel];
-                    op.message = @"Choose TQSL (tqsl.app)";
+                    op.message = T(@"Choose TQSL (tqsl.app)");
                     op.directoryURL = [NSURL fileURLWithPath:@"/Applications"];
                     op.treatsFilePackagesAsDirectories = NO;
                     if ([op runModal] != NSModalResponseOK || !op.URL) return;
@@ -680,8 +683,8 @@ void openUpload(adif::UploadService s) {
                 std::string file = adif::uploadFile(adifhost::text(h), r.model, groups, ADIFLINT_VERSION, utcNow("%Y%m%d %H%M%S"));
                 [NSPasteboard.generalPasteboard clearContents];
                 [NSPasteboard.generalPasteboard setString:ADIFString(file) forType:NSPasteboardTypeString];
-                [pu->w setStatus:ADIFString("Copied the ADIF of the " + plural(groups.size(), "ticked QSO") +
-                                            ", as it would be sent (without passwords or keys).")
+                [pu->w setStatus:ADIFString(trf("Copied the ADIF of the {qsos}, as it would be sent (without passwords or keys).",
+                                                {{"qsos", plural(groups.size(), "ticked QSO")}}))
                          severity:-1];
             } catch (...) {
             }
@@ -766,21 +769,22 @@ void syncRefresh() {
             NSString *acct = accountLine(s);
             bool hasAccount = ![acct hasPrefix:@"No "];
             std::string last = setting(downloadKey(s));
-            rows.push_back({syncLabel(s), hasAccount ? "saved" : "none", std::to_string(sum.toUpload),
+            rows.push_back({syncLabel(s), hasAccount ? tr("saved") : tr("none"), std::to_string(sum.toUpload),
                             sum.modified ? std::to_string(sum.modified) : "", std::to_string(sum.uploaded),
                             sum.problems ? std::to_string(sum.problems) : "",
                             s == adif::UploadService::ClubLog ? "—" : std::to_string(sum.confirmed), adif::displayDate(sum.lastUpload),
-                            s == adif::UploadService::ClubLog ? "—" : last.empty() ? "never" : last});
+                            s == adif::UploadService::ClubLog ? "—" : last.empty() ? tr("never") : last});
             sev.push_back(!hasAccount ? 0 : sum.toUpload ? 1 : 3);
             keys.push_back(syncLabel(s));
-            if (sum.toUpload) waiting += (waiting.empty() ? "" : ", ") + std::to_string(sum.toUpload) + " for " + adif::uploadServiceName(s);
+            if (sum.toUpload)
+                waiting += (waiting.empty() ? "" : ", ") + trf("{n} for {service}", {{"n", std::to_string(sum.toUpload)}, {"service", adif::uploadServiceName(s)}});
         }
         [qsl.w setRows:rows severities:sev keys:keys ticks:std::vector<bool>() keepTicks:NO];
-        std::string st = !adif::recordCount(r.model) ? "This document has no ADIF records."
-                         : waiting.empty()           ? "Everything is uploaded."
-                                                     : "QSOs waiting: " + waiting + ".";
-        st += " Select a service, then Upload... (it lists what would be sent first) or Download Confirmations... (it lists what "
-              "would change first). Club Log has no confirmations to download.";
+        std::string st = !adif::recordCount(r.model) ? tr("This document has no ADIF records.")
+                         : waiting.empty()           ? tr("Everything is uploaded.")
+                                                     : trf("QSOs waiting: {list}.", {{"list", waiting}});
+        st += " " + tr("Select a service, then Upload... (it lists what would be sent first) or Download Confirmations... (it lists what would "
+                       "change first). Club Log has no confirmations to download.");
         [qsl.w setStatus:ADIFString(st) severity:-1];
         syncButtons();
     } catch (...) {

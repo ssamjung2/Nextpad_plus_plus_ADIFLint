@@ -842,6 +842,23 @@ int main(int argc, char **argv) {
             const char *marker = getenv("ADIFLINT_TEST_LANG_MARKER");  // the pseudo-language's: every translated text has it
             std::map<std::string, std::set<std::string>> untranslated;
             std::map<std::string, int> overlapping;
+            // Text cut short: a one-line label, button or popup narrower than its text. Table cells
+            // truncate by design; wrapping labels grow down.
+            std::map<std::string, std::set<std::string>> clipped;
+            std::function<void(NSView *, std::set<std::string> &)> clips = [&](NSView *v, std::set<std::string> &out) {
+                if (v.hidden || [v isKindOfClass:NSTableView.class]) return;
+                NSString *t = nil;
+                if ([v isKindOfClass:NSPopUpButton.class]) t = ((NSPopUpButton *)v).titleOfSelectedItem;
+                else if ([v isKindOfClass:NSButton.class]) t = ((NSButton *)v).title;
+                else if ([v isKindOfClass:NSTextField.class]) {
+                    NSTextField *f = (NSTextField *)v;
+                    if (!f.editable && !f.cell.wraps && f.maximumNumberOfLines <= 1) t = f.stringValue;
+                }
+                CGFloat need = v.intrinsicContentSize.width;
+                if (t.length && need != NSViewNoIntrinsicMetric && need > NSWidth(v.frame) + 1)
+                    out.insert(std::string(t.UTF8String) + " (" + std::to_string((int)need) + " > " + std::to_string((int)NSWidth(v.frame)) + ")");
+                for (NSView *sub in v.subviews) clips(sub, out);
+            };
             std::function<void(NSView *, std::set<std::string> &)> texts = [&](NSView *v, std::set<std::string> &out) {
                 auto add = [&](NSString *t) {
                     if (!t.length || (marker && [t containsString:@(marker)])) return;
@@ -870,6 +887,7 @@ int main(int argc, char **argv) {
                     [w.contentView layoutSubtreeIfNeeded];
                     overlapping[name] = std::max(overlapping[name], overlaps(w.contentView));
                     texts(w.contentView, untranslated[name]);
+                    clips(w.contentView, clipped[name]);
                     if (marker && !w.title.length) continue;
                     if (marker && ![w.title containsString:@(marker)]) untranslated[name].insert(std::string("(window title) ") + name);
                 }
@@ -910,6 +928,8 @@ int main(int argc, char **argv) {
                 for (const std::string &t : list) std::printf("UNTRANSLATED [%s] %s\n", w.c_str(), t.c_str());
             for (const auto &[w, k] : overlapping)
                 if (k) std::printf("OVERLAP [%s] %d\n", w.c_str(), k);
+            for (const auto &[w, list] : clipped)
+                for (const std::string &t : list) std::printf("CLIPPED [%s] %s\n", w.c_str(), t.c_str());
             return 0;
         }
         CHECK(H.dwell[kSciMain] == 500 && H.dwell[kSciSecond] == 500, "dwell time armed on both views");

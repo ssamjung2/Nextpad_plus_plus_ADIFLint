@@ -1,4 +1,5 @@
 #include "adif_pmtiles.h"
+#include "adif_i18n.h"
 
 #include <zlib.h>
 
@@ -10,6 +11,8 @@
 #include <unistd.h>
 
 namespace adif::pmtiles {
+using adif::i18n::tr;
+using adif::i18n::trf;
 namespace {
 
 uint64_t u64(std::string_view b, size_t at) {
@@ -101,9 +104,9 @@ void buildDirectories(const std::vector<Entry> &entries, uint8_t compression, st
 }  // namespace
 
 bool parseHeader(std::string_view b, Header *h, std::string *why) {
-    if (b.size() < kHeaderBytes) return fail(why, "too short for a PMTiles header");
-    if (b.substr(0, 7) != "PMTiles") return fail(why, "not a PMTiles file");
-    if ((uint8_t)b[7] != 3) return fail(why, "PMTiles version " + std::to_string((uint8_t)b[7]) + ", not 3");
+    if (b.size() < kHeaderBytes) return fail(why, tr("too short for a PMTiles header"));
+    if (b.substr(0, 7) != "PMTiles") return fail(why, tr("not a PMTiles file"));
+    if ((uint8_t)b[7] != 3) return fail(why, trf("PMTiles version {n}, not 3", {{"n", std::to_string((uint8_t)b[7])}}));
     Header r;
     r.rootOffset = u64(b, 8), r.rootLength = u64(b, 16);
     r.metadataOffset = u64(b, 24), r.metadataLength = u64(b, 32);
@@ -116,12 +119,12 @@ bool parseHeader(std::string_view b, Header *h, std::string *why) {
     r.minLonE7 = (int32_t)u32(b, 102), r.minLatE7 = (int32_t)u32(b, 106), r.maxLonE7 = (int32_t)u32(b, 110), r.maxLatE7 = (int32_t)u32(b, 114);
     r.centerZoom = (uint8_t)b[118];
     r.centerLonE7 = (int32_t)u32(b, 119), r.centerLatE7 = (int32_t)u32(b, 123);
-    if (r.minZoom > r.maxZoom || r.maxZoom > kMaxZoom) return fail(why, "zooms out of range");
+    if (r.minZoom > r.maxZoom || r.maxZoom > kMaxZoom) return fail(why, tr("zooms out of range"));
     const uint64_t kMax = std::numeric_limits<uint64_t>::max();
     for (auto [o, l] : {std::pair{r.rootOffset, r.rootLength}, {r.metadataOffset, r.metadataLength}, {r.leafOffset, r.leafLength},
                         {r.dataOffset, r.dataLength}})
-        if (o > kMax - l) return fail(why, "a section runs past the end of any file");
-    if (r.rootLength == 0) return fail(why, "no root directory");
+        if (o > kMax - l) return fail(why, tr("a section runs past the end of any file"));
+    if (r.rootLength == 0) return fail(why, tr("no root directory"));
     *h = r;
     return true;
 }
@@ -144,27 +147,27 @@ std::string headerBytes(const Header &h) {
 bool parseDirectory(std::string_view raw, std::vector<Entry> *out, std::string *why, size_t maxEntries) {
     size_t at = 0;
     uint64_t n = 0;
-    if (!varint(raw, at, &n) || n == 0) return fail(why, "a directory with no entries");
-    if (n > maxEntries || n > raw.size()) return fail(why, "a directory with too many entries");  // each takes 4 bytes or more
+    if (!varint(raw, at, &n) || n == 0) return fail(why, tr("a directory with no entries"));
+    if (n > maxEntries || n > raw.size()) return fail(why, tr("a directory with too many entries"));  // each takes 4 bytes or more
     std::vector<Entry> e((size_t)n);
     uint64_t last = 0, v = 0;
     for (size_t i = 0; i < e.size(); ++i) {
         if (!varint(raw, at, &v) || (i > 0 && v == 0) || last > std::numeric_limits<uint64_t>::max() - v)
-            return fail(why, "a directory's tile ids are damaged");
+            return fail(why, tr("a directory's tile ids are damaged"));
         e[i].tileId = last += v;
     }
     for (Entry &x : e) {
-        if (!varint(raw, at, &v) || v > std::numeric_limits<uint32_t>::max()) return fail(why, "a directory's run lengths are damaged");
+        if (!varint(raw, at, &v) || v > std::numeric_limits<uint32_t>::max()) return fail(why, tr("a directory's run lengths are damaged"));
         x.runLength = (uint32_t)v;
     }
     for (Entry &x : e) {
-        if (!varint(raw, at, &v) || v == 0 || v > std::numeric_limits<uint32_t>::max()) return fail(why, "a directory's lengths are damaged");
+        if (!varint(raw, at, &v) || v == 0 || v > std::numeric_limits<uint32_t>::max()) return fail(why, tr("a directory's lengths are damaged"));
         x.length = (uint32_t)v;
     }
     for (size_t i = 0; i < e.size(); ++i) {
-        if (!varint(raw, at, &v)) return fail(why, "a directory's offsets are damaged");
+        if (!varint(raw, at, &v)) return fail(why, tr("a directory's offsets are damaged"));
         if (v == 0) {
-            if (i == 0) return fail(why, "a directory's first offset is missing");
+            if (i == 0) return fail(why, tr("a directory's first offset is missing"));
             e[i].offset = e[i - 1].offset + e[i - 1].length;
         } else {
             e[i].offset = v - 1;
@@ -223,7 +226,7 @@ bool tileZxy(uint64_t id, int *z, uint32_t *x, uint32_t *y) {
 
 bool gunzip(std::string_view in, std::string *out, size_t limit, std::string *why) {
     z_stream z{};
-    if (inflateInit2(&z, 16 + MAX_WBITS) != Z_OK) return fail(why, "zlib would not start");
+    if (inflateInit2(&z, 16 + MAX_WBITS) != Z_OK) return fail(why, tr("zlib would not start"));
     z.next_in = (Bytef *)in.data();
     z.avail_in = (uInt)std::min(in.size(), (size_t)std::numeric_limits<uInt>::max());
     std::string r;
@@ -235,12 +238,12 @@ bool gunzip(std::string_view in, std::string *out, size_t limit, std::string *wh
         r.append(buf, sizeof buf - z.avail_out);
         if (r.size() > limit) {
             inflateEnd(&z);
-            return fail(why, "inflates to more than expected");
+            return fail(why, tr("inflates to more than expected"));
         }
         if (st == Z_STREAM_END) break;
         if (st != Z_OK || (z.avail_in == 0 && z.avail_out != 0)) {
             inflateEnd(&z);
-            return fail(why, "damaged or cut-off gzip data");
+            return fail(why, tr("damaged or cut-off gzip data"));
         }
     }
     inflateEnd(&z);
@@ -264,12 +267,12 @@ std::string gzip(std::string_view in) {
 
 bool decompress(uint8_t compression, std::string_view in, std::string *out, size_t limit, std::string *why) {
     if (compression == kNone) {
-        if (in.size() > limit) return fail(why, "larger than expected");
+        if (in.size() > limit) return fail(why, tr("larger than expected"));
         *out = std::string(in);
         return true;
     }
     if (compression == kGzip) return gunzip(in, out, limit, why);
-    return fail(why, "compressed in a way ADIF Lint can't read (only gzip)");
+    return fail(why, tr("compressed in a way ADIF Lint can't read (only gzip)"));
 }
 
 double tileX(double lon, int z) { return (lon + 180) / 360 * std::ldexp(1.0, z); }
@@ -370,9 +373,9 @@ Extract::Extract(std::vector<uint64_t> tiles, std::array<double, 4> bounds) : wa
 
 bool Extract::start(std::string_view first, std::string *why) {
     if (!parseHeader(first, &src_, why)) return false;
-    if (!src_.clustered) return fail(why, "the archive isn't clustered, so it can't be cut by ranges");
-    if (src_.internalCompression != kGzip && src_.internalCompression != kNone) return fail(why, "its directories aren't gzip");
-    if (src_.rootOffset + src_.rootLength > first.size()) return fail(why, "its root directory isn't in the bytes given");
+    if (!src_.clustered) return fail(why, tr("the archive isn't clustered, so it can't be cut by ranges"));
+    if (src_.internalCompression != kGzip && src_.internalCompression != kNone) return fail(why, tr("its directories aren't gzip"));
+    if (src_.rootOffset + src_.rootLength > first.size()) return fail(why, tr("its root directory isn't in the bytes given"));
     std::string raw;
     if (!decompress(src_.internalCompression, first.substr(src_.rootOffset, src_.rootLength), &raw, kLeafLimit, why) ||
         !parseDirectory(raw, &root_, why))
@@ -417,7 +420,7 @@ void Extract::findLeaves() {
 }
 
 bool Extract::addDirectories(const Range &r, std::string_view bytes, std::string *why) {
-    if (bytes.size() != r.length) return fail(why, "the server sent a different length than asked for");
+    if (bytes.size() != r.length) return fail(why, tr("the server sent a different length than asked for"));
     std::vector<Range> still;
     for (const Range &leaf : pendingLeaves_) {
         if (leaf.offset < r.offset || leaf.offset + leaf.length > r.offset + r.length) {
@@ -439,7 +442,7 @@ bool Extract::addDirectories(const Range &r, std::string_view bytes, std::string
 }
 
 bool Extract::metadata(std::string_view compressed, std::string *why) {
-    if (compressed.size() != src_.metadataLength) return fail(why, "the metadata came back the wrong length");
+    if (compressed.size() != src_.metadataLength) return fail(why, tr("the metadata came back the wrong length"));
     std::string raw;
     if (!decompress(src_.internalCompression, compressed, &raw, kLeafLimit, why)) return false;
     metadata_ = std::string(compressed);
@@ -459,13 +462,13 @@ bool Extract::plan(std::string *why) {
             if (!e) break;
             if (e->runLength > 0) {
                 uint64_t at = src_.dataOffset + e->offset;
-                if (e->offset + e->length > src_.dataLength) return fail(why, "a tile lies outside the tile data");
+                if (e->offset + e->length > src_.dataLength) return fail(why, tr("a tile lies outside the tile data"));
                 tiles_.push_back({id, at, e->length});
                 contentOf.emplace(at, e->length);
                 break;
             }
             auto it = leaves_.find(src_.leafOffset + e->offset);
-            if (it == leaves_.end()) return fail(why, "a leaf directory wasn't read");
+            if (it == leaves_.end()) return fail(why, tr("a leaf directory wasn't read"));
             dir = &it->second;
         }
     }
@@ -583,14 +586,14 @@ bool Archive::open(const std::string &path, std::string *why) {
     root_.clear();
     leafCache_.clear();
     fd_ = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
-    if (fd_ < 0) return fail(why, "can't open " + path);
+    if (fd_ < 0) return fail(why, trf("can't open {path}", {{"path", path}}));
     off_t size = ::lseek(fd_, 0, SEEK_END);
     std::string first;
     if (size < (off_t)kHeaderBytes || !read(0, std::min<uint64_t>((uint64_t)size, kFirstBytes), &first) || !parseHeader(first, &h_, why))
-        return fail(why, why && !why->empty() ? *why : "not a PMTiles file");
+        return fail(why, why && !why->empty() ? *why : tr("not a PMTiles file"));
     for (auto [o, l] : {std::pair{h_.rootOffset, h_.rootLength}, {h_.leafOffset, h_.leafLength}, {h_.dataOffset, h_.dataLength}})
-        if (o + l > (uint64_t)size) return fail(why, "the file is cut short");
-    if (!directory(h_.rootOffset, h_.rootLength, &root_)) return fail(why, "its root directory is damaged");
+        if (o + l > (uint64_t)size) return fail(why, tr("the file is cut short"));
+    if (!directory(h_.rootOffset, h_.rootLength, &root_)) return fail(why, tr("its root directory is damaged"));
     return true;
 }
 

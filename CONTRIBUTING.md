@@ -48,6 +48,8 @@ cd build && ctest --output-on-failure
 | `adif_tests` | One case per validation rule, with the expected result taken from the specification; the document model, reformatting and edits; the log tools, uploads, imports, grids, country data, WWFF and SOTA, CSV and Cabrillo. The official ADIF 3.1.7 test file (6,197 records) must give no errors or warnings, lengths broken at random in it must be repaired to the original bytes, and reformatting it must keep every field byte for byte. |
 | `fuzz_smoke` | Mutated logs, network replies, CSV and country files, and the datagrams and TCP messages the Monitor reads, must give in-bounds results and safe edits without crashing; 2 MB hostile inputs must stay fast. |
 | `adiflint_official`, `adiflint_tools` | The command-line checker and log tools on the official test file. |
+| `lang_check` | Each language table in `data/lang/` parses, has no key the sources no longer have, keeps every placeholder (`{name}` and printf ones, the latter in order unless numbered `%2$@`) and gives each count its plural forms. |
+| `lang_layout` | Every window in every language: no text cut short and no controls overlapping (label `slow`, about a minute; `ctest -LE slow` skips it). |
 | `host_harness` | Loads the built dylib through its plugin exports and drives every window against a simulated Nextpad++ and Scintilla: the menu, validation, colouring, autocomplete, the Record Panel, New QSO, Enrich, Import, Settings, the log tools, spots, uploads (a stand-in TQSL), the Monitor (real UDP and TCP messages to loopback ports from `ADIFLINT_TEST_PORTS`, and a watched file) and layout (no two controls may overlap). Network replies come from `tests/fixtures/lookup`; credentials are kept in memory, never in the Keychain. |
 
 Also run, before a pull request that touches the plugin or the core:
@@ -90,7 +92,7 @@ Also run, before a pull request that touches the plugin or the core:
 | `src/plugin/Lookup.mm`, `Country.mm` | Network clients and Keychain storage, the country file |
 | `src/cli/` | The `adiflint` command-line tool |
 | `spec/adif-3.1.7/` | ADIF's JSON export and HTML specification the tables are generated from (see `SOURCE.md`) |
-| `data/` | AD1C's country file (see `SOURCE.md`) and `toolbar/`, the toolbar icons, all installed beside the plugin |
+| `data/` | AD1C's country file (see `SOURCE.md`), `toolbar/`, the toolbar icons, and `lang/`, the language tables, all installed beside the plugin |
 | `third_party/` | The Nextpad++ plugin header and Scintilla headers, unchanged (see `README.md` there) |
 | `tests/` | The tests above, their fixtures and the official ADIF test file |
 | `tools/` | The table generator, `make-release.sh`, and `make-toolbar-icons.m`, which draws the toolbar icons (run it after changing them) |
@@ -117,6 +119,26 @@ Also run, before a pull request that touches the plugin or the core:
 - **Objective-C++:** don't put braced initialisers (`{...}`) inside an Objective-C message
   send; build a named variable or `std::vector<T>{...}` first.
 - Match the surrounding code's style, naming and comment density.
+
+## Translations
+
+Text shown to the user is written in English and marked where it is written: `T(@"...")`,
+`TF(@"... {name} ...", @{...})` and `TP(one, other, n)` in the plugin, `tr`, `trf` and
+`trp` in the core, and `N(...)`/`N_(...)` for a table of texts translated where they are
+shown. Messages are whole sentences with `{name}` placeholders, never built by joining
+pieces, so a language can reorder them. A word with two meanings gets a context after `##`
+(`"Solid##line"`), which is never shown.
+
+- `tools/extract_strings.py` lists every key (`--keys`), what a language lacks
+  (`--missing fr`), and checks the tables (`--check`, the `lang_check` test).
+- `tools/merge_translations.py KEYS.json BATCH.txt...` merges drafted translations into the
+  tables (the format is at the top of the script).
+- `tools/lang-report.sh fr` opens every window in French and lists text the table didn't
+  change, text cut short and overlaps; with no language, a pseudo-language that marks every
+  translated text and makes it a third longer finds text the tables can't reach.
+- Leave English what is data (field names, enumeration codes, place names, the ADIF
+  specification's descriptions), what is written into files, and what goes over the network
+  (HTTP headers, user agents).
 
 ## Updating the ADIF specification
 

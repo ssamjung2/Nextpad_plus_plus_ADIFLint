@@ -135,6 +135,12 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
   check against your Station Location), Club Log and eQSL, keeping the ADIF upload-status
   fields up to date.
 
+**Languages**
+- Menus, windows and messages in English, Korean, French, German, Spanish and Japanese,
+  following Nextpad++'s language or the one chosen in Settings. The translations are drafts
+  by Claude, an AI, waiting for review by native speakers; corrections are welcome (each is a
+  line in `data/lang/<code>.json`, keyed by the English).
+
 **Command line**
 - `adiflint` runs the same checks and log tools in a terminal.
 
@@ -315,6 +321,9 @@ and the release steps.
   from eQSL offers the QSOs your log lacks without ticking them: they are the other
   station's records.
 - ADX (XML) files are not handled.
+- The user guide, the ADIF specification's field descriptions and place names are in
+  English in every language. Windows already open keep their language until Nextpad++
+  restarts.
 
 The [user guide](docs/USER_GUIDE.md#limits) lists the rest.
 
