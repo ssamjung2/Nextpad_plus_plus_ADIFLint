@@ -26,6 +26,7 @@
 #include <cstdio>
 #include <cstring>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -828,6 +829,89 @@ int main(int argc, char **argv) {
         setenv("ADIFLINT_TEST_WELCOME", "1", 1);  // a first run: no ADIFLint.ini yet
         notify(NPPN_READY);
         unsetenv("ADIFLINT_TEST_WELCOME");
+
+        // Language report (ADIFLINT_TEST_LANG_REPORT, with ADIFLINT_TEST_HOST_LANGUAGE and
+        // ADIFLINT_LANG_DIR; tools/lang-report.sh): every window in that language, the texts
+        // in them a table didn't change, and any overlaps. No other checks run.
+        if (getenv("ADIFLINT_TEST_LANG_REPORT")) {
+            H.doc = demoLog();
+            H.path = std::string(tmp.UTF8String) + "/sample.adi";
+            notify(NPPN_BUFFERACTIVATED);
+            notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+            pump(0.3);
+            const char *marker = getenv("ADIFLINT_TEST_LANG_MARKER");  // the pseudo-language's: every translated text has it
+            std::map<std::string, std::set<std::string>> untranslated;
+            std::map<std::string, int> overlapping;
+            std::function<void(NSView *, std::set<std::string> &)> texts = [&](NSView *v, std::set<std::string> &out) {
+                auto add = [&](NSString *t) {
+                    if (!t.length || (marker && [t containsString:@(marker)])) return;
+                    if (![t rangeOfCharacterFromSet:NSCharacterSet.lowercaseLetterCharacterSet].length) return;  // calls, codes, numbers
+                    out.insert(t.UTF8String);
+                };
+                if (v.hidden) return;
+                if ([v isKindOfClass:NSPopUpButton.class]) {
+                    for (NSMenuItem *i in ((NSPopUpButton *)v).itemArray) add(i.title);
+                } else if ([v isKindOfClass:NSButton.class]) {
+                    add(((NSButton *)v).title);
+                } else if ([v isKindOfClass:NSTextField.class]) {
+                    NSTextField *f = (NSTextField *)v;
+                    if (!f.editable) add(f.stringValue);
+                    add(f.placeholderString);
+                } else if ([v isKindOfClass:NSTableView.class]) {
+                    for (NSTableColumn *c in ((NSTableView *)v).tableColumns) add(c.title);
+                }
+                add(v.toolTip);
+                for (NSView *sub in v.subviews) texts(sub, out);
+            };
+            auto visit = [&]() {
+                for (NSWindow *w in NSApp.windows) {
+                    if (!w.visible || !w.contentView) continue;
+                    std::string name = w.title.length ? w.title.UTF8String : "(untitled)";
+                    [w.contentView layoutSubtreeIfNeeded];
+                    overlapping[name] = std::max(overlapping[name], overlaps(w.contentView));
+                    texts(w.contentView, untranslated[name]);
+                    if (marker && !w.title.length) continue;
+                    if (marker && ![w.title containsString:@(marker)]) untranslated[name].insert(std::string("(window title) ") + name);
+                }
+            };
+            auto closeAll = [&]() {
+                for (NSWindow *w in NSApp.windows)
+                    if (w.visible) [w orderOut:nil];
+            };
+            for (int i = 0; i < n; ++i) {
+                std::string item = items[i]._itemName;
+                if (!items[i]._pFunc || i == n - 1) continue;  // separators; About (an alert)
+                closeAll();
+                items[i]._pFunc();
+                pump(0.3);
+                visit();
+                // The windows behind the family popups (Import, Export, Upload), and the Map's panels.
+                for (NSWindow *w in [NSApp.windows copy]) {
+                    if (!w.visible) continue;
+                    NSPopUpButton *fam = (NSPopUpButton *)viewWithIdentifier(w.contentView, @"family.popup");
+                    for (NSInteger k = 0; fam && k < fam.numberOfItems; ++k) {
+                        [fam selectItemAtIndex:k];
+                        [fam sendAction:fam.action to:fam.target];
+                        pump(0.2);
+                        visit();
+                    }
+                    for (NSString *ident in @[ @"map.style.open", @"map.filter.more" ])
+                        if (NSButton *b = (NSButton *)viewWithIdentifier(w.contentView, ident)) {
+                            [b performClick:nil];
+                            pump(0.2);
+                            visit();
+                        }
+                }
+                if (const char *dir = getenv("ADIFLINT_SNAPSHOT_DIR"))
+                    for (NSWindow *w in NSApp.windows)
+                        if (w.visible && dir) snapshot(w, ("lang-" + std::to_string(i)).c_str());
+            }
+            for (const auto &[w, list] : untranslated)
+                for (const std::string &t : list) std::printf("UNTRANSLATED [%s] %s\n", w.c_str(), t.c_str());
+            for (const auto &[w, k] : overlapping)
+                if (k) std::printf("OVERLAP [%s] %d\n", w.c_str(), k);
+            return 0;
+        }
         CHECK(H.dwell[kSciMain] == 500 && H.dwell[kSciSecond] == 500, "dwell time armed on both views");
         {   // The welcome: Settings, with Your Station at the top.
             pump(0.2);

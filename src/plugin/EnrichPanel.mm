@@ -1,4 +1,5 @@
 #import "EnrichPanel.h"
+#import "L10n.h"
 #import "ToolWindow.h"
 
 #import "Lookup.h"
@@ -50,7 +51,7 @@ static const std::vector<FieldOption> &fieldOptions() {
                                                    NSWindowStyleMaskResizable
                                            backing:NSBackingStoreBuffered
                                              defer:YES];
-    _window.title = @"Enrich Log";
+    _window.title = T(@"Enrich Log");
     _window.floatingPanel = YES;
     _window.hidesOnDeactivate = YES;
     _window.releasedWhenClosed = NO;
@@ -67,9 +68,9 @@ static const std::vector<FieldOption> &fieldOptions() {
     _account.lineBreakMode = NSLineBreakByTruncatingTail;
     [_account setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
                                        forOrientation:NSLayoutConstraintOrientationHorizontal];
-    _settings = [NSButton buttonWithTitle:@"Settings..." target:self action:@selector(openSettings:)];
-    _settings.toolTip = @"Accounts and API keys, kept in your Keychain";
-    NSStackView *sourceRow = [NSStackView stackViewWithViews:@[ [NSTextField labelWithString:@"Account:"], _account, _settings ]];
+    _settings = [NSButton buttonWithTitle:T(@"Settings...") target:self action:@selector(openSettings:)];
+    _settings.toolTip = T(@"Accounts and API keys, kept in your Keychain");
+    NSStackView *sourceRow = [NSStackView stackViewWithViews:@[ [NSTextField labelWithString:T(@"Account:")], _account, _settings ]];
     _sourcePopup = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     struct { NSString *title; NSInteger source; } sources[] = {
         {@"QRZ.com", ADIFSourceQRZ}, {@"HamQTH", ADIFSourceHamQTH}, {@"Country Data (offline)", ADIFSourceCountryData}};
@@ -79,9 +80,9 @@ static const std::vector<FieldOption> &fieldOptions() {
     }
     _sourcePopup.target = self;
     _sourcePopup.action = @selector(sourceChosen:);
-    NSStackView *fromRow = [NSStackView stackViewWithViews:@[ [NSTextField labelWithString:@"Enrich from:"], _sourcePopup ]];
+    NSStackView *fromRow = [NSStackView stackViewWithViews:@[ [NSTextField labelWithString:T(@"Enrich from:")], _sourcePopup ]];
 
-    NSTextField *fieldsLabel = [NSTextField labelWithString:@"Add these fields to records that don't have them:"];
+    NSTextField *fieldsLabel = [NSTextField labelWithString:T(@"Add these fields to records that don't have them:")];
     _fieldBoxes = [NSMutableArray array];
     NSMutableArray<NSArray<NSView *> *> *gridRows = [NSMutableArray array];
     NSMutableArray<NSView *> *row = [NSMutableArray array];
@@ -104,18 +105,18 @@ static const std::vector<FieldOption> &fieldOptions() {
     fieldGrid.rowSpacing = 4;
     fieldGrid.columnSpacing = 16;
 
-    _selectionOnly = [NSButton checkboxWithTitle:@"Only the records in the selection" target:nil action:nil];
-    _skipAway = [NSButton checkboxWithTitle:@"No callbook location for portable calls (K1ABC/P) or park-to-park records"
+    _selectionOnly = [NSButton checkboxWithTitle:T(@"Only the records in the selection") target:nil action:nil];
+    _skipAway = [NSButton checkboxWithTitle:T(@"No callbook location for portable calls (K1ABC/P) or park-to-park records")
                                      target:nil
                                      action:nil];
     _skipAway.state = NSControlStateValueOn;
-    _skipAway.toolTip = @"A callbook gives a station's home address. For /P calls and records with SIG_INFO, POTA_REF, "
+    _skipAway.toolTip = T(@"A callbook gives a station's home address. For /P calls and records with SIG_INFO, POTA_REF, "
                         @"SOTA_REF or WWFF_REF the station was elsewhere, so only the name is added. LoTW data describes "
-                        @"each QSO, so it is always used.";
+                        @"each QSO, so it is always used.");
 
-    _find = [NSButton buttonWithTitle:@"Find Data" target:self action:@selector(find:)];
+    _find = [NSButton buttonWithTitle:T(@"Find Data") target:self action:@selector(find:)];
     _find.keyEquivalent = @"\r";
-    _cancel = [NSButton buttonWithTitle:@"Stop" target:self action:@selector(cancel:)];
+    _cancel = [NSButton buttonWithTitle:T(@"Stop") target:self action:@selector(cancel:)];
     _progress = [[NSProgressIndicator alloc] initWithFrame:NSZeroRect];
     _progress.style = NSProgressIndicatorStyleBar;
     _progress.indeterminate = NO;
@@ -152,13 +153,13 @@ static const std::vector<FieldOption> &fieldOptions() {
     scroll.autohidesScrollers = YES;
     scroll.borderType = NSBezelBorder;
 
-    _all = [NSButton buttonWithTitle:@"Tick All" target:self action:@selector(tickAll:)];
-    _none = [NSButton buttonWithTitle:@"Untick All" target:self action:@selector(tickNone:)];
+    _all = [NSButton buttonWithTitle:T(@"Tick All") target:self action:@selector(tickAll:)];
+    _none = [NSButton buttonWithTitle:T(@"Untick All") target:self action:@selector(tickNone:)];
     _credit = [NSTextField labelWithString:@""];
     _credit.textColor = NSColor.secondaryLabelColor;
-    _close = [NSButton buttonWithTitle:@"Close" target:self action:@selector(closePressed:)];
+    _close = [NSButton buttonWithTitle:T(@"Close") target:self action:@selector(closePressed:)];
     _close.keyEquivalent = @"\033";
-    _apply = [NSButton buttonWithTitle:@"Apply Changes" target:self action:@selector(apply:)];
+    _apply = [NSButton buttonWithTitle:T(@"Apply Changes") target:self action:@selector(apply:)];
     NSStackView *bottom = [NSStackView stackViewWithViews:@[ _all, _none, _credit ]];
     [bottom addView:_close inGravity:NSStackViewGravityTrailing];
     [bottom addView:_apply inGravity:NSStackViewGravityTrailing];
@@ -225,7 +226,7 @@ static const std::vector<FieldOption> &fieldOptions() {
     unsigned bit = 1u << (unsigned)self.source;
     for (NSButton *b in _fieldBoxes) {
         b.enabled = (fieldOptions()[(size_t)b.tag].sources & bit) != 0;
-        b.toolTip = b.enabled ? nil : [NSString stringWithFormat:@"%@ does not provide this.", ADIFSourceName((ADIFSource)self.source)];
+        b.toolTip = b.enabled ? nil : [NSString stringWithFormat:T(@"%@ does not provide this."), ADIFSourceName((ADIFSource)self.source)];
     }
     // Only callbooks give a home address; the prefix describes each QSO.
     _skipAway.enabled = self.source == 0 || self.source == 1;
@@ -244,7 +245,7 @@ static const std::vector<FieldOption> &fieldOptions() {
 }
 
 - (void)setTarget:(const std::string &)documentName {
-    _target.stringValue = [@"Log: " stringByAppendingString:ADIFString(documentName)];
+    _target.stringValue = TF(@"Log: {name}", @{@"name" : ADIFString(documentName)});
 }
 
 - (void)setBusy:(BOOL)busy {
@@ -284,7 +285,7 @@ static const std::vector<FieldOption> &fieldOptions() {
 - (void)updateApply {
     size_t n = 0;
     for (const ADIFEnrichRow &r : _rows) n += r.accepted;
-    _apply.title = n ? [NSString stringWithFormat:@"Apply %zu Change%@", n, n == 1 ? @"" : @"s"] : @"Apply Changes";
+    _apply.title = n ? [NSString stringWithFormat:T(@"Apply %zu Change%@"), n, n == 1 ? @"" : @"s"] : @"Apply Changes";
     _apply.enabled = n > 0 && _find.enabled;
     _apply.keyEquivalent = n ? @"\r" : @"";
     _find.keyEquivalent = n ? @"" : @"\r";

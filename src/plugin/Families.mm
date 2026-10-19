@@ -2,6 +2,7 @@
 
 #import "Imports.h"
 #import "Labels.h"
+#import "L10n.h"
 #import "LogTools.h"
 #import "PluginHost.h"
 #import "ToolWindow.h"
@@ -20,23 +21,23 @@ struct Member {
 };
 
 const Member kImports[] = {
-    {@"LoTW", @"Import from LoTW", imports::cmdImportLotw},
-    {@"QRZ.com Logbook", @"Import from QRZ.com Logbook", imports::cmdImportQrzLogbook},
-    {@"eQSL", @"Import from eQSL", imports::cmdImportEqsl},
-    {@"CSV file", @"Import CSV", logtools::cmdImportCsv},
-    {@"WSJT-X log file", @"Compare and Merge Logs", logtools::cmdImportWsjtxLog, false},
+    {N(@"LoTW"), N(@"Import from LoTW"), imports::cmdImportLotw},
+    {N(@"QRZ.com Logbook"), N(@"Import from QRZ.com Logbook"), imports::cmdImportQrzLogbook},
+    {N(@"eQSL"), N(@"Import from eQSL"), imports::cmdImportEqsl},
+    {N(@"CSV file"), N(@"Import CSV"), logtools::cmdImportCsv},
+    {N(@"WSJT-X log file"), N(@"Compare and Merge Logs"), logtools::cmdImportWsjtxLog, false},
 };
 const Member kExports[] = {
-    {@"Activation logs (POTA, WWFF, SOTA)", @"Export Activation Logs", logtools::cmdExportPota},
-    {@"CSV", @"Export CSV", logtools::cmdExportCsv},
-    {@"Cabrillo", @"Export Cabrillo", logtools::cmdExportCabrillo},
-    {@"QSL labels (PDF)", @"Print QSL Labels", labels::cmdQslLabels},
+    {N(@"Activation logs (POTA, WWFF, SOTA)"), N(@"Export Activation Logs"), logtools::cmdExportPota},
+    {N(@"CSV"), N(@"Export CSV"), logtools::cmdExportCsv},
+    {N(@"Cabrillo"), N(@"Export Cabrillo"), logtools::cmdExportCabrillo},
+    {N(@"QSL labels (PDF)"), N(@"Print QSL Labels"), labels::cmdQslLabels},
 };
 const Member kUploads[] = {
-    {@"QRZ.com Logbook", @"Upload to QRZ.com Logbook", uploads::cmdUploadQrz},
-    {@"LoTW (TQSL)", @"Upload to LoTW (TQSL)", uploads::cmdUploadLotw},
-    {@"Club Log", @"Upload to Club Log", uploads::cmdUploadClubLog},
-    {@"eQSL", @"Upload to eQSL", uploads::cmdUploadEqsl},
+    {N(@"QRZ.com Logbook"), N(@"Upload to QRZ.com Logbook"), uploads::cmdUploadQrz},
+    {N(@"LoTW (TQSL)"), N(@"Upload to LoTW (TQSL)"), uploads::cmdUploadLotw},
+    {N(@"Club Log"), N(@"Upload to Club Log"), uploads::cmdUploadClubLog},
+    {N(@"eQSL"), N(@"Upload to eQSL"), uploads::cmdUploadEqsl},
 };
 
 const Member *members(Family f, size_t *n) {
@@ -64,7 +65,7 @@ void open(Family f, NSInteger index, NSWindow *from) {
     if (index < 0 || (size_t)index >= n) index = 0;
     if (m[index].remember) adifhost::setSetting(settingKey(f), std::to_string(index));
     m[index].open();
-    NSWindow *to = windowTitled(m[index].title);
+    NSWindow *to = windowTitled(T(m[index].title));  // as the window shows it
     if (!from || !to || to == from) return;
     NSRect r = to.frame;
     r.origin.x = NSMinX(from.frame);
@@ -87,6 +88,7 @@ NSPopUpButton *popup(Family f, NSInteger current) {
     NSMutableArray *labels = [NSMutableArray array];
     for (size_t i = 0; i < n; ++i) [labels addObject:m[i].label];
     NSPopUpButton *p = ADIFPopup(labels);
+    p.identifier = @"family.popup";
     [p selectItemAtIndex:current];
     __weak NSPopUpButton *weak = p;
     ADIFOnAction(p, ^{

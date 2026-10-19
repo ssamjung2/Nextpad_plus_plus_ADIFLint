@@ -33,6 +33,7 @@
 #import <Cocoa/Cocoa.h>
 
 #import "CheckLog.h"
+#import "L10n.h"
 #import "Families.h"
 #import "MapDetail.h"
 #import "Network.h"
@@ -70,6 +71,7 @@
 #include <cstring>
 #include <ctime>
 #include <fstream>
+#include <functional>
 #include <map>
 #include <set>
 #include <string>
@@ -123,6 +125,20 @@ enum {
     kCmdCount
 };
 static FuncItem funcItem[kCmdCount];
+static std::string gMenuNames[kCmdCount];    // as the host shows them
+static const char *gMenuEnglish[kCmdCount];  // the same in English, the tables' keys
+
+// A menu name in the language in use, cut on a character boundary to fit the host's buffer.
+static std::string menuName(const char *english) {
+    std::string name = adif::i18n::tr(english);
+    if (name.size() > NPP_MENU_ITEM_SIZE - 1) {
+        size_t n = NPP_MENU_ITEM_SIZE - 1;
+        while (n > 0 && ((unsigned char)name[n] & 0xC0) == 0x80) --n;  // not inside a UTF-8 character
+        name.resize(n);
+    }
+    return name;
+}
+
 
 // Indicators, offset from the allocated base.
 enum { kIndError, kIndWarning, kIndNote, kIndName, kIndPunct, kIndMarker, kIndComment, kIndCount };
@@ -469,7 +485,10 @@ bool utf8(NppHandle h) { return docUtf8(h); }
 adif::LengthUnit lengthUnit() { return ::lengthUnit(); }
 std::string eol(NppHandle h) { return eolString(h); }
 std::string utcNow(const char *format) { return ::utcNow(format); }
-std::string plural(size_t n, const char *word) { return std::to_string(n) + " " + word + (n == 1 ? "" : "s"); }
+// "1 record", "3 records", in the language in use: the tables' key is "{n} record|{n} records".
+std::string plural(size_t n, const char *word) {
+    return adif::i18n::trp(std::string("{n} ") + word, std::string("{n} ") + word + "s", (long long)n);
+}
 adif::LintResult lintText(std::string_view text) {
     adif::LintOptions opt;
     opt.lengthUnit = ::lengthUnit();
@@ -1473,7 +1492,7 @@ static void createPanel() {
                                                              NSWindowStyleMaskResizable | NSWindowStyleMaskUtilityWindow
                                                      backing:NSBackingStoreBuffered
                                                        defer:YES];
-        g.panelWindow.title = @"ADIF Record";
+        g.panelWindow.title = T(@"ADIF Record");
         g.panelWindow.floatingPanel = YES;
         g.panelWindow.hidesOnDeactivate = YES;
         g.panelWindow.releasedWhenClosed = NO;
@@ -1515,7 +1534,7 @@ static std::string utcNow(const char *format) {
 static std::string documentName() {
     std::string path = currentPath();
     size_t slash = path.find_last_of('/');
-    return path.empty() ? "an untitled document" : path.substr(slash == std::string::npos ? 0 : slash + 1);
+    return path.empty() ? adif::i18n::tr("an untitled document") : path.substr(slash == std::string::npos ? 0 : slash + 1);
 }
 
 static bool isBlank(std::string_view text) {
@@ -2169,7 +2188,7 @@ static void enrichUpdateAccount() {
     }
     NSString *account = ADIFSavedAccount(src);
     NSString *text = ADIFLookupFakeMode() ? @"Test data (no network)"
-                     : account && ADIFHasSecret(src) ? [NSString stringWithFormat:@"%@ (saved in your Keychain)", account]
+                     : account && ADIFHasSecret(src) ? [NSString stringWithFormat:T(@"%@ (saved in your Keychain)"), account]
                                                      : @"None yet. Add one in Settings.";
     [g.enrich.panel setAccount:text];
     // HamQTH asks that its data be credited where users see it.
@@ -2463,7 +2482,7 @@ static void enrichFind() {
             return;
         }
         if (e.source != ADIFSourceCountryData && (!ADIFSavedAccount(e.source) || !ADIFHasSecret(e.source))) {
-            [e.panel setStatus:[NSString stringWithFormat:@"No %@ account yet. Add one in Settings, then press Find Data.",
+            [e.panel setStatus:[NSString stringWithFormat:T(@"No %@ account yet. Add one in Settings, then press Find Data."),
                                                           ADIFSourceName(e.source)]
                       severity:2];
             return;
@@ -2511,7 +2530,7 @@ static void enrichFind() {
             return;
         }
         if (!e.client) e.client = [[ADIFCallbookClient alloc] initWithSource:e.source agent:@"ADIFLint-" ADIFLINT_VERSION];
-        [e.panel setStatus:[NSString stringWithFormat:@"Looking up %zu calls, %zu at a time...", e.calls.size(), e.parallel] severity:-1];
+        [e.panel setStatus:[NSString stringWithFormat:T(@"Looking up %zu calls, %zu at a time..."), e.calls.size(), e.parallel] severity:-1];
         enrichNextLookup();
     } catch (...) {
         enrichFail(@"Something went wrong starting the lookups.");
@@ -2623,6 +2642,25 @@ static void setAutoValidate(bool on) {
 
 static void cmdToggleAutoValidate() { setAutoValidate(!g.autoValidate); }
 
+// The language changed: our items in the Plugins menu take their new names. The host builds
+// the menu from the names it was given at start and has no message to rename one, so they are
+// found in the app's menus: in the ADIF Lint submenu, by the names they have now.
+static void retitleMenus() {
+    std::function<void(NSMenu *, bool)> walk = [&](NSMenu *menu, bool ours) {
+        for (NSMenuItem *item in menu.itemArray) {
+            if (ours)
+                for (int i = 0; i < kCmdCount; ++i)
+                    if (gMenuEnglish[i] && *gMenuEnglish[i] && [item.title isEqualToString:@(gMenuNames[i].c_str())]) {
+                        gMenuNames[i] = menuName(gMenuEnglish[i]);
+                        item.title = @(gMenuNames[i].c_str());
+                        break;
+                    }
+            if (item.submenu) walk(item.submenu, ours || [item.title isEqualToString:@(kPluginName)]);
+        }
+    };
+    if (NSApp.mainMenu) walk(NSApp.mainMenu, false);
+}
+
 // Offline Mode (the menu item and Settings): the tick and the Settings box follow the setting.
 static void cmdToggleOffline() { ADIFSetOffline(!ADIFOffline()); }
 
@@ -2636,7 +2674,7 @@ static void refreshMapDetail() {
     for (const mapdetail::Region &r : mapdetail::regions()) {
         char size[32];
         snprintf(size, sizeof size, r.bytes >= 1000000 ? "%.0f MB" : "%.0f KB", r.bytes >= 1000000 ? r.bytes / 1e6 : std::max(1.0, r.bytes / 1e3));
-        [have addObject:@[ @(r.path.c_str()), [NSString stringWithFormat:@"%s (zoom %d, %s)", r.name.c_str(), r.maxZoom, size] ]];
+        [have addObject:@[ @(r.path.c_str()), [NSString stringWithFormat:T(@"%s (zoom %d, %s)"), r.name.c_str(), r.maxZoom, size] ]];
     }
     [g.settings setMapDetailChoices:choices levels:levels installed:have summary:mapdetail::status()];
 }
@@ -2680,10 +2718,10 @@ static void setCountCharacters(bool on) {
 
 static void cmdAbout() {
     NSAlert *alert = [[NSAlert alloc] init];
-    alert.messageText = [NSString stringWithFormat:@"ADIF Lint %s", ADIFLINT_VERSION];
+    alert.messageText = [NSString stringWithFormat:T(@"ADIF Lint %s"), ADIFLINT_VERSION];
     alert.informativeText = [NSString
         stringWithFormat:
-            @"Checks and edits ADIF %s (%s) .adi amateur-radio logs: problems marked as you type (red error, "
+            T(@"Checks and edits ADIF %s (%s) .adi amateur-radio logs: problems marked as you type (red error, "
             @"orange warning, blue note; hover to read), Check Log with repairs, Fix Lengths, syntax colouring, Reformat, "
             @"autocomplete and "
             @"the Record Panel.\n\n"
@@ -2693,11 +2731,11 @@ static void cmdAbout() {
             @"Online services: import your QSOs and confirmations from LoTW, QRZ.com Logbook and eQSL; enrich from "
             @"QRZ.com, HamQTH or offline country data; upload to QRZ.com Logbook, LoTW (TQSL), Club Log and eQSL, sent "
             @"only when you press Upload. Accounts stay in your macOS Keychain.\n\n"
-            @"Free software under the GNU GPL v3. Country data by Jim Reisert AD1C (MIT licence).",
+            @"Free software under the GNU GPL v3. Country data by Jim Reisert AD1C (MIT licence)."),
             adif::kSpecVersion, adif::kSpecDate];
     [alert addButtonWithTitle:@"OK"];
-    [alert addButtonWithTitle:@"Project Page"];
-    [alert addButtonWithTitle:@"ADIF Specification"];
+    [alert addButtonWithTitle:T(@"Project Page")];
+    [alert addButtonWithTitle:T(@"ADIF Specification")];
     NSModalResponse r = [alert runModal];
     NSString *url = r == NSAlertSecondButtonReturn  ? @(kProjectUrl)
                     : r == NSAlertThirdButtonReturn ? @"https://www.adif.org/317/ADIF_317.htm"
@@ -2737,7 +2775,9 @@ static void onDwellEnd() {
 // ── Plugin exports ──────────────────────────────────────────────────────────
 
 static void setItem(int i, const char *name, PFUNCPLUGINCMD fn, bool checked = false) {
-    std::strncpy(funcItem[i]._itemName, name, NPP_MENU_ITEM_SIZE - 1);
+    gMenuEnglish[i] = name;
+    gMenuNames[i] = *name ? menuName(name) : "";
+    std::strncpy(funcItem[i]._itemName, gMenuNames[i].c_str(), NPP_MENU_ITEM_SIZE - 1);
     funcItem[i]._pFunc = fn;
     funcItem[i]._init2Check = checked;
     funcItem[i]._pShKey = nullptr;  // the host ignores plugin default shortcuts
@@ -2747,6 +2787,7 @@ extern "C" NPP_EXPORT void setInfo(NppData data) {
     nppData = data;
     std::memset(funcItem, 0, sizeof funcItem);
     loadSettings();
+    ADIFLoadLanguage();
     setItem(kCmdNewQso, "New QSO...", cmdNewQso);
     setItem(kCmdSpots, "Spots (POTA, WWFF, More)...", logtools::cmdPotaSpots);
     setItem(kCmdStartActivation, "Start Activation...", station::cmdStartActivation);
@@ -2802,6 +2843,18 @@ extern "C" NPP_EXPORT void beNotified(SCNotification *n) {
                 setCheck(kCmdAutoValidate, g.autoValidate);
                 setCheck(kCmdRecordPanel, g.panelWanted);
                 setCheck(kCmdOffline, ADIFOffline());
+                static id languageObservers[2];
+                if (!languageObservers[0]) {
+                    // Nextpad++ posts this when its language changes (Settings → Preferences).
+                    languageObservers[0] = [[NSNotificationCenter defaultCenter] addObserverForName:@"NPPLocalizationChanged"
+                                                                                             object:nil
+                                                                                              queue:nil
+                                                                                         usingBlock:^(NSNotification *) { ADIFLoadLanguage(); }];
+                    languageObservers[1] = [[NSNotificationCenter defaultCenter] addObserverForName:ADIFLanguageChangedNotification
+                                                                                             object:nil
+                                                                                              queue:nil
+                                                                                         usingBlock:^(NSNotification *) { retitleMenus(); }];
+                }
                 static id detailObserver;
                 if (!detailObserver)
                     detailObserver = [[NSNotificationCenter defaultCenter] addObserverForName:ADIFMapDetailChangedNotification

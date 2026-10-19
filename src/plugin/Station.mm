@@ -1,4 +1,5 @@
 #import "Station.h"
+#import "L10n.h"
 
 #import "CheckLog.h"
 #import "LogTools.h"
@@ -311,7 +312,7 @@ void starterShow() {
     std::vector<adif::StationProfile> list = profiles();
     NSInteger keep = st.profile.indexOfSelectedItem;
     [st.profile removeAllItems];
-    [st.profile addItemWithTitle:@"Your Station (Settings)"];
+    [st.profile addItemWithTitle:T(@"Your Station (Settings)")];
     for (const adif::StationProfile &p : list) [st.profile addItemWithTitle:ADIFString(p.name)];
     [st.profile selectItemAtIndex:keep >= 0 && keep < st.profile.numberOfItems ? keep : 0];
 
@@ -426,14 +427,14 @@ void cmdStartActivation() {
         st.refs.stringValue = ADIFString(joined(activation().refs, ", "));
         [w addOptionRow:@[ ADIFLabel(@"Program:"), st.program, ADIFLabel(@"References:"), st.refs ]];
         st.profile = ADIFPopup(@[ @"Your Station (Settings)" ]);
-        NSButton *edit = [NSButton buttonWithTitle:@"Profiles..." target:nil action:nil];
+        NSButton *edit = [NSButton buttonWithTitle:T(@"Profiles...") target:nil action:nil];
         ADIFOnAction(edit, ^{ cmdStationProfiles(); });
         [w addOptionRow:@[ ADIFLabel(@"Station:"), st.profile, edit ]];
         st.target = ADIFPopup(@[ @"A new log file", @"The log that's open" ]);
         st.folder = ADIFLabel(@"");
         st.folder.lineBreakMode = NSLineBreakByTruncatingMiddle;
         [st.folder.widthAnchor constraintLessThanOrEqualToConstant:300].active = YES;
-        NSButton *choose = [NSButton buttonWithTitle:@"Choose..." target:nil action:nil];
+        NSButton *choose = [NSButton buttonWithTitle:T(@"Choose...") target:nil action:nil];
         ADIFOnAction(choose, ^{
             NSOpenPanel *panel = [NSOpenPanel openPanel];
             panel.canChooseDirectories = YES;

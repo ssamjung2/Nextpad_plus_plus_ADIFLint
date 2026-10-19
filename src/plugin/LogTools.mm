@@ -1,4 +1,5 @@
 #import "LogTools.h"
+#import "L10n.h"
 #import "Monitor.h"
 #import "LotwUsers.h"
 #include "adif_capture.h"
@@ -38,7 +39,7 @@ const std::vector<std::vector<std::string>> kNoRows;
 const std::vector<int> kNoSev;
 const std::vector<bool> kNoTicks;
 
-NSString *logLine() { return [@"Log: " stringByAppendingString:ADIFString(documentName())]; }
+NSString *logLine() { return TF(@"Log: {name}", @{@"name" : ADIFString(documentName())}); }
 
 bool hasRecords(const adif::LintResult &r) { return adif::recordCount(r.model) > 0; }
 
@@ -79,23 +80,23 @@ bool writeFile(const std::string &path, const std::string &data, std::string *er
     NSData *d = [NSData dataWithBytes:data.data() length:data.size()];
     NSError *err = nil;
     if ([d writeToFile:ADIFString(path) options:NSDataWritingAtomic error:&err]) return true;
-    if (error) *error = ADIFStd(err.localizedDescription ?: @"could not write the file");
+    if (error) *error = ADIFStd(err.localizedDescription ?: T(@"could not write the file"));
     return false;
 }
 
 bool readFile(const std::string &path, size_t limit, std::string *out, std::string *error) {
     struct stat st{};
     if (stat(path.c_str(), &st) != 0) {
-        if (error) *error = "cannot read " + fileName(path);
+        if (error) *error = trf("cannot read {file}", {{"file", fileName(path)}});
         return false;
     }
     if ((size_t)st.st_size > limit) {
-        if (error) *error = fileName(path) + " is larger than " + std::to_string(limit >> 20) + " MB";
+        if (error) *error = trf("{file} is larger than {size} MB", {{"file", fileName(path)}, {"size", std::to_string(limit >> 20)}});
         return false;
     }
     std::ifstream in(path, std::ios::binary);
     if (!in) {
-        if (error) *error = "cannot read " + fileName(path);
+        if (error) *error = trf("cannot read {file}", {{"file", fileName(path)}});
         return false;
     }
     std::ostringstream ss;
@@ -121,7 +122,7 @@ std::string chooseSave(NSString *suggested, NSArray<NSString *> *extensions) {
 std::string chooseOpen(NSString *message, bool folder, NSArray<NSString *> *extensions = nil) {
     if (const char *env = getenv(folder ? "ADIFLINT_TEST_FOLDER" : "ADIFLINT_TEST_OPEN_FILE")) return env;
     NSOpenPanel *p = [NSOpenPanel openPanel];
-    p.message = message;
+    p.message = T(message);
     p.canChooseFiles = !folder;
     p.canChooseDirectories = folder;
     p.allowsMultipleSelection = NO;
@@ -231,7 +232,7 @@ void tableUpdateCount() {
     size_t shown = [table.w shownRows].size();
     table.count.stringValue = shown == table.recs.size()
                                   ? ADIFString(plural(table.recs.size(), "record"))
-                                  : [NSString stringWithFormat:@"%zu of %@", shown, ADIFString(plural(table.recs.size(), "record"))];
+                                  : [NSString stringWithFormat:T(@"%zu of %@"), shown, ADIFString(plural(table.recs.size(), "record"))];
 }
 
 void tableRefresh() {
@@ -291,7 +292,7 @@ void tableRefresh() {
             });
         }
         if (ADIFLotwUsersOn()) {
-            NSMenuItem *item = [table.menu addItemWithTitle:@"LoTW (last upload)" action:nil keyEquivalent:@""];
+            NSMenuItem *item = [table.menu addItemWithTitle:T(@"LoTW (last upload)") action:nil keyEquivalent:@""];
             item.state = table.lotwShown ? NSControlStateValueOn : NSControlStateValueOff;
             ADIFBlockMenuItem(item, ^{
                 setSetting("tableLotw", tableLotwWanted() ? "0" : "1");
@@ -299,8 +300,8 @@ void tableRefresh() {
             });
         }
         [table.menu addItem:NSMenuItem.separatorItem];
-        ADIFBlockMenuItem([table.menu addItemWithTitle:@"Add Field..." action:nil keyEquivalent:@""], ^{ tableShowAddField(); });
-        table.removeItem = [table.menu addItemWithTitle:@"Remove Field from Every Record" action:nil keyEquivalent:@""];
+        ADIFBlockMenuItem([table.menu addItemWithTitle:T(@"Add Field...") action:nil keyEquivalent:@""], ^{ tableShowAddField(); });
+        table.removeItem = [table.menu addItemWithTitle:T(@"Remove Field from Every Record") action:nil keyEquivalent:@""];
         ADIFBlockMenuItem(table.removeItem, ^{ tableRemoveField(table.menuColumn); });
         std::vector<std::vector<std::string>> rows;
         table.starts.clear();
@@ -421,8 +422,9 @@ void tableEdit(NSInteger row, size_t column, NSString *text) {
         std::string value = adif::cellValue(field, ADIFStd(text));  // shown as 2026-10-06 and 22:30
         int number = table.recs[(size_t)row].number;
         if (!tableChange({{table.recs[(size_t)row].group, field, value}}, {}, {})) return;
-        [table.w setStatus:ADIFString("Record " + std::to_string(number) + ": " + field +
-                                      (value.empty() ? " removed" : " set to " + value) + " (one undo step).")
+        [table.w setStatus:ADIFString(value.empty() ? trf("Record {n}: {field} removed (one undo step).", {{"n", std::to_string(number)}, {"field", field}})
+                                                    : trf("Record {n}: {field} set to {value} (one undo step).",
+                                                          {{"n", std::to_string(number)}, {"field", field}, {"value", value}}))
                   severity:-1];
     } catch (...) {
     }
@@ -448,8 +450,9 @@ void tableCopy() {
     [NSPasteboard.generalPasteboard clearContents];
     [NSPasteboard.generalPasteboard setString:tsv forType:NSPasteboardTypeString];
     [NSPasteboard.generalPasteboard setString:tsv forType:@"public.utf8-tab-separated-values-text"];
-    [table.w setStatus:ADIFString("Copied " + plural(rows.size(), "row") + " of " + plural(cols.size(), "column") +
-                                  ", with a heading row of field names: paste into Numbers or Excel, or back into this table.")
+    [table.w setStatus:ADIFString(trf("Copied {rows} of {columns}, with a heading row of field names: paste into Numbers or Excel, or back "
+                                      "into this table.",
+                                      {{"rows", plural(rows.size(), "row")}, {"columns", plural(cols.size(), "column")}}))
               severity:-1];
 }
 
@@ -538,9 +541,12 @@ void tablePaste(NSString *pasted) {
             }
         }
         if (!tableChange(changes, {}, added) && changes.empty() && added.empty()) return;
-        std::string st = "Pasted " + plural(rows.size(), "row") + ": " + plural(updated, "record") + " changed" +
-                         (added.empty() ? "" : ", " + plural(added.size(), "new record")) + " (one undo step)." +
-                         (ignored ? " " + plural(ignored, "column") + " past the last one left out." : "");
+        std::string st = added.empty() ? trf("Pasted {rows}: {records} changed (one undo step).",
+                                             {{"rows", plural(rows.size(), "row")}, {"records", plural(updated, "record")}})
+                                       : trf("Pasted {rows}: {records} changed, {added} (one undo step).",
+                                             {{"rows", plural(rows.size(), "row")}, {"records", plural(updated, "record")},
+                                              {"added", plural(added.size(), "new record")}});
+        if (ignored) st += " " + trf("{columns} past the last one left out.", {{"columns", plural(ignored, "column")}});
         [table.w setStatus:ADIFString(st) severity:ignored ? 1 : -1];
     } catch (...) {
         [table.w setStatus:@"Something went wrong pasting." severity:2];
@@ -560,8 +566,10 @@ void tableFillDown() {
     std::vector<adif::CellChange> changes;
     for (size_t i = 1; i < rows.size(); ++i) changes.push_back({table.recs[(size_t)rows[i]].group, field, value});
     if (tableChange(changes, {}, {}))
-        [table.w setStatus:ADIFString("Filled " + field + (value.empty() ? " (empty)" : " = " + value) + " down " +
-                                      plural(rows.size() - 1, "record") + " (one undo step).")
+        [table.w setStatus:ADIFString(value.empty() ? trf("Filled {field} (empty) down {records} (one undo step).",
+                                                          {{"field", field}, {"records", plural(rows.size() - 1, "record")}})
+                                                    : trf("Filled {field} = {value} down {records} (one undo step).",
+                                                          {{"field", field}, {"value", value}, {"records", plural(rows.size() - 1, "record")}}))
                   severity:-1];
 }
 
@@ -575,7 +583,7 @@ void tableClearCells() {
     std::vector<adif::CellChange> changes;
     for (NSInteger row : rows) changes.push_back({table.recs[(size_t)row].group, field, ""});
     if (tableChange(changes, {}, {}))
-        [table.w setStatus:ADIFString("Removed " + field + " from " + plural(rows.size(), "record") + " (one undo step).")
+        [table.w setStatus:ADIFString(trf("Removed {field} from {records} (one undo step).", {{"field", field}, {"records", plural(rows.size(), "record")}}))
                   severity:-1];
 }
 
@@ -588,7 +596,7 @@ void tableDeleteRows() {
     std::vector<int> groups;
     for (NSInteger row : rows) groups.push_back(table.recs[(size_t)row].group);
     if (tableChange({}, groups, {}))
-        [table.w setStatus:ADIFString("Deleted " + plural(rows.size(), "record") + " (one undo step: Command-Z brings them back).")
+        [table.w setStatus:ADIFString(trf("Deleted {records} (one undo step: Command-Z brings them back).", {{"records", plural(rows.size(), "record")}}))
                   severity:-1];
 }
 
@@ -635,8 +643,8 @@ void tableAddField() {
     const adif::FieldDef *d = adif::findField(f);
     if (f.empty() || (!(d && !d->header) && f.rfind("APP_", 0) != 0 &&
                       std::find(table.all.begin(), table.all.end(), f) == table.all.end())) {
-        [table.w setStatus:ADIFString((f.empty() ? std::string("Type") : f + " is not a QSO field: choose") +
-                                      " an ADIF field to add.")
+        [table.w setStatus:ADIFString(f.empty() ? tr("Type an ADIF field to add.")
+                                                : trf("{field} is not a QSO field: choose an ADIF field to add.", {{"field", f}}))
                   severity:2];
         return;
     }
@@ -652,7 +660,7 @@ void tableAddField() {
     auto it = std::find(table.columns.begin(), table.columns.end(), f);
     if (it != table.columns.end()) table.w.activeColumn = (NSInteger)(it - table.columns.begin()) + 1;
     [table.w.window makeFirstResponder:nil];
-    [table.w setStatus:ADIFString("Added the column " + f + ": select a row and type its value (or paste a column of values).")
+    [table.w setStatus:ADIFString(trf("Added the column {field}: select a row and type its value (or paste a column of values).", {{"field", f}}))
               severity:-1];
 }
 
@@ -669,11 +677,11 @@ void tableRemoveField(NSInteger column) {
     table.extra.erase(std::remove(table.extra.begin(), table.extra.end(), field), table.extra.end());
     if (changes.empty()) {
         tableRefresh();
-        [table.w setStatus:ADIFString("No record has " + field + ".") severity:-1];
+        [table.w setStatus:ADIFString(trf("No record has {field}.", {{"field", field}})) severity:-1];
         return;
     }
     if (tableChange(changes, {}, {}))
-        [table.w setStatus:ADIFString("Removed " + field + " from " + plural(changes.size(), "record") + " (one undo step).")
+        [table.w setStatus:ADIFString(trf("Removed {field} from {records} (one undo step).", {{"field", field}, {"records", plural(changes.size(), "record")}}))
                   severity:-1];
 }
 
@@ -693,11 +701,11 @@ void exportCsv(const std::vector<adif::Record> &recs, const std::vector<std::str
         if (dest.empty()) return;
         std::string error;
         if (!writeFile(dest, adif::toCsv(recs, columns), &error)) {
-            if (w) [w setStatus:ADIFString("Could not save: " + error) severity:2];
-            else showTip(h, "ADIF Lint: could not save the CSV file: " + error);
+            if (w) [w setStatus:ADIFString(trf("Could not save: {why}", {{"why", error}})) severity:2];
+            else showTip(h, trf("ADIF Lint: could not save the CSV file: {why}", {{"why", error}}));
             return;
         }
-        std::string done = "Saved " + plural(recs.size(), "record") + " to " + fileName(dest) + ".";
+        std::string done = trf("Saved {records} to {file}.", {{"records", plural(recs.size(), "record")}, {"file", fileName(dest)}});
         if (w) [w setStatus:ADIFString(done) severity:-1];
         else showTip(h, "ADIF Lint: " + done);
     } catch (...) {
@@ -719,8 +727,8 @@ void summaryRefresh() {
         const adif::LintResult &r = lint(h);
         [summary.w setTarget:logLine()];
         [summary.w setText:ADIFString(adif::summaryReport(adifhost::text(h), r.model, documentName()))];
-        [summary.w setStatus:r.errors ? ADIFString("The log has " + plural(r.errors, "error") +
-                                                    "; records with problems may be counted wrongly.")
+        [summary.w setStatus:r.errors ? ADIFString(trf("The log has {errors}; records with problems may be counted wrongly.",
+                                                       {{"errors", plural(r.errors, "error")}}))
                                       : @""
                     severity:r.errors ? 1 : -1];
     } catch (...) {
@@ -759,8 +767,9 @@ void trackerRefresh() {
             return s;
         };
         for (const adif::Activation &a : tracker.acts) {
-            std::string need = a.activated() ? "done" : std::to_string(a.needed - a.qsos) + " more";
-            std::string when = adif::displayDate(a.date) + (a.lastDate != a.date ? " to " + adif::displayDate(a.lastDate) : "");
+            std::string need = a.activated() ? tr("done") : trf("{n} more", {{"n", std::to_string(a.needed - a.qsos)}});
+            std::string when = a.lastDate != a.date ? trf("{from} to {to}", {{"from", adif::displayDate(a.date)}, {"to", adif::displayDate(a.lastDate)}})
+                                                    : adif::displayDate(a.date);
             rows.push_back({a.park, when, a.station, std::to_string(a.qsos), need, std::to_string(a.p2p),
                             std::to_string(a.duplicates), std::to_string(a.invalid), join(a.bands), join(a.modes),
                             adif::displayTime(a.first), adif::displayTime(a.last)});
@@ -779,35 +788,37 @@ void trackerRefresh() {
         if (!isToday && !tracker.acts.empty()) focus.push_back(&tracker.acts.back());
         bool allDone = true;
         for (const adif::Activation *a : focus) {
-            std::string when = wwff ? "(all days)" : isToday ? "today" : "on " + adif::displayDate(a->date);
-            std::string more = std::to_string(a->needed - a->qsos);
-            std::string line = a->park + " " + when + ": " + plural(a->qsos, sota ? "station" : "QSO") +
-                               (a->activated() ? (sota ? ", points scored" : ", activated")
-                                               : ", " + more + (sota ? " more for the summit's points" : " more to activate"));
+            std::string when = wwff ? tr("(all days)") : isToday ? tr("today") : trf("on {date}", {{"date", adif::displayDate(a->date)}});
+            std::string more = std::to_string(a->needed - a->qsos), count = sota ? plural(a->qsos, "station") : plural(a->qsos, "QSO");
+            adif::i18n::Args args = {{"park", a->park}, {"when", when}, {"count", count}, {"more", more}};
+            std::string line = a->activated() ? trf(sota ? "{park} {when}: {count}, points scored" : "{park} {when}: {count}, activated", args)
+                                              : trf(sota ? "{park} {when}: {count}, {more} more for the summit's points"
+                                                         : "{park} {when}: {count}, {more} more to activate",
+                                                    args);
             head += (head.empty() ? "" : "\n") + line;
             allDone &= a->activated();
         }
         headSev = allDone ? 3 : 1;
         if (tracker.acts.empty()) {
             const char *name = adif::programName(prog);
-            [tracker.w setHeadline:[NSString stringWithFormat:@"No %s activations in this log", name] severity:-1];
-            [tracker.w setStatus:wwff   ? @"The tracker counts records with MY_WWFF_REF, or MY_SIG WWFF and MY_SIG_INFO."
-                                 : sota ? @"The tracker counts records with MY_SOTA_REF, or MY_SIG SOTA and MY_SIG_INFO."
-                                        : @"The tracker counts records with MY_SIG POTA and MY_SIG_INFO (or MY_POTA_REF) set to "
-                                          @"your park. New QSO carries them from one contact to the next."
+            [tracker.w setHeadline:[NSString stringWithFormat:T(@"No %s activations in this log"), name] severity:-1];
+            [tracker.w setStatus:wwff   ? N(@"The tracker counts records with MY_WWFF_REF, or MY_SIG WWFF and MY_SIG_INFO.")
+                                 : sota ? N(@"The tracker counts records with MY_SOTA_REF, or MY_SIG SOTA and MY_SIG_INFO.")
+                                        : N(@"The tracker counts records with MY_SIG POTA and MY_SIG_INFO (or MY_POTA_REF) set to "
+                                            @"your park. New QSO carries them from one contact to the next.")
                         severity:-1];
             return;
         }
         [tracker.w setHeadline:ADIFString(head) severity:headSev];
-        [tracker.w setStatus:wwff ? @"WWFF: 44 QSOs per reference, gathered over any number of days; the same call counts "
-                                    @"again on another band, mode or date (WWFF Global Rules 5.10, 4.6-4.7). Double-click a "
-                                    @"row to go to its first record."
-                             : sota ? @"SOTA: one QSO activates a summit; four different stations score its points (from "
-                                      @"SOTA guides: check sota.org.uk). The QSOs column counts stations. Double-click a "
-                                      @"row to go to its first record."
-                                    : @"An activation is 10 QSOs from one park in one UTC day. Each CALL counts once per "
-                                      @"band, mode and park-to-park park; repeats and records missing CALL, TIME_ON, BAND or "
-                                      @"MODE don't count (POTA rules, 2026-10-04). Double-click a row to go to its first record."
+        [tracker.w setStatus:wwff ? N(@"WWFF: 44 QSOs per reference, gathered over any number of days; the same call counts "
+                                      @"again on another band, mode or date (WWFF Global Rules 5.10, 4.6-4.7). Double-click a "
+                                      @"row to go to its first record.")
+                             : sota ? N(@"SOTA: one QSO activates a summit; four different stations score its points (from "
+                                        @"SOTA guides: check sota.org.uk). The QSOs column counts stations. Double-click a "
+                                        @"row to go to its first record.")
+                                    : N(@"An activation is 10 QSOs from one park in one UTC day. Each CALL counts once per "
+                                        @"band, mode and park-to-park park; repeats and records missing CALL, TIME_ON, BAND or "
+                                        @"MODE don't count (POTA rules, 2026-10-04). Double-click a row to go to its first record.")
                     severity:-1];
     } catch (...) {
     }
@@ -895,7 +906,7 @@ void indexRebuild() {
                 includingPropertiesForKeys:@[ NSURLIsRegularFileKey ]
                                    options:NSDirectoryEnumerationSkipsHiddenFiles | NSDirectoryEnumerationSkipsPackageDescendants
                               errorHandler:nil];
-            if (!en) error = "cannot read the folder";
+            if (!en) error = tr("cannot read the folder");
             for (NSURL *url in en) {
                 NSString *ext = url.pathExtension.lowercaseString;
                 if (![ext isEqualToString:@"adi"] && ![ext isEqualToString:@"adif"]) continue;
@@ -955,13 +966,14 @@ std::vector<adif::WorkedHit> indexLookup(const std::string &call) {
 
 std::string indexStatus() {
     std::string folder = logsFolder();
-    if (folder.empty()) return "Choose the folder that holds your logs. Its .adi and .adif files (and those in its subfolders) are searched.";
-    if (idx.building && idx.folder != folder) return "Reading the logs in " + ADIFStd(tilde(folder)) + "...";
-    if (!idx.error.empty()) return "Could not read " + ADIFStd(tilde(folder)) + ": " + idx.error + ".";
-    std::string s = "Searched " + plural(idx.qsos, "QSO") + " in " + plural(idx.logs.size(), "log") + " under " +
-                    ADIFStd(tilde(folder)) + ".";
-    if (idx.skipped) s += " Skipped " + plural(idx.skipped, "file") + " (unreadable, over 64 MB, or past 5000 files).";
-    if (idx.building) s += " Updating...";
+    if (folder.empty()) return tr("Choose the folder that holds your logs. Its .adi and .adif files (and those in its subfolders) are searched.");
+    std::string where = ADIFStd(tilde(folder));
+    if (idx.building && idx.folder != folder) return trf("Reading the logs in {folder}...", {{"folder", where}});
+    if (!idx.error.empty()) return trf("Could not read {folder}: {why}.", {{"folder", where}, {"why", idx.error}});
+    std::string s = trf("Searched {qsos} in {logs} under {folder}.",
+                        {{"qsos", plural(idx.qsos, "QSO")}, {"logs", plural(idx.logs.size(), "log")}, {"folder", where}});
+    if (idx.skipped) s += " " + trf("Skipped {files} (unreadable, over 64 MB, or past 5000 files).", {{"files", plural(idx.skipped, "file")}});
+    if (idx.building) s += " " + tr("Updating...");
     return s;
 }
 
@@ -974,7 +986,7 @@ struct {
 
 void workedRefresh() {
     if (!worked.w) return;
-    worked.folder.stringValue = logsFolder().empty() ? @"(none)" : tilde(logsFolder());
+    worked.folder.stringValue = logsFolder().empty() ? T(@"(none)") : tilde(logsFolder());
     std::string call = ADIFStd(worked.call.stringValue);
     while (!call.empty() && call.back() == ' ') call.pop_back();
     worked.hits = call.empty() ? std::vector<adif::WorkedHit>() : indexLookup(call);
@@ -988,7 +1000,7 @@ void workedRefresh() {
     [worked.w setRows:rows severities:kNoSev];
     std::string status = indexStatus();
     if (!call.empty() && !idx.building)
-        status = (worked.hits.empty() ? adif::lookupCall(call) + ": not in the other logs."
+        status = (worked.hits.empty() ? trf("{call}: not in the other logs.", {{"call", adif::lookupCall(call)}})
                                       : adif::workedSummary(adif::lookupCall(call), worked.hits)) +
                  "\n" + status;
     [worked.w setStatus:ADIFString(status) severity:-1];
@@ -1025,7 +1037,7 @@ void bulkClear(NSString *why) {
     bulk.previewCount = 0;
     [bulk.w setRows:kNoRows severities:kNoSev];
     bulk.apply.enabled = NO;
-    bulk.apply.title = @"Apply Changes";
+    bulk.apply.title = T(@"Apply Changes");
     [bulk.w setDefaultButton:bulk.preview];
     if (why && had) [bulk.w setStatus:why severity:-1];
 }
@@ -1041,13 +1053,13 @@ NSTimeZone *zoneNamed(NSString *text) {
 void bulkZoneInfo() {
     NSTimeZone *z = zoneNamed(bulk.zone.stringValue);
     if (!z) {
-        bulk.zoneInfo.stringValue = @"Unknown zone: type a name like America/Chicago";
+        bulk.zoneInfo.stringValue = T(@"Unknown zone: type a name like America/Chicago");
         bulk.zoneInfo.textColor = NSColor.systemRedColor;
         return;
     }
     NSInteger off = z.secondsFromGMT;
     NSString *abbr = [z abbreviation] ?: @"";
-    bulk.zoneInfo.stringValue = [NSString stringWithFormat:@"UTC%c%ld:%02ld now%@; each QSO uses the offset on its own date",
+    bulk.zoneInfo.stringValue = [NSString stringWithFormat:T(@"UTC%c%ld:%02ld now%@; each QSO uses the offset on its own date"),
                                                            off < 0 ? '-' : '+', (long)labs(off) / 3600, (long)labs(off) % 3600 / 60,
                                                            abbr.length ? [NSString stringWithFormat:@" (%@)", abbr] : @""];
     bulk.zoneInfo.textColor = NSColor.secondaryLabelColor;
@@ -1071,16 +1083,16 @@ void bulkLayout() {
     bulk.filterField.enabled = bulk.filterKind.enabled = bulk.filterNot.enabled = filtering;
     switch (kind) {
         case adif::RecordFilter::OneOf: bulk.filterValue.placeholderString = @"A, B, C"; break;
-        case adif::RecordFilter::Pattern: bulk.filterValue.placeholderString = @"e.g. K*/P (* any, ? one)"; break;
+        case adif::RecordFilter::Pattern: bulk.filterValue.placeholderString = T(@"e.g. K*/P (* any, ? one)"); break;
         case adif::RecordFilter::Regex: bulk.filterValue.placeholderString = @"e.g. ^73\\b"; break;
-        case adif::RecordFilter::Between: bulk.filterValue.placeholderString = @"low, high"; break;
+        case adif::RecordFilter::Between: bulk.filterValue.placeholderString = T(@"low, high"); break;
         case adif::RecordFilter::Less:
-        case adif::RecordFilter::Greater: bulk.filterValue.placeholderString = @"number, date or text"; break;
+        case adif::RecordFilter::Greater: bulk.filterValue.placeholderString = T(@"number, date or text"); break;
         case adif::RecordFilter::Missing:
         case adif::RecordFilter::Present: bulk.filterValue.placeholderString = @""; break;
-        default: bulk.filterValue.placeholderString = @"value"; break;
+        default: bulk.filterValue.placeholderString = T(@"value"); break;
     }
-    bulk.w.window.title = a == kActShift ? @"Time Shift" : @"Bulk Edit";
+    bulk.w.window.title = a == kActShift ? T(@"Time Shift") : T(@"Bulk Edit");
 }
 
 // The plan for the window's settings against the document now.
@@ -1091,7 +1103,7 @@ bool bulkPlan(NppHandle h, const adif::LintResult &r, adif::ChangePlan *plan, st
         return false;
     }
     if (r.structuralErrors) {
-        *error = "The log has structural problems. Run Fix Lengths and fix the errors marked in red first.";
+        *error = tr("The log has structural problems. Run Fix Lengths and fix the errors marked in red first.");
         return false;
     }
     std::vector<int> groups;
@@ -1099,7 +1111,7 @@ bool bulkPlan(NppHandle h, const adif::LintResult &r, adif::ChangePlan *plan, st
         case kScopeSelection: groups = selectionRecords(h, r.model); break;
         case kScopeTable:
             if (!tableSelection(&groups)) {
-                *error = "Select records in the Log Table first (it must show this log).";
+                *error = tr("Select records in the Log Table first (it must show this log).");
                 return false;
             }
             break;
@@ -1112,7 +1124,7 @@ bool bulkPlan(NppHandle h, const adif::LintResult &r, adif::ChangePlan *plan, st
         f.value = ADIFStd(bulk.filterValue.stringValue);
         f.invert = bulk.filterNot.state == NSControlStateValueOn;
         if (f.field.empty()) {
-            *error = "Choose the field for \"Only where\".";
+            *error = tr("Choose the field for \"Only where\".");
             return false;
         }
         if (std::string why = adif::filterProblem(f); !why.empty()) {
@@ -1128,14 +1140,14 @@ bool bulkPlan(NppHandle h, const adif::LintResult &r, adif::ChangePlan *plan, st
         groups = kept;
     }
     if (groups.empty()) {
-        *error = "No records match.";
+        *error = tr("No records match.");
         return false;
     }
     if (bulk.action.indexOfSelectedItem == kActDistance) {
         *plan = adif::planDistance(text, r.model, groups);
     } else if (bulk.action.indexOfSelectedItem == kActShift && bulk.shiftMode.indexOfSelectedItem == kShiftFixed) {
         if (!isInteger(bulk.days) || !isInteger(bulk.hours) || !isInteger(bulk.minutes)) {
-            *error = "Days, hours and minutes must be whole numbers (negative moves earlier).";
+            *error = tr("Days, hours and minutes must be whole numbers (negative moves earlier).");
             return false;
         }
         long long minutes = parseLong(bulk.days) * 1440LL + parseLong(bulk.hours) * 60LL + parseLong(bulk.minutes);
@@ -1144,7 +1156,7 @@ bool bulkPlan(NppHandle h, const adif::LintResult &r, adif::ChangePlan *plan, st
         // Between UTC and a time zone, with that zone's offset (daylight saving included) on each QSO's date.
         NSTimeZone *tz = zoneNamed(bulk.zone.stringValue);
         if (!tz) {
-            *error = "Unknown time zone. Type a name such as America/Chicago or Europe/London.";
+            *error = tr("Unknown time zone. Type a name such as America/Chicago or Europe/London.");
             return false;
         }
         setSetting("timeShiftZone", ADIFStd(tz.name));
@@ -1166,9 +1178,10 @@ bool bulkPlan(NppHandle h, const adif::LintResult &r, adif::ChangePlan *plan, st
                     *sec = utc - start;
                     return true;
                 }
-                *why = when(start) + (k == adif::LocalTime::Skipped
-                                          ? " didn't happen in " + zname + " (the clocks went forward)"
-                                          : " happened twice in " + zname + " (the clocks went back); shift it by a fixed amount");
+                *why = k == adif::LocalTime::Skipped
+                           ? trf("{time} didn't happen in {zone} (the clocks went forward)", {{"time", when(start)}, {"zone", zname}})
+                           : trf("{time} happened twice in {zone} (the clocks went back); shift it by a fixed amount",
+                                 {{"time", when(start)}, {"zone", zname}});
                 return false;
             };
         } else {
@@ -1202,9 +1215,10 @@ bool bulkPlan(NppHandle h, const adif::LintResult &r, adif::ChangePlan *plan, st
     }
     if (plan->changes.empty()) {
         *error = plan->skipReason.empty() || plan->skipped == 0
-                     ? (plan->skipReason.empty() ? "Nothing to change in " + plural(groups.size(), "record") + "."
+                     ? (plan->skipReason.empty() ? trf("Nothing to change in {records}.", {{"records", plural(groups.size(), "record")}})
                                                  : plan->skipReason)
-                     : "Nothing to change: " + plural(plan->skipped, "record") + " skipped because " + plan->skipReason + ".";
+                     : trf("Nothing to change: {records} skipped because {why}.",
+                           {{"records", plural(plan->skipped, "record")}, {"why", plan->skipReason}});
         return false;
     }
     return true;
@@ -1227,9 +1241,9 @@ void bulkPreview() {
         for (const adif::PlannedChange &c : plan.changes) {
             std::string now, next, field = c.field;
             switch (c.kind) {
-                case adif::PlannedChange::Add: now = "(none)", next = c.after; break;
+                case adif::PlannedChange::Add: now = tr("(none)"), next = c.after; break;
                 case adif::PlannedChange::Change: now = c.before, next = c.after; break;
-                case adif::PlannedChange::Remove: now = c.before, next = "(removed)"; break;
+                case adif::PlannedChange::Remove: now = c.before, next = tr("(removed)"); break;
                 case adif::PlannedChange::Rename: field = c.before, now = c.before, next = c.after; break;
             }
             rows.push_back({std::to_string(c.record), c.call, field, now, next});
@@ -1243,19 +1257,21 @@ void bulkPreview() {
         opt.lengthUnit = lengthUnit();
         opt.utf8 = utf8(h);
         adif::LintResult ra = adif::lint(after, opt);
-        std::string status = plural(plan.changes.size(), "change") + " in " + plural(plan.records, "record") + ".";
-        if (plan.skipped) status += " " + plural(plan.skipped, "record") + " skipped: " + plan.skipReason + ".";
+        std::string status = trf("{changes} in {records}.", {{"changes", plural(plan.changes.size(), "change")}, {"records", plural(plan.records, "record")}});
+        if (plan.skipped)
+            status += " " + trf("{records} skipped: {why}.", {{"records", plural(plan.skipped, "record")}, {"why", plan.skipReason}});
         int sev = -1;
         if (ra.errors > r.errors || ra.warnings > r.warnings) {
-            status += " Afterwards the log would have " + plural(ra.errors, "error") + " and " + plural(ra.warnings, "warning") +
-                      " (now " + std::to_string(r.errors) + " and " + std::to_string(r.warnings) + "): check the values.";
+            status += " " + trf("Afterwards the log would have {errors} and {warnings} (now {e} and {w}): check the values.",
+                                {{"errors", plural(ra.errors, "error")}, {"warnings", plural(ra.warnings, "warning")},
+                                 {"e", std::to_string(r.errors)}, {"w", std::to_string(r.warnings)}});
             sev = 1;
         } else {
-            status += " No new problems. Untick any you don't want, then Apply.";
+            status += " " + tr("No new problems. Untick any you don't want, then Apply.");
         }
         [bulk.w setStatus:ADIFString(status) severity:sev];
         bulk.apply.enabled = YES;
-        bulk.apply.title = [NSString stringWithFormat:@"Apply %zu Change%@", plan.changes.size(), plan.changes.size() == 1 ? @"" : @"s"];
+        bulk.apply.title = TP(@"Apply {n} Change", @"Apply {n} Changes", (long long)plan.changes.size());
         [bulk.w setDefaultButton:bulk.apply];
     } catch (...) {
         [bulk.w setStatus:@"Something went wrong preparing the changes." severity:2];
@@ -1306,8 +1322,8 @@ void bulkApply() {
         edits = adif::mergeEdits(edits, adif::markModified(text, r.model, changedData, lengthUnit(), utf8(h)));
         bulkClear(nil);
         adifhost::apply(h, edits);
-        [bulk.w setStatus:ADIFString("Applied " + plural(chosen.size(), "change") + " to " + plural(records.size(), "record") +
-                                     " (one undo step).")
+        [bulk.w setStatus:ADIFString(trf("Applied {changes} to {records} (one undo step).",
+                                         {{"changes", plural(chosen.size(), "change")}, {"records", plural(records.size(), "record")}}))
                  severity:-1];
     } catch (...) {
         [bulk.w setStatus:@"Something went wrong applying the changes." severity:2];
@@ -1325,8 +1341,8 @@ void openBulkEdit(bool shift, bool fromTable) {
                                        @"Rename a field", @"Shift date and time", @"Fill DISTANCE from grid squares" ]);
             [w addOptionRow:@[ ADIFLabel(@"Action:"), bulk.action ]];
             bulk.field = ADIFComboBox(@[], 240);
-            bulk.field.placeholderString = @"e.g. MY_GRIDSQUARE, or NAME, QTH";
-            bulk.field.toolTip = @"One field, or several separated by commas (not for Rename).";
+            bulk.field.placeholderString = T(@"e.g. MY_GRIDSQUARE, or NAME, QTH");
+            bulk.field.toolTip = T(@"One field, or several separated by commas (not for Rename).");
             bulk.rowField = [w addOptionRow:@[ ADIFLabel(@"Field:"), bulk.field ]];
             bulk.value = ADIFTextField(@"new value", 220);
             bulk.onlyMissing = ADIFCheckbox(@"Only where it is missing or empty", NO);
@@ -1336,19 +1352,19 @@ void openBulkEdit(bool shift, bool fromTable) {
             bulk.rowReplace = [w addOptionRow:@[ ADIFLabel(@"Find:"), bulk.find, ADIFLabel(@"Replace with:"), bulk.replace,
                                                   ADIFLabel(@"(any case)") ]];
             bulk.textCase = ADIFPopup(@[ @"UPPER CASE", @"lower case", @"Title Case (names and places)" ]);
-            bulk.textCase.toolTip = @"Title Case writes O'Brien, McDonald and Smith-Jones, keeps II, III and IV, and leaves words "
-                                    @"with digits (3RD, W1AW) alone.";
+            bulk.textCase.toolTip = T(@"Title Case writes O'Brien, McDonald and Smith-Jones, keeps II, III and IV, and leaves words "
+                                    @"with digits (3RD, W1AW) alone.");
             bulk.rowCase = [w addOptionRow:@[ ADIFLabel(@"Case:"), bulk.textCase ]];
             bulk.newName = ADIFComboBox(@[], 200);
             bulk.rowRename = [w addOptionRow:@[ ADIFLabel(@"New name:"), bulk.newName ]];
             bulk.shiftMode = ADIFPopup(@[ @"From local time to UTC", @"From UTC to local time", @"By a fixed amount" ]);
-            bulk.shiftMode.toolTip = @"ADIF times are UTC. Use local time to UTC for a log written in local time; UTC to local "
-                                     @"time undoes that.";
+            bulk.shiftMode.toolTip = T(@"ADIF times are UTC. Use local time to UTC for a log written in local time; UTC to local "
+                                     @"time undoes that.");
             bulk.rowShiftMode = [w addOptionRow:@[ ADIFLabel(@"Convert:"), bulk.shiftMode ]];
             NSMutableArray *zones = [NSTimeZone.knownTimeZoneNames mutableCopy];
             [zones sortUsingSelector:@selector(compare:)];
             bulk.zone = ADIFComboBox(zones, 200);
-            bulk.zone.placeholderString = @"e.g. America/Chicago";
+            bulk.zone.placeholderString = T(@"e.g. America/Chicago");
             bulk.zoneInfo = ADIFLabel(@"");
             bulk.zoneInfo.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
             bulk.zoneInfo.lineBreakMode = NSLineBreakByTruncatingTail;
@@ -1360,21 +1376,21 @@ void openBulkEdit(bool shift, bool fromTable) {
             bulk.minutes = ADIFTextField(@"0", 50);
             bulk.rowShift = [w addOptionRow:@[ ADIFLabel(@"Shift by:"), bulk.days, ADIFLabel(@"days"), bulk.hours,
                                                 ADIFLabel(@"hours"), bulk.minutes, ADIFLabel(@"minutes (negative: earlier)") ]];
-            bulk.rowShift.toolTip = @"Moves QSO_DATE and TIME_ON, and QSO_DATE_OFF and TIME_OFF, across midnight as needed. "
-                                    @"Times keep their HHMM or HHMMSS form.";
+            bulk.rowShift.toolTip = T(@"Moves QSO_DATE and TIME_ON, and QSO_DATE_OFF and TIME_OFF, across midnight as needed. "
+                                    @"Times keep their HHMM or HHMMSS form.");
             bulk.scope = ADIFPopup(@[ @"All records", @"Records in the editor selection", @"Records selected in the Log Table" ]);
             [w addOptionRow:@[ ADIFLabel(@"Records:"), bulk.scope ]];
             bulk.useFilter = ADIFCheckbox(@"Only where", NO);
             bulk.filterField = ADIFComboBox(@[], 140);
             bulk.filterField.placeholderString = @"field";
             bulk.filterNot = ADIFCheckbox(@"not", NO);
-            bulk.filterNot.toolTip = @"The records that don't match: not is, not contains, not between...";
+            bulk.filterNot.toolTip = T(@"The records that don't match: not is, not contains, not between...");
             bulk.filterKind = ADIFPopup(@[ @"is", @"contains", @"starts with", @"ends with", @"is one of", @"matches pattern",
                                            @"matches regular expression", @"is less than", @"is greater than", @"is between",
                                            @"is missing", @"is present" ]);
-            bulk.filterKind.toolTip = @"Text ignores case. Less, greater and between compare numbers and dates by value. "
+            bulk.filterKind.toolTip = T(@"Text ignores case. Less, greater and between compare numbers and dates by value. "
                                       @"A pattern matches the whole value (* any run, ? one character); a regular expression "
-                                      @"is found anywhere (use ^ and $ to anchor it).";
+                                      @"is found anywhere (use ^ and $ to anchor it).");
             bulk.filterValue = ADIFTextField(@"value", 150);
             [w addOptionRow:@[ bulk.useFilter, bulk.filterField, bulk.filterNot, bulk.filterKind, bulk.filterValue ]];
             [w setColumns:std::vector<ADIFToolColumn>{{"record", "Record", 56}, {"call", "Call", 90}, {"field", "Field", 130}, {"now", "Now", 150},
@@ -1389,7 +1405,7 @@ void openBulkEdit(bool shift, bool fromTable) {
                                     bulk.textCase, bulk.filterNot ])
                 ADIFOnAction(c, ^{
                     bulkLayout();
-                    bulkClear(@"Settings changed. Preview again.");
+                    bulkClear(N(@"Settings changed. Preview again."));
                 });
             [[NSNotificationCenter defaultCenter] addObserverForName:NSControlTextDidChangeNotification
                                                               object:nil
@@ -1398,7 +1414,7 @@ void openBulkEdit(bool shift, bool fromTable) {
                                                               NSView *v = n.object;
                                                               if ([v isKindOfClass:NSView.class] && v.window == bulk.w.window) {
                                                                   if (v == bulk.zone) dispatch_async(dispatch_get_main_queue(), ^{ bulkZoneInfo(); });
-                                                                  bulkClear(@"Settings changed. Preview again.");
+                                                                  bulkClear(N(@"Settings changed. Preview again."));
                                                               }
                                                           }];
             [[NSNotificationCenter defaultCenter] addObserverForName:NSComboBoxSelectionDidChangeNotification
@@ -1408,7 +1424,7 @@ void openBulkEdit(bool shift, bool fromTable) {
                                                               NSView *v = n.object;
                                                               if ([v isKindOfClass:NSView.class] && v.window == bulk.w.window) {
                                                                   if (v == bulk.zone) dispatch_async(dispatch_get_main_queue(), ^{ bulkZoneInfo(); });
-                                                                  bulkClear(@"Settings changed. Preview again.");
+                                                                  bulkClear(N(@"Settings changed. Preview again."));
                                                               }
                                                           }];
         }
@@ -1428,10 +1444,10 @@ void openBulkEdit(bool shift, bool fromTable) {
         bulkClear(nil);
         bulk.buffer = buffer();
         [bulk.w setTarget:logLine()];
-        [bulk.w setStatus:shift ? @"ADIF dates and times are UTC. Convert a log written in local time to UTC (or back), "
-                                  @"with daylight saving taken from each QSO's date, or move times by a fixed amount. "
-                                  @"Preview shows each change before anything is written."
-                                : @"Preview shows each change before anything is written. Apply is one undo step."
+        [bulk.w setStatus:shift ? N(@"ADIF dates and times are UTC. Convert a log written in local time to UTC (or back), "
+                                    @"with daylight saving taken from each QSO's date, or move times by a fixed amount. "
+                                    @"Preview shows each change before anything is written.")
+                                : N(@"Preview shows each change before anything is written. Apply is one undo step.")
                  severity:-1];
         [bulk.w show];
     } catch (...) {
@@ -1461,7 +1477,7 @@ void dupesClear(NSString *why) {
     dupes.found = 0;
     [dupes.w setRows:kNoRows severities:kNoSev];
     dupes.remove.enabled = NO;
-    dupes.remove.title = @"Remove Duplicates";
+    dupes.remove.title = T(@"Remove Duplicates");
     [dupes.w setDefaultButton:dupes.find];
     if (why && had) [dupes.w setStatus:why severity:-1];
 }
@@ -1503,10 +1519,11 @@ void dupesFind() {
             return;
         }
         dupes.remove.enabled = YES;
-        dupes.remove.title = [NSString stringWithFormat:@"Remove %zu Record%@", records, records == 1 ? @"" : @"s"];
+        dupes.remove.title = TP(@"Remove {n} Record", @"Remove {n} Records", (long long)records);
         [dupes.w setDefaultButton:dupes.remove];
-        [dupes.w setStatus:ADIFString(plural(sets.size(), "QSO") + " logged more than once: " + plural(records, "record") +
-                                      " to remove. Each keeps the record with the most fields. Untick any to leave alone.")
+        [dupes.w setStatus:ADIFString(trf("{qsos} logged more than once: {records} to remove. Each keeps the record with the most fields. "
+                                          "Untick any to leave alone.",
+                                          {{"qsos", plural(sets.size(), "QSO")}, {"records", plural(records, "record")}}))
                   severity:1];
     } catch (...) {
         [dupes.w setStatus:@"Something went wrong looking for duplicates." severity:2];
@@ -1588,9 +1605,9 @@ bool cmpTickable(const adif::CompareRow &r) {
 
 std::string cmpWhat(const adif::CompareRow &r) {
     switch (r.kind) {
-        case adif::CompareKind::OnlyThere: return "only in that log";
-        case adif::CompareKind::OnlyHere: return "only in this log";
-        case adif::CompareKind::Same: return "the same";
+        case adif::CompareKind::OnlyThere: return tr("only in that log");
+        case adif::CompareKind::OnlyHere: return tr("only in this log");
+        case adif::CompareKind::Same: return tr("the same");
         case adif::CompareKind::Differ: break;
     }
     std::string out;
@@ -1604,7 +1621,7 @@ void cmpUpdateButton() {
     std::vector<bool> ticks = [cmp.w ticked];
     for (size_t i = 0; i < ticks.size() && i < cmp.shown.size(); ++i) n += ticks[i] && cmpTickable(cmp.rows[cmp.shown[i]]);
     cmp.apply.enabled = cmp.ready && n > 0;
-    cmp.apply.title = n ? [NSString stringWithFormat:@"Apply %zu", n] : @"Apply";
+    cmp.apply.title = n ? [NSString stringWithFormat:T(@"Apply %zu"), n] : @"Apply";
 }
 
 // The table, as the Show popup filters it; ticks kept for rows still shown.
@@ -1652,7 +1669,7 @@ void cmpPlan(bool keepTicks) {
     cmp.ready = false;
     cmp.rows.clear();
     [cmp.w setTarget:logLine()];
-    cmp.from.stringValue = cmp.path.empty() ? @"(choose a log)" : tilde(cmp.path);
+    cmp.from.stringValue = cmp.path.empty() ? T(@"(choose a log)") : tilde(cmp.path);
     if (cmp.path.empty()) {
         [cmp.w setRows:kNoRows severities:kNoSev];
         cmpUpdateButton();
@@ -1671,15 +1688,15 @@ void cmpPlan(bool keepTicks) {
             cmpUpdateButton();
             [cmp.w setStatus:ADIFString(why) severity:2];
         };
-        if (!readFile(cmp.path, kMaxLogBytes, &cmp.text, &error)) return fail("Could not read it: " + error + ".");
-        if (cmp.path == path()) return fail("That is this log. Choose another one.");
+        if (!readFile(cmp.path, kMaxLogBytes, &cmp.text, &error)) return fail(trf("Could not read it: {why}.", {{"why", error}}));
+        if (cmp.path == path()) return fail(tr("That is this log. Choose another one."));
         cmp.other = lintText(cmp.text);
-        if (!hasRecords(cmp.other)) return fail("That file has no ADIF records.");
+        if (!hasRecords(cmp.other)) return fail(tr("That file has no ADIF records."));
         if (!adif::canReformat(cmp.other))
-            return fail("That log has structural problems (wrong lengths or broken tags). Open it, run Fix Lengths, save it, then "
-                        "choose it again.");
+            return fail(tr("That log has structural problems (wrong lengths or broken tags). Open it, run Fix Lengths, save it, then "
+                           "choose it again."));
         std::string problem = structureProblem(r);
-        if (!problem.empty() && hasRecords(r)) return fail("This log: " + problem);
+        if (!problem.empty() && hasRecords(r)) return fail(trf("This log: {problem}", {{"problem", problem}}));
         cmp.rows = adif::compareLogs(adifhost::text(h), r.model, cmp.text, cmp.other.model, adif::DupeOptions());
         size_t there = 0, here = 0, differ = 0, same = 0;
         for (const adif::CompareRow &c : cmp.rows)
@@ -1688,10 +1705,13 @@ void cmpPlan(bool keepTicks) {
                                                                                                   : same)++;
         cmp.ready = true;
         cmpShow(keepTicks);
-        std::string st = fileName(cmp.path) + ": " + plural(there, "QSO") + " only there, " + std::to_string(here) + " only here, " +
-                         std::to_string(differ) + " in both with differences, " + std::to_string(same) + " the same. ";
-        st += "Ticked QSOs only there are added; for ticked QSOs in both, the fields this log lacks are copied" +
-              std::string(cmpReplace() ? ", and the ones it has differently replaced." : ".");
+        std::string st = trf("{file}: {there} only there, {here} only here, {differ} in both with differences, {same} the same.",
+                             {{"file", fileName(cmp.path)}, {"there", plural(there, "QSO")}, {"here", std::to_string(here)},
+                              {"differ", std::to_string(differ)}, {"same", std::to_string(same)}}) +
+                         " ";
+        st += cmpReplace() ? tr("Ticked QSOs only there are added; for ticked QSOs in both, the fields this log lacks are copied, and the "
+                                "ones it has differently replaced.")
+                           : tr("Ticked QSOs only there are added; for ticked QSOs in both, the fields this log lacks are copied.");
         int s = -1;
         std::string undefinedFields;
         for (const adif::UserFieldInfo &u : cmp.other.model.userFields) {
@@ -1700,8 +1720,9 @@ void cmpPlan(bool keepTicks) {
             if (!known) undefinedFields += (undefinedFields.empty() ? "" : ", ") + u.name;
         }
         if (!undefinedFields.empty()) {
-            st += " That log defines user fields this one doesn't (" + undefinedFields + "): add their USERDEF lines to this log's "
-                  "header, or the validator will flag them.";
+            st += " " + trf("That log defines user fields this one doesn't ({fields}): add their USERDEF lines to this log's header, or the "
+                            "validator will flag them.",
+                            {{"fields", undefinedFields}});
             s = 1;
         }
         [cmp.w setStatus:ADIFString(st) severity:s];
@@ -1769,16 +1790,19 @@ void cmpApply() {
                 if (structureProblem(sr).empty()) {
                     bool changed = false;
                     merged = adif::sortedByTime(merged, sr.model, eolText, &changed);
-                    if (changed) note = ", sorted by date and time";
+                    if (changed) note = "sorted";
                 }
             }
         }
         adifhost::apply(h, {adif::minimalEdit(text, merged)});
-        std::string done = "From " + fileName(cmp.path) + ": ";
-        if (!adds.empty()) done += "added " + plural(adds.size(), "QSO");
-        if (!updated.empty()) done += std::string(adds.empty() ? "" : ", ") + "updated " + plural(updated.size(), "record");
+        std::string what = adds.empty()      ? trf("updated {records}", {{"records", plural(updated.size(), "record")}})
+                           : updated.empty() ? trf("added {qsos}", {{"qsos", plural(adds.size(), "QSO")}})
+                                             : trf("added {qsos}, updated {records}",
+                                                   {{"qsos", plural(adds.size(), "QSO")}, {"records", plural(updated.size(), "record")}});
+        std::string done = trf(note.empty() ? "From {file}: {what} (one undo step)." : "From {file}: {what}, sorted by date and time (one undo step).",
+                               {{"file", fileName(cmp.path)}, {"what", what}});
         cmpPlan(false);
-        [cmp.w setStatus:ADIFString(done + note + " (one undo step).") severity:3];
+        [cmp.w setStatus:ADIFString(done) severity:3];
     } catch (...) {
         [cmp.w setStatus:@"Something went wrong applying the changes." severity:2];
     }
@@ -1806,7 +1830,7 @@ void potaPlan() {
         pota.confirmReplace.clear();
         [pota.w setTarget:logLine()];
         std::string dir = setting("potaFolder");
-        pota.folder.stringValue = dir.empty() ? @"(choose a folder)" : tilde(dir);
+        pota.folder.stringValue = dir.empty() ? T(@"(choose a folder)") : tilde(dir);
         NSInteger pi = pota.program.indexOfSelectedItem;
         adif::Program prog = pi == 1 ? adif::Program::WWFF : pi == 2 ? adif::Program::SOTA : adif::Program::POTA;
         pota.shown = prog;
@@ -1825,27 +1849,25 @@ void potaPlan() {
         }
         [pota.w setRows:rows severities:sev];
         pota.save.enabled = !pota.files.empty();
-        pota.save.title = [NSString stringWithFormat:@"Save %zu File%@", pota.files.size(), pota.files.size() == 1 ? @"" : @"s"];
+        pota.save.title = TP(@"Save {n} File", @"Save {n} Files", (long long)pota.files.size());
         if (pota.files.empty()) {
-            [pota.w setStatus:prog == adif::Program::WWFF   ? @"No WWFF activations in this log: records need MY_WWFF_REF, or MY_SIG WWFF and MY_SIG_INFO."
-                              : prog == adif::Program::SOTA ? @"No SOTA activations in this log: records need MY_SOTA_REF, or MY_SIG SOTA and MY_SIG_INFO."
-                                                            : @"No POTA activations in this log: records need MY_SIG POTA and MY_SIG_INFO, or MY_POTA_REF."
+            [pota.w setStatus:prog == adif::Program::WWFF   ? N(@"No WWFF activations in this log: records need MY_WWFF_REF, or MY_SIG WWFF and MY_SIG_INFO.")
+                              : prog == adif::Program::SOTA ? N(@"No SOTA activations in this log: records need MY_SOTA_REF, or MY_SIG SOTA and MY_SIG_INFO.")
+                                                            : N(@"No POTA activations in this log: records need MY_SIG POTA and MY_SIG_INFO, or MY_POTA_REF.")
                       severity:2];
         } else if (r.structuralErrors) {
             [pota.w setStatus:@"The log has structural problems, so records may be read wrongly. Run Fix Lengths first."
                       severity:2];
         } else {
             std::string what = prog == adif::Program::WWFF
-                                   ? "One file per reference and activation (consecutive UTC days), named callsign @ reference date as WWFF asks. "
-                                   : prog == adif::Program::SOTA ? "One file per summit and UTC day. "
-                                                                 : "One file per park and UTC day, named callsign@park-date as POTA asks. ";
-            std::string where = prog == adif::Program::WWFF ? "Send them to your national WWFF log manager."
-                                : prog == adif::Program::SOTA ? "Upload them at sotadata.org.uk."
-                                                              : "Upload them at pota.app, My Log Uploads.";
-            [pota.w setStatus:ADIFString(what +
-                                         (noStation ? "Some records have no STATION_CALLSIGN or OPERATOR: enter your "
-                                                      "callsign above. "
-                                                    : "") +
+                                   ? tr("One file per reference and activation (consecutive UTC days), named callsign @ reference date as WWFF asks.")
+                                   : prog == adif::Program::SOTA ? tr("One file per summit and UTC day.")
+                                                                 : tr("One file per park and UTC day, named callsign@park-date as POTA asks.");
+            std::string where = prog == adif::Program::WWFF ? tr("Send them to your national WWFF log manager.")
+                                : prog == adif::Program::SOTA ? tr("Upload them at sotadata.org.uk.")
+                                                              : tr("Upload them at pota.app, My Log Uploads.");
+            [pota.w setStatus:ADIFString(what + " " +
+                                         (noStation ? tr("Some records have no STATION_CALLSIGN or OPERATOR: enter your callsign above.") + " " : "") +
                                          where)
                       severity:noStation ? 1 : -1];
         }
@@ -1889,7 +1911,7 @@ void potaSave() {
         }
         if (!existing.empty() && existing != pota.confirmReplace) {
             pota.confirmReplace = existing;
-            [pota.w setStatus:ADIFString("Already in the folder: " + existing + ". Press Save again to replace them.")
+            [pota.w setStatus:ADIFString(trf("Already in the folder: {files}. Press Save again to replace them.", {{"files", existing}}))
                       severity:1];
             return;
         }
@@ -1897,16 +1919,16 @@ void potaSave() {
         for (const adif::PotaFile *f : chosen) {
             std::string error;
             if (!writeFile(dir + "/" + f->name, f->text, &error)) {
-                [pota.w setStatus:ADIFString("Could not save " + f->name + ": " + error) severity:2];
+                [pota.w setStatus:ADIFString(trf("Could not save {file}: {why}", {{"file", f->name}, {"why", error}})) severity:2];
                 return;
             }
             ++saved;
         }
         pota.confirmReplace.clear();
-        [pota.w setStatus:ADIFString("Saved " + plural(saved, "file") + " to " + ADIFStd(tilde(dir)) +
-                                     (pota.shown == adif::Program::WWFF   ? ". Send them to your national WWFF log manager."
-                                      : pota.shown == adif::Program::SOTA ? ". Upload them at sotadata.org.uk."
-                                                                          : ". Upload them at pota.app, My Log Uploads."))
+        [pota.w setStatus:ADIFString(trf("Saved {files} to {folder}.", {{"files", plural(saved, "file")}, {"folder", ADIFStd(tilde(dir))}}) + " " +
+                                     (pota.shown == adif::Program::WWFF   ? tr("Send them to your national WWFF log manager.")
+                                      : pota.shown == adif::Program::SOTA ? tr("Upload them at sotadata.org.uk.")
+                                                                          : tr("Upload them at pota.app, My Log Uploads.")))
                   severity:3];
     } catch (...) {
         [pota.w setStatus:@"Something went wrong saving the files." severity:2];
@@ -2018,7 +2040,7 @@ void spotsShow() {
         for (const std::string &r : sp.refs) workedRef = workedRef || refs.count(r) > 0;
         std::string lotw = ADIFLotwLastUpload(sp.activator);
         rows.push_back({sp.time, sp.activator, sp.khz, sp.mode, sp.reference, sp.park, sp.location,
-                        workedToday ? "today" : workedRef ? "worked" : "NEW", lotw, sp.comments});
+                        workedToday ? tr("today") : workedRef ? tr("worked") : tr("NEW"), lotw, sp.comments});
         sev.push_back(workedToday ? 0 : workedRef ? -1 : 3);
         keys.push_back(sp.key);
         spots.rowSpot.push_back(i);
@@ -2027,16 +2049,23 @@ void spotsShow() {
     spots.use.enabled = [spots.w selectedRows].size() == 1;
     NSInteger source = spots.program.indexOfSelectedItem;
     bool wwff = spots.shown == adif::Program::WWFF || spots.spothole;
-    std::string status = spots.loading ? std::string("Fetching spots from ") +
-                                             (source == kSpotsSpothole ? "spothole.app..." : source == kSpotsWwff ? "spots.wwff.co..." : "pota.app...")
-                         : spots.fetched.empty()
-                             ? ""
-                             : plural(rows.size(), "spot") + (rows.size() == spots.all.size() ? "" : " of " + std::to_string(spots.all.size())) +
-                                   " at " + spots.fetched +
-                                   (spots.spothole ? " UTC from Spothole (spothole.app; refreshed every 2 minutes; SOTA left out)."
-                                                   : " UTC (refreshed every minute).") +
-                                   " Double-click one, or select it and Use in New QSO. Green NEW: a " + (wwff ? "reference" : "park") +
-                                   " not in your logs; blue: that station worked today on that band.";
+    std::string status;
+    if (spots.loading) {
+        status = trf("Fetching spots from {site}...",
+                     {{"site", source == kSpotsSpothole ? "spothole.app" : source == kSpotsWwff ? "spots.wwff.co" : "pota.app"}});
+    } else if (!spots.fetched.empty()) {
+        std::string count = rows.size() == spots.all.size()
+                                ? plural(rows.size(), "spot")
+                                : trf("{spots} of {all}", {{"spots", plural(rows.size(), "spot")}, {"all", std::to_string(spots.all.size())}});
+        status = trf(spots.spothole ? "{count} at {time} UTC from Spothole (spothole.app; refreshed every 2 minutes; SOTA left out)."
+                                    : "{count} at {time} UTC (refreshed every minute).",
+                     {{"count", count}, {"time", spots.fetched}}) +
+                 " " +
+                 tr(wwff ? "Double-click one, or select it and Use in New QSO. Green NEW: a reference not in your logs; blue: that station "
+                           "worked today on that band."
+                         : "Double-click one, or select it and Use in New QSO. Green NEW: a park not in your logs; blue: that station worked "
+                           "today on that band.");
+    }
     if (!status.empty()) [spots.w setStatus:ADIFString(status) severity:-1];
 }
 
@@ -2097,7 +2126,7 @@ void spotholeFetch(NSString *agent) {
         ADIFFetchSpotholeSpots(agent, ADIFString(csv), ^(NSArray<NSDictionary *> *list, NSString *error) {
             spots.loading = false;
             if (error) {
-                [spots.w setStatus:[@"Could not fetch spots from Spothole: " stringByAppendingString:error] severity:2];
+                [spots.w setStatus:TF(@"Could not fetch spots from Spothole: {why}", @{@"why" : error}) severity:2];
                 return;
             }
             if (spots.program.indexOfSelectedItem != kSpotsSpothole) return;  // you moved on meanwhile
@@ -2111,7 +2140,7 @@ void spotholeFetch(NSString *agent) {
     ADIFFetchSpotholePrograms(agent, ^(NSArray<NSDictionary *> *programs, NSString *error) {
         if (error) {
             spots.loading = false;
-            [spots.w setStatus:[@"Could not reach Spothole: " stringByAppendingString:error] severity:2];
+            [spots.w setStatus:TF(@"Could not reach Spothole: {why}", @{@"why" : error}) severity:2];
             return;
         }
         for (NSDictionary *a in programs) {
@@ -2120,7 +2149,7 @@ void spotholeFetch(NSString *agent) {
         }
         NSString *keep = spots.activity.indexOfSelectedItem > 0 ? spots.activity.titleOfSelectedItem : ADIFString(setting("spotsSpotholeProgram"));
         [spots.activity removeAllItems];
-        [spots.activity addItemWithTitle:@"All programs"];
+        [spots.activity addItemWithTitle:T(@"All programs")];
         for (const std::string &p : spots.programs) [spots.activity addItemWithTitle:ADIFString(p)];
         if (keep.length && [spots.activity itemWithTitle:keep]) [spots.activity selectItemWithTitle:keep];
         if (spots.programs.empty()) {
@@ -2136,14 +2165,14 @@ void spotsFetch() {
     if (spots.loading) return;
     spots.loading = true;
     if (spots.all.empty()) spotsShow();
-    NSString *agent = [NSString stringWithFormat:@"ADIF Lint/%s (Nextpad++ plugin; https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint)",
+    NSString *agent = [NSString stringWithFormat:T(@"ADIF Lint/%s (Nextpad++ plugin; https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint)"),
                                                  ADIFLINT_VERSION];
     if (spots.program.indexOfSelectedItem == kSpotsSpothole) return spotholeFetch(agent);
     adif::Program program = spots.program.indexOfSelectedItem == kSpotsWwff ? adif::Program::WWFF : adif::Program::POTA;
     auto received = ^(NSArray<NSDictionary *> *list, NSString *error) {
         spots.loading = false;
         if (error) {
-            [spots.w setStatus:[@"Could not fetch spots: " stringByAppendingString:error] severity:2];
+            [spots.w setStatus:TF(@"Could not fetch spots: {why}", @{@"why" : error}) severity:2];
             return;
         }
         if (program == adif::Program::WWFF) {
@@ -2215,8 +2244,8 @@ void spotsUse(NSInteger row) {
     const Spot &sp = spots.all[spots.rowSpot[(size_t)row]];
     spots.handler(spots.spothole ? adif::spotholeSpotFields(sp.program, sp.activator, sp.khz, sp.mode, sp.refs, sp.grid)
                                  : adif::programSpotFields(spots.shown, sp.activator, sp.khz, sp.mode, sp.reference));
-    [spots.w setStatus:ADIFString("Copied " + sp.activator + " at " + sp.reference + " (" + sp.khz + " kHz " + sp.mode +
-                                  ") to New QSO.")
+    [spots.w setStatus:ADIFString(trf("Copied {call} at {ref} ({khz} kHz {mode}) to New QSO.",
+                                      {{"call", sp.activator}, {"ref", sp.reference}, {"khz", sp.khz}, {"mode", sp.mode}}))
               severity:-1];
 }
 
@@ -2234,9 +2263,9 @@ struct {
 void csvPlan() {
     if (!csvIn.w) return;
     csvIn.add.enabled = NO;
-    csvIn.add.title = @"Add QSOs";
+    csvIn.add.title = T(@"Add QSOs");
     [csvIn.w setTarget:logLine()];
-    csvIn.from.stringValue = csvIn.path.empty() ? @"(choose a CSV file)" : tilde(csvIn.path);
+    csvIn.from.stringValue = csvIn.path.empty() ? T(@"(choose a CSV file)") : tilde(csvIn.path);
     [csvIn.w setRows:kNoRows severities:kNoSev];
     if (csvIn.path.empty()) {
         [csvIn.w setStatus:@"Choose a CSV file whose first row names the columns: ADIF field names, or names such as "
@@ -2246,7 +2275,7 @@ void csvPlan() {
     }
     std::string text, error;
     if (!readFile(csvIn.path, kMaxLogBytes, &text, &error)) {
-        [csvIn.w setStatus:ADIFString("Could not read it: " + error + ".") severity:2];
+        [csvIn.w setStatus:ADIFString(trf("Could not read it: {why}.", {{"why", error}})) severity:2];
         return;
     }
     csvIn.data = adif::importCsv(text);
@@ -2267,15 +2296,16 @@ void csvPlan() {
     for (const auto &c : csvIn.data.columns)
         if (c.second.empty()) left += (left.empty() ? "" : ", ") + c.first;
         else used += (used.empty() ? "" : ", ") + c.first + " \u2192 " + c.second;
-    std::string st = plural(csvIn.data.records.size(), "row") + ". Columns: " + (used.empty() ? "none recognised" : used) + "." +
-                     (left.empty() ? "" : " Left out: " + left + ".");
+    std::string st = trf("{rows}. Columns: {columns}.", {{"rows", plural(csvIn.data.records.size(), "row")},
+                                                         {"columns", used.empty() ? tr("none recognised") : used}});
+    if (!left.empty()) st += " " + trf("Left out: {columns}.", {{"columns", left}});
     for (size_t i = 0; i < csvIn.data.notes.size() && i < 3; ++i) st += " " + csvIn.data.notes[i] + ".";
-    if (csvIn.data.notes.size() > 3) st += " And " + std::to_string(csvIn.data.notes.size() - 3) + " more.";
-    st += " Orange rows lack CALL, a valid date and time, BAND or FREQ, or MODE: the validator will mark them.";
+    if (csvIn.data.notes.size() > 3) st += " " + trf("And {n} more.", {{"n", std::to_string(csvIn.data.notes.size() - 3)}});
+    st += " " + tr("Orange rows lack CALL, a valid date and time, BAND or FREQ, or MODE: the validator will mark them.");
     [csvIn.w setStatus:ADIFString(st) severity:csvIn.data.notes.empty() ? -1 : 1];
     if (!csvIn.data.records.empty()) {
         csvIn.add.enabled = YES;
-        csvIn.add.title = [NSString stringWithFormat:@"Add %zu QSO%@", csvIn.data.records.size(), csvIn.data.records.size() == 1 ? @"" : @"s"];
+        csvIn.add.title = TP(@"Add {n} QSO", @"Add {n} QSOs", (long long)csvIn.data.records.size());
         [csvIn.w setDefaultButton:csvIn.add];
     }
 }
@@ -2292,7 +2322,7 @@ void csvAdd() {
         bool blank = text.find_first_not_of(" \t\r\n") == std::string_view::npos;
         std::string problem = structureProblem(r);
         if (!blank && !problem.empty()) {
-            [csvIn.w setStatus:ADIFString("This log: " + problem) severity:2];
+            [csvIn.w setStatus:ADIFString(trf("This log: {problem}", {{"problem", problem}})) severity:2];
             return;
         }
         std::string eolText = eol(h);
@@ -2312,14 +2342,16 @@ void csvAdd() {
             if (structureProblem(rm).empty()) {
                 bool changed = false;
                 merged = adif::sortedByTime(merged, rm.model, eolText, &changed);
-                if (changed) note = " and sorted by date and time";
+                if (changed) note = "sorted";
             }
         }
         size_t n = csvIn.data.records.size();
         adifhost::apply(h, {adif::TextEdit{0, text.size(), merged}});
         csvIn.add.enabled = NO;
         [csvIn.w setRows:kNoRows severities:kNoSev];
-        [csvIn.w setStatus:ADIFString("Added " + plural(n, "QSO") + " from " + fileName(csvIn.path) + note + " (one undo step).")
+        [csvIn.w setStatus:ADIFString(trf(note.empty() ? "Added {qsos} from {file} (one undo step)."
+                                                       : "Added {qsos} from {file} and sorted by date and time (one undo step).",
+                                          {{"qsos", plural(n, "QSO")}, {"file", fileName(csvIn.path)}}))
                   severity:-1];
     } catch (...) {
         [csvIn.w setStatus:@"Something went wrong adding the QSOs." severity:2];
@@ -2358,10 +2390,10 @@ void cabPlan() {
         cab.log = adif::toCabrillo(recs, o);
         [cab.w setText:ADIFString(cab.log.text)];
         std::string st = plural(cab.log.qsos, "QSO line");
-        if (cab.log.incomplete) st += "; " + plural(cab.log.incomplete, "line") + " show - for a missing report or exchange";
-        if (cab.log.skipped) st += "; " + plural(cab.log.skipped, "record") + " left out (no CALL, date, time, band or mode)";
-        st += ". The sent and received exchange come from STX_STRING or STX and SRX_STRING or SRX: check the contest's "
-              "own Cabrillo template before you submit.";
+        if (cab.log.incomplete) st += "; " + trf("{lines} show - for a missing report or exchange", {{"lines", plural(cab.log.incomplete, "line")}});
+        if (cab.log.skipped) st += "; " + trf("{records} left out (no CALL, date, time, band or mode)", {{"records", plural(cab.log.skipped, "record")}});
+        st += ". " + tr("The sent and received exchange come from STX_STRING or STX and SRX_STRING or SRX: check the contest's own Cabrillo "
+                        "template before you submit.");
         [cab.w setStatus:ADIFString(st) severity:cab.log.incomplete || cab.log.skipped ? 1 : -1];
     } catch (...) {
     }
@@ -2420,7 +2452,8 @@ std::vector<adif::SortKey> orgKeys() {
 std::string orgKeysText(const std::vector<adif::SortKey> &keys) {
     std::string s;
     for (size_t i = 0; i < keys.size(); ++i)
-        s += (i == 0 ? "" : i + 1 == keys.size() ? " and then " : ", then ") + keys[i].field + (keys[i].descending ? " (descending)" : "");
+        s += (i == 0 ? "" : i + 1 == keys.size() ? " " + tr("and then") + " " : ", " + tr("then") + " ") + keys[i].field +
+             (keys[i].descending ? " " + tr("(descending)") : "");
     return s;
 }
 
@@ -2429,10 +2462,10 @@ void orgStatus() {
     bool sort = org.doSort.state == NSControlStateValueOn, fields = org.doFields.state == NSControlStateValueOn;
     std::vector<adif::SortKey> keys = orgKeys();
     std::string st;
-    if (sort && !keys.empty()) st += "Sorts the records by " + orgKeysText(keys) + ". ";
-    if (fields) st += "Puts the fields of every record in the order below (select one and move it). ";
-    if (st.empty()) st = "Tick what to do: sort the records, put their fields in order, or both. ";
-    st += "Data is copied byte for byte; nothing changes until Apply (one undo step).";
+    if (sort && !keys.empty()) st += trf("Sorts the records by {keys}.", {{"keys", orgKeysText(keys)}}) + " ";
+    if (fields) st += tr("Puts the fields of every record in the order below (select one and move it).") + " ";
+    if (st.empty()) st = tr("Tick what to do: sort the records, put their fields in order, or both.") + " ";
+    st += tr("Data is copied byte for byte; nothing changes until Apply (one undo step).");
     [org.w setStatus:ADIFString(st) severity:-1];
     org.apply.enabled = (sort && !keys.empty()) || fields;
 }
@@ -2515,7 +2548,7 @@ void orgApply() {
         std::vector<adif::SortKey> keys = orgKeys();
         for (const adif::SortKey &k : keys)
             if (!adif::findField(k.field) && !org.uses.count(k.field)) {
-                [org.w setStatus:ADIFString(k.field + " is not an ADIF field or one this log uses.") severity:2];
+                [org.w setStatus:ADIFString(trf("{field} is not an ADIF field or one this log uses.", {{"field", k.field}})) severity:2];
                 return;
             }
         std::string text(adifhost::text(h)), merged = text;
@@ -2539,10 +2572,11 @@ void orgApply() {
         }
         adifhost::apply(h, {adif::TextEdit{0, text.size(), merged}});
         std::string st;
-        if (moved) st += "Sorted " + plural(adif::recordCount(r.model), "record") + " by " + orgKeysText(keys) + ". ";
-        if (edited) st += "Put the fields of " + plural(edited, "record") + " in order. ";
-        if (skipped) st += plural(skipped, "record") + " with a wrong length or text between fields left as they were. ";
-        st += "One undo step.";
+        if (moved) st += trf("Sorted {records} by {keys}.", {{"records", plural(adif::recordCount(r.model), "record")}, {"keys", orgKeysText(keys)}}) + " ";
+        if (edited) st += trf("Put the fields of {records} in order.", {{"records", plural(edited, "record")}}) + " ";
+        if (skipped)
+            st += trf("{records} with a wrong length or text between fields left as they were.", {{"records", plural(skipped, "record")}}) + " ";
+        st += tr("One undo step.");
         [org.w setStatus:ADIFString(st) severity:skipped ? 1 : -1];
     } catch (...) {
         [org.w setStatus:@"Something went wrong sorting the log." severity:2];
@@ -2568,8 +2602,8 @@ void openOrganize(bool seeded, const std::vector<adif::SortKey> &seedKeys, const
                                                           usingBlock:^(NSNotification *n) { orgStatus(); }];
         }
         // The usual order in one click (the old Sort Records by Date and Time).
-        NSButton *byTime = [NSButton buttonWithTitle:@"Date and Time" target:nil action:nil];
-        byTime.toolTip = @"Sort by QSO_DATE, then TIME_ON";
+        NSButton *byTime = [NSButton buttonWithTitle:T(@"Date and Time") target:nil action:nil];
+        byTime.toolTip = T(@"Sort by QSO_DATE, then TIME_ON");
         ADIFOnAction(byTime, ^{
             org.doSort.state = NSControlStateValueOn;
             const char *preset[] = {"QSO_DATE", "TIME_ON", ""};
@@ -2652,12 +2686,12 @@ void cmdPotaSpots() {
         ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"Spots" size:NSMakeSize(1060, 520) headline:NO];
         spots.w = w;
         spots.program = ADIFPopup(@[ @"POTA", @"WWFF", @"More programs (Spothole)" ]);
-        spots.program.toolTip = @"Parks on the Air spots from pota.app, World Wide Flora & Fauna spots from spots.wwff.co, or "
-                                @"other programs' spots (GMA, WWBOTA, ZLOTA, IOTA, castles, lighthouses...) from spothole.app";
+        spots.program.toolTip = T(@"Parks on the Air spots from pota.app, World Wide Flora & Fauna spots from spots.wwff.co, or "
+                                @"other programs' spots (GMA, WWBOTA, ZLOTA, IOTA, castles, lighthouses...) from spothole.app");
         if (setting("spotsProgram") == "WWFF") [spots.program selectItemAtIndex:kSpotsWwff];
         if (setting("spotsProgram") == "SPOTHOLE") [spots.program selectItemAtIndex:kSpotsSpothole];
         spots.activity = ADIFPopup(@[ @"All programs" ]);
-        spots.activity.toolTip = @"Show one program's spots";
+        spots.activity.toolTip = T(@"Show one program's spots");
         spots.activity.hidden = spots.program.indexOfSelectedItem != kSpotsSpothole;
         ADIFOnAction(spots.activity, ^{
             setSetting("spotsSpotholeProgram", spots.activity.indexOfSelectedItem > 0 ? ADIFStd(spots.activity.titleOfSelectedItem) : "");
@@ -2676,7 +2710,7 @@ void cmdPotaSpots() {
             else [spots.w setStatus:@"Spothole was asked less than 2 minutes ago; its spots come with the next refresh." severity:-1];
         });
         spots.search = [[NSSearchField alloc] initWithFrame:NSZeroRect];
-        spots.search.placeholderString = @"Filter: call, park, state...";
+        spots.search.placeholderString = T(@"Filter: call, park, state...");
         spots.search.sendsSearchStringImmediately = YES;
         [spots.search.widthAnchor constraintEqualToConstant:220].active = YES;
         ADIFOnAction(spots.search, ^{ [spots.w setFilter:spots.search.stringValue]; });
@@ -2728,7 +2762,7 @@ void cmdLogTable() {
         ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"Log Table" size:NSMakeSize(980, 560) headline:NO];
         table.w = w;
         table.search = [[NSSearchField alloc] initWithFrame:NSZeroRect];
-        table.search.placeholderString = @"Filter: call, park, mode...";
+        table.search.placeholderString = T(@"Filter: call, park, mode...");
         table.search.sendsSearchStringImmediately = YES;
         [table.search.widthAnchor constraintEqualToConstant:260].active = YES;
         table.count = ADIFLabel(@"");
@@ -2762,9 +2796,9 @@ void cmdLogTable() {
             table.removeItem.enabled = !field.empty();
         };
         table.addName = ADIFComboBox(@[], 200);
-        table.addName.placeholderString = @"e.g. RST_SENT";
-        NSButton *addOk = [NSButton buttonWithTitle:@"Add Column" target:nil action:nil];
-        NSButton *addCancel = [NSButton buttonWithTitle:@"Cancel" target:nil action:nil];
+        table.addName.placeholderString = T(@"e.g. RST_SENT");
+        NSButton *addOk = [NSButton buttonWithTitle:T(@"Add Column") target:nil action:nil];
+        NSButton *addCancel = [NSButton buttonWithTitle:T(@"Cancel") target:nil action:nil];
         ADIFOnAction(addOk, ^{ tableAddField(); });
         ADIFOnAction(addCancel, ^{ table.addRow.hidden = YES; });
         table.addRow = [w addOptionRow:@[ ADIFLabel(@"Add field:"), table.addName, addOk, addCancel ]];
@@ -2772,7 +2806,7 @@ void cmdLogTable() {
         NSMenu *rowMenu = [[NSMenu alloc] initWithTitle:@"Log Table"];
         NSString *back = [NSString stringWithFormat:@"%C", (unichar)NSBackspaceCharacter];
         auto rowItem = [&](NSString *title, NSString *key, NSEventModifierFlags mods, void (^block)(void)) {
-            NSMenuItem *item = [rowMenu addItemWithTitle:title action:nil keyEquivalent:key];
+            NSMenuItem *item = [rowMenu addItemWithTitle:T(title) action:nil keyEquivalent:key];
             item.keyEquivalentModifierMask = mods;
             ADIFBlockMenuItem(item, block);
         };
@@ -2863,7 +2897,7 @@ void cmdWorkedBefore() {
         worked.folder = ADIFLabel(@"");
         worked.folder.lineBreakMode = NSLineBreakByTruncatingMiddle;
         [worked.folder.widthAnchor constraintLessThanOrEqualToConstant:460].active = YES;
-        NSButton *choose = [NSButton buttonWithTitle:@"Choose..." target:nil action:nil];
+        NSButton *choose = [NSButton buttonWithTitle:T(@"Choose...") target:nil action:nil];
         ADIFOnAction(choose, ^{
             std::string dir = chooseOpen(@"Choose the folder that holds your ADIF logs", true);
             if (dir.empty()) return;
@@ -2871,14 +2905,14 @@ void cmdWorkedBefore() {
             indexRebuild();
             workedRefresh();
         });
-        NSButton *rescan = [NSButton buttonWithTitle:@"Rescan" target:nil action:nil];
+        NSButton *rescan = [NSButton buttonWithTitle:T(@"Rescan") target:nil action:nil];
         ADIFOnAction(rescan, ^{
             indexRebuild();
             workedRefresh();
         });
         [w addOptionRow:@[ ADIFLabel(@"Logs folder:"), worked.folder, choose, rescan ]];
         worked.call = [[NSSearchField alloc] initWithFrame:NSZeroRect];
-        worked.call.placeholderString = @"Callsign";
+        worked.call.placeholderString = T(@"Callsign");
         worked.call.sendsSearchStringImmediately = NO;
         [worked.call.widthAnchor constraintEqualToConstant:200].active = YES;
         ADIFOnAction(worked.call, ^{ workedRefresh(); });
@@ -2918,7 +2952,7 @@ void cmdRemoveDuplicates() {
         [[NSNotificationCenter defaultCenter] addObserverForName:NSControlTextDidChangeNotification
                                                           object:dupes.window
                                                            queue:nil
-                                                      usingBlock:^(NSNotification *n) { dupesClear(@"Settings changed. Find again."); }];
+                                                      usingBlock:^(NSNotification *n) { dupesClear(N(@"Settings changed. Find again.")); }];
     }
     dupesFind();
     [dupes.w show];
@@ -2931,7 +2965,7 @@ void cmdCompareLogs() {
         cmp.from = ADIFLabel(@"");
         cmp.from.lineBreakMode = NSLineBreakByTruncatingMiddle;
         [cmp.from.widthAnchor constraintLessThanOrEqualToConstant:520].active = YES;
-        NSButton *choose = [NSButton buttonWithTitle:@"Choose..." target:nil action:nil];
+        NSButton *choose = [NSButton buttonWithTitle:T(@"Choose...") target:nil action:nil];
         ADIFOnAction(choose, ^{
             std::string p = chooseOpen(@"Choose the ADIF log to compare with", false);
             if (p.empty()) return;
@@ -2984,8 +3018,8 @@ void cmdImportWsjtxLog() {
     if (there) cmp.path = p;
     cmdCompareLogs();
     if (!there)
-        [cmp.w setStatus:ADIFString("WSJT-X's log isn't at " + ADIFStd(ADIFString(p).stringByAbbreviatingWithTildeInPath) +
-                                    " (WSJT-X keeps it there on a Mac). Choose... the wsjtx_log.adi to compare with.")
+        [cmp.w setStatus:ADIFString(trf("WSJT-X's log isn't at {path} (WSJT-X keeps it there on a Mac). Choose... the wsjtx_log.adi to compare with.",
+                                        {{"path", ADIFStd(ADIFString(p).stringByAbbreviatingWithTildeInPath)}}))
                 severity:1];
 }
 
@@ -3007,7 +3041,7 @@ void csvOutPlan() {
     try {
         NppHandle h = scintilla();
         const adif::LintResult &r = lint(h);
-        [csvOut.w setTarget:[@"Log: " stringByAppendingString:ADIFString(documentName())]];
+        [csvOut.w setTarget:TF(@"Log: {name}", @{@"name" : ADIFString(documentName())})];
         csvOut.recs = adif::records(adifhost::text(h), r.model);
         csvOut.columns = adif::tableColumns(csvOut.recs);
         std::vector<ADIFToolColumn> cols;
@@ -3022,11 +3056,12 @@ void csvOutPlan() {
         [csvOut.w setRows:rows severities:std::vector<int>()];
         csvOut.save.enabled = !csvOut.recs.empty();
         [csvOut.w setStatus:csvOut.recs.empty()
-                                ? @"This document has no ADIF records to export."
-                                : ADIFString(plural(csvOut.recs.size(), "record") + ", " + plural(csvOut.columns.size(), "column") +
-                                             (csvOut.recs.size() > 200 ? " (the first 200 shown)" : "") +
-                                             ": a column per field, for Numbers or Excel. The Log Table's Export CSV saves "
-                                             "its own rows and columns.")
+                                ? N(@"This document has no ADIF records to export.")
+                                : ADIFString(trf(csvOut.recs.size() > 200 ? "{records}, {columns} (the first 200 shown): a column per field, for "
+                                                                            "Numbers or Excel. The Log Table's Export CSV saves its own rows and columns."
+                                                                          : "{records}, {columns}: a column per field, for Numbers or Excel. The Log "
+                                                                            "Table's Export CSV saves its own rows and columns.",
+                                                 {{"records", plural(csvOut.recs.size(), "record")}, {"columns", plural(csvOut.columns.size(), "column")}}))
                       severity:-1];
     } catch (...) {
     }
@@ -3054,7 +3089,7 @@ void cmdImportCsv() {
         csvIn.from = ADIFLabel(@"");
         csvIn.from.lineBreakMode = NSLineBreakByTruncatingMiddle;
         [csvIn.from.widthAnchor constraintLessThanOrEqualToConstant:480].active = YES;
-        NSButton *choose = [NSButton buttonWithTitle:@"Choose..." target:nil action:nil];
+        NSButton *choose = [NSButton buttonWithTitle:T(@"Choose...") target:nil action:nil];
         ADIFOnAction(choose, ^{
             std::string p = chooseOpen(@"Choose the CSV file to add from", false, @[ @"csv", @"txt", @"tsv" ]);
             if (p.empty()) return;
@@ -3084,7 +3119,7 @@ void cmdExportCabrillo() {
             cab.w = w;
             [w addOptionRow:@[ ADIFLabel(@"Export:"), families::popup(families::kExport, families::kExportCabrillo) ]];
             cab.contest = ADIFComboBox(@[], 220);
-            cab.contest.placeholderString = @"e.g. ARRL-SS-CW";
+            cab.contest.placeholderString = T(@"e.g. ARRL-SS-CW");
             cab.callsign = ADIFTextField(@"your call", 110);
             [w addOptionRow:@[ ADIFLabel(@"Contest:"), cab.contest, ADIFLabel(@"Callsign:"), cab.callsign ]];
             cab.op = ADIFPopup(@[ @"(operator)", @"SINGLE-OP", @"MULTI-OP", @"CHECKLOG" ]);
@@ -3140,8 +3175,8 @@ void documentChanged() {
         if (tableVisible()) tableRefresh();
         if (summary.w && summary.w.window.visible) summaryRefresh();
         if (tracker.w && tracker.w.window.visible) trackerRefresh();
-        bulkClear(@"The log changed. Preview again.");
-        dupesClear(@"The log changed. Find Duplicates again.");
+        bulkClear(N(@"The log changed. Preview again."));
+        dupesClear(N(@"The log changed. Find Duplicates again."));
         if (cmp.w && cmp.w.window.visible && cmp.ready) cmpPlan(true);
         if (pota.w && pota.w.window.visible) potaPlan();
         if (spots.w && spots.w.window.visible && !spots.all.empty()) spotsShow();
@@ -3207,7 +3242,7 @@ void openPotaExport(adif::Program program) {
             pota.folder = ADIFLabel(@"");
             pota.folder.lineBreakMode = NSLineBreakByTruncatingMiddle;
             [pota.folder.widthAnchor constraintLessThanOrEqualToConstant:460].active = YES;
-            NSButton *choose = [NSButton buttonWithTitle:@"Choose..." target:nil action:nil];
+            NSButton *choose = [NSButton buttonWithTitle:T(@"Choose...") target:nil action:nil];
             ADIFOnAction(choose, ^{
                 std::string dir = chooseOpen(@"Choose the folder for the activation logs", true);
                 if (dir.empty()) return;

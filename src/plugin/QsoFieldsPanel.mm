@@ -1,4 +1,5 @@
 #import "QsoFieldsPanel.h"
+#import "L10n.h"
 #import "ToolWindow.h"
 
 #include <algorithm>
@@ -58,7 +59,7 @@ static NSScrollView *scrolling(NSTableView *t) {
                                          styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable
                                            backing:NSBackingStoreBuffered
                                              defer:YES];
-    _window.title = @"New QSO Fields";
+    _window.title = T(@"New QSO Fields");
     _window.floatingPanel = YES;
     _window.hidesOnDeactivate = YES;
     _window.releasedWhenClosed = NO;
@@ -67,23 +68,23 @@ static NSScrollView *scrolling(NSTableView *t) {
     NSView *root = _window.contentView;
 
     NSTextField *intro = [NSTextField wrappingLabelWithString:
-                                          @"Choose the fields New QSO asks for, and their order. CALL, QSO_DATE, TIME_ON and "
+                                          T(@"Choose the fields New QSO asks for, and their order. CALL, QSO_DATE, TIME_ON and "
                                           @"MODE are always included, and BAND or FREQ. Descriptions are from the ADIF 3.1.7 "
-                                          @"specification; hover a row for the full text."];
+                                          @"specification; hover a row for the full text.")];
 
     // Left: the chosen fields.
     NSTextField *leftTitle = heading(@"In the New QSO window");
     _table = makeTable(self, @[ @[ @"name", @"Field", @130 ], @[ @"brief", @"Description", @220 ] ]);
     NSScrollView *leftScroll = scrolling(_table);
-    _up = [NSButton buttonWithTitle:@"Move Up" target:self action:@selector(moveUp:)];
-    _down = [NSButton buttonWithTitle:@"Move Down" target:self action:@selector(moveDown:)];
-    _remove = [NSButton buttonWithTitle:@"Remove" target:self action:@selector(removeField:)];
+    _up = [NSButton buttonWithTitle:T(@"Move Up") target:self action:@selector(moveUp:)];
+    _down = [NSButton buttonWithTitle:T(@"Move Down") target:self action:@selector(moveDown:)];
+    _remove = [NSButton buttonWithTitle:T(@"Remove") target:self action:@selector(removeField:)];
     NSStackView *leftButtons = [NSStackView stackViewWithViews:@[ _up, _down, _remove ]];
 
     // Right: everything that can be added, searchable.
     NSTextField *rightTitle = heading(@"Fields you can add");
     _search = [[NSSearchField alloc] initWithFrame:NSZeroRect];
-    _search.placeholderString = @"Search names and descriptions, e.g. park, power, grid";
+    _search.placeholderString = T(@"Search names and descriptions, e.g. park, power, grid");
     _search.delegate = self;
     _search.sendsSearchStringImmediately = YES;
     _available = makeTable(self, @[ @[ @"name", @"Field", @150 ], @[ @"type", @"Type", @120 ], @[ @"brief", @"Description", @300 ] ]);
@@ -91,24 +92,24 @@ static NSScrollView *scrolling(NSTableView *t) {
     _available.target = self;
     _available.doubleAction = @selector(addDoubleClicked:);
     NSScrollView *rightScroll = scrolling(_available);
-    _add = [NSButton buttonWithTitle:@"Add to New QSO" target:self action:@selector(addSelected:)];
+    _add = [NSButton buttonWithTitle:T(@"Add to New QSO") target:self action:@selector(addSelected:)];
     _count = [NSTextField labelWithString:@""];
     _count.textColor = NSColor.secondaryLabelColor;
     _count.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
     NSStackView *rightButtons = [NSStackView stackViewWithViews:@[ _add, _count ]];
 
-    _carry = [NSButton checkboxWithTitle:@"Also copy this station's details from the last record when they aren't listed"
+    _carry = [NSButton checkboxWithTitle:T(@"Also copy this station's details from the last record when they aren't listed")
                                   target:nil
                                   action:nil];
-    _carry.toolTip = @"STATION_CALLSIGN, OPERATOR, OWNER_CALLSIGN, TX_PWR and the MY_ fields (MY_SIG_INFO, MY_STATE, ...): "
-                     @"written with each new QSO, and listed in the New QSO window.";
+    _carry.toolTip = T(@"STATION_CALLSIGN, OPERATOR, OWNER_CALLSIGN, TX_PWR and the MY_ fields (MY_SIG_INFO, MY_STATE, ...): "
+                     @"written with each new QSO, and listed in the New QSO window.");
 
-    NSButton *automatic = [NSButton buttonWithTitle:@"Use the Log's Fields" target:self action:@selector(useAutomatic:)];
-    automatic.toolTip = @"Ask for the fields of the log's last record, plus CALL, QSO_DATE, TIME_ON, BAND, FREQ, MODE, SUBMODE "
-                        @"and the reports.";
-    NSButton *cancel = [NSButton buttonWithTitle:@"Cancel" target:self action:@selector(cancel:)];
+    NSButton *automatic = [NSButton buttonWithTitle:T(@"Use the Log's Fields") target:self action:@selector(useAutomatic:)];
+    automatic.toolTip = T(@"Ask for the fields of the log's last record, plus CALL, QSO_DATE, TIME_ON, BAND, FREQ, MODE, SUBMODE "
+                        @"and the reports.");
+    NSButton *cancel = [NSButton buttonWithTitle:T(@"Cancel") target:self action:@selector(cancel:)];
     cancel.keyEquivalent = @"\033";
-    NSButton *save = [NSButton buttonWithTitle:@"Save" target:self action:@selector(save:)];
+    NSButton *save = [NSButton buttonWithTitle:T(@"Save") target:self action:@selector(save:)];
     save.keyEquivalent = @"\r";
     NSStackView *bottom = [NSStackView stackViewWithViews:@[ automatic ]];
     [bottom addView:cancel inGravity:NSStackViewGravityTrailing];
@@ -199,7 +200,7 @@ static NSScrollView *scrolling(NSTableView *t) {
     }
     std::stable_sort(ranked.begin(), ranked.end(), [](const auto &a, const auto &b) { return a.first < b.first; });
     for (const auto &r : ranked) _shown.push_back(r.second);
-    _count.stringValue = [NSString stringWithFormat:@"%zu field%@", _shown.size(), _shown.size() == 1 ? @"" : @"s"];
+    _count.stringValue = [NSString stringWithFormat:T(@"%zu field%@"), _shown.size(), _shown.size() == 1 ? @"" : @"s"];
 }
 
 - (void)reload {
@@ -264,7 +265,7 @@ static NSScrollView *scrolling(NSTableView *t) {
         f.textColor = NSColor.secondaryLabelColor;
     }
     NSString *tip = ADIFString(info.details.empty() ? info.brief : info.details);
-    if (!info.type.empty()) tip = [NSString stringWithFormat:@"%@\n\nType: %@%@", tip, ADIFString(info.type),
+    if (!info.type.empty()) tip = [NSString stringWithFormat:T(@"%@\n\nType: %@%@"), tip, ADIFString(info.type),
                                                                info.hasValues ? @" (New QSO offers a list of values)" : @""];
     f.toolTip = tip;
     return f;

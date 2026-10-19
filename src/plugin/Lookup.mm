@@ -1,4 +1,5 @@
 #import "Lookup.h"
+#import "L10n.h"
 #import "Network.h"
 
 #import <Security/Security.h>
@@ -170,7 +171,7 @@ BOOL ADIFSaveCredential(ADIFSource source, NSString *user, NSString *secret, NSS
     OSStatus st = SecItemAdd((__bridge CFDictionaryRef)item, NULL);
     if (st != errSecSuccess && error) {
         NSString *msg = CFBridgingRelease(SecCopyErrorMessageString(st, NULL));
-        *error = msg ?: [NSString stringWithFormat:@"Keychain error %d", (int)st];
+        *error = msg ?: [NSString stringWithFormat:T(@"Keychain error %d"), (int)st];
     }
     return st == errSecSuccess;
 }
@@ -213,7 +214,7 @@ static void httpSend(NSURLRequest *request, void (^done)(NSData *body, NSString 
               NSString *problem = nil;
               NSInteger status = [response isKindOfClass:NSHTTPURLResponse.class] ? ((NSHTTPURLResponse *)response).statusCode : 0;
               if (err) problem = err.localizedDescription;
-              else if (status != 200) problem = [NSString stringWithFormat:@"HTTP %ld from %@", (long)status, request.URL.host];
+              else if (status != 200) problem = [NSString stringWithFormat:T(@"HTTP %ld from %@"), (long)status, request.URL.host];
               dispatch_async(dispatch_get_main_queue(), ^{ done(problem ? nil : data, problem); });
           }];
     [task resume];
@@ -264,7 +265,7 @@ static void callbookLogin(ADIFSource source, NSString *agent, void (^done)(NSStr
     NSString *user = ADIFSavedAccount(source), *pass = savedSecret(source);
     if (!user.length || !pass.length) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            done(nil, nil, [NSString stringWithFormat:@"No %@ account. Add one in Settings.", ADIFSourceName(source)]);
+            done(nil, nil, [NSString stringWithFormat:T(@"No %@ account. Add one in Settings."), ADIFSourceName(source)]);
         });
         return;
     }
@@ -287,7 +288,7 @@ static void callbookLogin(ADIFSource source, NSString *agent, void (^done)(NSStr
             else if (sub.length) notice = [@"QRZ.com XML subscription until " stringByAppendingString:sub];
         }
         if (key.length) done(key, notice, nil);
-        else done(nil, nil, [NSString stringWithFormat:@"%@ sign-in failed: %@", ADIFSourceName(source), err.length ? err : @"no session"]);
+        else done(nil, nil, [NSString stringWithFormat:T(@"%@ sign-in failed: %@"), ADIFSourceName(source), err.length ? err : @"no session"]);
     };
     if (fakeNet()) {
         NSString *xml = source == ADIFSourceQRZ
@@ -348,7 +349,7 @@ static void callbookLogin(ADIFSource source, NSString *agent, void (^done)(NSStr
     NSXMLElement *root = parseRoot(body);
     if (!root) {
         done(NO, std::map<std::string, std::string>(),
-             [NSString stringWithFormat:@"%@ sent a response that is not XML.", ADIFSourceName(_source)], YES);
+             [NSString stringWithFormat:T(@"%@ sent a response that is not XML."), ADIFSourceName(_source)], YES);
         return;
     }
     NSXMLElement *record = child(root, _source == ADIFSourceQRZ ? @"Callsign" : @"search");
@@ -419,7 +420,7 @@ static void callbookLogin(ADIFSource source, NSString *agent, void (^done)(NSStr
         if (!ADIFSavedAccount(_source)) {  // tests can remove the account to check the message
             dispatch_async(dispatch_get_main_queue(), ^{
                 done(NO, std::map<std::string, std::string>(),
-                     [NSString stringWithFormat:@"No %@ account. Add one in Settings.", ADIFSourceName(self->_source)], YES);
+                     [NSString stringWithFormat:T(@"No %@ account. Add one in Settings."), ADIFSourceName(self->_source)], YES);
             });
             return;
         }
@@ -502,7 +503,7 @@ void ADIFTestCredential(ADIFSource source, void (^done)(BOOL ok, NSString *messa
         void (^handle)(NSString *) = ^(NSString *body) {
             adif::QrzReply r = adif::parseQrzReply(body.UTF8String ?: "");
             if (r.result == "OK") done(YES, @"QRZ.com accepted the key.");
-            else done(NO, [NSString stringWithFormat:@"QRZ.com: %s", r.reason.empty() ? "the key was not accepted" : r.reason.c_str()]);
+            else done(NO, [NSString stringWithFormat:T(@"QRZ.com: %s"), r.reason.empty() ? "the key was not accepted" : r.reason.c_str()]);
         };
         if (fakeNet()) {
             dispatch_async(dispatch_get_main_queue(), ^{ handle(@"RESULT=OK&COUNT=1"); });
@@ -521,7 +522,7 @@ void ADIFTestCredential(ADIFSource source, void (^done)(BOOL ok, NSString *messa
     }
     if (!ADIFSourceCanTest(source)) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            done(YES, [NSString stringWithFormat:@"Saved. %@ has no sign-in test; the first upload checks it.", ADIFSourceName(source)]);
+            done(YES, [NSString stringWithFormat:T(@"Saved. %@ has no sign-in test; the first upload checks it."), ADIFSourceName(source)]);
         });
         return;
     }
@@ -628,7 +629,7 @@ static NSMutableURLRequest *multipartRequest(NSString *url, NSString *agent, con
     std::string boundary = "ADIFLint-" + std::string([NSUUID UUID].UUIDString.UTF8String);
     NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:url]];
     r.HTTPMethod = @"POST";
-    [r setValue:[NSString stringWithFormat:@"multipart/form-data; boundary=%s", boundary.c_str()] forHTTPHeaderField:@"Content-Type"];
+    [r setValue:[NSString stringWithFormat:T(@"multipart/form-data; boundary=%s"), boundary.c_str()] forHTTPHeaderField:@"Content-Type"];
     [r setValue:agent forHTTPHeaderField:@"User-Agent"];
     std::string body = adif::multipartBody(parts, boundary);
     r.HTTPBody = [NSData dataWithBytes:body.data() length:body.size()];
@@ -642,7 +643,7 @@ void ADIFQrzLogbookInsert(NSString *agent, NSString *adi, BOOL replace, void (^d
         return;
     }
     if (fakeNet()) {
-        fakeUploadLog([NSString stringWithFormat:@"QRZ%@ %@", replace ? @" REPLACE" : @"", adi]);
+        fakeUploadLog([NSString stringWithFormat:T(@"QRZ%@ %@"), replace ? @" REPLACE" : @"", adi]);
         static int logid = 1000;
         NSString *reply = [adi containsString:@"<CALL:4>DUPE"]
                               ? @"RESULT=FAIL&REASON=Unable to add QSO to database: duplicate&COUNT=0"
@@ -658,7 +659,7 @@ void ADIFQrzLogbookInsert(NSString *agent, NSString *adi, BOOL replace, void (^d
     r.HTTPBody = [NSData dataWithBytes:body.data() length:body.size()];
     httpExchange(r, ^(NSInteger status, NSData *data, NSString *error) {
         if (error) done(nil, error);
-        else if (status != 200) done(nil, [NSString stringWithFormat:@"HTTP %ld from QRZ.com", (long)status]);
+        else if (status != 200) done(nil, [NSString stringWithFormat:T(@"HTTP %ld from QRZ.com"), (long)status]);
         else done(text(data), nil);
     });
 }
@@ -674,7 +675,7 @@ void ADIFClubLogUpload(NSString *agent, NSString *callsign, NSString *adiFile, N
         return;
     }
     if (fakeNet()) {
-        fakeUploadLog([NSString stringWithFormat:@"CLUBLOG %@ %@\n%@", callsign, fileName, adiFile]);
+        fakeUploadLog([NSString stringWithFormat:T(@"CLUBLOG %@ %@\n%@"), callsign, fileName, adiFile]);
         dispatch_async(dispatch_get_main_queue(), ^{ done(200, @"OK", nil); });
         return;
     }
@@ -709,7 +710,7 @@ void ADIFEqslUpload(NSString *agent, NSString *adiFile, NSString *fileName, void
                                               {"Filename", adiFile.UTF8String ?: "", fileName.UTF8String ?: "log.adi"}};
     httpExchange(multipartRequest(kEqslImport, agent, parts), ^(NSInteger status, NSData *data, NSString *error) {
         if (error) done(nil, error);
-        else if (status != 200) done(nil, [NSString stringWithFormat:@"HTTP %ld from eQSL (the service may be down; try again later)", (long)status]);
+        else if (status != 200) done(nil, [NSString stringWithFormat:T(@"HTTP %ld from eQSL (the service may be down; try again later)"), (long)status]);
         else done(text(data), nil);
     });
 }
@@ -735,7 +736,7 @@ static void qrzFetchPage(NSString *agent, NSString *key, std::string between, lo
     r.HTTPBody = [NSData dataWithBytes:body.data() length:body.size()];
     httpExchange(r, ^(NSInteger status, NSData *data, NSString *error) {
         if (error || status != 200) {
-            done(nil, error ?: [NSString stringWithFormat:@"HTTP %ld from QRZ.com", (long)status]);
+            done(nil, error ?: [NSString stringWithFormat:T(@"HTTP %ld from QRZ.com"), (long)status]);
             return;
         }
         adif::QrzReply reply;
@@ -748,7 +749,7 @@ static void qrzFetchPage(NSString *agent, NSString *key, std::string between, lo
         if (reply.result != "OK") {
             // No records match is not an error.
             if (reply.reason.find("no log entries") != std::string::npos || reply.count == "0") done(all, nil);
-            else done(nil, [NSString stringWithFormat:@"QRZ.com: %s", reply.reason.empty() ? "FETCH failed" : reply.reason.c_str()]);
+            else done(nil, [NSString stringWithFormat:T(@"QRZ.com: %s"), reply.reason.empty() ? "FETCH failed" : reply.reason.c_str()]);
             return;
         }
         [all appendString:@(page.c_str()) ?: @""];
@@ -829,7 +830,7 @@ static void eqslDownload(NSString *agent, NSString *from, NSString *to, void (^d
     [r setValue:agent forHTTPHeaderField:@"User-Agent"];
     httpExchange(r, ^(NSInteger status, NSData *data, NSString *error) {
         if (error || status != 200) {
-            done(nil, error ?: [NSString stringWithFormat:@"HTTP %ld from eQSL", (long)status]);
+            done(nil, error ?: [NSString stringWithFormat:T(@"HTTP %ld from eQSL"), (long)status]);
             return;
         }
         std::string problem;
@@ -846,7 +847,7 @@ static void eqslDownload(NSString *agent, NSString *from, NSString *to, void (^d
         NSMutableURLRequest *get = [NSMutableURLRequest requestWithURL:file.absoluteURL];
         [get setValue:agent forHTTPHeaderField:@"User-Agent"];
         httpExchange(get, ^(NSInteger st, NSData *adi, NSString *err) {
-            if (err || st != 200) done(nil, err ?: [NSString stringWithFormat:@"HTTP %ld from eQSL", (long)st]);
+            if (err || st != 200) done(nil, err ?: [NSString stringWithFormat:T(@"HTTP %ld from eQSL"), (long)st]);
             else done(text(adi), nil);
         });
     });
@@ -988,7 +989,7 @@ void ADIFDownloadCountryData(NSString *agent, void (^done)(NSString *ctyCsv, NSS
     [r setValue:agent forHTTPHeaderField:@"User-Agent"];
     httpExchange(r, ^(NSInteger status, NSData *data, NSString *error) {
         if (error || status != 200) {
-            done(nil, nil, error ?: [NSString stringWithFormat:@"HTTP %ld from country-files.com", (long)status]);
+            done(nil, nil, error ?: [NSString stringWithFormat:T(@"HTTP %ld from country-files.com"), (long)status]);
             return;
         }
         NSString *page = text(data);
@@ -1006,7 +1007,7 @@ void ADIFDownloadCountryData(NSString *agent, void (^done)(NSString *ctyCsv, NSS
         [get setValue:agent forHTTPHeaderField:@"User-Agent"];
         httpExchange(get, ^(NSInteger st, NSData *zip, NSString *err) {
             if (err || st != 200 || zip.length < 100) {
-                done(nil, nil, err ?: [NSString stringWithFormat:@"HTTP %ld downloading %@", (long)st, release]);
+                done(nil, nil, err ?: [NSString stringWithFormat:T(@"HTTP %ld downloading %@"), (long)st, release]);
                 return;
             }
             // unzip -p prints one member to stdout: no files written outside our temporary copy.
@@ -1028,7 +1029,7 @@ void ADIFDownloadCountryData(NSString *agent, void (^done)(NSString *ctyCsv, NSS
                 [[NSFileManager defaultManager] removeItemAtPath:tmp error:nil];
                 dispatch_async(dispatch_get_main_queue(), ^{
                     if (csv.length) done(csv, release, nil);
-                    else done(nil, nil, [NSString stringWithFormat:@"%@ had no cty.csv", release]);
+                    else done(nil, nil, [NSString stringWithFormat:T(@"%@ had no cty.csv"), release]);
                 });
             });
         });

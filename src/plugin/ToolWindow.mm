@@ -1,5 +1,7 @@
 #import "ToolWindow.h"
 
+#import "L10n.h"
+
 #import <objc/runtime.h>
 
 #include "adif_tools.h"
@@ -29,23 +31,25 @@ std::string ADIFStd(NSString *s) {
     return p ? std::string(p) : std::string();
 }
 
-NSTextField *ADIFLabel(NSString *text) { return [NSTextField labelWithString:text ?: @""]; }
+// The helpers below show their text in the user's language (L10n.h); a text the tables don't
+// have (a call, a file name) shows as it is.
+NSTextField *ADIFLabel(NSString *text) { return [NSTextField labelWithString:T(text)]; }
 
 NSTextField *ADIFTextField(NSString *placeholder, CGFloat width) {
     NSTextField *f = [NSTextField textFieldWithString:@""];
-    f.placeholderString = placeholder;
+    f.placeholderString = T(placeholder);
     [f.widthAnchor constraintEqualToConstant:width].active = YES;
     return f;
 }
 
 NSPopUpButton *ADIFPopup(NSArray<NSString *> *items) {
     NSPopUpButton *p = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    [p addItemsWithTitles:items];
+    for (NSString *item in items) [p addItemWithTitle:T(item)];
     return p;
 }
 
 NSButton *ADIFCheckbox(NSString *title, BOOL on) {
-    NSButton *b = [NSButton checkboxWithTitle:title target:nil action:nil];
+    NSButton *b = [NSButton checkboxWithTitle:T(title) target:nil action:nil];
     b.state = on ? NSControlStateValueOn : NSControlStateValueOff;
     return b;
 }
@@ -178,7 +182,7 @@ static bool containsNoCase(const std::string &hay, const std::string &upperNeedl
                                                    NSWindowStyleMaskResizable
                                            backing:NSBackingStoreBuffered
                                              defer:YES];
-    _window.title = title;
+    _window.title = T(title);
     _window.floatingPanel = YES;
     _window.hidesOnDeactivate = YES;
     _window.releasedWhenClosed = NO;
@@ -233,7 +237,7 @@ static bool containsNoCase(const std::string &hay, const std::string &upperNeedl
 
     _bottom = [[NSStackView alloc] initWithFrame:NSZeroRect];
     _bottom.orientation = NSUserInterfaceLayoutOrientationHorizontal;
-    NSButton *close = [NSButton buttonWithTitle:@"Close" target:self action:@selector(closePressed:)];
+    NSButton *close = [NSButton buttonWithTitle:T(@"Close") target:self action:@selector(closePressed:)];
     close.keyEquivalent = @"\033";
     [_bottom addView:close inGravity:NSStackViewGravityTrailing];
 
@@ -279,7 +283,7 @@ static bool containsNoCase(const std::string &hay, const std::string &upperNeedl
 }
 
 - (NSButton *)addButton:(NSString *)title trailing:(BOOL)trailing action:(void (^)(void))action {
-    NSButton *b = [NSButton buttonWithTitle:title target:self action:@selector(buttonPressed:)];
+    NSButton *b = [NSButton buttonWithTitle:T(title) target:self action:@selector(buttonPressed:)];
     b.tag = (NSInteger)_actions.count;
     [_actions addObject:action ? [action copy] : [NSNull null]];
     if (trailing) [_bottom addView:b inGravity:NSStackViewGravityTrailing];  // after Close: rightmost
@@ -301,12 +305,12 @@ static bool containsNoCase(const std::string &hay, const std::string &upperNeedl
 }
 
 - (void)setHeadline:(NSString *)text severity:(int)severity {
-    _headline.stringValue = text ?: @"";
+    _headline.stringValue = T(text);
     _headline.textColor = ADIFSeverityColor(severity);
 }
 
 - (void)setStatus:(NSString *)text severity:(int)severity {
-    _status.stringValue = text ?: @"";
+    _status.stringValue = T(text);
     _status.textColor = severity < 0 ? NSColor.secondaryLabelColor : ADIFSeverityColor(severity);
 }
 
@@ -328,7 +332,7 @@ static bool containsNoCase(const std::string &hay, const std::string &upperNeedl
     }
     for (size_t i = 0; i < columns.size(); ++i) {
         NSTableColumn *col = [[NSTableColumn alloc] initWithIdentifier:[NSString stringWithFormat:@"%zu", i]];
-        col.title = ADIFString(columns[i].title);
+        col.title = T(ADIFString(columns[i].title));
         col.width = columns[i].width;
         col.minWidth = 30;
         col.headerToolTip = ADIFString(columns[i].ident);

@@ -1,4 +1,5 @@
 #import "Map.h"
+#import "L10n.h"
 #import "MapView.h"
 
 #import "Country.h"
@@ -396,7 +397,7 @@ void applyProjection() {
     }
     adif::Projector pr(kinds[p], clat, clon);
     [mw.view setProjector:pr home:home ? ADIFString(mw.home) : @"" lat:lat lon:lon];
-    [mw.projection itemAtIndex:3].title = home ? [NSString stringWithFormat:@"Globe from %@", ADIFString(mw.home)] : @"Globe";
+    [mw.projection itemAtIndex:3].title = home ? [NSString stringWithFormat:T(@"Globe from %@"), ADIFString(mw.home)] : @"Globe";
     [mw.projection selectItemAtIndex:p];
 }
 
@@ -444,7 +445,7 @@ void fillPrograms() {
     NSMenu *menu = mw.programs.menu;
     menu.autoenablesItems = NO;
     [menu removeAllItems];
-    [menu addItemWithTitle:@"Other programs" action:nil keyEquivalent:@""];  // the pull-down's own title
+    [menu addItemWithTitle:T(@"Other programs") action:nil keyEquivalent:@""];  // the pull-down's own title
     std::map<std::string, std::set<std::string>> refs;
     for (const adif::MapPark &p : mw.data.parks)
         if (p.program != "POTA") refs[p.program].insert(p.reference);
@@ -473,8 +474,8 @@ void fillPrograms() {
     [menu addItem:[NSMenuItem separatorItem]];
     for (const auto &[key, label] : list) {
         size_t n = refs.count(key) ? refs[key].size() : 0;
-        NSString *title = n ? [NSString stringWithFormat:@"%@: %zu", ADIFString(label), n]
-                            : [NSString stringWithFormat:@"%@: none in this log", ADIFString(label)];
+        NSString *title = n ? [NSString stringWithFormat:T(@"%@: %zu"), ADIFString(label), n]
+                            : [NSString stringWithFormat:T(@"%@: none in this log"), ADIFString(label)];
         std::string k = key;
         NSMenuItem *item = menuItem(menu, title, !hidden.count(key), ^{
             std::set<std::string> h = hiddenPrograms();
@@ -521,7 +522,7 @@ void showStyleOptions() {
                                                 styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskUtilityWindow
                                                   backing:NSBackingStoreBuffered
                                                     defer:NO];
-        p.title = @"Style Options";
+        p.title = T(@"Style Options");
         p.releasedWhenClosed = NO;
         p.hidesOnDeactivate = NO;
         p.floatingPanel = YES;
@@ -589,7 +590,7 @@ void showStyleOptions() {
              @"long-distance openings"});
         add({"mapSunTime", @"map.style.sunTime", 0, @[ @"Now", @"The selected QSO's time" ], @"Sun at:",
              @"Draw day and night for now (updated each minute), or for the time of the QSO you clicked"});
-        NSButton *reset = [NSButton buttonWithTitle:@"Reset to Defaults" target:nil action:nil];
+        NSButton *reset = [NSButton buttonWithTitle:T(@"Reset to Defaults") target:nil action:nil];
         reset.identifier = @"map.style.reset";
         ADIFOnAction(reset, ^{
             for (const char *key : {"mapPalette", "mapMarkerSize", "mapMarkerShape", "mapContactMarker", "mapSquareFill", "mapAreaShade", "mapLineStyle",
@@ -653,7 +654,7 @@ void refresh() {
         const adif::LintResult &r = lint(h);
         std::string_view text = adifhost::text(h);
         mw.buffer = buffer();
-        mw.target.stringValue = [@"Log: " stringByAppendingString:ADIFString(documentName())];
+        mw.target.stringValue = TF(@"Log: {name}", @{@"name" : ADIFString(documentName())});
         // The bands, modes and years in the log, for the filters.
         std::set<std::string> bands, modes, years;
         std::map<std::string, size_t> qsosPerBand;
@@ -873,7 +874,7 @@ size_t placeKinds(const adif::MapFilter &f) {
 
 void updateFilterButton() {
     size_t n = placeKinds(savedPlaceFilter());
-    mw.moreFilters.title = n ? [NSString stringWithFormat:@"More Filters (%zu)...", n] : @"More Filters...";
+    mw.moreFilters.title = n ? [NSString stringWithFormat:T(@"More Filters (%zu)..."), n] : @"More Filters...";
     mw.clearFilters.enabled = n > 0 || mw.band.indexOfSelectedItem > 0 || mw.mode.indexOfSelectedItem > 0 || mw.dates.indexOfSelectedItem > 0 ||
                               mw.confirmed.indexOfSelectedItem > 0;
 }
@@ -945,7 +946,7 @@ void fillPlaceControls() {
     NSMenu *menu = mw.regions.menu;
     [menu removeAllItems];
     std::set<std::string> chosen = f.regions;
-    [menu addItemWithTitle:chosen.empty() ? @"Any region" : [NSString stringWithFormat:@"%zu region%s", chosen.size(), chosen.size() == 1 ? "" : "s"]
+    [menu addItemWithTitle:chosen.empty() ? @"Any region" : [NSString stringWithFormat:T(@"%zu region%s"), chosen.size(), chosen.size() == 1 ? "" : "s"]
                     action:nil
              keyEquivalent:@""];
     std::string kind;
@@ -1031,13 +1032,13 @@ void showMoreFilters() {
         zones.spacing = 8;
         mw.regions = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:YES];
         mw.regions.identifier = @"map.filter.regions";
-        mw.regions.toolTip = @"US call areas, Census regions and divisions, ARRL divisions (California, New York and New Jersey count for an ARRL "
-                             @"division by the QSO's ARRL_SECT)";
+        mw.regions.toolTip = T(@"US call areas, Census regions and divisions, ARRL divisions (California, New York and New Jersey count for an ARRL "
+                             @"division by the QSO's ARRL_SECT)");
         mw.parksToo = ADIFCheckbox(@"Also limit the POTA parks you haven't worked", false);
         mw.parksToo.identifier = @"map.filter.parks";
-        mw.parksToo.toolTip = @"The POTA layer's Overlay shows only the parks in these places (their location, state, region, country and continent)";
+        mw.parksToo.toolTip = T(@"The POTA layer's Overlay shows only the parks in these places (their location, state, region, country and continent)");
         ADIFOnAction(mw.parksToo, ^{ placeFiltersChanged(); });
-        NSButton *clear = [NSButton buttonWithTitle:@"Clear Places" target:nil action:nil];
+        NSButton *clear = [NSButton buttonWithTitle:T(@"Clear Places") target:nil action:nil];
         ADIFOnAction(clear, ^{
             for (const char *key : {"mapFilterContinents", "mapFilterDxcc", "mapFilterCq", "mapFilterItu", "mapFilterStates", "mapFilterCounties",
                                     "mapFilterRegions", "mapFilterPota"})
@@ -1056,8 +1057,8 @@ void showMoreFilters() {
         [grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
         grid.rowAlignment = NSGridRowAlignmentFirstBaseline;
         grid.translatesAutoresizingMaskIntoConstraints = NO;
-        NSTextField *help = [NSTextField wrappingLabelWithString:@"Keep only the QSOs in these places: within a line any of its values, "
-                                                                 @"and every line that has values. Changes apply as you make them."];
+        NSTextField *help = [NSTextField wrappingLabelWithString:T(@"Keep only the QSOs in these places: within a line any of its values, "
+                                                                 @"and every line that has values. Changes apply as you make them.")];
         help.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
         help.textColor = NSColor.secondaryLabelColor;
         help.translatesAutoresizingMaskIntoConstraints = NO;
@@ -1133,7 +1134,7 @@ void cmdMap() {
                                                          NSWindowStyleMaskUtilityWindow
                                                  backing:NSBackingStoreBuffered
                                                    defer:NO];
-        mw.window.title = @"Map";
+        mw.window.title = T(@"Map");
         mw.window.releasedWhenClosed = NO;
         mw.window.hidesOnDeactivate = NO;
         mw.window.contentMinSize = NSMakeSize(920, 620);
@@ -1178,14 +1179,14 @@ void cmdMap() {
         }
         // Markers, and how to colour them.
         mw.contacts = ADIFCheckbox(@"Contacts", flag("mapContacts", false));
-        mw.contacts.toolTip = @"A marker at each contact's own place: its LAT and LON, else a GRIDSQUARE of 6 or 8 characters (a 4-character "
-                              @"square is 100 km or more across: Show grid squares shows those). Style Options chooses pins, dots or crosshairs";
+        mw.contacts.toolTip = T(@"A marker at each contact's own place: its LAT and LON, else a GRIDSQUARE of 6 or 8 characters (a 4-character "
+                              @"square is 100 km or more across: Show grid squares shows those). Style Options chooses pins, dots or crosshairs");
         mw.lines = ADIFCheckbox(@"Lines to contacts", flag("mapPaths", false));
-        mw.lines.toolTip = @"A great-circle line from your station to each contact, in its marker's colour; Style Options chooses their look";
+        mw.lines.toolTip = T(@"A great-circle line from your station to each contact, in its marker's colour; Style Options chooses their look");
         mw.programs = pullDown(@"Other programs", @"Other programs' references, a colour each: WWFF parks, SOTA summits, IOTA islands, GMA, "
                                                   @"bunkers, castles... (IOTA starts hidden: callbooks fill it in for every island station)");
         mw.mine = ADIFCheckbox(@"My station", flag("mapMine", true));
-        mw.mine.toolTip = @"A star at each MY_GRIDSQUARE in the log";
+        mw.mine.toolTip = T(@"A star at each MY_GRIDSQUARE in the log");
         mw.colorBy = ADIFPopup(@[ @"Colour by confirmation", @"Colour by band", @"Colour by mode", @"Colour by QSO count",
                                   @"Colour by year first worked" ]);
         [mw.colorBy selectItemAtIndex:number("mapColorBy", 0, 4)];
@@ -1197,9 +1198,9 @@ void cmdMap() {
         // Zoom, projection, style.
         mw.projection = ADIFPopup(@[ @"Equirectangular", @"Mercator", @"Equal Earth", @"Globe" ]);
         mw.projection.autoenablesItems = NO;
-        mw.projection.toolTip = @"Equirectangular: the grid as rectangles. Mercator: familiar shapes. Equal Earth: true sizes. Globe: the Earth "
+        mw.projection.toolTip = T(@"Equirectangular: the grid as rectangles. Mercator: familiar shapes. Equal Earth: true sizes. Globe: the Earth "
                                 @"as seen from space, centred on your grid; drag (or the arrow keys) to turn it any way, zoom in for detail, "
-                                @"World to come home. Bearings from the centre are true (beam headings)";
+                                @"World to come home. Bearings from the centre are true (beam headings)");
         NSButton *styleButton = smallButton(@"Style Options...", @"Colours, markers, how worked areas are shaded, lines to contacts, the legend, "
                                                                  @"distance rings, day and night, the grey line",
                                             ^{ showStyleOptions(); });

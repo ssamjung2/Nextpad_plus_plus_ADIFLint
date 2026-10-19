@@ -1,4 +1,5 @@
 #import "CheckLog.h"
+#import "L10n.h"
 
 #import "PluginHost.h"
 #import "ToolWindow.h"
@@ -90,7 +91,7 @@ size_t tickedRepairs() {
 
 void updateButtons(const adif::LintResult &r) {
     size_t n = tickedRepairs();
-    chk.repair.title = n ? [NSString stringWithFormat:@"Repair %zu Ticked", n] : @"Repair Ticked";
+    chk.repair.title = n ? [NSString stringWithFormat:T(@"Repair %zu Ticked"), n] : @"Repair Ticked";
     chk.repair.enabled = n > 0;
     chk.fixLengths.enabled = !r.fixes.empty();
 }
@@ -103,7 +104,7 @@ void plan(bool keepTicks) {
         chk.buffer = buffer();
         const adif::LintResult &r = lint(h);
         std::string_view doc = text(h);
-        [chk.w setTarget:[@"Log: " stringByAppendingString:ADIFString(documentName())]];
+        [chk.w setTarget:TF(@"Log: {name}", @{@"name" : ADIFString(documentName())})];
         chk.rows = rowsFor(r, doc, chk.show.indexOfSelectedItem, grouping());
         std::vector<std::vector<std::string>> rows;
         std::vector<int> severities;
@@ -212,7 +213,7 @@ void cmdCheckLog() {
         chk.show = ADIFPopup(items);
         ADIFOnAction(chk.show, ^{ plan(true); });
         NSSearchField *filter = [[NSSearchField alloc] initWithFrame:NSZeroRect];
-        filter.placeholderString = @"Filter: field, words...";
+        filter.placeholderString = T(@"Filter: field, words...");
         filter.sendsSearchStringImmediately = YES;
         [filter.widthAnchor constraintEqualToConstant:240].active = YES;
         ADIFOnAction(filter, ^{ [chk.w setFilter:filter.stringValue]; });

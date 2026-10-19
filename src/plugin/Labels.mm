@@ -1,4 +1,5 @@
 #import "Labels.h"
+#import "L10n.h"
 
 #import "Families.h"
 #import "PluginHost.h"
@@ -46,7 +47,7 @@ void plan() {
         const adif::LintResult &r = lint(h);
         std::string_view text = adifhost::text(h);
         lw.buffer = buffer();
-        [lw.w setTarget:[@"Log: " stringByAppendingString:ADIFString(documentName())]];
+        [lw.w setTarget:TF(@"Log: {name}", @{@"name" : ADIFString(documentName())})];
         if (lw.which.indexOfSelectedItem == 1) {  // the records the editor selection touches
             size_t b = (size_t)sci(h, SCI_GETSELECTIONSTART), e = (size_t)sci(h, SCI_GETSELECTIONEND);
             lw.groups.clear();
@@ -218,7 +219,7 @@ void cmdQslLabels() {
         [w addOptionRow:@[ ADIFLabel(@"QSOs:"), lw.which, ADIFLabel(@"Sheet:"), lw.sheet ]];
         lw.start = ADIFTextField(@"1", 40);
         lw.start.stringValue = @"1";
-        lw.start.toolTip = @"The first free label on the sheet (counting across, then down), to use a sheet already started";
+        lw.start.toolTip = T(@"The first free label on the sheet (counting across, then down), to use a sheet already started");
         lw.from = ADIFTextField(@"your callsign", 100);
         lw.closing = ADIFTextField(@"TNX QSO 73", 160);
         lw.closing.stringValue = setting("labelClosing").empty() ? @"TNX QSO 73" : ADIFString(setting("labelClosing"));

@@ -1,4 +1,5 @@
 #import "Network.h"
+#import "L10n.h"
 
 #include "PluginHost.h"
 
@@ -24,20 +25,20 @@ BOOL ADIFOpenURL(NSString *url) {
     bool web = [u.scheme caseInsensitiveCompare:@"http"] == NSOrderedSame || [u.scheme caseInsensitiveCompare:@"https"] == NSOrderedSame;
     if (web && ADIFOffline()) {
         if (const char *log = getenv("ADIFLINT_TEST_URL_LOG")) {  // tests: no alert
-            [[NSString stringWithFormat:@"refused %@\n", url] writeToFile:@(log) atomically:YES encoding:NSUTF8StringEncoding error:nil];
+            [[NSString stringWithFormat:T(@"refused %@\n"), url] writeToFile:@(log) atomically:YES encoding:NSUTF8StringEncoding error:nil];
             return NO;
         }
         NSAlert *alert = [[NSAlert alloc] init];
-        alert.messageText = @"Offline mode is on";
-        alert.informativeText = [NSString stringWithFormat:@"ADIF Lint didn't open %@. Turn Offline Mode off in the ADIF Lint menu to "
-                                                           @"open web pages again.",
+        alert.messageText = T(@"Offline mode is on");
+        alert.informativeText = [NSString stringWithFormat:T(@"ADIF Lint didn't open %@. Turn Offline Mode off in the ADIF Lint menu to "
+                                                           @"open web pages again."),
                                                            u.host ?: url];
         [alert addButtonWithTitle:@"OK"];
         [alert runModal];
         return NO;
     }
     if (const char *log = getenv("ADIFLINT_TEST_URL_LOG")) {
-        [[NSString stringWithFormat:@"opened %@\n", url] writeToFile:@(log) atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        [[NSString stringWithFormat:T(@"opened %@\n"), url] writeToFile:@(log) atomically:YES encoding:NSUTF8StringEncoding error:nil];
         return YES;
     }
     return [[NSWorkspace sharedWorkspace] openURL:u];
@@ -62,7 +63,7 @@ NSURLSession *downloadSession() {
 }
 
 // Who is asking, as servers like to know: the program and where to find it.
-NSString *userAgent() { return [NSString stringWithFormat:@"ADIFLint/%s (+https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint)", ADIFLINT_VERSION]; }
+NSString *userAgent() { return [NSString stringWithFormat:T(@"ADIFLint/%s (+https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint)"), ADIFLINT_VERSION]; }
 
 NSString *fixture(NSURL *url) {
     const char *dir = getenv("ADIFLINT_FAKE_LOOKUP_DIR");
@@ -94,7 +95,7 @@ NSURLSessionTask *ADIFFetchFile(NSURL *url, void (^done)(NSData *body, NSString 
                                                                                  : 0;
                                                           NSString *problem = err ? err.localizedDescription
                                                                               : status != 200
-                                                                                  ? [NSString stringWithFormat:@"HTTP %ld from %@", (long)status, url.host]
+                                                                                  ? [NSString stringWithFormat:T(@"HTTP %ld from %@"), (long)status, url.host]
                                                                                   : nil;
                                                           later(^{ done(problem ? nil : data, problem); });
                                                       }];
@@ -140,7 +141,7 @@ NSURLSessionTask *ADIFFetchRange(NSURL *url, uint64_t offset, uint64_t length, N
               NSString *problem = nil;
               if (err) problem = err.code == NSURLErrorCancelled ? @"Stopped." : err.localizedDescription;
               else if (http.statusCode == 412) problem = @"The file changed on the server while it was being read (HTTP 412).";
-              else if (http.statusCode != 206) problem = [NSString stringWithFormat:@"HTTP %ld from %@ (expected 206 for a range)", (long)http.statusCode, url.host];
+              else if (http.statusCode != 206) problem = [NSString stringWithFormat:T(@"HTTP %ld from %@ (expected 206 for a range)"), (long)http.statusCode, url.host];
               else if (data.length != length) {
                   // A range past the end of the file comes back short: fine when it reaches the end
                   // (Content-Range: bytes first-last/total).

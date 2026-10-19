@@ -1,4 +1,5 @@
 #import "Monitor.h"
+#import "L10n.h"
 
 #import "PluginHost.h"
 #import "ToolWindow.h"
@@ -1004,7 +1005,8 @@ void refresh() {
     if (!m.w) return;
     std::string t = target();
     m.targetLabel.stringValue = t.empty() ? @"(none chosen)" : ADIFString(t).stringByAbbreviatingWithTildeInPath;
-    [m.w setTarget:ADIFString(t.empty() ? std::string("Log: none chosen") : "Log: " + baseName(t) + (path() == t ? " (open)" : ""))];
+    [m.w setTarget:t.empty() ? T(@"Log: none chosen")
+                             : TF(path() == t ? @"Log: {name} (open)" : @"Log: {name}", @{@"name" : ADIFString(baseName(t))})];
     std::vector<std::string> files;
     for (const std::string &f : watchedFiles()) files.push_back(baseName(f));
     m.filesLabel.stringValue = files.empty() ? @"none" : ADIFString(join(files, ", "));
@@ -1057,9 +1059,9 @@ void cmdMonitor() {
         m.targetLabel = ADIFLabel(@"");
         m.targetLabel.lineBreakMode = NSLineBreakByTruncatingMiddle;
         [m.targetLabel.widthAnchor constraintLessThanOrEqualToConstant:380].active = YES;
-        NSButton *choose = [NSButton buttonWithTitle:@"Choose..." target:nil action:nil];
+        NSButton *choose = [NSButton buttonWithTitle:T(@"Choose...") target:nil action:nil];
         ADIFOnAction(choose, ^{ setTarget(chooseFile("ADIFLINT_TEST_TARGET", @"Choose the log captured QSOs go into")); });
-        NSButton *useOpen = [NSButton buttonWithTitle:@"Use the Open Log" target:nil action:nil];
+        NSButton *useOpen = [NSButton buttonWithTitle:T(@"Use the Open Log") target:nil action:nil];
         ADIFOnAction(useOpen, ^{
             if (path().empty()) {
                 m.note = "Save this document as an .adi file first.";
@@ -1113,7 +1115,7 @@ void cmdMonitor() {
         m.filesLabel = ADIFLabel(@"");
         m.filesLabel.lineBreakMode = NSLineBreakByTruncatingMiddle;
         [m.filesLabel.widthAnchor constraintLessThanOrEqualToConstant:300].active = YES;
-        NSButton *wsjtx = [NSButton buttonWithTitle:@"Watch WSJT-X's Log" target:nil action:nil];
+        NSButton *wsjtx = [NSButton buttonWithTitle:T(@"Watch WSJT-X's Log") target:nil action:nil];
         ADIFOnAction(wsjtx, ^{
             std::string p = wsjtxLogPath();
             if (![[NSFileManager defaultManager] fileExistsAtPath:ADIFString(p)]) {
@@ -1123,9 +1125,9 @@ void cmdMonitor() {
             }
             addWatch(p);
         });
-        NSButton *addFile = [NSButton buttonWithTitle:@"Add File..." target:nil action:nil];
+        NSButton *addFile = [NSButton buttonWithTitle:T(@"Add File...") target:nil action:nil];
         ADIFOnAction(addFile, ^{ addWatch(chooseFile("ADIFLINT_TEST_WATCH", @"Choose a log file another program adds QSOs to")); });
-        NSButton *clearFiles = [NSButton buttonWithTitle:@"Stop Watching" target:nil action:nil];
+        NSButton *clearFiles = [NSButton buttonWithTitle:T(@"Stop Watching") target:nil action:nil];
         ADIFOnAction(clearFiles, ^{
             setSetting("monitorFiles", "");
             setSetting("monitorFileOffsets", "");

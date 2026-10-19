@@ -1,4 +1,5 @@
 #import "SettingsPanel.h"
+#import "L10n.h"
 
 #import "Lookup.h"
 
@@ -66,7 +67,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
                                          styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
                                            backing:NSBackingStoreBuffered
                                              defer:YES];
-    _window.title = @"ADIF Lint Settings";
+    _window.title = T(@"ADIF Lint Settings");
     _window.floatingPanel = YES;
     _window.hidesOnDeactivate = YES;
     _window.releasedWhenClosed = NO;
@@ -143,27 +144,27 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
 
 - (NSView *)stationSection {
     _stationCall = [NSTextField textFieldWithString:@""];
-    _stationCall.placeholderString = @"e.g. KW9D";
+    _stationCall.placeholderString = T(@"e.g. KW9D");
     _stationGrid = [NSTextField textFieldWithString:@""];
-    _stationGrid.placeholderString = @"e.g. EN52";
+    _stationGrid.placeholderString = T(@"e.g. EN52");
     for (NSTextField *f in @[ _stationCall, _stationGrid ]) [f.widthAnchor constraintEqualToConstant:140].active = YES;
     _logsFolder = [NSTextField labelWithString:@""];
     _logsFolder.lineBreakMode = NSLineBreakByTruncatingMiddle;
     [_logsFolder.widthAnchor constraintLessThanOrEqualToConstant:300].active = YES;
-    NSButton *choose = [NSButton buttonWithTitle:@"Choose..." target:self action:@selector(chooseFolder:)];
+    NSButton *choose = [NSButton buttonWithTitle:T(@"Choose...") target:self action:@selector(chooseFolder:)];
     NSGridView *grid = [NSGridView gridViewWithViews:@[
-        @[ [NSTextField labelWithString:@"Callsign:"], _stationCall ],
-        @[ [NSTextField labelWithString:@"Grid:"], _stationGrid ],
-        @[ [NSTextField labelWithString:@"Logs folder:"], [NSStackView stackViewWithViews:@[ _logsFolder, choose ]] ],
+        @[ [NSTextField labelWithString:T(@"Callsign:")], _stationCall ],
+        @[ [NSTextField labelWithString:T(@"Grid:")], _stationGrid ],
+        @[ [NSTextField labelWithString:T(@"Logs folder:")], [NSStackView stackViewWithViews:@[ _logsFolder, choose ]] ],
     ]];
     grid.rowSpacing = 6;
     grid.columnSpacing = 8;
     grid.rowAlignment = NSGridRowAlignmentFirstBaseline;
     [grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
     [grid columnAtIndex:0].width = 80;
-    NSButton *save = [NSButton buttonWithTitle:@"Save" target:self action:@selector(saveStation:)];
-    NSButton *profiles = [NSButton buttonWithTitle:@"Station Profiles..." target:self action:@selector(stationProfiles:)];
-    profiles.toolTip = @"Named sets of your station's fields (home, portable, a club station) for New QSO and activations";
+    NSButton *save = [NSButton buttonWithTitle:T(@"Save") target:self action:@selector(saveStation:)];
+    NSButton *profiles = [NSButton buttonWithTitle:T(@"Station Profiles...") target:self action:@selector(stationProfiles:)];
+    profiles.toolTip = T(@"Named sets of your station's fields (home, portable, a club station) for New QSO and activations");
     NSStackView *buttons = [NSStackView stackViewWithViews:@[ save, profiles ]];
     _stationStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
     NSTextField *help = wrapping(@"Used when a log doesn't say: New QSO fills STATION_CALLSIGN and MY_GRIDSQUARE from them "
@@ -223,7 +224,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
 }
 
 - (NSView *)offlineSection {
-    _offline = [NSButton checkboxWithTitle:@"Work offline: make no network requests" target:self action:@selector(offlineToggled:)];
+    _offline = [NSButton checkboxWithTitle:T(@"Work offline: make no network requests") target:self action:@selector(offlineToggled:)];
     _offline.identifier = @"settings.offline.box";
     NSTextField *help = wrapping(@"For off-grid operating, or to be sure nothing is sent. Callbook lookups, spots, uploads (TQSL "
                                  @"too), imports from the online services, downloads and web pages are refused while it is on; "
@@ -251,9 +252,9 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
         p.action = @selector(detailChoiceChanged:);
     }
     NSStackView *choose = [NSStackView stackViewWithViews:@[ _detailRegion, _detailLevel ]];
-    _detailCheck = [NSButton buttonWithTitle:@"Check Size" target:self action:@selector(detailCheck:)];
-    _detailDownload = [NSButton buttonWithTitle:@"Download" target:self action:@selector(detailDownload:)];
-    _detailStop = [NSButton buttonWithTitle:@"Stop" target:self action:@selector(detailStop:)];
+    _detailCheck = [NSButton buttonWithTitle:T(@"Check Size") target:self action:@selector(detailCheck:)];
+    _detailDownload = [NSButton buttonWithTitle:T(@"Download") target:self action:@selector(detailDownload:)];
+    _detailStop = [NSButton buttonWithTitle:T(@"Stop") target:self action:@selector(detailStop:)];
     _detailDownload.enabled = _detailStop.enabled = NO;
     NSStackView *buttons = [NSStackView stackViewWithViews:@[ _detailCheck, _detailDownload, _detailStop ]];
     _detailStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
@@ -261,8 +262,8 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     _detailInstalled = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     _detailInstalled.identifier = @"settings.mapdetail.installed";
     [_detailInstalled.widthAnchor constraintEqualToConstant:330].active = YES;
-    _detailRemove = [NSButton buttonWithTitle:@"Remove" target:self action:@selector(detailRemove:)];
-    NSStackView *have = [NSStackView stackViewWithViews:@[ [NSTextField labelWithString:@"Downloaded:"], _detailInstalled, _detailRemove ]];
+    _detailRemove = [NSButton buttonWithTitle:T(@"Remove") target:self action:@selector(detailRemove:)];
+    NSStackView *have = [NSStackView stackViewWithViews:@[ [NSTextField labelWithString:T(@"Downloaded:")], _detailInstalled, _detailRemove ]];
     _detailSummary = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
     _detailSummary.identifier = @"settings.mapdetail.summary";
     return sectionStack(@[ sectionTitle(@"Map Detail"), help, choose, buttons, _detailStatus, have, _detailSummary ], @"settings.mapdetail");
@@ -290,7 +291,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     if (at >= 0) [_detailLevel selectItemAtIndex:at];
     [_detailInstalled removeAllItems];
     for (NSArray<NSString *> *r in installed) [_detailInstalled.menu addItemWithTitle:r[1] action:nil keyEquivalent:@""].representedObject = r[0];
-    if (!installed.count) [_detailInstalled addItemWithTitle:@"(none)"];
+    if (!installed.count) [_detailInstalled addItemWithTitle:T(@"(none)")];
     _detailInstalled.enabled = _detailRemove.enabled = installed.count > 0;
     _detailSummary.stringValue = summary ?: @"";
 }
@@ -355,13 +356,13 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
 }
 
 - (NSView *)countrySection {
-    NSTextField *title = [NSTextField labelWithString:@"Country Data"];
+    NSTextField *title = [NSTextField labelWithString:T(@"Country Data")];
     title.font = [NSFont boldSystemFontOfSize:NSFont.systemFontSize + 1];
     NSTextField *help = wrapping(@"DXCC entity, CQ and ITU zones and continent from a call's prefix, offline, for Enrich from "
                                  @"Country Data and New QSO. From Jim Reisert AD1C's country files (country-files.com, "
                                  @"MIT licence), updated every few weeks. Update downloads the newest release.",
                                  NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
-    _countryUpdate = [NSButton buttonWithTitle:@"Update" target:self action:@selector(countryUpdate:)];
+    _countryUpdate = [NSButton buttonWithTitle:T(@"Update") target:self action:@selector(countryUpdate:)];
     _countryStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
     NSStackView *section = [NSStackView stackViewWithViews:@[ title, help, _countryUpdate, _countryStatus ]];
     section.orientation = NSUserInterfaceLayoutOrientationVertical;
@@ -377,8 +378,8 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
                                  @"Spots window. It uses ARRL's list of LoTW users (lotw.arrl.org, about 6 MB, updated weekly), "
                                  @"downloaded when you press Update and again when a week old.",
                                  NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
-    _lotwOn = [NSButton checkboxWithTitle:@"Show LoTW users" target:self action:@selector(lotwToggled:)];
-    _lotwUpdate = [NSButton buttonWithTitle:@"Update" target:self action:@selector(lotwUpdate:)];
+    _lotwOn = [NSButton checkboxWithTitle:T(@"Show LoTW users") target:self action:@selector(lotwToggled:)];
+    _lotwUpdate = [NSButton buttonWithTitle:T(@"Update") target:self action:@selector(lotwUpdate:)];
     NSStackView *row = [NSStackView stackViewWithViews:@[ _lotwOn, _lotwUpdate ]];
     row.spacing = 12;
     _lotwStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
@@ -391,7 +392,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
 
 - (void)lotwUpdate:(id)sender {
     _lotwUpdate.enabled = NO;
-    _lotwStatus.stringValue = @"Downloading ARRL's LoTW user list...";
+    _lotwStatus.stringValue = T(@"Downloading ARRL's LoTW user list...");
     if (self.onLotwUsersUpdate) self.onLotwUsersUpdate();
 }
 
@@ -408,14 +409,14 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
                                  @"parks (pota.app, about 9.5 MB: every park's name and place) into the plugin's settings folder on "
                                  @"this Mac; download again for new parks. ADIF Lint isn't affiliated with Parks on the Air.",
                                  NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
-    _potaUpdate = [NSButton buttonWithTitle:@"Download" target:self action:@selector(potaUpdate:)];
+    _potaUpdate = [NSButton buttonWithTitle:T(@"Download") target:self action:@selector(potaUpdate:)];
     _potaStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
     return sectionStack(@[ sectionTitle(@"POTA Parks"), help, _potaUpdate, _potaStatus ], @"settings.pota");
 }
 
 - (void)potaUpdate:(id)sender {
     _potaUpdate.enabled = NO;
-    _potaStatus.stringValue = @"Downloading POTA's park list...";
+    _potaStatus.stringValue = T(@"Downloading POTA's park list...");
     _potaStatus.textColor = NSColor.secondaryLabelColor;
     if (self.onPotaUpdate) self.onPotaUpdate();
 }
@@ -432,14 +433,14 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
                                  @"non-commercial use, so ADIF Lint doesn't include it: Download fetches it from iota-world.org "
                                  @"(about 290 KB) into the plugin's settings folder on this Mac. Download again to update it.",
                                  NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
-    _iotaUpdate = [NSButton buttonWithTitle:@"Download" target:self action:@selector(iotaUpdate:)];
+    _iotaUpdate = [NSButton buttonWithTitle:T(@"Download") target:self action:@selector(iotaUpdate:)];
     _iotaStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
     return sectionStack(@[ sectionTitle(@"IOTA Groups"), help, _iotaUpdate, _iotaStatus ], @"settings.iota");
 }
 
 - (void)iotaUpdate:(id)sender {
     _iotaUpdate.enabled = NO;
-    _iotaStatus.stringValue = @"Downloading IOTA's group list...";
+    _iotaStatus.stringValue = T(@"Downloading IOTA's group list...");
     _iotaStatus.textColor = NSColor.secondaryLabelColor;
     if (self.onIotaUpdate) self.onIotaUpdate();
 }
@@ -484,10 +485,10 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     [grid columnAtIndex:0].width = 80;
     [grid rowAtIndex:0].hidden = apiKey;
 
-    NSButton *save = [NSButton buttonWithTitle:@"Save" target:self action:@selector(save:)];
-    NSButton *test = [NSButton buttonWithTitle:@"Test Sign-In" target:self action:@selector(test:)];
+    NSButton *save = [NSButton buttonWithTitle:T(@"Save") target:self action:@selector(save:)];
+    NSButton *test = [NSButton buttonWithTitle:T(@"Test Sign-In") target:self action:@selector(test:)];
     test.hidden = !ADIFSourceCanTest(source);
-    NSButton *remove = [NSButton buttonWithTitle:@"Remove" target:self action:@selector(remove:)];
+    NSButton *remove = [NSButton buttonWithTitle:T(@"Remove") target:self action:@selector(remove:)];
     for (NSButton *b in @[ save, test, remove ]) b.tag = source;
     NSStackView *buttons = [NSStackView stackViewWithViews:@[ save, test, remove ]];
     buttons.spacing = 8;
@@ -554,7 +555,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
         return;
     }
     _secret[(NSUInteger)s].stringValue = @"";  // do not keep the secret in the window
-    _secret[(NSUInteger)s].placeholderString = @"Saved in your Keychain (type to replace)";
+    _secret[(NSUInteger)s].placeholderString = T(@"Saved in your Keychain (type to replace)");
     [self setStatus:@"Saved in your Keychain." ok:YES forSource:s];
     if (self.onChanged) self.onChanged(s);
 }

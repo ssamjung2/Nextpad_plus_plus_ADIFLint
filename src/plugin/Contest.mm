@@ -1,4 +1,5 @@
 #import "Contest.h"
+#import "L10n.h"
 
 #import "PluginHost.h"
 #import "ToolWindow.h"
@@ -48,7 +49,7 @@ void refresh() {
     cw.sent.placeholderString = s.preset == adif::ContestPreset::WinterFieldDay ? @"e.g. 2O IL" : @"e.g. 1D IL";
     bool running = setting("contestActive") == "1";
     cw.start.title = running ? @"Stop" : @"Start";
-    [cw.w setTarget:[@"Log: " stringByAppendingString:ADIFString(documentName())]];
+    [cw.w setTarget:TF(@"Log: {name}", @{@"name" : ADIFString(documentName())})];
     // This log's contest QSOs per band and mode, as the Field Days count them.
     std::string id = adif::contestIdFor(s);
     std::map<std::string, std::map<std::string, size_t>> count;

@@ -1,4 +1,5 @@
 #import "Imports.h"
+#import "L10n.h"
 #import "Uploads.h"
 
 #import "Families.h"
@@ -44,9 +45,9 @@ Import &imp(adif::ImportSite s) { return imps[(size_t)s]; }
 NSString *accountLine(adif::ImportSite s) {
     ADIFSource src = accountSource(s);
     if (!ADIFSavedAccount(src) || !ADIFHasSecret(src))
-        return [NSString stringWithFormat:@"No %@ account yet: add it in Settings.", ADIFSourceName(src)];
+        return [NSString stringWithFormat:T(@"No %@ account yet: add it in Settings."), ADIFSourceName(src)];
     if (s == adif::ImportSite::QRZLogbook) return @"QRZ.com Logbook API key saved in your Keychain";
-    return [NSString stringWithFormat:@"%@ (saved in your Keychain)", ADIFSavedAccount(src)];
+    return [NSString stringWithFormat:T(@"%@ (saved in your Keychain)"), ADIFSavedAccount(src)];
 }
 
 // The log's first and last QSO_DATE, or false when it has none.
@@ -83,7 +84,7 @@ size_t countTicked(Import &u) {
 
 void updateApplyButton(Import &u) {
     size_t n = countTicked(u);
-    u.apply.title = n ? [NSString stringWithFormat:@"Apply %zu Change%@", n, n == 1 ? @"" : @"s"] : @"Apply Changes";
+    u.apply.title = n ? [NSString stringWithFormat:T(@"Apply %zu Change%@"), n, n == 1 ? @"" : @"s"] : @"Apply Changes";
     u.apply.enabled = n > 0 && !u.running;
 }
 
@@ -93,7 +94,7 @@ std::string itemKey(const adif::SiteQso &q) { return q.call + "|" + q.date + "|"
 // keepTicks: re-planned after an edit, so rows you unticked stay unticked.
 void plan(Import &u, bool keepTicks) {
     if (!u.w || u.running) return;
-    [u.w setTarget:[@"Log: " stringByAppendingString:ADIFString(documentName())]];
+    [u.w setTarget:TF(@"Log: {name}", @{@"name" : ADIFString(documentName())})];
     u.account.stringValue = accountLine(u.site);
     if (!u.downloaded) {
         u.items.clear();
@@ -180,7 +181,7 @@ void startDownload(Import &u) {
     if (u.running) return;
     ADIFSource src = accountSource(u.site);
     if (!ADIFSavedAccount(src) || !ADIFHasSecret(src)) {
-        [u.w setStatus:[NSString stringWithFormat:@"No %@ account yet. Add it in Settings, then press Download.", ADIFSourceName(src)]
+        [u.w setStatus:[NSString stringWithFormat:T(@"No %@ account yet. Add it in Settings, then press Download."), ADIFSourceName(src)]
               severity:2];
         return;
     }
@@ -302,19 +303,19 @@ void openImport(adif::ImportSite s) {
     Import &u = imp(s);
     u.site = s;
     if (!u.w) {
-        NSString *title = [NSString stringWithFormat:@"Import from %s", adif::importSiteName(s)];
+        NSString *title = [NSString stringWithFormat:T(@"Import from %s"), adif::importSiteName(s)];
         ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:title size:NSMakeSize(900, 560) headline:NO];
         u.w = w;
         Import *pu = &u;
         [w addOptionRow:@[ ADIFLabel(@"Import from:"), families::popup(families::kImport, (NSInteger)s) ]];
         u.account = ADIFLabel(@"");
         u.account.lineBreakMode = NSLineBreakByTruncatingTail;
-        NSButton *settings = [NSButton buttonWithTitle:@"Settings..." target:nil action:nil];
+        NSButton *settings = [NSButton buttonWithTitle:T(@"Settings...") target:nil action:nil];
         ADIFOnAction(settings, ^{ openSettings(accountSource(pu->site)); });
         [w addOptionRow:@[ ADIFLabel(@"Account:"), u.account, settings ]];
         u.dates = ADIFPopup(@[ @"QSOs on the log's dates", @"All your QSOs" ]);
-        u.dates.toolTip = @"Which QSOs to download: those on the dates this log covers (all of them for an empty log), or "
-                          @"every QSO the site holds for you";
+        u.dates.toolTip = T(@"Which QSOs to download: those on the dates this log covers (all of them for an empty log), or "
+                          @"every QSO the site holds for you");
         u.includeInLog = ADIFCheckbox(@"Also list QSOs already in the log", NO);
         u.sort = ADIFCheckbox(@"Sort by date and time afterwards", YES);
         ADIFOnAction(u.includeInLog, ^{ plan(*pu, true); });

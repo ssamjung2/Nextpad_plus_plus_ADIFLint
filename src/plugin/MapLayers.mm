@@ -1,4 +1,5 @@
 #import "MapView.h"
+#import "L10n.h"
 
 #import "IotaGroups.h"
 #import "PluginHost.h"
@@ -682,7 +683,7 @@ using namespace mapkit;
             if (!_pr.forward(lo, la, &x, &y) || (globe && std::hypot(x, y) > 180 / M_PI - 30 / ppu)) continue;  // behind, or cut by the rim
             NSPoint p = [self planeToView:x y:y];
             if (NSPointInRect(p, b))
-                [self drawLabel:[NSString stringWithFormat:@"%.0f km", km] at:NSMakePoint(p.x + 30, p.y + 7) size:10 alpha:0.55];
+                [self drawLabel:[NSString stringWithFormat:T(@"%.0f km"), km] at:NSMakePoint(p.x + 30, p.y + 7) size:10 alpha:0.55];
         }
         CGFloat dash[] = {4, 3};
         [rings setLineDash:dash count:2 phase:0];

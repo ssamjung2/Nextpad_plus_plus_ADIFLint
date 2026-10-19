@@ -1,4 +1,5 @@
 #import "NewQsoPanel.h"
+#import "L10n.h"
 #import "ToolWindow.h"
 
 #include <ctime>
@@ -43,7 +44,7 @@ static NSColor *severityColor(int severity) { return severity < 0 ? NSColor.seco
                                                    NSWindowStyleMaskResizable
                                            backing:NSBackingStoreBuffered
                                              defer:YES];
-    _window.title = @"New QSO";
+    _window.title = T(@"New QSO");
     _window.floatingPanel = YES;
     _window.hidesOnDeactivate = YES;
     _window.releasedWhenClosed = NO;
@@ -69,7 +70,7 @@ static NSColor *severityColor(int severity) { return severity < 0 ? NSColor.seco
     _document.translatesAutoresizingMaskIntoConstraints = NO;
     _scroll.documentView = _document;
 
-    _currentTime = [NSButton checkboxWithTitle:@"Use the current UTC date and time when logging" target:self
+    _currentTime = [NSButton checkboxWithTitle:T(@"Use the current UTC date and time when logging") target:self
                                         action:@selector(currentTimeChanged:)];
     _currentTime.state = NSControlStateValueOn;
     _currentTime.translatesAutoresizingMaskIntoConstraints = NO;
@@ -88,30 +89,30 @@ static NSColor *severityColor(int severity) { return severity < 0 ? NSColor.seco
     [_summary setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
                                        forOrientation:NSLayoutConstraintOrientationHorizontal];
 
-    _log = [NSButton buttonWithTitle:@"Log QSO" target:self action:@selector(logPressed:)];
+    _log = [NSButton buttonWithTitle:T(@"Log QSO") target:self action:@selector(logPressed:)];
     _log.keyEquivalent = @"\r";
     _log.translatesAutoresizingMaskIntoConstraints = NO;
-    _close = [NSButton buttonWithTitle:@"Close" target:self action:@selector(closePressed:)];
+    _close = [NSButton buttonWithTitle:T(@"Close") target:self action:@selector(closePressed:)];
     _close.keyEquivalent = @"\033";
     _close.translatesAutoresizingMaskIntoConstraints = NO;
-    _fields = [NSButton buttonWithTitle:@"Fields..." target:self action:@selector(fieldsPressed:)];
-    _fields.toolTip = @"Choose and order the fields this window asks for";
+    _fields = [NSButton buttonWithTitle:T(@"Fields...") target:self action:@selector(fieldsPressed:)];
+    _fields.toolTip = T(@"Choose and order the fields this window asks for");
     _fields.translatesAutoresizingMaskIntoConstraints = NO;
-    _spots = [NSButton buttonWithTitle:@"Spots..." target:self action:@selector(spotsPressed:)];
-    _spots.toolTip = @"Activators spotted now (POTA, WWFF, and GMA, WWBOTA, IOTA and more from Spothole): pick one to fill CALL, "
-                     @"FREQ, MODE and their reference";
+    _spots = [NSButton buttonWithTitle:T(@"Spots...") target:self action:@selector(spotsPressed:)];
+    _spots.toolTip = T(@"Activators spotted now (POTA, WWFF, and GMA, WWBOTA, IOTA and more from Spothole): pick one to fill CALL, "
+                     @"FREQ, MODE and their reference");
     _spots.translatesAutoresizingMaskIntoConstraints = NO;
-    _contest = [NSButton buttonWithTitle:@"Contest..." target:self action:@selector(contestPressed:)];
-    _contest.toolTip = @"ARRL Field Day, Winter Field Day or serial numbers: the exchange to ask for, the contest's fields and "
-                       @"its duplicate rule";
+    _contest = [NSButton buttonWithTitle:T(@"Contest...") target:self action:@selector(contestPressed:)];
+    _contest.toolTip = T(@"ARRL Field Day, Winter Field Day or serial numbers: the exchange to ask for, the contest's fields and "
+                       @"its duplicate rule");
     _contest.translatesAutoresizingMaskIntoConstraints = NO;
 
     _lookup = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [_lookup addItemsWithTitles:@[ @"Off", @"Country data", @"QRZ.com", @"HamQTH" ]];
     _lookup.target = self;
     _lookup.action = @selector(lookupChanged:);
-    _lookup.toolTip = @"Look the call up as you type and fill the fields that are still empty: country and zones from the "
-                      @"call's prefix, or name, QTH, state, grid and more from a callbook (accounts in Settings)";
+    _lookup.toolTip = T(@"Look the call up as you type and fill the fields that are still empty: country and zones from the "
+                      @"call's prefix, or name, QTH, state, grid and more from a callbook (accounts in Settings)");
     // Its own line under the popup, two lines at most: country, distance and the park's history fit.
     _lookupInfo = [NSTextField wrappingLabelWithString:@""];
     _lookupInfo.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
@@ -123,10 +124,10 @@ static NSColor *severityColor(int severity) { return severity < 0 ? NSColor.seco
     _station = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     _station.target = self;
     _station.action = @selector(stationChanged:);
-    _station.toolTip = @"Your station's fields for the QSOs you log: from the log's last record, or a station profile";
+    _station.toolTip = T(@"Your station's fields for the QSOs you log: from the log's last record, or a station profile");
     [self setStations:@[] selected:0];
-    _lookupRow = [NSStackView stackViewWithViews:@[ [NSTextField labelWithString:@"Look up:"], _lookup,
-                                                    [NSTextField labelWithString:@"Station:"], _station ]];
+    _lookupRow = [NSStackView stackViewWithViews:@[ [NSTextField labelWithString:T(@"Look up:")], _lookup,
+                                                    [NSTextField labelWithString:T(@"Station:")], _station ]];
     _lookupRow.spacing = 8;
     _lookupRow.alignment = NSLayoutAttributeCenterY;
     _lookupRow.translatesAutoresizingMaskIntoConstraints = NO;
@@ -341,10 +342,10 @@ static NSColor *severityColor(int severity) { return severity < 0 ? NSColor.seco
 
 - (void)setStations:(NSArray<NSString *> *)names selected:(NSInteger)index {
     [_station removeAllItems];
-    [_station addItemWithTitle:@"From the log"];
+    [_station addItemWithTitle:T(@"From the log")];
     for (NSString *n in names) [_station addItemWithTitle:n];
     [_station.menu addItem:[NSMenuItem separatorItem]];
-    [_station addItemWithTitle:@"Edit Profiles..."];
+    [_station addItemWithTitle:T(@"Edit Profiles...")];
     [_station selectItemAtIndex:index >= 0 && index <= (NSInteger)names.count ? index : 0];
 }
 

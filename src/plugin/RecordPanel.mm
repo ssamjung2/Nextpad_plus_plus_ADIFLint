@@ -1,4 +1,5 @@
 #import "RecordPanel.h"
+#import "L10n.h"
 #import "ToolWindow.h"
 
 #include "adif_tools.h"
@@ -380,7 +381,7 @@ static NSButton *symbolButton(NSString *symbol, NSString *fallback, NSString *ti
         item.target = self;
         item.tag = -1;
     }
-    if (menu.numberOfItems == 0) [menu addItemWithTitle:@"No automatic repair here" action:nil keyEquivalent:@""].enabled = NO;
+    if (menu.numberOfItems == 0) [menu addItemWithTitle:T(@"No automatic repair here") action:nil keyEquivalent:@""].enabled = NO;
 }
 
 - (void)repairRow:(NSMenuItem *)sender {
@@ -400,19 +401,19 @@ static NSButton *symbolButton(NSString *symbol, NSString *fallback, NSString *ti
 
 - (void)addField:(id)sender {
     NSAlert *alert = [[NSAlert alloc] init];
-    alert.messageText = @"Add a field";
-    alert.informativeText = @"The data length is set for you.";
-    [alert addButtonWithTitle:@"Add"];
-    [alert addButtonWithTitle:@"Cancel"];
+    alert.messageText = T(@"Add a field");
+    alert.informativeText = T(@"The data length is set for you.");
+    [alert addButtonWithTitle:T(@"Add")];
+    [alert addButtonWithTitle:T(@"Cancel")];
 
     _addName = [[NSComboBox alloc] initWithFrame:NSMakeRect(0, 30, 280, 26)];
-    _addName.placeholderString = @"Field name, e.g. RST_SENT";
+    _addName.placeholderString = T(@"Field name, e.g. RST_SENT");
     _addName.completes = YES;
     _addName.numberOfVisibleItems = 14;
     for (const std::string &n : _snapshot.addableNames) [_addName addItemWithObjectValue:ADIFString(n)];
     _addName.delegate = self;
     _addValue = [[NSComboBox alloc] initWithFrame:NSMakeRect(0, 0, 280, 26)];
-    _addValue.placeholderString = @"Value";
+    _addValue.placeholderString = T(@"Value");
     _addValue.completes = YES;
     _addValue.numberOfVisibleItems = 14;
     _addValue.delegate = self;

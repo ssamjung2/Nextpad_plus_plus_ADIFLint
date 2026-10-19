@@ -23,6 +23,7 @@
 #include "adif_sun.h"
 #include "adif_pmtiles.h"
 #include "adif_mvt.h"
+#include "adif_i18n.h"
 #include "adif_tools.h"
 #include "adif_upload.h"
 #include "adif_geo.h"
@@ -3477,6 +3478,47 @@ static void testMvt() {
           "a LineTo with no MoveTo, and a cut-off tile, are refused");
 }
 
+// Translations: the tables, English as the key and the fallback, placeholders, plurals.
+static void testI18n() {
+    using namespace adif::i18n;
+    Table t;
+    std::string why;
+    const char *json = "{\"meta\": {\"language\": \"fr\", \"name\": \"Fran\\u00e7ais\", \"note\": \"draft\"},\n"
+                       " \"strings\": {\"Check Log...\": \"V\\u00e9rifier le journal...\",\n"
+                       "   \"Downloaded {name}: {size}.\": \"{size} t\\u00e9l\\u00e9charg\\u00e9s : {name}.\",\n"
+                       "   \"Upload %zu QSOs\": \"Envoyer %zu QSO\", \"Map\": \"\\ud83d\\uddfa Carte\", \"Empty\": \"\",\n"
+                       "   \"{n} record|{n} records\": {\"one\": \"{n} enregistrement\", \"other\": \"{n} enregistrements\"}}}";
+    bool ok = parseTable(json, &t, &why);
+    CHECK(ok && t.language == "fr" && t.name == "Français" && t.strings.size() == 5 && t.plurals.size() == 1 && t.strings["Map"] == "\xF0\x9F\x97\xBA Carte",
+          "a table: meta, strings, a plural, \\u escapes and a surrogate pair (%s)", why.c_str());
+    CHECK(!parseTable("{\"strings\": {}}", &t, &why) && !parseTable("{\"meta\": {\"language\": \"fr\"}, \"strings\": {\"a\": 1}}", &t, &why) &&
+              !parseTable("{\"meta\": {\"language\": \"fr\"}, \"strings\": {\"a\": \"b\"}} x", &t, &why) &&
+              !parseTable("{\"meta\": {\"language\": \"fr\"}, \"strings\": {\"a\": \"\\ud83d\"}}", &t, &why) && !parseTable("", &t, &why),
+          "malformed tables are refused");
+    use(nullptr);
+    CHECK(language() == "en" && tr("Check Log...") == "Check Log..." && trp("{n} record", "{n} records", 1) == "1 record" &&
+              trp("{n} record", "{n} records", 0) == "0 records",
+          "English with no table");
+    parseTable(json, &t, &why);
+    use(std::make_shared<const Table>(t));
+    CHECK(tr("Check Log...") == "Vérifier le journal..." && tr("Not translated") == "Not translated" && tr("Empty") == "Empty" &&
+              trf("Downloaded {name}: {size}.", {{"name", "Madison"}, {"size", "12 MB"}}) == "12 MB téléchargés : Madison." &&
+              tr("Upload %zu QSOs") == "Envoyer %zu QSO",
+          "French: a translation, the English where there is none, placeholders moved");
+    CHECK(trp("{n} record", "{n} records", 0) == "0 enregistrement" && trp("{n} record", "{n} records", 1) == "1 enregistrement" &&
+              trp("{n} record", "{n} records", 2) == "2 enregistrements" && trp("{n} file", "{n} files", 2) == "2 files",
+          "French plurals: 0 and 1 are singular; a count with no translation in English");
+    use(nullptr);
+    CHECK(std::string(pluralCategory("ko", 1)) == "other" && std::string(pluralCategory("ja", 5)) == "other" &&
+              std::string(pluralCategory("de", 1)) == "one" && std::string(pluralCategory("de", 0)) == "other" &&
+              std::string(pluralCategory("es", 1000000)) == "many" && std::string(pluralCategory("fr", 1)) == "one" &&
+              std::string(pluralCategory("en", 1)) == "one",
+          "CLDR plural categories");
+    std::vector<std::string> ph = placeholders("%1$@ of %zu, {name} at 100%% (%.1f) {not a name}");
+    CHECK(ph.size() == 4 && ph[0] == "%1$@" && ph[1] == "%zu" && ph[2] == "{name}" && ph[3] == "%.1f", "placeholders: printf and {name}, not %%");
+    CHECK(fill("{a} and {b}, {c}", {{"a", "1"}, {"b", "{a}"}}) == "1 and {a}, {c}", "filling doesn't refill what it put in");
+}
+
 int main(int argc, char **argv) {
     testStructure();
     testHeader();
@@ -3526,6 +3568,7 @@ int main(int argc, char **argv) {
     testRegionsAndSun();
     testPmtiles();
     testMvt();
+    testI18n();
     testProjections();
     testPalettes();
     for (int i = 1; i < argc; ++i)

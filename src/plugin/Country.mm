@@ -1,4 +1,5 @@
 #import "Country.h"
+#import "L10n.h"
 
 #import "Lookup.h"
 #import "PluginHost.h"
@@ -53,7 +54,7 @@ const adif::CountryTable &ADIFCountries(void) {
 NSString *ADIFCountryDataStatus(void) {
     const adif::CountryTable &t = ADIFCountries();
     if (t.empty()) return @"No country data: press Update to download AD1C's country file.";
-    return [NSString stringWithFormat:@"%zu DXCC entities and prefixes (%s).", t.entities(), gSource.c_str()];
+    return [NSString stringWithFormat:T(@"%zu DXCC entities and prefixes (%s)."), t.entities(), gSource.c_str()];
 }
 
 void ADIFUpdateCountryData(void (^done)(BOOL ok, NSString *message)) {
@@ -80,6 +81,6 @@ void ADIFUpdateCountryData(void (^done)(BOOL ok, NSString *message)) {
         gTable = std::move(t);
         gLoaded = true;
         gSource = std::string(release.UTF8String ?: "") + ", downloaded";
-        done(YES, [NSString stringWithFormat:@"Updated to %@: %zu entities.", release, gTable.entities()]);
+        done(YES, [NSString stringWithFormat:T(@"Updated to %@: %zu entities."), release, gTable.entities()]);
     });
 }

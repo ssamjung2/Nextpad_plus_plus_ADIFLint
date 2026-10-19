@@ -1,4 +1,5 @@
 #import "Uploads.h"
+#import "L10n.h"
 
 #import "Families.h"
 #import "Network.h"
@@ -156,11 +157,11 @@ void runTqsl(const std::string &path, NSArray<NSString *> *args, Upload *u, void
         dispatch_async(dispatch_get_main_queue(), ^{
             u->task = nil;
             if (*timedOut)
-                done(-1, [NSString stringWithFormat:@"TQSL did not finish within %@, so it was stopped. It may have been "
+                done(-1, [NSString stringWithFormat:T(@"TQSL did not finish within %@, so it was stopped. It may have been "
                                                     @"waiting for a dialog, such as a certificate password: run TQSL once "
-                                                    @"by itself to check",
-                                                    limit >= 120 ? [NSString stringWithFormat:@"%d minutes", (int)(limit / 60)]
-                                                                 : [NSString stringWithFormat:@"%d seconds", (int)limit]]);
+                                                    @"by itself to check"),
+                                                    limit >= 120 ? [NSString stringWithFormat:T(@"%d minutes"), (int)(limit / 60)]
+                                                                 : [NSString stringWithFormat:T(@"%d seconds"), (int)limit]]);
             else done(code, text);
         });
     });
@@ -177,10 +178,10 @@ NSString *accountLine(adif::UploadService s) {
         case adif::UploadService::ClubLog:
             if (!saved(ADIFSourceClubLog)) return @"No Club Log account yet: add it in Settings.";
             if (!saved(ADIFSourceClubLogKey)) return @"No Club Log API key yet: add it in Settings.";
-            return [NSString stringWithFormat:@"%@ (Application Password and API key in your Keychain)",
+            return [NSString stringWithFormat:T(@"%@ (Application Password and API key in your Keychain)"),
                                               ADIFSavedAccount(ADIFSourceClubLog)];
         case adif::UploadService::EQSL:
-            return saved(ADIFSourceEQSL) ? [NSString stringWithFormat:@"%@ (saved in your Keychain)", ADIFSavedAccount(ADIFSourceEQSL)]
+            return saved(ADIFSourceEQSL) ? [NSString stringWithFormat:T(@"%@ (saved in your Keychain)"), ADIFSavedAccount(ADIFSourceEQSL)]
                                          : @"No eQSL account yet: add it in Settings.";
         case adif::UploadService::LoTW: return @"";
     }
@@ -192,7 +193,7 @@ size_t updateUploadButton(Upload &u) {
     std::vector<bool> ticks = [u.w ticked];
     size_t n = 0;
     for (size_t i = 0; i < ticks.size() && i < u.items.size(); ++i) n += ticks[i] && u.items[i].problem.empty();
-    u.upload.title = [NSString stringWithFormat:@"Upload %zu QSO%@", n, n == 1 ? @"" : @"s"];
+    u.upload.title = [NSString stringWithFormat:T(@"Upload %zu QSO%@"), n, n == 1 ? @"" : @"s"];
     u.upload.enabled = n > 0 && !u.running && !u.results;
     return n;
 }
@@ -214,7 +215,7 @@ void plan(Upload &u, bool keepTicks = false) {
         std::string_view text = adifhost::text(h);
         u.buffer = buffer();
         u.results = false;
-        [u.w setTarget:[@"Log: " stringByAppendingString:ADIFString(documentName())]];
+        [u.w setTarget:TF(@"Log: {name}", @{@"name" : ADIFString(documentName())})];
         if (u.account) u.account.stringValue = accountLine(u.service);
         if (u.tqsl) {
             std::string p = tqslPath();
@@ -335,7 +336,7 @@ void finish(Upload &u, const std::string &summary, int severity) {
     setRunning(u, false);
     u.results = true;
     u.upload.enabled = NO;  // Refresh lists what is left, so nothing is sent twice by accident
-    u.upload.title = @"Upload";
+    u.upload.title = T(@"Upload");
     std::vector<int> groups;
     size_t ok = 0, moved = 0;
     try {
@@ -598,7 +599,7 @@ void openUpload(adif::UploadService s) {
     Upload &u = up(s);
     u.service = s;
     if (!u.w) {
-        NSString *title = [NSString stringWithFormat:@"Upload to %s", adif::uploadServiceName(s)];
+        NSString *title = [NSString stringWithFormat:T(@"Upload to %s"), adif::uploadServiceName(s)];
         if (s == adif::UploadService::LoTW) title = @"Upload to LoTW (TQSL)";
         ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:title size:NSMakeSize(860, 560) headline:NO];
         u.w = w;
@@ -607,7 +608,7 @@ void openUpload(adif::UploadService s) {
         if (s != adif::UploadService::LoTW) {
             u.account = ADIFLabel(@"");
             u.account.lineBreakMode = NSLineBreakByTruncatingTail;
-            NSButton *settings = [NSButton buttonWithTitle:@"Settings..." target:nil action:nil];
+            NSButton *settings = [NSButton buttonWithTitle:T(@"Settings...") target:nil action:nil];
             ADIFOnAction(settings, ^{
                 openSettings(s == adif::UploadService::QRZ ? ADIFSourceQRZLogbook
                              : s == adif::UploadService::ClubLog ? ADIFSourceClubLog
@@ -622,15 +623,15 @@ void openUpload(adif::UploadService s) {
         if (s == adif::UploadService::EQSL) {
             u.nickname = ADIFTextField(@"optional", 160);
             u.nickname.stringValue = ADIFString(setting("eqslNickname"));
-            u.nickname.toolTip = @"Only when you have several eQSL accounts with the same callsign: the QTH Nickname of the "
-                                 @"one to upload into (sent as APP_EQSL_QTH_NICKNAME).";
+            u.nickname.toolTip = T(@"Only when you have several eQSL accounts with the same callsign: the QTH Nickname of the "
+                                 @"one to upload into (sent as APP_EQSL_QTH_NICKNAME).");
             [w addOptionRow:@[ ADIFLabel(@"QTH Nickname:"), u.nickname ]];
         }
         if (s == adif::UploadService::LoTW) {
             u.tqsl = ADIFLabel(@"");
             u.tqsl.lineBreakMode = NSLineBreakByTruncatingMiddle;
             [u.tqsl.widthAnchor constraintLessThanOrEqualToConstant:460].active = YES;
-            NSButton *choose = [NSButton buttonWithTitle:@"Choose..." target:nil action:nil];
+            NSButton *choose = [NSButton buttonWithTitle:T(@"Choose...") target:nil action:nil];
             ADIFOnAction(choose, ^{
                 std::string p;
                 if (const char *env = getenv("ADIFLINT_TEST_OPEN_FILE")) p = env;
@@ -650,7 +651,7 @@ void openUpload(adif::UploadService s) {
             u.location = ADIFComboBox(tqslLocations(), 220);
             u.location.stringValue = ADIFString(offeredLocation());
             u.locationFor = lastLocationKey();
-            u.location.placeholderString = @"as named in TQSL";
+            u.location.placeholderString = T(@"as named in TQSL");
             ADIFOnAction(u.location, ^{ plan(*pu, true); });
             [w addOptionRow:@[ ADIFLabel(@"Station Location:"), u.location,
                                ADIFLabel(@"(TQSL signs with this location's callsign certificate)") ]];
@@ -755,7 +756,7 @@ void syncRefresh() {
         NppHandle h = scintilla();
         const adif::LintResult &r = lint(h);
         std::string_view text = adifhost::text(h);
-        [qsl.w setTarget:[@"Log: " stringByAppendingString:ADIFString(documentName())]];
+        [qsl.w setTarget:TF(@"Log: {name}", @{@"name" : ADIFString(documentName())})];
         std::vector<std::vector<std::string>> rows;
         std::vector<int> sev;
         std::vector<std::string> keys;
