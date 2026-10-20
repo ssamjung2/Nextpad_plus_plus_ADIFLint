@@ -3574,6 +3574,33 @@ static void testSpotsCore() {
         Spot plus;
         plus.hasSnr = true, plus.snr = 1;
         CHECK(spotSnr(s) == "-12 dB" && spotSnr(plus) == "+1 dB" && spotSnr(Spot()).empty(), "signal reports with their sign");
+        CHECK(sameStation("k1abc/p", "K1ABC") && sameStation("VE3/K1ABC", "K1ABC-#") && !sameStation("K1ABC", "K1ABD") && !sameStation("", ""),
+              "the same station in its portable forms");
+        CHECK(clusterSpotCommand("k1abc", 14074.0, "  FT8 tnx QSO  ", "KW9D") == "dx 14074.0 K1ABC FT8 tnx QSO" &&
+                  clusterSpotCommand("DL1ABC", 7012.25, "", "KW9D") == "dx 7012.2 DL1ABC" &&
+                  clusterSpotCommand("KW9D/P", 14074, "x", "kw9d").empty() && clusterSpotCommand("not a call", 14074, "", "KW9D").empty() &&
+                  clusterSpotCommand("K1ABC", 0, "", "KW9D").empty() &&
+                  clusterSpotCommand("K1ABC", 14074, "a very long comment that goes on and on", "KW9D") == "dx 14074.0 K1ABC a very long comment that goes",
+              "a cluster spot of the station worked: never your own call, the remarks cut to 30");
+        {
+            long long now = 1791407517;  // 21:11 UTC
+            CHECK(clusterPostAnswer("DX de KW9D:      14074.0  K1ABC        FT8                            2111Z", "KW9D", "K1ABC", now) ==
+                          ClusterPostAnswer::Accepted &&
+                      clusterPostAnswer("DX de W3LPL-#:   14074.0  K1ABC        FT8 12 dB                      2111Z", "KW9D", "K1ABC", now) ==
+                          ClusterPostAnswer::None &&
+                      clusterPostAnswer("Sorry, you need to be registered to send spots", "KW9D", "K1ABC", now) == ClusterPostAnswer::Refused &&
+                      clusterPostAnswer("KW9D de G1FEF-2 19-Oct-2026 2111Z dxspider >", "KW9D", "K1ABC", now) == ClusterPostAnswer::None,
+                  "the node's answer to a spot: its echo, someone else's spot, a refusal, a prompt");
+        }
+        CHECK(qsoSpotComment({{"CALL", "K1ABC"}, {"MODE", "SSB"}, {"SUBMODE", "USB"}, {"POTA_REF", "US-1234"}}) == "POTA US-1234 USB" &&
+                  qsoSpotComment({{"MODE", "FT8"}}) == "FT8" && qsoSpotComment({{"SIG", "gma"}, {"SIG_INFO", "DL/AM-001"}, {"MODE", "CW"}}) == "GMA DL/AM-001 CW" &&
+                  qsoSpotComment({}).empty(),
+              "a logged QSO's spot comment: program and reference, then the mode");
+        SpotFilter only;
+        only.onlyCall = "kw9d";
+        Spot mine, theirs;
+        mine.activator = "KW9D/P", theirs.activator = "K1ABC";
+        CHECK(spotMatches(only, mine, 0, nullptr, nullptr) && !spotMatches(only, theirs, 0, nullptr, nullptr), "only the spots of one station");
         int snr = 0;
         CHECK(commentReport("CW 20 dB 25 WPM CQ", &snr) && snr == 20 && commentReport("FT8 +1 dB 1383 Hz", &snr) && snr == 1 &&
                   commentReport("cw 4dB q:5", &snr) && snr == 4 && !commentReport("S9+20 dB up 2", &snr) && !commentReport("tnx 73", &snr) &&

@@ -137,8 +137,12 @@ struct {
     NSTimer *retry = nil, *loginTimer = nil;
     std::string clusterStatus;
     size_t clusterSpots = 0;
+    // Posting a spot: the command's call, and what to tell when the node answers.
+    std::string postCall;
+    void (^postDone)(bool, const std::string &) = nil;
+    NSTimer *postTimer = nil;
     // PSKReporter
-    std::string homeGrid;
+    std::string homeGrid, focusCall;
     NSTimer *pskTimer = nil;
     bool pskBusy = false;
     std::string pskStatus;
@@ -222,6 +226,12 @@ void clusterSend(const std::string &bytes) {
 
 void clusterClose() {
     ++f.generation;
+    if (f.postDone) {
+        auto d = f.postDone;
+        f.postDone = nil;
+        [f.postTimer invalidate], f.postTimer = nil;
+        d(false, tr("the connection closed"));
+    }
     if (f.conn) nw_connection_cancel(f.conn);
     f.conn = nil;
     [f.retry invalidate], f.retry = nil;
@@ -292,6 +302,15 @@ void clusterRead(const std::string &bytes) {
                 return clusterStop(trf("DX cluster: {node} asks for a password; ADIF Lint doesn't log in with one. Choose another node in Settings.",
                                        {{"node", node}}));
             if (p == adif::ClusterPrompt::Login && !f.loginSent) clusterLogin();
+        }
+        if (f.postDone) {  // a spot posted: the node's echo of it, or a refusal
+            adif::ClusterPostAnswer a = adif::clusterPostAnswer(line, myCall(c), f.postCall, now);
+            if (a != adif::ClusterPostAnswer::None) {
+                auto done = f.postDone;
+                f.postDone = nil;
+                [f.postTimer invalidate], f.postTimer = nil;
+                done(a == adif::ClusterPostAnswer::Accepted, line);
+            }
         }
         adif::Spot sp;
         if (adif::parseClusterSpot(line, now, &sp)) f.list.add(std::move(sp)), ++added;
@@ -379,12 +398,18 @@ void clusterConnect() {
 
 // ── PSKReporter ──
 
+// The callsign PSKReporter is asked about: the Map's Only spots of, else Settings', else Your
+// Station's; never the cluster's login.
+std::string pskCall(const Config &c) {
+    std::string call = upperText(!f.focusCall.empty() ? f.focusCall : c.pskCall.empty() ? setting("stationCall") : c.pskCall);
+    call.erase(std::remove_if(call.begin(), call.end(), [](char ch) { return ch == ' '; }), call.end());
+    return call;
+}
+
 void pskFetch() {
     if (f.pskBusy) return;
     Config c = config();
-    // The callsign asked about (Settings → Spots), else Your Station's; never the cluster's login.
-    std::string call = upperText(c.pskCall.empty() ? setting("stationCall") : c.pskCall);
-    call.erase(std::remove_if(call.begin(), call.end(), [](char ch) { return ch == ' '; }), call.end());
+    std::string call = pskCall(c);
     bool around = c.pskQuery == 1;
     std::string square = upperText(setting("stationGrid").empty() ? f.homeGrid : setting("stationGrid")).substr(0, 4);
     double lat, lon;
@@ -490,6 +515,44 @@ void setWanted(bool w) {
 bool wanted() { return f.wanted; }
 
 void setHomeGrid(const std::string &grid) { f.homeGrid = grid; }
+
+void setFocusCall(const std::string &call) {
+    std::string c = upperText(call);
+    if (c == f.focusCall) return;
+    Config cfg = config();
+    std::string was = pskCall(cfg);
+    f.focusCall = c;
+    if (cfg.pskQuery == 0 && pskCall(cfg) != was) {  // the reports were another station's
+        f.list.clear(adif::SpotSource::PskReporter);
+        f.pskStatus.clear();
+        if (f.wanted && config().psk && !ADIFOffline()) pskFetch();
+        changed();
+    }
+}
+
+std::string clusterNode() {
+    if (!f.conn || !f.loginSent || f.stopped) return "";
+    Config c = config();
+    return c.host + ":" + std::to_string(c.port);
+}
+
+std::string clusterCall() { return clusterNode().empty() ? "" : myCall(config()); }
+
+void clusterPost(const std::string &command, const std::string &call, void (^done)(bool ok, const std::string &said)) {
+    if (clusterNode().empty() || command.empty()) return done(false, tr("the DX cluster isn't connected"));
+    if (f.postDone) f.postDone(false, tr("replaced by a newer spot")), f.postDone = nil;
+    [f.postTimer invalidate];
+    f.postCall = call;
+    f.postDone = done;
+    clusterSend(command + "\r\n");
+    f.postTimer = [NSTimer scheduledTimerWithTimeInterval:10 repeats:NO block:^(NSTimer *) {
+        f.postTimer = nil;
+        if (!f.postDone) return;
+        auto d = f.postDone;
+        f.postDone = nil;
+        d(true, tr("sent; the node didn't echo it"));
+    }];
+}
 
 const adif::SpotList &spots() { return f.list; }
 

@@ -34,6 +34,7 @@
 
 #import "CheckLog.h"
 #import "Night.h"
+#import "SpotOffer.h"
 #import "L10n.h"
 #import "Families.h"
 #import "MapDetail.h"
@@ -1789,6 +1790,8 @@ static void logQso() {
         [g.qso setSummary:done severity:c.severity == 1 ? 1 : -1];
         refreshQsoTarget();
         [g.qso focusField:"CALL"];
+        // Spot it: the station worked on the DX cluster, yourself on pota.app when activating (only on Send).
+        spotoffer::afterLog(c.fields, contestNow.preset != adif::ContestPreset::None);
     } catch (...) {
     }
 }

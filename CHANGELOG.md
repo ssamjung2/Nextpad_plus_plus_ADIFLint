@@ -37,6 +37,15 @@ Versions before 0.8.0 were development builds and were not published.
   spotter, every station it heard), with reports and ages.
 - **Settings → Spots → PSKReporter → Callsign**: the callsign to ask about (Your Station's
   when empty).
+- **Map → Spots row → Only spots of**: only one station's spots (yours when the callsign is
+  empty), each with every station that heard it, as on PSKReporter's map; PSKReporter is
+  asked about that callsign while it is ticked. The Spots row, under Markers, now holds
+  Spots… and the refresh arrow too.
+- **Spot This QSO**: after Log QSO in New QSO, an offer to spot the station you worked on
+  the DX cluster (a `dx` command, comment editable, the node's answer shown) and, while
+  activating for POTA, to open pota.app to spot yourself. Sent only on Send; never your own
+  callsign on a cluster; not during a contest, offline, or for a station spotted on that
+  band in the last 10 minutes; turned off in the panel or in Settings → Spots.
 - A spot's description gives its signal report and how many spotters heard it. Spothole's
   RBN spots get their reports from their comments ("20 dB"), as Spothole has no field for
   them.

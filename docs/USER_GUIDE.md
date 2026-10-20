@@ -279,6 +279,34 @@ The window lists this log's contest QSOs per band and mode. **Stop** ends it, an
 stops carrying the contest's fields. **Export… → Cabrillo** writes Field Day QSO lines
 without reports, class and section as separate words (`W1AW 2A CT K1ABC 3A EMA`).
 
+### Spotting a QSO
+
+After **Log QSO**, a small **Spot This QSO** panel can offer to spot it. Nothing is sent
+until you press **Send**; **Skip** (or Escape) sends nothing.
+
+- **The station you worked, on the DX cluster**, when ADIF Lint is connected to one (Settings
+  → Spots, while the Map shows spots): `dx 14074.0 K1ABC FT8`, with a comment you can edit
+  (at first the program and reference and the mode, such as `POTA US-1234 USB`; at most 30
+  characters). The panel then says whether the node took it (it echoes the spot back) or
+  refused it. Many nodes only take spots from registered users; G1FEF's node, for one, says
+  so when you log in.
+- **Yourself, while activating a park for POTA** (a QSO with MY_POTA_REF): **Send** opens
+  pota.app in your browser, where POTA lets activators spot themselves ([POTA activator
+  guide](https://docs.pota.app/docs/activator_reference/activator_guide-english.html), read
+  2026-10-20). POTA documents no way for programs to post spots, so the spot is yours to
+  enter there.
+
+It never spots your own callsign on a cluster: DXSpider's user manual asks for "the
+station you have worked or heard, (ie not your own callsign!)" ([dxcluster.org user
+manual](https://dxcluster.org/usermanual_en-4.html), read 2026-10-20). It isn't offered
+during a contest (contests limit spotting), in Offline Mode, or for a station you already
+spotted on that band in the last 10 minutes. **Offer to spot after each QSO** turns it off;
+Settings → Spots turns it on again.
+
+PSKReporter: reception reports of the stations you log by hand (your station as the
+receiver, marked as taken from your log) would need PSKReporter's author to welcome them,
+since its developer page is unclear about them; ADIF Lint doesn't send any yet.
+
 ## Station profiles and activations
 
 **Station profiles** are named sets of your station's own fields: callsign, operator,
@@ -615,7 +643,9 @@ spot (a cluster node's, or the locator a PSKReporter receiver gives). Otherwise 
 country data's place for its call, often the middle of the country. A spotter is placed the
 same way.
 
-**Spots…** in the Markers row chooses which spots show:
+The **Spots** row, under Markers, holds **Spots…**, the refresh arrow and **Only spots of**.
+
+**Spots…** chooses which spots show:
 
 - **Newer than:** 10 minutes, 30 minutes (at first) or 1 hour.
 - **From:** Spothole, DX cluster and PSKReporter; the ones turned off in Settings are
@@ -628,6 +658,11 @@ Below them, the number of stations on the map and of spots received, and what ea
 is doing ("Spothole: 42 new spots at 14:02 UTC (every 2 minutes)", "DX cluster: connected
 to dxc.hamserve.uk:7300 as N0CALL."). The Map's band and mode filters and **More Filters**'
 places apply to spots too; the dates and confirmation don't.
+
+**Only spots of** (with a callsign; empty means yours, from Your Station) shows only that
+station's spots, each with every station that heard it (up to 100): who is hearing you, as
+on PSKReporter's map. While it is ticked, PSKReporter is asked about that callsign. Typing a
+callsign ticks it.
 
 The round arrow beside **Spots…** refreshes them now, as far as each source allows:
 Spothole is asked again unless it was asked less than a minute ago, PSKReporter only once 5
@@ -1233,6 +1268,8 @@ Rules for every source:
     such as a club station's or a portable call. **Your email** is optional: PSKReporter
     asks the programs that query it for a contact address (its `appcontact`), and ADIF Lint
     sends one only if you enter it.
+  - **After New QSO logs a QSO, offer to spot it** (on at first): the **Spot This QSO**
+    panel (see [Spotting a QSO](#spotting-a-qso)).
   - **Save** applies the changes; the line under it says what each source is doing.
 - **IOTA Groups:** **Download** fetches IOTA's list of island groups (`iota-world.org`,
   about 290 KB) for the Map's IOTA overlay; download again to update it. The list is

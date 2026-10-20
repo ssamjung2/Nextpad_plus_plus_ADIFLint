@@ -4,6 +4,7 @@
 
 #import "Lookup.h"
 #import "Spots.h"
+#import "SpotOffer.h"
 #import "ToolWindow.h"
 
 // Flipped, so the sections start at the top of the scroll view.
@@ -34,6 +35,7 @@
     NSComboBox *_spotsNode;
     NSTextField *_spotsLogin, *_spotsCommands, *_spotsEmail, *_spotsStatus;
     NSPopUpButton *_spotsPskQuery;
+    NSButton *_spotsOffer;
     NSTextField *_spotsPskCall;
     id _spotsObserver;
     NSPopUpButton *_detailRegion, *_detailLevel, *_detailInstalled;
@@ -641,6 +643,11 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
         [g columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
         [g columnAtIndex:0].width = labelColumnWidth();
     }
+    _spotsOffer = [NSButton checkboxWithTitle:T(@"After New QSO logs a QSO, offer to spot it: the station worked on the DX cluster, yourself on "
+                                                @"pota.app when activating (sent only when you press Send)")
+                                       target:self
+                                       action:@selector(spotOfferChanged:)];
+    _spotsOffer.identifier = @"settings.spots.offer";
     NSButton *save = [NSButton buttonWithTitle:T(@"Save") target:self action:@selector(spotsChanged:)];
     _spotsStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
     _spotsSpothole.identifier = @"settings.spots.spothole", _spotsCluster.identifier = @"settings.spots.cluster";
@@ -652,14 +659,19 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
                                                                            object:nil
                                                                             queue:nil
                                                                        usingBlock:^(NSNotification *) { [self fillSpotsStatus]; }];
-    _spotsView = sectionStack(@[ sectionTitle(@"Spots"), help, _spotsSpothole, _spotsCluster, grid, _spotsPsk, pskGrid, save, _spotsStatus ],
+    _spotsView = sectionStack(@[ sectionTitle(@"Spots"), help, _spotsSpothole, _spotsCluster, grid, _spotsPsk, pskGrid, _spotsOffer, save, _spotsStatus ],
                               @"settings.spots");
     [self fillSpots];
     return _spotsView;
 }
 
+- (void)spotOfferChanged:(id)sender {
+    spotoffer::setWanted(_spotsOffer.state == NSControlStateValueOn);
+}
+
 - (void)fillSpots {
     spotfeeds::Config c = spotfeeds::config();
+    _spotsOffer.state = spotoffer::wanted() ? NSControlStateValueOn : NSControlStateValueOff;
     _spotsSpothole.state = c.spothole ? NSControlStateValueOn : NSControlStateValueOff;
     _spotsCluster.state = c.cluster ? NSControlStateValueOn : NSControlStateValueOff;
     _spotsPsk.state = c.psk ? NSControlStateValueOn : NSControlStateValueOff;

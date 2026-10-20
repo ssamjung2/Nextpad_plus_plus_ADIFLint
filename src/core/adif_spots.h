@@ -6,6 +6,7 @@
 
 #include "adif_country.h"
 #include "adif_parks.h"
+#include "adif_profiles.h"
 #include "adif_world.h"
 
 #include <cstddef>
@@ -65,6 +66,7 @@ struct SpotFilter {
     long long maxAge = 0;            // seconds; 0 any age
     std::set<SpotSource> sources;    // empty: all
     std::set<std::string> programs;  // empty: all; "" stands for plain DX spots
+    std::string onlyCall;            // only the spots of this station ("" all): who heard it
 };
 // A spot as the map's QSOs are, so the Map's place filters apply: its call, band, mode and
 // place, and its POTA parks.
@@ -173,6 +175,21 @@ long long spotEpoch(std::string_view utc);
 // CQ"), with an optional sign; the first one. False when the comment has none. Spothole has no
 // field for it (its apidocs, read 2026-10-20), so its RBN spots' reports come from here too.
 bool commentReport(std::string_view comment, int *snr);
+// Spotting a QSO you logged on a DX cluster, as DXSpider takes it ("dx (frequency) (callsign)
+// (remarks)", the frequency in kHz; the station "you have worked or heard, (ie not your own
+// callsign!)", dxcluster.org user manual section 4, read 2026-10-20): "dx 14074.0 K1ABC FT8".
+// Empty when the call is yours (in any portable form), isn't a callsign, or the frequency isn't
+// one. The remarks are cut to 30 printable characters.
+std::string clusterSpotCommand(std::string_view call, double khz, std::string_view remarks, std::string_view myCall);
+// The same station: the longest part of each call between "/" (K1ABC/P is K1ABC, VE3/K1ABC too).
+bool sameStation(std::string_view a, std::string_view b);
+// What a node said after a spot was posted: Accepted when it echoes it ("DX de <you>: ... <call>"),
+// Refused on a line saying sorry, not allowed, not registered, invalid or error; else None.
+enum class ClusterPostAnswer { None, Accepted, Refused };
+ClusterPostAnswer clusterPostAnswer(std::string_view line, std::string_view myCall, std::string_view call, long long now);
+// The spot comment for a logged QSO, as hunters write it: its program and reference first ("POTA
+// US-1234"), then its mode (the SUBMODE when there is one): "POTA US-1234 SSB", "FT8".
+std::string qsoSpotComment(const FieldList &fields);
 // How long ago a spot was made: "just now" under a minute, else "{n} min"; "" when the source
 // doesn't say when.
 std::string spotAge(long long epoch, long long now);

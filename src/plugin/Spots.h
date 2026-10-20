@@ -27,6 +27,18 @@ void setWanted(bool wanted);
 // The Map's home grid (Settings, else the log's most used MY_GRIDSQUARE), for PSKReporter's
 // Around my grid square when Settings has no grid.
 void setHomeGrid(const std::string &grid);
+// The Map's "Only spots of" callsign ("" none): PSKReporter asks about it while it is set (Of my
+// callsign), in place of Settings' callsign, so the Map shows who heard that station.
+void setFocusCall(const std::string &call);
+
+// Posting a spot on the DX cluster (after New QSO logs a QSO, when you say Send). The node and
+// callsign of the connection when it is logged in, else "".
+std::string clusterNode();
+std::string clusterCall();
+// Sends `command` (adif::clusterSpotCommand's) on the connection; `done` gets whether the node took
+// it and what it said: its echo of the spot, a refusal ("Sorry..."), or nothing within 10 s (sent,
+// unconfirmed: ok). Fails at once when the cluster isn't connected.
+void clusterPost(const std::string &command, const std::string &call, void (^done)(bool ok, const std::string &said));
 bool wanted();
 // Every spot the feeds have now, newest first.
 const adif::SpotList &spots();

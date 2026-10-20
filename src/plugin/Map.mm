@@ -110,7 +110,8 @@ struct {
     NSPopUpButton *regions = nil;
     NSMutableArray *completers = nil;
     // Spots: the popover of their own filters, Refresh, Use in New QSO, and what tells the Map of new ones.
-    NSButton *spotsButton = nil, *refreshSpotsButton = nil, *useSpot = nil;
+    NSButton *spotsButton = nil, *refreshSpotsButton = nil, *useSpot = nil, *spotsOnly = nil;
+    NSTextField *spotsOnlyCall = nil;
     NSPopover *spotsPopover = nil;
     NSPopUpButton *spotAge = nil, *spotProgram = nil;
     NSButton *spotSource[3] = {};
@@ -1326,6 +1327,10 @@ adif::SpotFilter spotFilter() {
     std::string program = setting("mapSpotsProgram");
     if (program == "-") f.programs = {""};
     else if (!program.empty()) f.programs = {program};
+    if (flag("mapSpotsOnly", false)) {  // one station's spots: who heard it
+        std::string call = setting("mapSpotsOnlyCall");
+        f.onlyCall = call.empty() ? setting("stationCall") : call;
+    }
     return f;
 }
 
@@ -1368,6 +1373,7 @@ void refreshSpots() {
     ADIFMapStyle st = mw.view.style;
     bool show = st[kLayerSpots].show;
     spotfeeds::setHomeGrid(mw.home);
+    spotfeeds::setFocusCall(spotFilter().onlyCall);
     spotfeeds::setWanted(show && mw.window.visible);
     std::vector<ADIFMapSpot> marks;
     long long now = (long long)time(nullptr);
@@ -1390,7 +1396,7 @@ void refreshSpots() {
             m.lat = at.lat, m.lon = at.lon, m.exact = at.exact;
             std::set<std::string> seen;
             // Up to 12 spotters a station; your own signal (PSKReporter) keeps up to 100: who heard you.
-            size_t most = sp.heardMe ? 100 : 12;
+            size_t most = sp.heardMe || !f.onlyCall.empty() ? 100 : 12;
             for (const adif::Spot *by : byStation[adif::spotterCall(sp.activator) + "|" + sp.band]) {
                 if (m.heard.size() >= most) break;
                 if (by->spotter.empty() || !seen.insert(adif::spotterCall(by->spotter)).second) continue;
@@ -1682,13 +1688,40 @@ void cmdMap() {
         mw.refreshSpotsButton.accessibilityLabel = T(@"Refresh Spots");
         mw.refreshSpotsButton.identifier = @"map.spots.refresh";
         mw.refreshSpotsButton.enabled = NO;
-        NSStackView *markers = [NSStackView stackViewWithViews:@[
-            ADIFLabel(@"Markers:"), mw.contacts, mw.lines, mw.programs, mw.mine, mw.colorBy, mw.spotsButton, mw.refreshSpotsButton
-        ]];
+        NSStackView *markers = [NSStackView stackViewWithViews:@[ ADIFLabel(@"Markers:"), mw.contacts, mw.lines, mw.programs, mw.mine, mw.colorBy ]];
         markers.spacing = 10;
         [markers setCustomSpacing:24 afterView:mw.mine];
-        [markers setCustomSpacing:24 afterView:mw.colorBy];
-        [markers setCustomSpacing:4 afterView:mw.spotsButton];
+        // Spots: their filters, Refresh, and one station's spots only (who heard it, as on PSKReporter's map).
+        mw.spotsOnly = ADIFCheckbox(@"Only spots of", flag("mapSpotsOnly", false));
+        mw.spotsOnly.toolTip = T(@"Show only this station's spots, each with every station that heard it: who is hearing you, as on PSKReporter's "
+                                 @"map. PSKReporter is asked about this callsign while it is ticked");
+        mw.spotsOnly.identifier = @"map.spots.only";
+        mw.spotsOnlyCall = [NSTextField textFieldWithString:ADIFString(setting("mapSpotsOnlyCall"))];
+        mw.spotsOnlyCall.placeholderString = setting("stationCall").empty() ? T(@"callsign") : ADIFString(setting("stationCall"));
+        mw.spotsOnlyCall.toolTip = T(@"The station whose spots to show; empty: your callsign (Your Station)");
+        mw.spotsOnlyCall.identifier = @"map.spots.onlyCall";
+        ((NSTextFieldCell *)mw.spotsOnlyCall.cell).sendsActionOnEndEditing = YES;
+        [mw.spotsOnlyCall.widthAnchor constraintEqualToConstant:110].active = YES;
+        ADIFOnAction(mw.spotsOnly, ^{
+            saveFlag("mapSpotsOnly", mw.spotsOnly.state == NSControlStateValueOn);
+            refreshSpots();
+        });
+        ADIFOnAction(mw.spotsOnlyCall, ^{
+            NSString *call = [[mw.spotsOnlyCall.stringValue stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet] uppercaseString];
+            mw.spotsOnlyCall.stringValue = call;
+            setSetting("mapSpotsOnlyCall", ADIFStd(call));
+            if (call.length && mw.spotsOnly.state != NSControlStateValueOn) {  // a callsign typed: ticked too
+                mw.spotsOnly.state = NSControlStateValueOn;
+                saveFlag("mapSpotsOnly", true);
+            }
+            refreshSpots();
+        });
+        NSStackView *spotsRow =
+            [NSStackView stackViewWithViews:@[ ADIFLabel(@"Spots:"), mw.spotsButton, mw.refreshSpotsButton, mw.spotsOnly, mw.spotsOnlyCall ]];
+        spotsRow.spacing = 8;
+        [spotsRow setCustomSpacing:4 afterView:mw.spotsButton];
+        [spotsRow setCustomSpacing:20 afterView:mw.refreshSpotsButton];
+        [spotsRow setCustomSpacing:4 afterView:mw.spotsOnly];
         mw.moreFilters = smallButton(@"More Filters...", @"Keep the QSOs in chosen places: continents, countries, zones, US states, counties and "
                                                           @"regions, POTA locations", ^{ showMoreFilters(); });
         mw.moreFilters.identifier = @"map.filter.more";
@@ -1742,7 +1775,7 @@ void cmdMap() {
                                  ^{ useSelectedSpot(); });
         mw.useSpot.identifier = @"map.spots.use";
         mw.useSpot.hidden = YES;
-        for (NSView *v in @[ mw.target, layers, markers, filters, zoomRow, mw.view, scroll, mw.status, mw.useSpot ]) {
+        for (NSView *v in @[ mw.target, layers, markers, spotsRow, filters, zoomRow, mw.view, scroll, mw.status, mw.useSpot ]) {
             v.translatesAutoresizingMaskIntoConstraints = NO;
             [root addSubview:v];
         }
@@ -1756,7 +1789,10 @@ void cmdMap() {
             [markers.topAnchor constraintEqualToAnchor:layers.bottomAnchor constant:8],
             [markers.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
             [markers.trailingAnchor constraintLessThanOrEqualToAnchor:root.trailingAnchor constant:-m],
-            [filters.topAnchor constraintEqualToAnchor:markers.bottomAnchor constant:6],
+            [spotsRow.topAnchor constraintEqualToAnchor:markers.bottomAnchor constant:6],
+            [spotsRow.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
+            [spotsRow.trailingAnchor constraintLessThanOrEqualToAnchor:root.trailingAnchor constant:-m],
+            [filters.topAnchor constraintEqualToAnchor:spotsRow.bottomAnchor constant:6],
             [filters.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
             [filters.trailingAnchor constraintLessThanOrEqualToAnchor:root.trailingAnchor constant:-m],
             [zoomRow.topAnchor constraintEqualToAnchor:filters.bottomAnchor constant:6],

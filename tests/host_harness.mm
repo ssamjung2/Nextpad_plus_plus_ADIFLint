@@ -4505,6 +4505,7 @@ int main(int argc, char **argv) {
 
                 // The cluster: "login: ", then after the call a spot at today's time; it notes what it heard and when it closed.
                 __block std::string heard;
+                __block size_t scanned = 0;  // how far `heard` has been read for dx commands
                 __block bool clientClosed = false;
                 int lfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
                 sockaddr_in a{};
@@ -4541,6 +4542,18 @@ int main(int argc, char **argv) {
                             snprintf(line, sizeof line, "DX de K1TTT:      7012.0  DL1ABC       up 1 JO62                       %02d%02dZ FN32\r\n",
                                      tm.tm_hour, tm.tm_min);
                             write(cfd, line, strlen(line));
+                        }
+                        // A spot posted ("dx 7012.0 DL1ABC CW"): echoed back as the node sends spots.
+                        for (size_t e; (e = heard.find("\r\n", scanned)) != std::string::npos; scanned = e + 2) {
+                            std::string got = heard.substr(scanned, e - scanned);
+                            char freq[32] = "", call[32] = "", remark[64] = "";
+                            if (got.rfind("dx ", 0) != 0 || sscanf(got.c_str() + 3, "%31s %31s %63[^\r]", freq, call, remark) < 2) continue;
+                            time_t t = (time_t)time(nullptr);
+                            struct tm tm{};
+                            gmtime_r(&t, &tm);
+                            char echo[200];
+                            snprintf(echo, sizeof echo, "DX de K9TST:      %s  %-12s %-30s %02d%02dZ\r\n", freq, call, remark, tm.tm_hour, tm.tm_min);
+                            write(cfd, echo, strlen(echo));
                         }
                     });
                     dispatch_source_set_cancel_handler(readSrc, ^{ close(cfd); });
@@ -4777,6 +4790,68 @@ int main(int argc, char **argv) {
                     if ([w.identifier isEqualToString:@"map.style"]) [w orderOut:nil];
                 for (NSWindow *w in NSApp.windows)
                     if ([w.identifier isEqualToString:@"map.style"]) [w orderOut:nil];
+
+                // Only spots of one station: DL1ABC (the cluster's spot), with K1TTT, which heard it.
+                NSButton *onlyBox = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.spots.only");
+                NSTextField *onlyCall = (NSTextField *)viewWithIdentifier(mapw.contentView, @"map.spots.onlyCall");
+                CHECK(onlyBox && onlyCall && onlyBox.superview == refreshButton.superview && onlyBox.state == NSControlStateValueOff,
+                      "Only spots of, in the Spots row under Markers, off at first");
+                onlyCall.stringValue = @"dl1abc";
+                [onlyCall sendAction:onlyCall.action to:onlyCall.target];
+                [(NSButton *)viewWithIdentifier(mapw.contentView, @"map.spots.open") performClick:nil];
+                pump(0.2);
+                spotStatus = (NSTextField *)popoverView(@"map.spots.status");
+                CHECK(onlyBox.state == NSControlStateValueOn && [onlyCall.stringValue isEqualToString:@"DL1ABC"] &&
+                          [spotStatus.stringValue hasPrefix:@"1 station on the map"],
+                      "a callsign typed: only its spots (%s)", spotStatus.stringValue.UTF8String);
+                setBox(onlyBox, false);
+                CHECK(![spotStatus.stringValue hasPrefix:@"1 station on the map"], "Only spots of off: every station again (%s)",
+                      spotStatus.stringValue.UTF8String);
+                for (NSWindow *w in [NSApp.windows copy])
+                    if (viewWithIdentifier(w.contentView, @"map.spots")) [w orderOut:nil];
+
+                // Spot This QSO: DL1ABC logged from its spot; the offer to spot it on the cluster; Send posts a dx command the node echoes.
+                [findButton(mapw.contentView, @"World") performClick:nil];
+                pump(0.1);
+                [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, berlin, 1)];
+                [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, berlin, 1)];
+                [useSpot performClick:nil];
+                pump(0.3);
+                NSWindow *qwLog = qsoWindow();
+                auto offerWindow = []() -> NSWindow * {
+                    for (NSWindow *w in NSApp.windows)
+                        if ([w.identifier isEqualToString:@"spot.offer"] && w.visible) return w;
+                    return nil;
+                };
+                auto logIt = [&]() {
+                    qsoControl(qwLog, @"CALL").stringValue = @"DL1ABC";
+                    qsoControl(qwLog, @"FREQ").stringValue = @"7.012";
+                    qsoControl(qwLog, @"MODE").stringValue = @"CW";
+                    [findButton(qwLog.contentView, @"Log QSO") performClick:nil];
+                    pump(0.3);
+                };
+                logIt();
+                NSWindow *offer = offerWindow();
+                NSButton *offerCluster = offer ? (NSButton *)viewWithIdentifier(offer.contentView, @"spot.offer.cluster") : nil;
+                NSTextField *offerComment = offer ? (NSTextField *)viewWithIdentifier(offer.contentView, @"spot.offer.comment") : nil;
+                CHECK(offer && [offerCluster.title hasPrefix:@"DL1ABC on the DX cluster (127.0.0.1:"] && !offerCluster.hidden &&
+                          [offerComment.stringValue isEqualToString:@"CW"] && viewWithIdentifier(offer.contentView, @"spot.offer.pota").hidden,
+                      "logged: the offer to spot DL1ABC on the cluster (no pota.app: not activating)");
+                if (offer) {
+                    CHECK(overlaps(offer.contentView) == 0, "the Spot This QSO panel does not overlap");
+                    snapshot(offer, "spot-offer");
+                }
+                offerComment.stringValue = @"CW tnx QSO";
+                [(NSButton *)viewWithIdentifier(offer.contentView, @"spot.offer.send") performClick:nil];
+                NSTextField *offerStatus = (NSTextField *)viewWithIdentifier(offer.contentView, @"spot.offer.status");
+                for (int k = 0; k < 30 && ![offerStatus.stringValue containsString:@"spotted"]; ++k) pump(0.1);
+                CHECK(heard.find("\r\ndx 7012.0 DL1ABC CW tnx QSO\r\n") != std::string::npos &&
+                          [offerStatus.stringValue hasPrefix:@"DX cluster: spotted (DX de K9TST:"],
+                      "Send: the dx command on the cluster, and the node's echo (%s)", offerStatus.stringValue.UTF8String);
+                [(NSButton *)viewWithIdentifier(offer.contentView, @"spot.offer.skip") performClick:nil];
+                logIt();
+                CHECK(!offerWindow(), "the same station on the same band again within 10 minutes: no offer");
+                [qwLog orderOut:nil];
 
                 // Off and on again: PSKReporter isn't asked again within five minutes; the cluster closes and reconnects.
                 setBox(mapBox(@"show", @"spots"), false);

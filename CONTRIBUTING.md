@@ -90,7 +90,8 @@ Also run, before a pull request that touches the plugin or the core:
 | `src/plugin/Station.mm`, `Monitor.mm` | Station profiles and Start Activation; the Monitor (sockets, file watching, the queue and its window) |
 | `src/plugin/Contest.mm`, `Labels.mm`, `Map.mm`, `LotwUsers.mm`, `PotaParks.mm`, `IotaGroups.mm` | The Contest window, Print QSL Labels, the Map, the LoTW user list, POTA's park list and IOTA's group list (both downloaded on request, never shipped) |
 | `src/plugin/Lookup.mm`, `Country.mm` | Network clients and Keychain storage, the country file |
-| `src/plugin/Spots.mm` | The Map's spot feeds: Spothole, the DX cluster connection (Network.framework) and PSKReporter, each started only while the Map's Spots layer shows |
+| `src/plugin/Spots.mm` | The Map's spot feeds: Spothole, the DX cluster connection (Network.framework) and PSKReporter, each started only while the Map's Spots layer shows, and posting a spot on the cluster |
+| `src/plugin/SpotOffer.mm`, `Night.mm` | Spot This QSO (after New QSO logs a QSO); Night Mode (every ADIF Lint window red on black) |
 | `src/cli/` | The `adiflint` command-line tool |
 | `spec/adif-3.1.7/` | ADIF's JSON export and HTML specification the tables are generated from (see `SOURCE.md`) |
 | `data/` | AD1C's country file (see `SOURCE.md`), `toolbar/`, the toolbar icons, and `lang/`, the language tables, all installed beside the plugin |

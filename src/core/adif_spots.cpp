@@ -119,6 +119,7 @@ MapQso spotQso(const Spot &s, const CountryTable *countries) {
 
 bool spotMatches(const SpotFilter &f, const Spot &s, long long now, const CountryTable *countries, const PotaParks *parks) {
     if (f.maxAge > 0 && s.epoch > 0 && now - s.epoch > f.maxAge) return false;
+    if (!f.onlyCall.empty() && !sameStation(s.activator, f.onlyCall)) return false;
     if (!f.sources.empty() && !f.sources.count(s.source)) return false;
     if (!f.programs.empty() && !f.programs.count(s.program)) return false;
     if (!f.map.band.empty() && !equalsNoCase(s.band, f.map.band)) return false;
@@ -555,6 +556,75 @@ bool commentReport(std::string_view comment, int *snr) {
         if (u == "DB" && i > 0 && reportShaped(words[i - 1])) return *snr = std::atoi(words[i - 1].c_str()), true;  // "15 dB"
     }
     return false;
+}
+
+namespace {
+// A callsign's shape: letters, digits and "/", 3 to 20 of them, with a letter and a digit.
+bool callShaped(std::string_view c) {
+    if (c.size() < 3 || c.size() > 20 || c.front() == '/' || c.back() == '/') return false;
+    bool letter = false, digit = false;
+    for (char ch : c) {
+        if (std::isalpha((unsigned char)ch)) letter = true;
+        else if (std::isdigit((unsigned char)ch)) digit = true;
+        else if (ch != '/') return false;
+    }
+    return letter && digit;
+}
+std::string longestPart(std::string_view call) {
+    std::string best, part;
+    for (char ch : upper(trimmed(call)) + "/") {
+        if (ch != '/') {
+            part.push_back(ch);
+            continue;
+        }
+        if (part.size() > best.size()) best = part;
+        part.clear();
+    }
+    return best;
+}
+}  // namespace
+
+bool sameStation(std::string_view a, std::string_view b) {
+    std::string x = longestPart(spotterCall(a)), y = longestPart(spotterCall(b));
+    return !x.empty() && x == y;
+}
+
+std::string clusterSpotCommand(std::string_view call, double khz, std::string_view remarks, std::string_view myCall) {
+    std::string c = upper(trimmed(call));
+    if (!callShaped(c) || sameStation(c, myCall) || !(khz >= 100 && khz < 300000000) || !std::isfinite(khz)) return "";
+    char f[32];
+    std::snprintf(f, sizeof f, "%.1f", khz);
+    std::string text;
+    for (char ch : trimmed(remarks))
+        if (ch >= 32 && ch < 127 && text.size() < 30) text.push_back(ch);
+    while (!text.empty() && text.back() == ' ') text.pop_back();
+    return std::string("dx ") + f + " " + c + (text.empty() ? "" : " " + text);
+}
+
+ClusterPostAnswer clusterPostAnswer(std::string_view line, std::string_view myCall, std::string_view call, long long now) {
+    Spot sp;
+    if (parseClusterSpot(line, now, &sp))
+        return sameStation(sp.spotter, myCall) && sameStation(sp.activator, call) ? ClusterPostAnswer::Accepted : ClusterPostAnswer::None;
+    std::string l = upper(line);
+    for (const char *no : {"SORRY", "NOT ALLOWED", "NOT REGISTERED", "MUST BE REGISTERED", "REQUIRES REGISTRATION", "INVALID", "ERROR"})
+        if (l.find(no) != std::string::npos) return ClusterPostAnswer::Refused;
+    return ClusterPostAnswer::None;
+}
+
+std::string qsoSpotComment(const FieldList &fields) {
+    auto get = [&](const char *k) {
+        for (const auto &f : fields)
+            if (f.first == k) return trimmed(f.second);
+        return std::string();
+    };
+    std::string program = upper(get("SIG")), ref = get("SIG_INFO");
+    if (std::string pota = get("POTA_REF"); !pota.empty()) program = "POTA", ref = pota;
+    else if (std::string wwff = get("WWFF_REF"); !wwff.empty()) program = "WWFF", ref = wwff;
+    else if (std::string sota = get("SOTA_REF"); !sota.empty()) program = "SOTA", ref = sota;
+    std::string mode = get("SUBMODE").empty() ? get("MODE") : get("SUBMODE");
+    std::string out = ref.empty() ? "" : (program.empty() ? ref : program + " " + ref);
+    if (!mode.empty()) out += (out.empty() ? "" : " ") + upper(mode);
+    return out;
 }
 
 std::string spotAge(long long epoch, long long now) {
