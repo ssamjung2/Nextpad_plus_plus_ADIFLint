@@ -99,6 +99,13 @@ struct ADIFMapSpot {
     std::vector<ADIFSpotHeard> heard;  // newest first, one per spotter, at most 12, each where it is
 };
 
+// A line of the information box (what is known about a clicked spot or spotter): a heading, or
+// a label and its value.
+struct ADIFInfoRow {
+    std::string label, value;
+    bool heading = false;
+};
+
 // A station that heard spotted stations, one marker for all of them.
 struct ADIFMapSpotter {
     std::string call;  // the first spot's spotter, as the source gives it
@@ -241,6 +248,7 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
     BOOL _osmDrawn;  // OpenStreetMap detail is showing: credit it
     std::vector<ADIFMapSpot> _spots;  // newest first
     std::vector<ADIFMapSpotter> _spotters;  // the stations that heard them, from _spots
+    std::vector<ADIFInfoRow> _info;         // the information box, bottom right; empty: none
     long long _spotsNow;             // when the spots were given, for their age
     long long _spotMaxAge;           // the Spots filter's age (fading); 0 any
 }
@@ -269,6 +277,9 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 - (void)setSpots:(const std::vector<ADIFMapSpot> &)spots now:(long long)now maxAge:(long long)maxAge;
 - (const std::vector<ADIFMapSpot> &)spots;
 - (const std::vector<ADIFMapSpotter> &)spotters;
+- (void)setInfo:(const std::vector<ADIFInfoRow> &)rows;  // the information box ({} hides it)
+- (const std::vector<ADIFInfoRow> &)info;
+- (NSString *)infoText;  // the box as text, a line a row ("Band: 20m"): the view's accessibility value too
 - (ADIFMapHit)selectedHit;  // what was clicked last
 @end
 
@@ -315,6 +326,7 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 - (BOOL)parkPinned:(const adif::MapPark &)pk;
 - (void)drawLabel:(NSString *)text at:(NSPoint)p size:(CGFloat)size alpha:(CGFloat)alpha;
 - (void)drawLegend;
+- (void)drawInfoBox;
 - (ADIFMapHit)hitAt:(NSPoint)p;
 - (void)mouseMoved:(NSEvent *)event;
 - (void)mouseExited:(NSEvent *)event;

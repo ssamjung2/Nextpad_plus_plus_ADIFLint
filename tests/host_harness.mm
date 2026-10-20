@@ -693,7 +693,7 @@ int main(int argc, char **argv) {
         CHECK(std::strcmp(getName(), "ADIF Lint") == 0, "plugin name: %s", getName());
         int n = 0;
         FuncItem *items = getFuncsArray(&n);
-        CHECK(n == 35, "35 menu entries (29 commands, 6 separators), got %d", n);
+        CHECK(n == 36, "36 menu entries (30 commands, 6 separators), got %d", n);
         std::map<std::string, FuncItem *> byName;
         int nextId = 22000;
         for (int i = 0; i < n; ++i) {
@@ -4565,6 +4565,7 @@ int main(int argc, char **argv) {
                 setField(@"settings.spots.login", @"k9tst");
                 setField(@"settings.spots.commands", @"set/skimmer; sh/dx 5");
                 setField(@"settings.spots.email", @"test@example.org");
+                setField(@"settings.spots.pskCall", @"k9tst");  // PSKReporter's callsign (no Your Station callsign here)
                 [(NSButton *)viewWithIdentifier(setw.contentView, @"settings.spots.save") performClick:nil];
                 [setw.contentView layoutSubtreeIfNeeded];
                 CHECK(overlaps(setw.contentView) == 0, "Settings with Spots does not overlap");
@@ -4658,12 +4659,17 @@ int main(int argc, char **argv) {
                 CHECK([spotterText containsString:@"heard 1 station: JA1XYZ 20m."] && [spotterText containsString:@"A Reverse Beacon Network skimmer."] &&
                           useSpot.hidden,
                       "a spotter clicked: %s", spotterText.UTF8String);
-                // PSKReporter: G4RCV (London) heard you.
+                // PSKReporter: your signal is the spot; G4RCV (London), which heard it, is a spotter.
+                auto infoText = [&]() { return std::string(((NSString *)[mapView performSelector:@selector(infoText)]).UTF8String); };
                 NSPoint london = pointFor(-0.1, 51.5);
                 [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, london, 1)];
                 [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, london, 1)];
-                NSString *heardYou = labelContaining(mapw.contentView, @"G4RCV heard you (K9TST) on 14074.123 kHz FT8");
-                CHECK([heardYou containsString:@"Signal report -15 dB."], "a station that heard you: %s", heardYou.UTF8String);
+                NSString *heardYou = labelContaining(mapw.contentView, @"G4RCV, a spotter: heard 1 station: K9TST 20m.");
+                std::string box = infoText();
+                CHECK(heardYou && box.find("G4RCV\n") == 0 && box.find("Grid: IO91wm") != std::string::npos &&
+                          box.find("Position: 51.52\u00B0 N, 0.13\u00B0 W (from its grid)") != std::string::npos &&
+                          box.find("Heard: K9TST 20m FT8   -15 dB") != std::string::npos,
+                      "a station that heard your signal, and its information box: %s", box.c_str());
                 // A skimmer's spot gives its signal report.
                 NSPoint tokyo = pointFor(139.7, 35.6);
                 [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, tokyo, 1)];
@@ -4671,6 +4677,18 @@ int main(int argc, char **argv) {
                 NSString *skimmed = labelContaining(mapw.contentView, @"JA1XYZ on 14025 kHz CW");
                 CHECK([skimmed containsString:@"by W3LPL-# (Spothole)"] && [skimmed containsString:@"Signal report +20 dB."], "a skimmer's spot: %s",
                       skimmed.UTF8String);
+                box = infoText();
+                CHECK(box.find("JA1XYZ\nFrequency: 14025 kHz\nBand: 20m\nMode: CW\nSpotted: ") == 0 &&
+                          box.find("Source: Spothole (RBN)") != std::string::npos && box.find("Location:") == std::string::npos &&
+                          box.find("Signal report: +20 dB") != std::string::npos && box.find("Position: 35.60\u00B0 N, 139.70\u00B0 E (from the spot)") != std::string::npos &&
+                          box.find("Distance: ") != std::string::npos && box.find("In this log: not in this log") != std::string::npos &&
+                          box.find("Comment: CW 20 dB 25 WPM CQ") != std::string::npos && box.find("Heard by: W3LPL-#   +20 dB") != std::string::npos,
+                      "a spot's information box: %s", box.c_str());
+                if (mapw) snapshot(mapw, "map-spot-info");
+                NSPoint ocean = pointFor(-40, -40);  // the South Atlantic: nothing there
+                [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, ocean, 1)];
+                [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, ocean, 1)];
+                CHECK(infoText().empty(), "clicking elsewhere closes the information box");
                 // Refresh keeps to the feeds' limits: Spothole asked under a minute ago, PSKReporter under five; the cluster is live.
                 [refreshButton performClick:nil];
                 pump(0.3);
@@ -4720,7 +4738,43 @@ int main(int argc, char **argv) {
                       "around the grid: no new question within five minutes (%s)", pskSaid.UTF8String);
                 [pskQuery selectItemAtIndex:0];
                 [pskQuery sendAction:pskQuery.action to:pskQuery.target];
+                // Another callsign to ask PSKReporter about; kept, and still no question within five minutes.
+                NSTextField *pskCall = (NSTextField *)viewWithIdentifier(setw.contentView, @"settings.spots.pskCall");
+                pskCall.stringValue = @"k1abc";
+                [(NSButton *)viewWithIdentifier(setw.contentView, @"settings.spots.save") performClick:nil];
+                pump(0.3);
+                {
+                    NSString *ini = [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint.ini"]
+                                                              encoding:NSUTF8StringEncoding
+                                                                 error:nil];
+                    CHECK([ini containsString:@"spotsPskCall=K1ABC"] && count(requests(), "PSKREPORTER ") == 1,
+                          "PSKReporter's callsign kept (upper case); no new question within five minutes");
+                }
+                pskCall.stringValue = @"K9TST";
+                [(NSButton *)viewWithIdentifier(setw.contentView, @"settings.spots.save") performClick:nil];
                 [setw orderOut:nil];
+                // Night Mode: every ADIF Lint window dark and through the red filter, the Map in its Night palette; off again.
+                run("Night Mode");
+                auto nightOn = [](NSWindow *w) {
+                    return w && [w.appearance.name isEqualToString:NSAppearanceNameDarkAqua] && w.contentView.contentFilters.count == 1 &&
+                           w.contentView.layerUsesCoreImageFilters;
+                };
+                NSWindow *stylew = stylePanel();
+                NSControl *palettePick = style(@"palette");
+                CHECK(nightOn(mapw) && nightOn(setw) && nightOn(stylew) && palettePick && !palettePick.enabled,
+                      "Night Mode: the Map, Settings and Style Options red on black; the palette set by it");
+                [(NSButton *)viewWithIdentifier(mapw.contentView, @"map.spots.open") performClick:nil];
+                pump(0.2);
+                NSView *spotsContent = popoverView(@"map.spots");
+                CHECK(spotsContent && spotsContent.contentFilters.count == 1, "Night Mode: the Spots popover too");
+                for (NSWindow *w in [NSApp.windows copy])
+                    if (viewWithIdentifier(w.contentView, @"map.spots")) [w orderOut:nil];
+                if (mapw) snapshot(mapw, "map-night");
+                run("Night Mode");
+                CHECK(mapw.contentView.contentFilters.count == 0 && !mapw.appearance && style(@"palette").enabled,
+                      "Night Mode off: the windows as they were");
+                for (NSWindow *w in NSApp.windows)
+                    if ([w.identifier isEqualToString:@"map.style"]) [w orderOut:nil];
                 for (NSWindow *w in NSApp.windows)
                     if ([w.identifier isEqualToString:@"map.style"]) [w orderOut:nil];
 

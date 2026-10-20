@@ -382,7 +382,9 @@ void clusterConnect() {
 void pskFetch() {
     if (f.pskBusy) return;
     Config c = config();
-    std::string call = myCall(c);
+    // The callsign asked about (Settings → Spots), else Your Station's; never the cluster's login.
+    std::string call = upperText(c.pskCall.empty() ? setting("stationCall") : c.pskCall);
+    call.erase(std::remove_if(call.begin(), call.end(), [](char ch) { return ch == ' '; }), call.end());
     bool around = c.pskQuery == 1;
     std::string square = upperText(setting("stationGrid").empty() ? f.homeGrid : setting("stationGrid")).substr(0, 4);
     double lat, lon;
@@ -561,6 +563,7 @@ Config config() {
     c.commands = setting("spotsClusterCommands");
     c.psk = flag("spotsPsk", false);
     c.pskQuery = std::clamp(std::atoi(setting("spotsPskQuery").c_str()), 0, 1);
+    c.pskCall = setting("spotsPskCall");
     c.email = setting("spotsPskEmail");
     return c;
 }
@@ -575,13 +578,14 @@ void setConfig(const Config &c) {
     setSetting("spotsClusterCommands", c.commands);
     setSetting("spotsPsk", c.psk ? "1" : "0");
     setSetting("spotsPskQuery", std::to_string(c.pskQuery));
+    setSetting("spotsPskCall", c.pskCall);
     setSetting("spotsPskEmail", c.email);
     if (c.spothole && !was.spothole) f.spotholeAsked = 0;  // turned on: ask at once
-    if (c.pskQuery != was.pskQuery) f.pskStatus.clear();
+    if (c.pskQuery != was.pskQuery || c.pskCall != was.pskCall) f.pskStatus.clear();
     // A feed turned off takes its spots with it.
     if (!c.spothole && was.spothole) f.list.clear(adif::SpotSource::Spothole), f.receivedSince = 0;
     if (!c.cluster && was.cluster) f.list.clear(adif::SpotSource::Cluster);
-    if ((!c.psk && was.psk) || c.pskQuery != was.pskQuery) f.list.clear(adif::SpotSource::PskReporter);
+    if ((!c.psk && was.psk) || c.pskQuery != was.pskQuery || c.pskCall != was.pskCall) f.list.clear(adif::SpotSource::PskReporter);
     if (c.host != was.host || c.port != was.port || c.login != was.login) f.list.clear(adif::SpotSource::Cluster);
     if (f.wanted) restart();
     else changed();

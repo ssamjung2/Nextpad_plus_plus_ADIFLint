@@ -1,4 +1,5 @@
 #import "ToolWindow.h"
+#import "Night.h"
 
 #import "L10n.h"
 
@@ -183,6 +184,7 @@ static bool containsNoCase(const std::string &hay, const std::string &upperNeedl
                                            backing:NSBackingStoreBuffered
                                              defer:YES];
     _window.title = T(title);
+    ADIFNightTrack(_window);
     _window.floatingPanel = YES;
     _window.hidesOnDeactivate = YES;
     _window.releasedWhenClosed = NO;

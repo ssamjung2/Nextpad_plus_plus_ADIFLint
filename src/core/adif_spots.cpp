@@ -476,11 +476,9 @@ bool parsePskReports(std::string_view xml, std::vector<Spot> *out, std::string *
         std::string sender = upper(printable(trimmed(get("senderCallsign")), 20));
         std::string receiver = upper(printable(trimmed(get("receiverCallsign")), 20));
         std::string senderGrid = printable(trimmed(get("senderLocator")), 10), receiverGrid = printable(trimmed(get("receiverLocator")), 10);
-        sp.heardMe = !mine.empty() && spotterCall(sender) == spotterCall(mine);
-        sp.activator = sp.heardMe ? receiver : sender;
-        sp.spotter = sp.heardMe ? sender : receiver;
-        sp.grid = sp.heardMe ? receiverGrid : senderGrid;
-        sp.spotterGrid = sp.heardMe ? senderGrid : receiverGrid;
+        sp.heardMe = !mine.empty() && spotterCall(sender) == spotterCall(mine);  // your own signal
+        sp.activator = sender, sp.spotter = receiver;
+        sp.grid = senderGrid, sp.spotterGrid = receiverGrid;
         sp.khz = spotKhz(std::atof(get("frequency").c_str()));
         sp.mode = upper(printable(trimmed(get("mode")), 12));
         long long t = std::atoll(get("flowStartSeconds").c_str());

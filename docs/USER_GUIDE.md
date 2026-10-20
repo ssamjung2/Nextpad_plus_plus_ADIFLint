@@ -595,7 +595,9 @@ The **Spots** layer marks the stations spotted now, live, beside your log:
   solid for 10 minutes and fainter as it ages. A station spotted on several bands has a
   marker for each band, from its newest spot. The stations that heard it, its spotters (up
   to 12, the newest first), are faint triangles: a cluster's spotters, RBN skimmers and
-  PSKReporter's receivers, and you for the stations that heard you.
+  PSKReporter's receivers. With PSKReporter, your own signal is a spot at your grid and
+  the stations that heard it (up to 100) are its triangles; a triangle at your grid means
+  your own station reported hearing someone.
 - **Overlay** draws a line from each spotter to the station it heard, while Show is on.
   Without it, pointing at a spot (or clicking it) still draws its spotters' lines, and
   pointing at a spotter draws the lines to the stations it heard.
@@ -640,9 +642,29 @@ bearing from your grid (Settings, else the log's most used MY_GRIDSQUARE). **Use
 QSO**, beside the status line, fills New QSO from it as the Spots window does: CALL, FREQ,
 BAND, MODE and the program's reference, or GRIDSQUARE when a cluster or PSKReporter spot
 gives the station's grid. Click a spotter for the stations it heard ("W3LPL-#, a spotter:
-heard 3 stations: JA1XYZ 20m, …"), or, for you with PSKReporter, the stations that heard
-you. Signal reports come from RBN skimmers and PSKReporter; Spothole has no field for them,
-so they are read from its spots' comments ("CW 20 dB 25 WPM").
+heard 3 stations: JA1XYZ 20m, …"). Signal reports come from RBN skimmers and PSKReporter;
+Spothole has no field for them, so they are read from its spots' comments ("CW 20 dB 25
+WPM").
+
+A click on a spot or a spotter also opens an information box at the bottom right of the map
+with everything known about the station:
+
+- **A spot:** frequency, band and mode; when it was spotted (UTC, and how long ago); the
+  source (for Spothole, where it had it from: a cluster, the RBN, POTA…); the program, its
+  reference, the reference's name and POTA's location; the signal report; the grid; the
+  position, and where it came from (its grid, the spot, or the country's from the country
+  data); the country, continent and CQ and ITU zones; the distance and bearing from your
+  grid; whether it is in this log; the comment; and every station that heard it, each with
+  its report and how long ago.
+- **A spotter:** its grid, position, country, continent, zones and distance, whether it is
+  an RBN skimmer, and every station it heard, with band, mode, report and age.
+
+The box follows the spot as new spots come in, and goes when you click anywhere else.
+VoiceOver reads it as the map's value.
+
+ADIF Lint only asks for spots: it never sends any. It doesn't report to PSKReporter, post to
+a DX cluster or POTA, or upload what Monitor hears. PSKReporter's reports of your own
+station come from the programs you run that upload to it (WSJT-X and others).
 
 ### Contacts and their places
 
@@ -1197,18 +1219,20 @@ Rules for every source:
   - **PSKReporter**: reception reports of digital modes from `retrieve.pskreporter.info`,
     asked no more than every 5 minutes, as PSKReporter asks, and at most 1,000 at a time.
     **Reports** chooses which:
-    - **Of my callsign** (at first): the last hour's reports with your callsign on either
-      side: the stations that heard you (each a spot, heard by you), and the stations your
-      station heard, if your program uploads what it hears (in WSJT-X: Settings, Reporting,
-      Enable PSK Reporter Spotting; WSJT-X User Guide 3.2.0, section 6.5). There are none
-      unless you transmitted or uploaded in that hour; the status line then says so.
+    - **Of my callsign** (at first): the last hour's reports with the callsign on either
+      side: your signal and the stations that heard it, and the stations your station
+      heard, if your program uploads what it hears (in WSJT-X: Settings, Reporting, Enable
+      PSK Reporter Spotting; WSJT-X User Guide 3.2.0, section 6.5). There are none unless
+      you transmitted or uploaded in that hour; the status line then says so.
     - **Around my grid square**: the last half hour's reports with either station in your
       4-character square (Your Station's grid, else the log's most used MY_GRIDSQUARE): who
       the stations around you heard, and who heard them, so there is something to see when
       you are off the air. A square's half hour can be a thousand reports.
 
-    **Your email** is optional: PSKReporter asks the programs that query it for a contact
-    address (its `appcontact`), and ADIF Lint sends one only if you enter it.
+    **Callsign** is the one to ask about: your own (Your Station) when empty, or another,
+    such as a club station's or a portable call. **Your email** is optional: PSKReporter
+    asks the programs that query it for a contact address (its `appcontact`), and ADIF Lint
+    sends one only if you enter it.
   - **Save** applies the changes; the line under it says what each source is doing.
 - **IOTA Groups:** **Download** fetches IOTA's list of island groups (`iota-world.org`,
   about 290 KB) for the Map's IOTA overlay; download again to update it. The list is
@@ -1256,6 +1280,23 @@ nothing is sent:
 Each says "Offline mode is on" instead. Everything that works on your Mac's own files goes
 on as usual: checking and editing logs, New QSO, the Map, the exports, and Monitor, which
 only listens to the programs on your Mac. The setting is kept until you turn it off.
+
+### Night mode
+
+**Night Mode** (ticked in the ADIF Lint menu) keeps your night vision: every ADIF Lint
+window and popover goes dark and red (the Map, New QSO, Settings, the Log Table, the Spots
+window and the rest), and the Map takes its **Night (red)** palette; Style Options' palette
+choice comes back when you turn it off. The setting is kept.
+
+A plugin can't recolour Nextpad++'s own windows, its menus or the menu bar. For the whole
+screen, macOS has a red tint: **System Settings → Accessibility → Display → Color filters**,
+with **Filter type** set to **Color Tint** and a red tint colour, and **Intensity** to taste.
+**Option-Command-F5** (or three quick presses of Touch ID) opens the Accessibility Shortcuts
+panel, where Color Filters can be turned on and off; choose what it offers in
+**Accessibility → Shortcut**. Apple notes that Night Shift can turn colour filters off, so
+leave Night Shift off at night. (Apple's guide:
+[Change display colors on Mac](https://support.apple.com/guide/mac-help/change-display-colors-easier-onscreen-mchl11ddd4b3/mac),
+read 2026-10-20.)
 
 ### Language
 

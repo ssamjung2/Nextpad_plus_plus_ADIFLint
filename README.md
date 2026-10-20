@@ -242,6 +242,7 @@ tab); Settings suggests some.
 | Reformat: One Record per Line / One Field per Line | Re-lay the file without touching data |
 | Check .adi Files While Typing | Problem marks as you type (on by default) |
 | Offline Mode | No network requests at all, for off-grid operating (off by default) |
+| Night Mode | Every ADIF Lint window red on black and the Map in its Night palette, to keep night vision (off by default) |
 | Settings… | Your station, editor options, offline mode, country data, and accounts for the online services |
 | About ADIF Lint… | Version, licence and links |
 

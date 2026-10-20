@@ -33,6 +33,7 @@
 #import <Cocoa/Cocoa.h>
 
 #import "CheckLog.h"
+#import "Night.h"
 #import "L10n.h"
 #import "Families.h"
 #import "MapDetail.h"
@@ -119,6 +120,7 @@ enum {
     kCmdReformatFields,
     kCmdAutoValidate,
     kCmdOffline,
+    kCmdNight,
     kSepSettings,
     kCmdSettings,
     kCmdAbout,
@@ -1496,6 +1498,7 @@ static void createPanel() {
         g.panelWindow.hidesOnDeactivate = YES;
         g.panelWindow.releasedWhenClosed = NO;
         g.panelWindow.contentView = g.panel.view;
+        ADIFNightTrack(g.panelWindow);
     }
 }
 
@@ -2689,6 +2692,9 @@ static void refreshMapDetail() {
     }
     [g.settings setMapDetailChoices:choices levels:levels installed:have summary:mapdetail::status()];
 }
+// Night Mode (the menu item): ADIF Lint's windows red on black, the Map in its Night palette.
+static void cmdToggleNight() { ADIFSetNightMode(!ADIFNightMode()); }
+
 static void offlineChanged() {
     setCheck(kCmdOffline, ADIFOffline());
     [g.settings setOffline:ADIFOffline()];
@@ -2831,6 +2837,7 @@ extern "C" NPP_EXPORT void setInfo(NppData data) {
     setItem(kCmdReformatFields, "Reformat: One Field per Line", cmdReformatFields);
     setItem(kCmdAutoValidate, "Check .adi Files While Typing", cmdToggleAutoValidate, g.autoValidate);
     setItem(kCmdOffline, "Offline Mode", cmdToggleOffline, ADIFOffline());
+    setItem(kCmdNight, "Night Mode", cmdToggleNight, ADIFNightMode());
     setItem(kSepSettings, "", nullptr);
     setItem(kCmdSettings, "Settings...", cmdSettings);
     setItem(kCmdAbout, "About ADIF Lint...", cmdAbout);
@@ -2854,6 +2861,7 @@ extern "C" NPP_EXPORT void beNotified(SCNotification *n) {
                 setCheck(kCmdAutoValidate, g.autoValidate);
                 setCheck(kCmdRecordPanel, g.panelWanted);
                 setCheck(kCmdOffline, ADIFOffline());
+                setCheck(kCmdNight, ADIFNightMode());
                 static id languageObservers[2];
                 if (!languageObservers[0]) {
                     // Nextpad++ posts this when its language changes (Settings → Preferences).
@@ -2890,6 +2898,12 @@ extern "C" NPP_EXPORT void beNotified(SCNotification *n) {
                                                                                         object:nil
                                                                                          queue:nil
                                                                                     usingBlock:^(NSNotification *) { offlineChanged(); }];
+                static id nightObserver;
+                if (!nightObserver)
+                    nightObserver = [[NSNotificationCenter defaultCenter] addObserverForName:ADIFNightModeChangedNotification
+                                                                                      object:nil
+                                                                                       queue:nil
+                                                                                  usingBlock:^(NSNotification *) { setCheck(kCmdNight, ADIFNightMode()); }];
                 for (NppHandle h : {nppData._scintillaMainHandle, nppData._scintillaSecondHandle}) {
                     sci(h, SCI_SETMOUSEDWELLTIME, kDwellMs);
                     styleIndicators(h);

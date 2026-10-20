@@ -1,4 +1,5 @@
 #import "QsoFieldsPanel.h"
+#import "Night.h"
 #import "L10n.h"
 #import "ToolWindow.h"
 
@@ -60,6 +61,7 @@ static NSScrollView *scrolling(NSTableView *t) {
                                            backing:NSBackingStoreBuffered
                                              defer:YES];
     _window.title = T(@"New QSO Fields");
+    ADIFNightTrack(_window);
     _window.floatingPanel = YES;
     _window.hidesOnDeactivate = YES;
     _window.releasedWhenClosed = NO;

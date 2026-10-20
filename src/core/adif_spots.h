@@ -37,7 +37,7 @@ struct Spot {
     std::string comments;
     int snr = 0;               // dB, from a skimmer or PSKReporter
     bool hasSnr = false;
-    bool heardMe = false;      // PSKReporter: a station that heard you (the activator); you are the spotter
+    bool heardMe = false;      // PSKReporter: your own signal (you are the activator), heard by the spotter
     // Where the source says the station and the spotter are (Spothole's dx_ and de_latitude and
     // longitude), when it does; `exact` when it is better than a country's centre.
     bool placeGiven = false, placeExact = false, spotterPlaceGiven = false;
@@ -147,9 +147,9 @@ ClusterPrompt clusterPrompt(std::string_view text);
 // flowStartSeconds=.../>, the frequency in Hz and the time in Unix seconds; mode, senderLocator
 // and sNR when they're there (the page's sample shows neither quotes everywhere nor these, so
 // both forms are read). A report is a spot of its sender (activator, grid) by its receiver
-// (spotter, spotterGrid), as a spot site would give it; but when the sender is `me`, it is a
-// station that heard you: a spot of that receiver, spotted by you, marked heardMe. At most
-// `limit`. False, with why, when the text isn't PSKReporter's answer.
+// (spotter, spotterGrid), as a spot site would give it; when the sender is `me` it is your own
+// signal, marked heardMe, and its receivers are the stations that heard you. At most `limit`.
+// False, with why, when the text isn't PSKReporter's answer.
 bool parsePskReports(std::string_view xml, std::vector<Spot> *out, std::string *why, size_t limit = 2000, std::string_view me = "");
 // What to ask PSKReporter for: the reports with a callsign on either side (who heard you, and
 // what your station reported hearing: `callsign=`), or with either station in a grid square

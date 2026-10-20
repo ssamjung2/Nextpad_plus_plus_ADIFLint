@@ -3744,9 +3744,9 @@ static void testCluster() {
               reports[0].spotterGrid == "FN42hn" && reports[0].grid.empty() && !reports[0].heardMe && reports[0].khz == "14070.987" &&
               reports[0].band == "20m" && reports[0].epoch == 1791407000 && reports[0].source == SpotSource::PskReporter,
           "PSKReporter's sample report: N1DQ heard by KB1MBX, as a spot site gives it (%s)", why.c_str());
-    CHECK(parsePskReports(sample, &reports, &why, 2000, "n1dq") && reports.size() == 1 && reports[0].activator == "KB1MBX" &&
-              reports[0].grid == "FN42hn" && reports[0].spotter == "N1DQ" && reports[0].heardMe,
-          "asked by N1DQ: KB1MBX is a station that heard you");
+    CHECK(parsePskReports(sample, &reports, &why, 2000, "n1dq") && reports.size() == 1 && reports[0].activator == "N1DQ" &&
+              reports[0].spotter == "KB1MBX" && reports[0].spotterGrid == "FN42hn" && reports[0].heardMe,
+          "asked by N1DQ: your own signal, heard by KB1MBX");
     CHECK(parsePskReports("<?xml version=\"1.0\"?><receptionReports currentSeconds=\"1791407517\"><activeReceiver callsign=\"X\"/>"
                           "<receptionReport receiverCallsign='ja1xyz' receiverLocator='PM95vq' senderCallsign='K9ABC' senderLocator='EN53xb' "
                           "frequency='7074123' flowStartSeconds='1791407400' mode='FT8' sNR='-12' />"
@@ -3755,10 +3755,11 @@ static void testCluster() {
                           "<receptionReport receiverCallsign=\"\" frequency=\"14074000\" flowStartSeconds=\"1791407400\"/>"
                           "<receptionReport receiverCallsign=\"DL1&amp;X\" frequency=\"x\" flowStartSeconds=\"1791407400\"/></receptionReports>",
                           &reports, &why, 2000, "K9ABC") &&
-              reports.size() == 2 && reports[0].activator == "JA1XYZ" && reports[0].spotterGrid == "EN53xb" && reports[0].mode == "FT8" &&
-              reports[0].hasSnr && reports[0].snr == -12 && reports[0].band == "40m" && reports[0].heardMe && reports[1].activator == "DL1ABC" &&
-              reports[1].spotter == "K9ABC" && reports[1].grid == "JO62qm" && !reports[1].heardMe && reports[1].snr == -3,
-          "asked by K9ABC: a station that heard you, and one your station heard; ones without a call or frequency skipped");
+              reports.size() == 2 && reports[0].activator == "K9ABC" && reports[0].grid == "EN53xb" && reports[0].spotter == "JA1XYZ" &&
+              reports[0].spotterGrid == "PM95vq" && reports[0].mode == "FT8" && reports[0].hasSnr && reports[0].snr == -12 &&
+              reports[0].band == "40m" && reports[0].heardMe && reports[1].activator == "DL1ABC" && reports[1].spotter == "K9ABC" &&
+              reports[1].grid == "JO62qm" && !reports[1].heardMe && reports[1].snr == -3,
+          "asked by K9ABC: your signal heard by JA1XYZ, and DL1ABC heard by your station; ones without a call or frequency skipped");
     CHECK(!parsePskReports("<html>Too many requests</html>", &reports, &why) && !why.empty() && reports.empty(), "an answer that isn't reports");
     CHECK(pskQueryUrl(" k9abc ", PskQuery::Callsign, 1800, "me@example.org") ==
                   "https://retrieve.pskreporter.info/query?callsign=K9ABC&flowStartSeconds=-1800&rronly=1&rptlimit=1000&appcontact=me%40example.org" &&

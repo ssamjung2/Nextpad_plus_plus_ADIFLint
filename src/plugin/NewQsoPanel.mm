@@ -1,4 +1,5 @@
 #import "NewQsoPanel.h"
+#import "Night.h"
 #import "L10n.h"
 #import "ToolWindow.h"
 
@@ -45,6 +46,7 @@ static NSColor *severityColor(int severity) { return severity < 0 ? NSColor.seco
                                            backing:NSBackingStoreBuffered
                                              defer:YES];
     _window.title = T(@"New QSO");
+    ADIFNightTrack(_window);
     _window.floatingPanel = YES;
     _window.hidesOnDeactivate = YES;
     _window.releasedWhenClosed = NO;

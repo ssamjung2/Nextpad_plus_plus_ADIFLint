@@ -1,4 +1,5 @@
 #import "Map.h"
+#import "Night.h"
 #import "L10n.h"
 #import "MapView.h"
 
@@ -213,7 +214,7 @@ ADIFMapStyle savedStyle() {
     ADIFMapStyle s;
     static const double kSizes[] = {0.75, 1.0, 1.4, 1.9};
     s.colorBy = number("mapColorBy", 0, 4);
-    s.palette = number("mapPalette", 0, 4);
+    s.palette = ADIFNightMode() ? 4 : number("mapPalette", 0, 4);  // Night Mode: the Night (red) palette
     s.shape = number("mapMarkerShape", 0, 2);
     s.fill = number("mapSquareFill", 0, 2);
     s.marker = kSizes[number("mapMarkerSize", 1, 3)];
@@ -261,6 +262,15 @@ std::string callsOf(const std::vector<size_t> &qsos) {
 }
 
 // "{km} km at {bearing}° from {home}." from home to a place, or "" without a home.
+// A spotted station in this log: worked on its band, on others, or not at all.
+std::string inLog(const adif::Spot &sp) {
+    bool band = false, other = false;
+    std::string call = adif::spotterCall(sp.activator);  // without a suffix after "-"
+    for (const adif::MapQso &q : mw.data.qsos)
+        if (adif::spotterCall(q.call) == call) (q.band == sp.band ? band : other) = true;
+    return band ? trf("worked on {band}", {{"band", sp.band}}) : other ? tr("worked on other bands") : tr("not in this log");
+}
+
 std::string fromHome(double lat, double lon) {
     double hlat, hlon;
     if (mw.home.empty() || !adif::gridToLatLon(mw.home, &hlat, &hlon)) return "";
@@ -371,16 +381,14 @@ std::string describe(const ADIFMapHit &h) {
             std::string when = age < 0 ? "" : age == 0 ? tr("just now") : trp("{n} minute ago", "{n} minutes ago", age);
             std::string by = sp.spotter.empty() ? tr(adif::spotSourceName(sp.source))
                                                 : trf("by {spotter} ({source})", {{"spotter", sp.spotter}, {"source", tr(adif::spotSourceName(sp.source))}});
-            // In this log: worked on this band, on others, or not at all.
-            bool band = false, other = false;
-            std::string call = adif::spotterCall(sp.activator);  // without a suffix after "-"
-            for (const adif::MapQso &q : mw.data.qsos)
-                if (adif::spotterCall(q.call) == call) (q.band == sp.band ? band : other) = true;
-            std::string log = band ? trf("worked on {band}", {{"band", sp.band}}) : other ? tr("worked on other bands") : tr("not in this log");
-            std::string text = sp.heardMe ? trf("{call} heard you ({me}) on {what}, {when}; {log}.",
-                                                {{"call", sp.activator}, {"me", sp.spotter}, {"what", what}, {"when", when}, {"log", log}})
-                                          : trf("{call} on {what}{ref}, spotted {when} {by}; {log}.",
-                                                {{"call", sp.activator}, {"what", what}, {"ref", ref}, {"when", when}, {"by", by}, {"log", log}});
+            std::string log = inLog(sp);
+            if (sp.heardMe)  // PSKReporter: your own signal, and the stations that heard it
+                return trp("Your signal ({call}) on {what}, {when}: heard by {n} station (PSKReporter).",
+                           "Your signal ({call}) on {what}, {when}: heard by {n} stations (PSKReporter).", (long long)ms.heard.size(),
+                           {{"call", sp.activator}, {"what", what}, {"when", when}}) +
+                       fromHome(ms.lat, ms.lon);
+            std::string text = trf("{call} on {what}{ref}, spotted {when} {by}; {log}.",
+                                   {{"call", sp.activator}, {"what", what}, {"ref", ref}, {"when", when}, {"by", by}, {"log", log}});
             if (sp.hasSnr) text += " " + trf("Signal report {snr}.", {{"snr", adif::spotSnr(sp)}});
             if (ms.heard.size() > 1)
                 text += " " + trp("Heard by {n} spotter.", "Heard by {n} spotters.", (long long)ms.heard.size());
@@ -390,23 +398,15 @@ std::string describe(const ADIFMapHit &h) {
         case ADIFMapHit::Spotter: {
             if (h.index >= mw.view.spotters.size()) break;
             const ADIFMapSpotter &st = mw.view.spotters[h.index];
-            // The stations it heard, and (you, with PSKReporter) those that heard you, newest first.
-            std::string heard, heardBy;
-            long long nHeard = 0, nBy = 0;
-            for (size_t k : st.spots) {
-                const adif::Spot &sp = mw.view.spots[k].spot;
-                std::string &list = sp.heardMe ? heardBy : heard;
-                long long &n = sp.heardMe ? nBy : nHeard;
-                if (n < 6) list += (list.empty() ? "" : ", ") + sp.activator + " " + sp.band;
-                else if (n == 6) list += ", ...";
-                ++n;
+            // The stations it heard, newest first.
+            std::string list;
+            for (size_t n = 0; n < st.spots.size() && n < 6; ++n) {
+                const adif::Spot &sp = mw.view.spots[st.spots[n]].spot;
+                list += (list.empty() ? "" : ", ") + sp.activator + " " + sp.band;
             }
-            std::string text;
-            if (nHeard) text = trp("{call}, a spotter: heard {n} station: {list}.", "{call}, a spotter: heard {n} stations: {list}.", nHeard,
-                                   {{"call", st.call}, {"list", heard}});
-            if (nBy)
-                text += (text.empty() ? "" : " ") + trp("{call}: heard by {n} station (PSKReporter): {list}.",
-                                                        "{call}: heard by {n} stations (PSKReporter): {list}.", nBy, {{"call", st.call}, {"list", heardBy}});
+            if (st.spots.size() > 6) list += ", +" + std::to_string(st.spots.size() - 6);
+            std::string text = trp("{call}, a spotter: heard {n} station: {list}.", "{call}, a spotter: heard {n} stations: {list}.",
+                                   (long long)st.spots.size(), {{"call", st.call}, {"list", list}});
             if (st.call.size() > 2 && st.call.compare(st.call.size() - 2, 2, "-#") == 0)
                 text += " " + tr("A Reverse Beacon Network skimmer.");
             return text + fromHome(st.lat, st.lon);
@@ -429,6 +429,106 @@ void showList(const std::vector<size_t> &qsos) {
     [mw.table reloadData];
 }
 
+// The information box for a clicked spot or spotter: everything known about the station.
+std::vector<ADIFInfoRow> spotInfo(const ADIFMapHit &h) {
+    std::vector<ADIFInfoRow> rows;
+    auto row = [&](const char *label, const std::string &value) {
+        if (!value.empty()) rows.push_back({tr(label), value, false});
+    };
+    long long now = (long long)time(nullptr);
+    const adif::CountryTable *countries = &ADIFCountries();
+    auto position = [&](double lat, double lon, const std::string &from) {
+        char b[64];
+        snprintf(b, sizeof b, "%.2f\u00B0 %c, %.2f\u00B0 %c", std::fabs(lat), lat >= 0 ? 'N' : 'S', std::fabs(lon), lon >= 0 ? 'E' : 'W');
+        std::string how = from == "grid" ? tr("from its grid") : from == "country data" ? tr("the country's, from the country data") : from == "spot" ? tr("from the spot") : "";
+        row(N_("Position"), std::string(b) + (how.empty() ? "" : " (" + how + ")"));
+    };
+    auto country = [&](const std::string &call) {
+        adif::CountryInfo ci;
+        if (!countries->lookup(adif::spotterCall(call), &ci)) return;
+        row(N_("Country"), ci.name + " (DXCC " + std::to_string(ci.dxcc) + ")");
+        row(N_("Continent"), ci.continent);
+        row(N_("Zones"), trf("CQ {cq}, ITU {itu}", {{"cq", std::to_string(ci.cq)}, {"itu", std::to_string(ci.itu)}}));
+    };
+    auto distance = [&](double lat, double lon) {
+        double hlat, hlon;
+        if (mw.home.empty() || !adif::gridToLatLon(mw.home, &hlat, &hlon)) return;
+        char bearing[16];
+        snprintf(bearing, sizeof bearing, "%.0f", adif::initialBearing(hlat, hlon, lat, lon));
+        row(N_("Distance"), trf("{km} km at {bearing}\u00B0 from {home}", {{"km", std::to_string(std::lround(adif::greatCircleKm(hlat, hlon, lat, lon)))},
+                                                                       {"bearing", bearing}, {"home", mw.home}}));
+    };
+    auto heard = [&](const std::string &call, bool hasSnr, int snr, long long epoch) {
+        std::string s = call;
+        if (hasSnr) {
+            char db[16];
+            snprintf(db, sizeof db, "   %+d dB", snr);
+            s += db;
+        }
+        std::string age = adif::spotAge(epoch, now);
+        return age.empty() ? s : s + "   " + age;
+    };
+    // A list, the first row labelled, at most 15 rows and then how many more.
+    auto list = [&](const char *label, const std::vector<std::string> &items) {
+        for (size_t i = 0; i < items.size() && i < 15; ++i) rows.push_back({i ? "" : tr(label), items[i], false});
+        if (items.size() > 15) rows.push_back({"", trf("and {n} more", {{"n", std::to_string(items.size() - 15)}}), false});
+    };
+    if (h.kind == ADIFMapHit::Spot && h.index < mw.view.spots.size()) {
+        const ADIFMapSpot &ms = mw.view.spots[h.index];
+        const adif::Spot &sp = ms.spot;
+        rows.push_back({sp.heardMe ? trf("{call}: your signal", {{"call", sp.activator}}) : sp.activator, "", true});
+        row(N_("Frequency"), sp.khz.empty() ? "" : sp.khz + " kHz");
+        row(N_("Band"), sp.band);
+        row(N_("Mode"), sp.mode);
+        std::string age = adif::spotAge(sp.epoch, now);
+        if (!sp.time.empty()) row(N_("Spotted"), sp.time + " UTC" + (age.empty() ? "" : " (" + age + ")"));
+        // Spothole keeps where it had the spot from (Cluster, RBN, POTA...) where POTA keeps the location.
+        bool via = sp.source == adif::SpotSource::Spothole && !sp.location.empty();
+        row(N_("Source"), tr(adif::spotSourceName(sp.source)) + (via ? " (" + sp.location + ")" : ""));
+        std::string refs;
+        for (const std::string &r : sp.refs) refs += (refs.empty() ? "" : ", ") + r;
+        if (refs.empty()) refs = sp.reference;
+        if (!refs.empty()) row(N_("Reference"), sp.program.empty() ? refs : sp.program + " " + refs);
+        row(N_("Name"), sp.park);
+        if (!via && sp.location != sp.program) row(N_("Location"), sp.location);
+        row(N_("Signal report"), adif::spotSnr(sp));
+        row(N_("Grid"), sp.grid);
+        position(ms.lat, ms.lon, adif::spotPlace(sp, countries).from);
+        country(sp.activator);
+        distance(ms.lat, ms.lon);
+        if (!sp.heardMe) row(N_("In this log"), inLog(sp));
+        row(N_("Comment"), sp.comments);
+        std::vector<std::string> by;
+        for (const ADIFSpotHeard &hd : ms.heard) by.push_back(heard(hd.call, hd.hasSnr, hd.snr, hd.epoch));
+        list(N_("Heard by"), by);
+    } else if (h.kind == ADIFMapHit::Spotter && h.index < mw.view.spotters.size()) {
+        const ADIFMapSpotter &st = mw.view.spotters[h.index];
+        rows.push_back({st.call, "", true});
+        if (st.call.size() > 2 && st.call.compare(st.call.size() - 2, 2, "-#") == 0) row(N_("Station"), tr("A Reverse Beacon Network skimmer."));
+        std::string grid, from = "country data";
+        std::vector<std::string> items;
+        for (size_t k : st.spots) {
+            const ADIFMapSpot &ms = mw.view.spots[k];
+            for (const ADIFSpotHeard &hd : ms.heard) {
+                if (adif::spotterCall(hd.call) != adif::spotterCall(st.call)) continue;
+                std::string what = ms.spot.activator + " " + ms.spot.band + (ms.spot.mode.empty() ? "" : " " + ms.spot.mode);
+                items.push_back(heard(what, hd.hasSnr, hd.snr, hd.epoch));
+                break;
+            }
+            if (grid.empty() && adif::spotterCall(ms.spot.spotter) == adif::spotterCall(st.call)) {
+                grid = ms.spot.spotterGrid;
+                from = adif::spotterPlace(ms.spot, countries).from;
+            }
+        }
+        row(N_("Grid"), grid);
+        position(st.lat, st.lon, from);
+        country(st.call);
+        distance(st.lat, st.lon);
+        list(N_("Heard"), items);
+    }
+    return rows;
+}
+
 void selected(const ADIFMapHit &h) {
     std::vector<size_t> qsos;
     if (h.kind == ADIFMapHit::Square) qsos = mw.data.squares[h.index].qsoIndex;
@@ -449,6 +549,7 @@ void selected(const ADIFMapHit &h) {
             if (p.reference == mw.data.parks[h.index].reference && p.program == mw.data.parks[h.index].program) qsos.push_back(p.qso);
     showList(qsos);
     mw.useSpot.hidden = h.kind != ADIFMapHit::Spot;
+    [mw.view setInfo:h.kind == ADIFMapHit::Spot || h.kind == ADIFMapHit::Spotter ? spotInfo(h) : std::vector<ADIFInfoRow>{}];
     mw.chosen = h.kind == ADIFMapHit::None ? "" : describe(h) + (qsos.empty() ? "" : " " + tr("Double-click a QSO to go to it in the log."));
     setStatus(mw.chosen.empty() ? mw.summary : mw.chosen);
 }
@@ -597,6 +698,7 @@ void fillStyle() {
         if (NSControl *c = (NSControl *)findView(root, ident)) c.enabled = s.paths;
     if (NSControl *c = (NSControl *)findView(root, @"map.style.rings")) c.enabled = !mw.home.empty();
     if (NSControl *c = (NSControl *)findView(root, @"map.style.sunTime")) c.enabled = s.dayNight || s.greyLine;
+    if (NSControl *c = (NSControl *)findView(root, @"map.style.palette")) c.enabled = !ADIFNightMode();  // Night Mode sets it
     for (NSString *ident in @[ @"map.style.spotters", @"map.style.spotLines", @"map.style.spotMode", @"map.style.spotFreq", @"map.style.spotAge", @"map.style.spotSnr",
                                @"map.style.spotFade" ])
         if (NSControl *c = (NSControl *)findView(root, ident)) c.enabled = s[kLayerSpots].show;
@@ -613,6 +715,7 @@ void showStyleOptions() {
         p.hidesOnDeactivate = NO;
         p.floatingPanel = YES;
         p.identifier = @"map.style";
+        ADIFNightTrack(p);
         NSMutableArray *rows = [NSMutableArray array];
         auto section = [&](NSString *title) {
             NSTextField *t = ADIFLabel(title);
@@ -1195,6 +1298,7 @@ void showMoreFilters() {
         vc.view = content;
         mw.filterPopover = [[NSPopover alloc] init];
         mw.filterPopover.contentViewController = vc;
+        ADIFNightTrackPopover(mw.filterPopover);
         mw.filterPopover.behavior = NSPopoverBehaviorTransient;
     }
     fillPlaceControls();
@@ -1285,8 +1389,10 @@ void refreshSpots() {
             ADIFMapSpot m;
             m.lat = at.lat, m.lon = at.lon, m.exact = at.exact;
             std::set<std::string> seen;
+            // Up to 12 spotters a station; your own signal (PSKReporter) keeps up to 100: who heard you.
+            size_t most = sp.heardMe ? 100 : 12;
             for (const adif::Spot *by : byStation[adif::spotterCall(sp.activator) + "|" + sp.band]) {
-                if (m.heard.size() >= 12) break;
+                if (m.heard.size() >= most) break;
                 if (by->spotter.empty() || !seen.insert(adif::spotterCall(by->spotter)).second) continue;
                 adif::SpotPlace from = adif::spotterPlace(*by, countries);
                 if (!from.ok) continue;
@@ -1301,6 +1407,10 @@ void refreshSpots() {
     }
     [mw.view setSpots:marks now:now maxAge:f.maxAge];
     mw.refreshSpotsButton.enabled = show;
+    // The information box follows the chosen spot or spotter (its age, who else heard it), or goes with it.
+    ADIFMapHit chosen = mw.view.selectedHit;
+    if (chosen.kind == ADIFMapHit::Spot || chosen.kind == ADIFMapHit::Spotter) [mw.view setInfo:spotInfo(chosen)];
+    else if (!mw.view.info.empty()) [mw.view setInfo:std::vector<ADIFInfoRow>()];
     fillSpotsPopover();
 }
 
@@ -1384,6 +1494,7 @@ void showSpotsPopover() {
         vc.view = content;
         mw.spotsPopover = [[NSPopover alloc] init];
         mw.spotsPopover.contentViewController = vc;
+        ADIFNightTrackPopover(mw.spotsPopover);
         mw.spotsPopover.behavior = NSPopoverBehaviorTransient;
     }
     fillSpotsPopover();
@@ -1442,6 +1553,7 @@ void cmdMap() {
                                                  backing:NSBackingStoreBuffered
                                                    defer:NO];
         mw.window.title = T(@"Map");
+        ADIFNightTrack(mw.window);
         mw.window.releasedWhenClosed = NO;
         mw.window.hidesOnDeactivate = NO;
         mw.window.contentMinSize = NSMakeSize(920, 620);
@@ -1667,6 +1779,14 @@ void cmdMap() {
         ]];
         [mw.window center];
         // New spots redraw the layer; closing the window stops the feeds.
+        [[NSNotificationCenter defaultCenter] addObserverForName:ADIFNightModeChangedNotification
+                                                          object:nil
+                                                           queue:nil
+                                                      usingBlock:^(NSNotification *) {
+                                                          applyStyle();
+                                                          fillStyle();
+                                                          fillPrograms();
+                                                      }];
         mw.spotsObserver = [[NSNotificationCenter defaultCenter] addObserverForName:ADIFSpotsChangedNotification
                                                                              object:nil
                                                                               queue:nil

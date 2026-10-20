@@ -1,4 +1,5 @@
 #import "SettingsPanel.h"
+#import "Night.h"
 #import "L10n.h"
 
 #import "Lookup.h"
@@ -33,6 +34,7 @@
     NSComboBox *_spotsNode;
     NSTextField *_spotsLogin, *_spotsCommands, *_spotsEmail, *_spotsStatus;
     NSPopUpButton *_spotsPskQuery;
+    NSTextField *_spotsPskCall;
     id _spotsObserver;
     NSPopUpButton *_detailRegion, *_detailLevel, *_detailInstalled;
     NSButton *_detailCheck, *_detailDownload, *_detailStop, *_detailRemove;
@@ -96,6 +98,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
                                            backing:NSBackingStoreBuffered
                                              defer:YES];
     _window.title = T(@"ADIF Lint Settings");
+    ADIFNightTrack(_window);
     _window.floatingPanel = YES;
     _window.hidesOnDeactivate = YES;
     _window.releasedWhenClosed = NO;
@@ -612,6 +615,12 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
                                @"(WSJT-X: Enable PSK Reporter Spotting). Around my grid square: what stations in your 4-character square heard, "
                                @"and who heard them, so there is something to see when you aren't on the air");
     _spotsPskQuery.identifier = @"settings.spots.pskQuery";
+    _spotsPskCall = [NSTextField textFieldWithString:@""];
+    _spotsPskCall.placeholderString = T(@"your callsign (Your Station)");
+    _spotsPskCall.toolTip = T(@"The callsign whose reception reports PSKReporter gives: your own (Your Station) when empty, or another one: a "
+                              @"club station, a portable call, or a friend's");
+    _spotsPskCall.identifier = @"settings.spots.pskCall";
+    [_spotsPskCall.widthAnchor constraintEqualToConstant:300].active = YES;
     _spotsEmail = [NSTextField textFieldWithString:@""];
     _spotsEmail.placeholderString = T(@"optional");
     _spotsEmail.toolTip = T(@"PSKReporter asks the programs that query it for a contact email address (appcontact), in case of a problem. "
@@ -622,7 +631,8 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
         @[ [NSTextField labelWithString:colon(T(@"Then send"))], _spotsCommands ]
     ]];
     NSGridView *pskGrid = [NSGridView gridViewWithViews:@[
-        @[ [NSTextField labelWithString:colon(T(@"Reports"))], _spotsPskQuery ], @[ [NSTextField labelWithString:colon(T(@"Your email"))], _spotsEmail ]
+        @[ [NSTextField labelWithString:colon(T(@"Reports"))], _spotsPskQuery ], @[ [NSTextField labelWithString:T(@"Callsign:")], _spotsPskCall ],
+        @[ [NSTextField labelWithString:colon(T(@"Your email"))], _spotsEmail ]
     ]];
     for (NSGridView *g in @[ grid, pskGrid ]) {
         g.rowSpacing = 6;
@@ -654,6 +664,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     _spotsCluster.state = c.cluster ? NSControlStateValueOn : NSControlStateValueOff;
     _spotsPsk.state = c.psk ? NSControlStateValueOn : NSControlStateValueOff;
     [_spotsPskQuery selectItemAtIndex:c.pskQuery];
+    _spotsPskCall.stringValue = @(c.pskCall.c_str());
     _spotsNode.stringValue = c.host.empty() ? @"" : [NSString stringWithFormat:@"%s:%d", c.host.c_str(), c.port];
     _spotsLogin.stringValue = @(c.login.c_str());
     _spotsCommands.stringValue = @(c.commands.c_str());
@@ -683,6 +694,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     c.login = trimmed(_spotsLogin);
     c.commands = trimmed(_spotsCommands);
     c.email = trimmed(_spotsEmail);
+    c.pskCall = ADIFStd([[_spotsPskCall.stringValue stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet] uppercaseString]);
     spotfeeds::setConfig(c);
     [self fillSpots];
 }

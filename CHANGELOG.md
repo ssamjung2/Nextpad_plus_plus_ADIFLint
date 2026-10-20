@@ -25,6 +25,18 @@ Versions before 0.8.0 were development builds and were not published.
 - **Settings → Spots → PSKReporter → Around my grid square**: the last half hour's reports
   with either station in your 4-character square, so there are spots when you are off the
   air.
+- **Night Mode** (the ADIF Lint menu): every ADIF Lint window and popover red on black, and
+  the Map in its Night (red) palette, to keep night vision. Nextpad++'s own windows and the
+  menus can't be reached by a plugin; the user guide shows macOS's Color Tint for the whole
+  screen. The new menu item moves Settings… and About… down one place, so a shortcut
+  assigned to either in Nextpad++'s Shortcut Mapper needs assigning again.
+- **Map → information box**: a click on a spot or a spotter shows everything known about the
+  station at the bottom right: frequency, band, mode, when and where from, program and
+  reference, report, grid and position, country, continent and zones, distance and
+  bearing, whether it's in the log, the comment, and every station that heard it (or, for a
+  spotter, every station it heard), with reports and ages.
+- **Settings → Spots → PSKReporter → Callsign**: the callsign to ask about (Your Station's
+  when empty).
 - A spot's description gives its signal report and how many spotters heard it. Spothole's
   RBN spots get their reports from their comments ("20 dB"), as Spothole has no field for
   them.
@@ -35,8 +47,11 @@ Versions before 0.8.0 were development builds and were not published.
 - **Map → Day and night**: the night side is darker (up to 65% black, from 50%).
 - **PSKReporter** (Settings → Spots → Reports) asks for your callsign on either side, so the
   stations your station heard show too when your program uploads what it hears (WSJT-X:
-  Enable PSK Reporter Spotting), each a spot heard by you; before, only the stations that
-  heard you. When there are none, the status line says where reports come from. Queries
+  Enable PSK Reporter Spotting); before, only the stations that heard you. Your own signal
+  is now the spot, with the stations that heard it as its spotters (up to 100); before,
+  each of them was drawn as a spot with you as its spotter, which looked as if you had
+  spotted them. PSKReporter uses Your Station's callsign (or its own setting), never the
+  DX cluster's login. When there are none, the status line says where reports come from. Queries
   ask for at most 1,000 reports.
 - **Spots**: showing the layer again, or saving Settings → Spots, no longer asks Spothole
   again before its 2 minutes are up; what each source said last stays shown.

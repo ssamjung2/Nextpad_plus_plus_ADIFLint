@@ -45,7 +45,8 @@ struct Config {
     std::string host, login, commands;  // login: "" is Your Station's callsign; commands: sent after it, ";" between
     int port = 0;
     bool psk = false;
-    int pskQuery = 0;   // PSKReporter: 0 your callsign on either side (who heard you, what you heard), 1 around your grid square
+    int pskQuery = 0;   // PSKReporter: 0 a callsign on either side (who heard it, what it heard), 1 around your grid square
+    std::string pskCall;  // PSKReporter's callsign: "" is Your Station's
     std::string email;  // PSKReporter's appcontact, when given
 };
 Config config();

@@ -323,6 +323,76 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     return _spotters;
 }
 
+- (void)setInfo:(const std::vector<ADIFInfoRow> &)rows {
+    _info = rows;
+    self.accessibilityValue = [self infoText];  // what VoiceOver reads for the box it can't see
+    self.needsDisplay = YES;
+}
+
+- (NSString *)infoText {
+    NSMutableArray *lines = [NSMutableArray array];
+    for (const ADIFInfoRow &r : _info)
+        [lines addObject:r.heading || r.label.empty() ? ADIFString(r.heading ? r.label : r.value)
+                                                      : [NSString stringWithFormat:@"%@: %@", ADIFString(r.label), ADIFString(r.value)]];
+    return [lines componentsJoinedByString:@"\n"];
+}
+
+- (const std::vector<ADIFInfoRow> &)info {
+    return _info;
+}
+
+// The information box, bottom right (the legend is bottom left): a heading, then each label and
+// its value, a long value wrapped; cut short with "..." when the map is too low for all of it.
+- (void)drawInfoBox {
+    const MapPalette &pal = paletteAt(_style.palette);
+    NSColor *ink = [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.92];
+    NSColor *soft = [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.6];
+    NSDictionary *head = @{NSFontAttributeName : [NSFont boldSystemFontOfSize:12], NSForegroundColorAttributeName : ink};
+    NSDictionary *label = @{NSFontAttributeName : [NSFont systemFontOfSize:10], NSForegroundColorAttributeName : soft};
+    NSDictionary *value = @{NSFontAttributeName : [NSFont systemFontOfSize:10.5], NSForegroundColorAttributeName : ink};
+    const CGFloat pad = 8, gap = 8, valueWidth = 250, lineGap = 2;
+    CGFloat labelWidth = 0;
+    for (const ADIFInfoRow &r : _info)
+        if (!r.heading) labelWidth = std::max(labelWidth, ceil([ADIFString(r.label) sizeWithAttributes:label].width));
+    std::vector<NSSize> sizes;
+    CGFloat width = 0, height = 0;
+    for (const ADIFInfoRow &r : _info) {
+        NSString *text = ADIFString(r.heading ? r.label : r.value);
+        CGFloat room = r.heading ? labelWidth + gap + valueWidth : valueWidth;
+        NSRect b = [text boundingRectWithSize:NSMakeSize(room, 1000) options:NSStringDrawingUsesLineFragmentOrigin attributes:r.heading ? head : value];
+        NSSize s = NSMakeSize(ceil(b.size.width) + (r.heading ? 0 : labelWidth + gap), ceil(b.size.height));
+        sizes.push_back(s);
+        width = std::max(width, s.width), height += s.height + lineGap;
+    }
+    NSRect bounds = self.bounds;
+    CGFloat boxH = std::min(height - lineGap + 2 * pad, NSHeight(bounds) - 16);
+    NSRect box = NSMakeRect(NSMaxX(bounds) - 8 - (width + 2 * pad), NSMinY(bounds) + 8, width + 2 * pad, boxH);
+    NSBezierPath *bg = [NSBezierPath bezierPathWithRoundedRect:box xRadius:6 yRadius:6];
+    [[NSColor colorWithCalibratedWhite:pal.dark ? 0 : 1 alpha:0.78] setFill];
+    [bg fill];
+    bg.lineWidth = 0.8;
+    [[NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.25] setStroke];
+    [bg stroke];
+    CGFloat x = NSMinX(box) + pad, y = NSMaxY(box) - pad;
+    for (size_t i = 0; i < _info.size(); ++i) {
+        const ADIFInfoRow &r = _info[i];
+        CGFloat h = sizes[i].height;
+        if (y - h < NSMinY(box) + pad - 1) {
+            [@"..." drawAtPoint:NSMakePoint(x, NSMinY(box) + pad - 2) withAttributes:value];
+            break;
+        }
+        if (r.heading) {
+            [ADIFString(r.label) drawInRect:NSMakeRect(x, y - h, labelWidth + gap + valueWidth, h) withAttributes:head];
+        } else {
+            NSString *l = ADIFString(r.label);
+            [l drawAtPoint:NSMakePoint(x + labelWidth - [l sizeWithAttributes:label].width, y - [l sizeWithAttributes:label].height - 1)
+                withAttributes:label];
+            [ADIFString(r.value) drawInRect:NSMakeRect(x + labelWidth + gap, y - h, valueWidth, h) withAttributes:value];
+        }
+        y -= h + lineGap;
+    }
+}
+
 - (const std::vector<ADIFMapSpot> &)spots {
     return _spots;
 }
@@ -900,6 +970,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     [self drawSelection:d];
     CGContextRestoreGState(d.ctx);
     if (_style.legend) [self drawLegend];
+    if (!_info.empty()) [self drawInfoBox];
     [self drawOsmCredit];
     CGContextRestoreGState(d.ctx);
 }

@@ -1,4 +1,5 @@
 #import "EnrichPanel.h"
+#import "Night.h"
 #import "L10n.h"
 #import "ToolWindow.h"
 
@@ -52,6 +53,7 @@ static const std::vector<FieldOption> &fieldOptions() {
                                            backing:NSBackingStoreBuffered
                                              defer:YES];
     _window.title = T(@"Enrich Log");
+    ADIFNightTrack(_window);
     _window.floatingPanel = YES;
     _window.hidesOnDeactivate = YES;
     _window.releasedWhenClosed = NO;
