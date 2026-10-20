@@ -86,6 +86,7 @@ adif::Spot ADIFSpotholeSpot(NSDictionary *d, long long *received) {
     sp.location = jsonText(d, @"source", 20);  // Spothole's source: Cluster, RBN, POTA...
     sp.spotter = upperText(jsonText(d, @"de_call", 20));
     sp.comments = jsonText(d, @"comment");
+    sp.hasSnr = adif::commentReport(sp.comments, &sp.snr);  // an RBN spot's "20 dB"
     sp.band = adif::bandForFrequency(adif::khzToMHz(sp.khz));
     std::string id = jsonText(d, @"id", 80);
     sp.key = id.empty() ? sp.activator + "|" + sp.reference + "|" + sp.khz + "|" + sp.mode : id;
@@ -106,6 +107,7 @@ const size_t kNodeCount = sizeof kNodes / sizeof kNodes[0];
 namespace {
 
 constexpr double kSpotholeEvery = 120;  // Spothole reads POTA every 2 minutes; asking faster gains nothing
+constexpr double kSpotholeRefresh = 60;  // Refresh asks Spothole again at most once a minute
 constexpr long long kPskEvery = 300;    // PSKReporter: "no more often than once every five minutes"
 constexpr long long kKeep = 3600;       // spots older than an hour go (Spothole keeps about an hour)
 const int kRetry[] = {15, 30, 60, 120, 300, 600};  // seconds before reconnecting a cluster, one step each failure
@@ -461,6 +463,55 @@ void setWanted(bool w) {
 bool wanted() { return f.wanted; }
 
 const adif::SpotList &spots() { return f.list; }
+
+std::string refreshNow() {
+    Config c = config();
+    if (!f.wanted) return tr("Tick Show under Spots to fetch them.");
+    if (ADIFOffline()) return ADIFStd(ADIFOfflineReason());
+    if (!c.spothole && !c.cluster && !c.psk) return tr("No spot source is turned on: choose them in Settings (Spots).");
+    std::vector<std::string> said;
+    if (c.spothole) {
+        double now = CFAbsoluteTimeGetCurrent();
+        if (f.spotholeBusy) said.push_back(tr("Spothole: asking now."));
+        else if (f.spotholeAsked > 0 && now - f.spotholeAsked < kSpotholeRefresh)
+            said.push_back(tr("Spothole: asked less than a minute ago."));
+        else {
+            f.spotholeAsked = 0;
+            spotholeFetch();
+            [f.spotholeTimer invalidate];  // the next round 2 minutes from now
+            f.spotholeTimer = [NSTimer scheduledTimerWithTimeInterval:kSpotholeEvery repeats:YES block:^(NSTimer *) { spotholeFetch(); }];
+            said.push_back(tr("Spothole: asking now."));
+        }
+    }
+    if (c.cluster) {
+        if (f.stopped) said.push_back(f.clusterStatus);  // why it stopped; Settings must change first
+        else if (f.retry) {
+            [f.retry invalidate], f.retry = nil;
+            clusterConnect();
+            said.push_back(tr("DX cluster: connecting now."));
+        } else if (f.conn) said.push_back(tr("DX cluster: connected; spots arrive as the node sends them."));
+        else if (!f.clusterStatus.empty()) said.push_back(f.clusterStatus);
+    }
+    if (c.psk) {
+        long long now = (long long)time(nullptr), last = std::atoll(setting("spotsPskLast").c_str());
+        if (f.pskBusy) said.push_back(tr("PSKReporter: asking now."));
+        else if (last > 0 && last <= now && now - last < kPskEvery)
+            said.push_back(trf("PSKReporter: asked at most once in 5 minutes; next at {time} UTC.", {{"time", adif::spotTime(last + kPskEvery)}}));
+        else {
+            pskFetch();
+            said.push_back(f.pskBusy ? tr("PSKReporter: asking now.") : f.pskStatus);
+        }
+    }
+    {
+        size_t before = f.list.spots().size();
+        f.list.prune((long long)time(nullptr), kKeep);
+        if (f.list.spots().size() != before) changed();
+    }
+    std::string out;
+    for (const std::string &s : said)
+        if (!s.empty()) out += (out.empty() ? "" : " ") + s;
+    return out;
+}
 
 std::string status() {
     std::string out;

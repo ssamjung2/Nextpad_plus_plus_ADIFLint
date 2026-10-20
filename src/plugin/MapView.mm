@@ -279,23 +279,48 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 }
 
 - (void)setSpots:(const std::vector<ADIFMapSpot> &)spots now:(long long)now maxAge:(long long)maxAge {
-    // Keep the spot under the pointer and the one chosen, by their station and band.
+    // The stations that heard them: one marker per spotter and place.
+    std::vector<ADIFMapSpotter> spotters;
+    std::map<std::tuple<std::string, long, long>, size_t> at;
+    for (size_t k = 0; k < spots.size(); ++k)
+        for (const ADIFSpotHeard &h : spots[k].heard) {
+            auto key = std::make_tuple(adif::spotterCall(h.call), std::lround(h.lat * 10), std::lround(h.lon * 10));
+            auto [it, fresh] = at.emplace(key, spotters.size());
+            if (fresh) {
+                ADIFMapSpotter s;
+                s.call = h.call, s.lat = h.lat, s.lon = h.lon;
+                spotters.push_back(s);
+            }
+            std::vector<size_t> &list = spotters[it->second].spots;
+            if (list.empty() || list.back() != k) list.push_back(k);
+        }
+    // Keep the spot or spotter under the pointer and the one chosen: a spot by its station and
+    // band, a spotter by its call.
     auto same = [&](ADIFMapHit &h) {
-        if (h.kind != ADIFMapHit::Spot) return;
-        if (h.index >= _spots.size()) return (void)(h = ADIFMapHit());
-        const adif::Spot &was = _spots[h.index].spot;
-        for (size_t k = 0; k < spots.size(); ++k)
-            if (spots[k].spot.activator == was.activator && spots[k].spot.band == was.band) return (void)(h.index = k);
-        h = ADIFMapHit();
+        if (h.kind == ADIFMapHit::Spot) {
+            if (h.index >= _spots.size()) return (void)(h = ADIFMapHit());
+            const adif::Spot &was = _spots[h.index].spot;
+            for (size_t k = 0; k < spots.size(); ++k)
+                if (spots[k].spot.activator == was.activator && spots[k].spot.band == was.band) return (void)(h.index = k);
+            h = ADIFMapHit();
+        } else if (h.kind == ADIFMapHit::Spotter) {
+            if (h.index >= _spotters.size()) return (void)(h = ADIFMapHit());
+            std::string was = adif::spotterCall(_spotters[h.index].call);
+            for (size_t k = 0; k < spotters.size(); ++k)
+                if (adif::spotterCall(spotters[k].call) == was) return (void)(h.index = k);
+            h = ADIFMapHit();
+        }
     };
-    std::vector<ADIFMapSpot> old;
-    old.swap(_spots);
-    _spots = old;  // `same` reads the old list
     same(_hover);
     same(_selected);
     _spots = spots;
+    _spotters = std::move(spotters);
     _spotsNow = now, _spotMaxAge = maxAge;
     self.needsDisplay = YES;
+}
+
+- (const std::vector<ADIFMapSpotter> &)spotters {
+    return _spotters;
 }
 
 - (const std::vector<ADIFMapSpot> &)spots {
@@ -869,6 +894,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     [self drawPrograms:d];
     [self drawParkPins];
     if (_style[kLayerPota].labels) [self drawParkLabelsIn:d.b];
+    [self drawSpotters:d];
     [self drawSpots:d];
     [self drawMine:d];
     [self drawSelection:d];
@@ -883,7 +909,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     const MapPalette &pal = paletteAt(_style.palette);
     struct Entry {
         // 0 swatch, 1 dot, 2 triangle, 3 diamond, 4 star, 5 line, 6 contact marker, 7 heading, 8 plain text, 9 dashed box,
-        // 10 park pin (hunted), 11 park pin (activated), 12 ring
+        // 10 park pin (hunted), 11 park pin (activated), 12 ring, 13 spotter, 14 spot
         int kind;
         NSColor *color;
         std::string text;
@@ -974,6 +1000,11 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         }
         if (_style[kLayerPota].overlay) rows.push_back({12, rgb(pal.park), tr("not worked")});
     }
+    if (_style[kLayerSpots].show && !_spots.empty()) {
+        rows.push_back({7, nil, tr("Spots")});
+        rows.push_back({14, [NSColor colorWithCalibratedWhite:pal.dark ? 0.85 : 0.35 alpha:1], tr("stations spotted (in their band's colour)")});
+        if (_style.spotters != 0 && !_spotters.empty()) rows.push_back({13, nil, tr("stations that heard them")});
+    }
     if ((_style[kLayerIota].show || _style[kLayerIota].overlay) && !ADIFIotaGroups().empty()) {
         NSColor *tint = pal.dark ? rgb(0x4DD0E1) : rgb(0x00838F);
         rows.push_back({7, nil, tr("IOTA groups")});
@@ -1001,6 +1032,19 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         NSPoint at = NSMakePoint(NSMinX(box) + 8, y);
         if (e.kind == 10 || e.kind == 11) {
             [self drawParkPinAt:NSMakePoint(at.x + 6, y + 1) color:e.color activated:e.kind == 11 lit:NO];
+            [ADIFString(e.text) drawAtPoint:NSMakePoint(at.x + 18, y + 1) withAttributes:text];
+        } else if (e.kind == 13 || e.kind == 14) {
+            NSPoint c = NSMakePoint(at.x + 6, y + lineH / 2);
+            if (e.kind == 13) [self drawSpotterAt:c radius:5.5 lit:NO dark:pal.dark];
+            else {
+                NSBezierPath *dot = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(c.x - 2.5, c.y - 2.5, 5, 5)];
+                NSBezierPath *ring = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(c.x - 5, c.y - 5, 10, 10)];
+                [e.color setFill];
+                [dot fill];
+                ring.lineWidth = 1.4;
+                [e.color setStroke];
+                [ring stroke];
+            }
             [ADIFString(e.text) drawAtPoint:NSMakePoint(at.x + 18, y + 1) withAttributes:text];
         } else if (e.kind == 7 || e.kind == 8) {
             [ADIFString(e.text) drawAtPoint:NSMakePoint(at.x, y + 1) withAttributes:e.kind == 7 ? head : text];
@@ -1056,6 +1100,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     h.square = adif::squareAt(lon, lat);
     if (h.square.empty()) return h;
     if (size_t k = [self spotAt:p]; k != (size_t)-1) return h.kind = ADIFMapHit::Spot, h.index = k, h;  // drawn on top
+    if (size_t k = [self spotterAt:p]; k != (size_t)-1) return h.kind = ADIFMapHit::Spotter, h.index = k, h;
     // POTA: the pins (drawn last, on top), the rings, then the counts.
     [self placeParks];
     {  // a pin first (they're on top), else the nearest ring or dot within reach

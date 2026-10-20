@@ -161,4 +161,21 @@ std::string spotTime(long long epoch);
 // "Z" or "+00:00" after it, as Unix seconds; 0 when it isn't one.
 long long spotEpoch(std::string_view utc);
 
+// A signal report in a spot's comment, as skimmers write it: "20 dB" or "4dB" ("CW 20 dB 25 WPM
+// CQ"), with an optional sign; the first one. False when the comment has none. Spothole has no
+// field for it (its apidocs, read 2026-10-20), so its RBN spots' reports come from here too.
+bool commentReport(std::string_view comment, int *snr);
+// How long ago a spot was made: "just now" under a minute, else "{n} min"; "" when the source
+// doesn't say when.
+std::string spotAge(long long epoch, long long now);
+// A signal report as the spot sites write it: "+1 dB", "-12 dB"; "" without one.
+std::string spotSnr(const Spot &s);
+// What the Map's label shows under a spot's call, as Style Options choose: its mode, frequency,
+// how long ago it was spotted and its signal report, " · " between them ("FT8 · 14074 kHz ·
+// 3 min · -12 dB"); "" when none of them is chosen or known.
+struct SpotLabel {
+    bool mode = true, khz = false, age = true, snr = true;
+};
+std::string spotLabelDetails(const Spot &s, const SpotLabel &show, long long now);
+
 }  // namespace adif

@@ -9,6 +9,28 @@ Versions before 0.8.0 were development builds and were not published.
 
 ## [Unreleased]
 
+### Added
+
+- **Map → Spots: spotters.** The stations that heard each spot (up to 12: a cluster's
+  spotters, RBN skimmers, and you for PSKReporter) are faint triangles. Point at a spot for
+  its spotters' lines, or at a spotter for the stations it heard; click one for the list.
+  The legend explains both markers.
+- **Map → Refresh** (the round arrow beside Spots…): the spot sources asked again now, as
+  far as each allows: Spothole once a minute at most, PSKReporter once its 5 minutes have
+  passed, a DX cluster waiting to reconnect at once.
+- **Map → Style Options → Spots**: spotters hidden, as markers, or with their calls; what
+  each spot's label shows under its call (mode, frequency, time since spotted, signal
+  report); and fading older spots on or off.
+- A spot's description gives its signal report and how many spotters heard it. Spothole's
+  RBN spots get their reports from their comments ("20 dB"), as Spothole has no field for
+  them.
+
+### Changed
+
+- **Map**: **Spots…** moved from the Filters row to the Markers row.
+- **Map → Day and night**: the night side is darker (up to 60% black, from 50%).
+- Spot ages, the Spots age filter and fading follow the clock each minute while the Map shows.
+
 ## [1.3.0] - 2026-10-19
 
 ### Added

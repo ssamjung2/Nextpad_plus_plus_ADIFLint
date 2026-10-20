@@ -124,9 +124,10 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
 - **Filters** by band, mode, date and confirmation, and **More Filters** by place.
 - **Spots**: the stations spotted now, from Spothole, a DX cluster (telnet, logged in with
   your callsign) and PSKReporter's reports of who heard you, in their band's colours and
-  fading with age, with a line from each spotter if you like; filtered by age, source and
-  program as well as the Map's band, mode and places. Click one for who spotted it and
-  whether it's in your log, then **Use in New QSO**.
+  fading with age, with the stations that heard them and lines from them; labels with the
+  mode, age and signal report; filtered by age, source and program as well as the Map's
+  band, mode and places, and refreshed on request within each source's limits. Click one
+  for who spotted it and whether it's in your log, then **Use in New QSO**.
 - **Map Detail**: OpenStreetMap's streets, buildings and place names for a state, a country
   or the area in view, downloaded once from Protomaps' build and drawn offline.
 - **Style Options**: **Colour by** confirmation, band (PSKReporter's colours), mode, QSO

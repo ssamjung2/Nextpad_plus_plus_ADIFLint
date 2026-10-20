@@ -4643,6 +4643,63 @@ int main(int argc, char **argv) {
                     [qwSpot orderOut:nil];
                 }
 
+                // Spots... and Refresh sit in the Markers row; Refresh works while spots show.
+                NSView *spotsOpen = viewWithIdentifier(mapw.contentView, @"map.spots.open");
+                NSButton *refreshButton = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.spots.refresh");
+                NSView *moreFiltersView = viewWithIdentifier(mapw.contentView, @"map.filter.more");
+                CHECK(spotsOpen && refreshButton && refreshButton.enabled && spotsOpen.superview == refreshButton.superview &&
+                          spotsOpen.superview != moreFiltersView.superview && [refreshButton.accessibilityLabel isEqualToString:@"Refresh Spots"],
+                      "Spots... and Refresh in the Markers row, Refresh on while spots show");
+                // The station that heard a spot: an RBN skimmer near Baltimore, its own marker; clicked, it says what it heard.
+                NSPoint skimmer = pointFor(-76.6, 39.3);
+                [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, skimmer, 1)];
+                [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, skimmer, 1)];
+                NSString *spotterText = labelContaining(mapw.contentView, @"W3LPL-#, a spotter");
+                CHECK([spotterText containsString:@"heard 1 station: JA1XYZ 20m."] && [spotterText containsString:@"A Reverse Beacon Network skimmer."] &&
+                          useSpot.hidden,
+                      "a spotter clicked: %s", spotterText.UTF8String);
+                // A skimmer's spot gives its signal report.
+                NSPoint tokyo = pointFor(139.7, 35.6);
+                [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, tokyo, 1)];
+                [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, tokyo, 1)];
+                NSString *skimmed = labelContaining(mapw.contentView, @"JA1XYZ on 14025 kHz CW");
+                CHECK([skimmed containsString:@"by W3LPL-# (Spothole)"] && [skimmed containsString:@"Signal report +20 dB."], "a skimmer's spot: %s",
+                      skimmed.UTF8String);
+                // Refresh keeps to the feeds' limits: Spothole asked under a minute ago, PSKReporter under five; the cluster is live.
+                [refreshButton performClick:nil];
+                pump(0.3);
+                NSString *refreshed = labelContaining(mapw.contentView, @"Spothole: asked");
+                req = requests();
+                CHECK([refreshed containsString:@"Spothole: asked less than a minute ago."] &&
+                          [refreshed containsString:@"DX cluster: connected; spots arrive as the node sends them."] &&
+                          [refreshed containsString:@"PSKReporter: asked at most once in 5 minutes; next at "] && count(req, "SPOTHOLE ") == 1 &&
+                          count(req, "PSKREPORTER ") == 1,
+                      "Refresh keeps to the feeds' limits: %s", refreshed.UTF8String);
+                // Style Options → Spots: spotters hidden take their markers away; label details are kept.
+                CHECK(stylePick(@"spotters", @"Hidden") && styleSet(@"spotFreq", true) && styleSet(@"spotFade", false) && style(@"spotMode") &&
+                          style(@"spotAge") && style(@"spotSnr"),
+                      "Style Options has Spots: spotters, the label's details, fading");
+                [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, skimmer, 1)];
+                [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, skimmer, 1)];
+                CHECK(!labelContaining(mapw.contentView, @"W3LPL-#, a spotter"), "spotters hidden: no spotter under the pointer");
+                CHECK(stylePick(@"spotters", @"Markers and calls"), "spotters with their calls");
+                if (mapw) snapshot(mapw, "map-spotters");
+                if (NSWindow *sp = stylePanel()) {
+                    CHECK(overlaps(sp.contentView) == 0 && NSHeight(sp.frame) <= 900, "the Style Options panel with Spots fits (%.0f high)",
+                          NSHeight(sp.frame));
+                    snapshot(sp, "map-style-spots");
+                }
+                {
+                    NSString *ini = [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint.ini"]
+                                                              encoding:NSUTF8StringEncoding
+                                                                 error:nil];
+                    CHECK([ini containsString:@"mapSpotLabelFreq=1"] && [ini containsString:@"mapSpotFade=0"] && [ini containsString:@"mapSpotters=2"],
+                          "the spot style is kept");
+                }
+                stylePick(@"spotters", @"Markers"), styleSet(@"spotFreq", false), styleSet(@"spotFade", true);
+                for (NSWindow *w in NSApp.windows)
+                    if ([w.identifier isEqualToString:@"map.style"]) [w orderOut:nil];
+
                 // Off and on again: PSKReporter isn't asked again within five minutes; the cluster closes and reconnects.
                 setBox(mapBox(@"show", @"spots"), false);
                 for (int k = 0; k < 20 && !clientClosed; ++k) pump(0.1);

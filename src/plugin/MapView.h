@@ -34,10 +34,10 @@ struct ADIFMapEntity {
 
 // What the pointer is over, or what was clicked.
 struct ADIFMapHit {
-    enum Kind { None, Square, Dxcc, Park, Contact, Iota, Pota, Area, Spot, Empty } kind = None;
+    enum Kind { None, Square, Dxcc, Park, Contact, Iota, Pota, Area, Spot, Spotter, Empty } kind = None;
     std::string square;  // the 4-character square under the point (always set on the map)
     // Into squares, entities, parks, contacts, IOTA groups (ADIFIotaGroups), POTA's parks
-    // (ADIFPotaParks), (Area) the layer's areas (adif::areaIndex), or spots.
+    // (ADIFPotaParks), (Area) the layer's areas (adif::areaIndex), spots, or spotters.
     size_t index = 0;
     int layer = 0;  // Area: the MapLayerId
 };
@@ -67,19 +67,41 @@ struct ADIFMapStyle {
     bool dayNight = false; // the night side shaded, and the terminator
     bool greyLine = false; // the twilight band (sun from 0 to 6 degrees below the horizon) tinted
     int sunTime = 0;       // 0 now, 1 the selected QSO's time
+    // Spots: the stations that heard them (0 hidden, 1 markers, 2 markers and calls), what the
+    // labels show under each call, and older spots fainter.
+    int spotters = 1;
+    adif::SpotLabel spotLabel;
+    bool spotFade = true;
     // Squares: Show the worked squares, Overlay the Maidenhead grid, Labels its names. Countries:
     // Show each worked DXCC entity's land. POTA and IOTA need their lists (downloaded in Settings).
     std::array<LayerState, kLayerCount> layer;
     const LayerState &operator[](MapLayerId l) const { return layer[(size_t)l]; }
 };
 
-// A station spotted, where it is on the map, and where its spotter is.
+// A station that heard a spotted station (a cluster's spotter, an RBN skimmer, a PSKReporter
+// receiver's sender), where it is, and what it reported.
+struct ADIFSpotHeard {
+    std::string call;  // as the source gives it ("W3LPL-#")
+    double lat = 0, lon = 0;
+    long long epoch = 0;
+    adif::SpotSource source = adif::SpotSource::Spothole;
+    bool hasSnr = false;
+    int snr = 0;
+};
+
+// A station spotted, where it is on the map, and the stations that heard it.
 struct ADIFMapSpot {
-    adif::Spot spot;
+    adif::Spot spot;  // the newest spot of this station on this band
     double lat = 0, lon = 0;
     bool exact = false;  // at its 6-character grid; else its grid square or country
-    bool hasSpotter = false;
-    double spotterLat = 0, spotterLon = 0;
+    std::vector<ADIFSpotHeard> heard;  // newest first, one per spotter, at most 12, each where it is
+};
+
+// A station that heard spotted stations, one marker for all of them.
+struct ADIFMapSpotter {
+    std::string call;  // the first spot's spotter, as the source gives it
+    double lat = 0, lon = 0;
+    std::vector<size_t> spots;  // into the view's spots
 };
 
 // QSOs at one exact place (MapQso::located), for the Contacts layer.
@@ -216,6 +238,7 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
     std::shared_ptr<OsmCache> _osm;
     BOOL _osmDrawn;  // OpenStreetMap detail is showing: credit it
     std::vector<ADIFMapSpot> _spots;  // newest first
+    std::vector<ADIFMapSpotter> _spotters;  // the stations that heard them, from _spots
     long long _spotsNow;             // when the spots were given, for their age
     long long _spotMaxAge;           // the Spots filter's age (fading); 0 any
 }
@@ -243,6 +266,7 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 // The spots to mark (the Spots layer), as of `now` (Unix seconds); older ones fade toward maxAge.
 - (void)setSpots:(const std::vector<ADIFMapSpot> &)spots now:(long long)now maxAge:(long long)maxAge;
 - (const std::vector<ADIFMapSpot> &)spots;
+- (const std::vector<ADIFMapSpotter> &)spotters;
 - (ADIFMapHit)selectedHit;  // what was clicked last
 @end
 
@@ -339,7 +363,13 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 - (void)drawParkLabelsIn:(NSRect)b;
 - (NSBezierPath *)spotMarkerAt:(NSPoint)p;
 - (CGFloat)spotAlpha:(const ADIFMapSpot &)s;
+- (bool)spotLit:(size_t)k;     // under the pointer or chosen
+- (bool)spotterLit:(size_t)j;  // so, or a spotter of such a spot
 - (void)drawSpotLines:(MapDrawCtx &)d;
 - (void)drawSpots:(MapDrawCtx &)d;
-- (size_t)spotAt:(NSPoint)p;  // the spot whose marker is under the point, or npos
+- (void)drawSpotters:(MapDrawCtx &)d;
+- (void)drawSpotterAt:(NSPoint)p radius:(double)r lit:(BOOL)lit dark:(BOOL)dark;
+- (double)spotterRadius:(bool)lit;
+- (size_t)spotAt:(NSPoint)p;     // the spot whose marker is under the point, or npos
+- (size_t)spotterAt:(NSPoint)p;  // the spotter whose marker is under the point, or npos
 @end

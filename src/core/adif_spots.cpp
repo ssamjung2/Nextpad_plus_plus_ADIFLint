@@ -362,12 +362,8 @@ bool parseClusterSpot(std::string_view line, long long now, Spot *out) {
         if (sp.mode.empty())
             for (const char *m : kSpotModes)
                 if (u == m) sp.mode = m;
-        if (sp.hasSnr) continue;
-        if (u.size() > 2 && u.compare(u.size() - 2, 2, "DB") == 0 && reportShaped(std::string_view(u).substr(0, u.size() - 2)))
-            sp.snr = std::atoi(u.c_str()), sp.hasSnr = true;  // "4dB", "-9dB"
-        else if (u == "DB" && i > 0 && reportShaped(comment[i - 1]))
-            sp.snr = std::atoi(std::string(comment[i - 1]).c_str()), sp.hasSnr = true;  // "15 dB"
     }
+    sp.hasSnr = commentReport(sp.comments, &sp.snr);
     sp.spotter = upper(spotter);
     sp.activator = upper(call);
     char buf[32];
@@ -537,6 +533,48 @@ long long spotEpoch(std::string_view utc) {
     long doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     long long days = era * 146097LL + doe - 719468;
     return days * 86400 + h * 3600 + mi * 60 + se;
+}
+
+bool commentReport(std::string_view comment, int *snr) {
+    std::vector<std::string> words;
+    for (size_t i = 0; i < comment.size();) {
+        size_t j = comment.find(' ', i);
+        if (j == std::string_view::npos) j = comment.size();
+        if (j > i) words.push_back(upper(comment.substr(i, j - i)));
+        i = j + 1;
+    }
+    for (size_t i = 0; i < words.size(); ++i) {
+        const std::string &u = words[i];
+        if (u.size() > 2 && u.compare(u.size() - 2, 2, "DB") == 0 && reportShaped(std::string_view(u).substr(0, u.size() - 2)))
+            return *snr = std::atoi(u.c_str()), true;  // "4dB", "-9dB"
+        if (u == "DB" && i > 0 && reportShaped(words[i - 1])) return *snr = std::atoi(words[i - 1].c_str()), true;  // "15 dB"
+    }
+    return false;
+}
+
+std::string spotAge(long long epoch, long long now) {
+    if (epoch <= 0 || now <= 0) return "";
+    long long minutes = std::max<long long>(0, now - epoch) / 60;
+    return minutes == 0 ? tr("just now") : i18n::trf("{n} min", {{"n", std::to_string(minutes)}});
+}
+
+std::string spotSnr(const Spot &s) {
+    if (!s.hasSnr) return "";
+    char db[16];
+    std::snprintf(db, sizeof db, "%+d dB", s.snr);
+    return db;
+}
+
+std::string spotLabelDetails(const Spot &s, const SpotLabel &show, long long now) {
+    std::vector<std::string> parts;
+    if (show.mode && !s.mode.empty()) parts.push_back(s.mode);
+    if (show.khz && !s.khz.empty()) parts.push_back(s.khz + " kHz");
+    if (show.age)
+        if (std::string age = spotAge(s.epoch, now); !age.empty()) parts.push_back(age);
+    if (show.snr && s.hasSnr) parts.push_back(spotSnr(s));
+    std::string out;
+    for (const std::string &p : parts) out += (out.empty() ? "" : " \u00B7 ") + p;
+    return out;
 }
 
 }  // namespace adif

@@ -593,10 +593,14 @@ The **Spots** layer marks the stations spotted now, live, beside your log:
 
 - **Show** fetches the spots and marks each station: a dot in a ring in its band's colour,
   solid for 10 minutes and fainter as it ages. A station spotted on several bands has a
-  marker for each band, from its newest spot.
+  marker for each band, from its newest spot. The stations that heard it, its spotters (up
+  to 12, the newest first), are faint triangles: a cluster's spotters and RBN skimmers, and,
+  for PSKReporter, you.
 - **Overlay** draws a line from each spotter to the station it heard, while Show is on.
-  With PSKReporter, these are the stations that heard you.
-- **Labels** writes each station's call beside it, where there's room.
+  Without it, pointing at a spot (or clicking it) still draws its spotters' lines, and
+  pointing at a spotter draws the lines to the stations it heard.
+- **Labels** writes each station's call beside it, where there's room, with its mode, how
+  long ago it was spotted and its signal report under it (Style Options chooses which).
 
 Where the spots come from is set in **Settings → Spots** (see [Settings](#settings)):
 Spothole at first, and a DX cluster and PSKReporter when you turn them on. Nothing is
@@ -609,7 +613,7 @@ spot (a cluster node's, or the locator a PSKReporter receiver gives). Otherwise 
 country data's place for its call, often the middle of the country. A spotter is placed the
 same way.
 
-**Spots…** in the Filters row chooses which spots show:
+**Spots…** in the Markers row chooses which spots show:
 
 - **Newer than:** 10 minutes, 30 minutes (at first) or 1 hour.
 - **From:** Spothole, DX cluster and PSKReporter; the ones turned off in Settings are
@@ -623,12 +627,22 @@ is doing ("Spothole: 42 new spots at 14:02 UTC (every 2 minutes)", "DX cluster: 
 to dxc.hamserve.uk:7300 as N0CALL."). The Map's band and mode filters and **More Filters**'
 places apply to spots too; the dates and confirmation don't.
 
+The round arrow beside **Spots…** refreshes them now, as far as each source allows:
+Spothole is asked again unless it was asked less than a minute ago, PSKReporter only once 5
+minutes have passed since it was last asked (it asks for no more), and a DX cluster waiting
+to reconnect connects at once; a connected cluster sends its spots as they come anyway. The
+status line says what each source did.
+
 Click a spot for what it is, in the status line: "K1ABC on 14074 kHz FT8 at POTA US-1234
 (a park's name), spotted 3 minutes ago by W1AW (Spothole); worked on other bands.", with the
-spot's comment, and the distance and bearing from your grid (Settings, else the log's most used MY_GRIDSQUARE). **Use in New QSO**, beside the
-status line, fills New QSO from it as the Spots window does: CALL, FREQ, BAND, MODE and the
-program's reference, or GRIDSQUARE when a cluster or PSKReporter spot gives the station's
-grid.
+spot's signal report and how many spotters heard it, its comment, and the distance and
+bearing from your grid (Settings, else the log's most used MY_GRIDSQUARE). **Use in New
+QSO**, beside the status line, fills New QSO from it as the Spots window does: CALL, FREQ,
+BAND, MODE and the program's reference, or GRIDSQUARE when a cluster or PSKReporter spot
+gives the station's grid. Click a spotter for the stations it heard ("W3LPL-#, a spotter:
+heard 3 stations: JA1XYZ 20m, …"), or, for you with PSKReporter, the stations that heard
+you. Signal reports come from RBN skimmers and PSKReporter; Spothole has no field for them,
+so they are read from its spots' comments ("CW 20 dB 25 WPM").
 
 ### Contacts and their places
 
@@ -813,12 +827,16 @@ your own use; if you pass them on, the licence goes with them.
   they read as arches from above your station too, and over the horizon for contacts on the
   far side. They are for looks: the true path, and the beam heading, is the straight line
   you get with it off.
+- **Spots** (while the Spots layer shows): **Spotters** hidden, as markers, or as markers
+  with their calls (which give way to every other label); what the spot labels show under
+  each call: **Mode**, **Frequency**, **Time since spotted** and **Signal report**; and
+  **Fade older spots**.
 - **On the map**: the **Legend**; **Distance rings** from your grid, 2,500 km apart for the
   whole world, closer as you zoom in, with bearings every 30° when the globe is centred on
   home; **Day and night**; **Grey line**; and **Sun at** now or at the selected QSO's time.
 
 **Day and night** shades the side of the Earth where the sun is down, deeper as it goes
-further down (to astronomical twilight, 18° below the horizon), draws the line between day
+further down (to astronomical twilight, 18° below the horizon, where it is 60% black), draws the line between day
 and night, and marks the sun where it is overhead. **Grey line** tints the twilight band
 gold, from just before sunset until the sun is 6° down (civil twilight): a common time for
 long-distance openings. Its edges are a convention, not a propagation prediction. **Sun at**

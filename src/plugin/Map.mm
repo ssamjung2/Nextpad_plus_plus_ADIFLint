@@ -108,8 +108,8 @@ struct {
     NSTextField *cqField = nil, *ituField = nil;
     NSPopUpButton *regions = nil;
     NSMutableArray *completers = nil;
-    // Spots: the popover of their own filters, Use in New QSO, and what tells the Map of new ones.
-    NSButton *spotsButton = nil, *useSpot = nil;
+    // Spots: the popover of their own filters, Refresh, Use in New QSO, and what tells the Map of new ones.
+    NSButton *spotsButton = nil, *refreshSpotsButton = nil, *useSpot = nil;
     NSPopover *spotsPopover = nil;
     NSPopUpButton *spotAge = nil, *spotProgram = nil;
     NSButton *spotSource[3] = {};
@@ -230,6 +230,12 @@ ADIFMapStyle savedStyle() {
     s.greyLine = flag("mapGreyLine", false);
     s.sunTime = number("mapSunTime", 0, 1);
     s.mine = flag("mapMine", true);
+    s.spotters = number("mapSpotters", 1, 2);
+    s.spotLabel.mode = flag("mapSpotLabelMode", true);
+    s.spotLabel.khz = flag("mapSpotLabelFreq", false);
+    s.spotLabel.age = flag("mapSpotLabelAge", true);
+    s.spotLabel.snr = flag("mapSpotLabelSnr", true);
+    s.spotFade = flag("mapSpotFade", true);
     return s;
 }
 
@@ -364,8 +370,32 @@ std::string describe(const ADIFMapHit &h) {
             std::string log = band ? trf("worked on {band}", {{"band", sp.band}}) : other ? tr("worked on other bands") : tr("not in this log");
             std::string text = trf("{call} on {what}{ref}, spotted {when} {by}; {log}.",
                                    {{"call", sp.activator}, {"what", what}, {"ref", ref}, {"when", when}, {"by", by}, {"log", log}});
+            if (sp.hasSnr) text += " " + trf("Signal report {snr}.", {{"snr", adif::spotSnr(sp)}});
+            if (ms.heard.size() > 1)
+                text += " " + trp("Heard by {n} spotter.", "Heard by {n} spotters.", (long long)ms.heard.size());
             if (!sp.comments.empty()) text += " \u201c" + sp.comments + "\u201d";
             return text + fromHome(ms.lat, ms.lon);
+        }
+        case ADIFMapHit::Spotter: {
+            if (h.index >= mw.view.spotters.size()) break;
+            const ADIFMapSpotter &st = mw.view.spotters[h.index];
+            // The stations it heard (or, for PSKReporter, that heard you), newest first.
+            std::string list;
+            bool psk = true;
+            for (size_t n = 0; n < st.spots.size(); ++n) {
+                const adif::Spot &sp = mw.view.spots[st.spots[n]].spot;
+                psk &= sp.source == adif::SpotSource::PskReporter;
+                if (n < 6) list += (list.empty() ? "" : ", ") + sp.activator + " " + sp.band;
+            }
+            if (st.spots.size() > 6) list += ", +" + std::to_string(st.spots.size() - 6);
+            long long n = (long long)st.spots.size();
+            std::string text = psk ? trp("{call}: heard by {n} station (PSKReporter): {list}.", "{call}: heard by {n} stations (PSKReporter): {list}.", n,
+                                         {{"call", st.call}, {"list", list}})
+                                   : trp("{call}, a spotter: heard {n} station: {list}.", "{call}, a spotter: heard {n} stations: {list}.", n,
+                                         {{"call", st.call}, {"list", list}});
+            if (st.call.size() > 2 && st.call.compare(st.call.size() - 2, 2, "-#") == 0)
+                text += " " + tr("A Reverse Beacon Network skimmer.");
+            return text + fromHome(st.lat, st.lon);
         }
         case ADIFMapHit::Empty: return trf("{square}: no QSOs.", {{"square", h.square}}) + where;
         case ADIFMapHit::None: break;
@@ -553,6 +583,9 @@ void fillStyle() {
         if (NSControl *c = (NSControl *)findView(root, ident)) c.enabled = s.paths;
     if (NSControl *c = (NSControl *)findView(root, @"map.style.rings")) c.enabled = !mw.home.empty();
     if (NSControl *c = (NSControl *)findView(root, @"map.style.sunTime")) c.enabled = s.dayNight || s.greyLine;
+    for (NSString *ident in @[ @"map.style.spotters", @"map.style.spotMode", @"map.style.spotFreq", @"map.style.spotAge", @"map.style.spotSnr",
+                               @"map.style.spotFade" ])
+        if (NSControl *c = (NSControl *)findView(root, ident)) c.enabled = s[kLayerSpots].show;
 }
 
 void showStyleOptions() {
@@ -619,6 +652,18 @@ void showStyleOptions() {
         add({"mapArcs", @"map.style.arcs", 1, nil, N(@"Arch over the globe"),
              N(@"On the globe, draw each line as an arch rising over it (for looks: the true path, and the beam heading, is the straight line "
              @"you get with this off)")});
+        section(N(@"Spots"));
+        add({"mapSpotters", @"map.style.spotters", 1, @[ N(@"Hidden##spotters"), N(@"Markers"), N(@"Markers and calls") ], N(@"Spotters:"),
+             N(@"The stations that heard the spots (a cluster's spotters, RBN skimmers; for PSKReporter, you), each a triangle. Point at a "
+             @"spot or a spotter for its lines")});
+        add({"mapSpotLabelMode", @"map.style.spotMode", 1, nil, N(@"Mode"), N(@"Under each spot's call (the Spots layer's Labels): its mode")});
+        rows[rows.count - 1] = @[ ADIFLabel(N(@"Labels show:")), rows.lastObject[1] ];
+        add({"mapSpotLabelFreq", @"map.style.spotFreq", 0, nil, N(@"Frequency"), N(@"Under each spot's call: its frequency in kHz")});
+        add({"mapSpotLabelAge", @"map.style.spotAge", 1, nil, N(@"Time since spotted"), N(@"Under each spot's call: how long ago it was spotted")});
+        add({"mapSpotLabelSnr", @"map.style.spotSnr", 1, nil, N(@"Signal report"),
+             N(@"Under each spot's call: the signal report in dB, from an RBN skimmer or PSKReporter")});
+        add({"mapSpotFade", @"map.style.spotFade", 1, nil, N(@"Fade older spots"),
+             N(@"Spots older than 10 minutes fainter, down to half at the Spots filter's age")});
         section(N(@"On the map"));
         add({"mapLegend", @"map.style.legend", 1, nil, N(@"Legend"), nil});
         add({"mapRings", @"map.style.rings", 0, nil, N(@"Distance rings from my grid"), nil});
@@ -633,7 +678,8 @@ void showStyleOptions() {
         reset.identifier = @"map.style.reset";
         ADIFOnAction(reset, ^{
             for (const char *key : {"mapPalette", "mapMarkerSize", "mapMarkerShape", "mapContactMarker", "mapSquareFill", "mapAreaShade", "mapLineStyle",
-                                    "mapLineWidth", "mapLineOpacity", "mapArcs", "mapLegend", "mapRings", "mapDayNight", "mapGreyLine", "mapSunTime"})
+                                    "mapLineWidth", "mapLineOpacity", "mapArcs", "mapLegend", "mapRings", "mapDayNight", "mapGreyLine", "mapSunTime",
+                                    "mapSpotters", "mapSpotLabelMode", "mapSpotLabelFreq", "mapSpotLabelAge", "mapSpotLabelSnr", "mapSpotFade"})
                 setSetting(key, "");
             [mw.styleWindow orderOut:nil];
             mw.styleWindow = nil;
@@ -655,6 +701,9 @@ void showStyleOptions() {
                 first.xPlacement = NSGridCellPlacementLeading;
                 if (r > 0) [grid rowAtIndex:r].topPadding = 8;
             }
+            // Fading isn't one of the label's details: a little room above it.
+            if ([[grid cellAtColumnIndex:1 rowIndex:r].contentView.identifier isEqualToString:@"map.style.spotFade"])
+                [grid rowAtIndex:r].topPadding = 6;
         }
         grid.translatesAutoresizingMaskIntoConstraints = NO;
         [p.contentView addSubview:grid];
@@ -1205,18 +1254,33 @@ void refreshSpots() {
         std::vector<adif::Spot> keep;
         for (const adif::Spot &sp : spotfeeds::spots().spots())
             if (adif::spotMatches(f, sp, now, countries, parks)) keep.push_back(sp);
+        // Every spot of a station on a band, newest first: who heard it.
+        std::map<std::string, std::vector<const adif::Spot *>> byStation;
+        for (const adif::Spot &sp : keep) byStation[adif::spotterCall(sp.activator) + "|" + sp.band].push_back(&sp);
+        for (auto &kv : byStation)
+            std::stable_sort(kv.second.begin(), kv.second.end(), [](const adif::Spot *a, const adif::Spot *b) { return a->epoch > b->epoch; });
         for (adif::Spot &sp : adif::latestPerStation(keep)) {
             adif::SpotPlace at = adif::spotPlace(sp, countries);
             if (!at.ok) continue;
             ADIFMapSpot m;
             m.lat = at.lat, m.lon = at.lon, m.exact = at.exact;
-            adif::SpotPlace by = adif::spotterPlace(sp, countries);
-            if (by.ok) m.hasSpotter = true, m.spotterLat = by.lat, m.spotterLon = by.lon;
+            std::set<std::string> seen;
+            for (const adif::Spot *by : byStation[adif::spotterCall(sp.activator) + "|" + sp.band]) {
+                if (m.heard.size() >= 12) break;
+                if (by->spotter.empty() || !seen.insert(adif::spotterCall(by->spotter)).second) continue;
+                adif::SpotPlace from = adif::spotterPlace(*by, countries);
+                if (!from.ok) continue;
+                ADIFSpotHeard h;
+                h.call = by->spotter, h.lat = from.lat, h.lon = from.lon, h.epoch = by->epoch, h.source = by->source;
+                h.hasSnr = by->hasSnr, h.snr = by->snr;
+                m.heard.push_back(h);
+            }
             m.spot = std::move(sp);
             marks.push_back(std::move(m));
         }
     }
     [mw.view setSpots:marks now:now maxAge:f.maxAge];
+    mw.refreshSpotsButton.enabled = show;
     fillSpotsPopover();
 }
 
@@ -1470,9 +1534,29 @@ void cmdMap() {
         NSButton *fit = smallButton(@"Fit Log", @"Zoom to the log's QSOs", ^{ [mw.view fitLog]; });
         NSButton *world = smallButton(@"World", @"The whole world (0)", ^{ [mw.view showWorld]; });
         NSButton *save = smallButton(@"Export PNG...", @"Save the map as it is shown now, with its legend", ^{ exportPng(); });
-        NSStackView *markers = [NSStackView stackViewWithViews:@[ ADIFLabel(@"Markers:"), mw.contacts, mw.lines, mw.programs, mw.mine, mw.colorBy ]];
+        mw.spotsButton = smallButton(@"Spots...", @"The spots the Spots layer shows: how new, from which sources, which program; and what the "
+                                                  @"sources are doing", ^{ showSpotsPopover(); });
+        mw.spotsButton.identifier = @"map.spots.open";
+        // Refresh: the feeds asked again now, within their limits; what each did goes to the status line.
+        mw.refreshSpotsButton = smallButton(@"Refresh Spots", @"Refresh the spots now: Spothole is asked again (at most once a minute), PSKReporter once its "
+                                                 @"5 minutes have passed, and a DX cluster waiting to reconnect connects",
+                                            ^{
+                                                setStatus(spotfeeds::refreshNow());
+                                                refreshSpots();
+                                            });
+        mw.refreshSpotsButton.image = [NSImage imageWithSystemSymbolName:@"arrow.clockwise" accessibilityDescription:T(@"Refresh Spots")];
+        mw.refreshSpotsButton.title = @"";  // the icon only; its name for VoiceOver below
+        mw.refreshSpotsButton.imagePosition = NSImageOnly;
+        mw.refreshSpotsButton.accessibilityLabel = T(@"Refresh Spots");
+        mw.refreshSpotsButton.identifier = @"map.spots.refresh";
+        mw.refreshSpotsButton.enabled = NO;
+        NSStackView *markers = [NSStackView stackViewWithViews:@[
+            ADIFLabel(@"Markers:"), mw.contacts, mw.lines, mw.programs, mw.mine, mw.colorBy, mw.spotsButton, mw.refreshSpotsButton
+        ]];
         markers.spacing = 10;
         [markers setCustomSpacing:24 afterView:mw.mine];
+        [markers setCustomSpacing:24 afterView:mw.colorBy];
+        [markers setCustomSpacing:4 afterView:mw.spotsButton];
         mw.moreFilters = smallButton(@"More Filters...", @"Keep the QSOs in chosen places: continents, countries, zones, US states, counties and "
                                                           @"regions, POTA locations", ^{ showMoreFilters(); });
         mw.moreFilters.identifier = @"map.filter.more";
@@ -1485,12 +1569,8 @@ void cmdMap() {
             refresh();
         });
         mw.clearFilters.identifier = @"map.filter.clear";
-        mw.spotsButton = smallButton(@"Spots...", @"The spots the Spots layer shows: how new, from which sources, which program; and what the "
-                                                  @"sources are doing", ^{ showSpotsPopover(); });
-        mw.spotsButton.identifier = @"map.spots.open";
-        NSStackView *filters = [NSStackView
-            stackViewWithViews:@[ ADIFLabel(@"Filters:"), mw.band, mw.mode, mw.dates, mw.confirmed, mw.moreFilters, mw.clearFilters, mw.spotsButton ]];
-        [filters setCustomSpacing:24 afterView:mw.clearFilters];
+        NSStackView *filters =
+            [NSStackView stackViewWithViews:@[ ADIFLabel(@"Filters:"), mw.band, mw.mode, mw.dates, mw.confirmed, mw.moreFilters, mw.clearFilters ]];
         filters.spacing = 8;
         NSStackView *zoomRow =
             [NSStackView stackViewWithViews:@[ ADIFLabel(@"Zoom:"), out, mw.zoomLabel, in, fit, world, mw.region, mw.projection, styleButton, save ]];
@@ -1583,6 +1663,8 @@ void cmdMap() {
                                                             ADIFMapStyle st = mw.view.style;
                                                             if (mw.window.visible && (st.dayNight || st.greyLine) && st.sunTime == 0)
                                                                 mw.view.needsDisplay = YES;
+                                                            // Spots age: their filter, fading and labels follow.
+                                                            if (mw.window.visible && st[kLayerSpots].show) refreshSpots();
                                                         }];
     refresh();
     [mw.window makeKeyAndOrderFront:nil];

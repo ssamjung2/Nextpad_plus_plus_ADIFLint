@@ -73,7 +73,7 @@ using namespace mapkit;
             if (![self lonLatAt:p lon:&lon lat:&lat]) continue;
             double e = adif::solarElevation(sun, lat, lon);
             double dark = 0, gold = 0;
-            if (_style.dayNight && e < 0) dark = 0.5 * std::min(1.0, -e / 18.0);
+            if (_style.dayNight && e < 0) dark = 0.6 * std::min(1.0, -e / 18.0);  // black, up to 60% at 18 degrees down
             if (_style.greyLine && e < 0.8 && e > -6) gold = 0.32 * (1 - std::fabs(e + 2.6) / 3.4);
             gold = std::max(0.0, gold);
             // Premultiplied RGBA: black for the night, gold (0xFFB340) for the grey line, over each other.
@@ -1017,32 +1017,89 @@ using namespace mapkit;
     return m;
 }
 
-// Newer spots solid, older ones fainter: full for the first 10 minutes, then down to 0.45 at the
-// Spots filter's age (or an hour).
+// Newer spots solid, older ones fainter (unless Style Options turns fading off): full for the
+// first 10 minutes, then down to 0.45 at the Spots filter's age (or an hour).
 - (CGFloat)spotAlpha:(const ADIFMapSpot &)s {
-    if (s.spot.epoch <= 0 || _spotsNow <= 0) return 1;
+    if (!_style.spotFade || s.spot.epoch <= 0 || _spotsNow <= 0) return 1;
     double age = (double)(_spotsNow - s.spot.epoch), span = _spotMaxAge > 600 ? (double)_spotMaxAge : 3600;
     if (age <= 600) return 1;
     return (CGFloat)std::max(0.45, 1 - 0.55 * (age - 600) / std::max(1.0, span - 600));
 }
 
-// Overlay: a line from each spotter to the station it heard, in the band's colour.
+// The spot and the spotter under the pointer or chosen.
+- (bool)spotLit:(size_t)k {
+    return (_hover.kind == ADIFMapHit::Spot && _hover.index == k) || (_selected.kind == ADIFMapHit::Spot && _selected.index == k);
+}
+- (bool)spotterLit:(size_t)j {
+    if ((_hover.kind == ADIFMapHit::Spotter && _hover.index == j) || (_selected.kind == ADIFMapHit::Spotter && _selected.index == j)) return true;
+    if (j >= _spotters.size()) return false;
+    for (size_t k : _spotters[j].spots)  // a spotter of the spot under the pointer
+        if ([self spotLit:k]) return true;
+    return false;
+}
+
+// Overlay: a line from each spotter to the station it heard, in the band's colour. The lines of
+// the spot or spotter under the pointer or chosen show while Show is on, Overlay or not, on top.
 - (void)drawSpotLines:(MapDrawCtx &)d {
-    if (!_style[kLayerSpots].show || !_style[kLayerSpots].overlay) return;
+    if (!_style[kLayerSpots].show) return;
+    std::set<std::string> litSpotters;
+    for (const ADIFMapHit *h : {&_hover, &_selected})
+        if (h->kind == ADIFMapHit::Spotter && h->index < _spotters.size()) litSpotters.insert(adif::spotterCall(_spotters[h->index].call));
     std::set<std::tuple<long, long, long, long>> drawn;
-    for (const ADIFMapSpot &s : _spots) {
-        if (!s.hasSpotter) continue;
-        if (!drawn.insert({std::lround(s.spotterLat * 10), std::lround(s.spotterLon * 10), std::lround(s.lat * 10), std::lround(s.lon * 10)}).second)
-            continue;
-        NSBezierPath *path = [self viewPath:adif::greatCirclePath(s.spotterLat, s.spotterLon, s.lat, s.lon, 3) close:NO wraps:YES];
-        path.lineWidth = 0.8;
-        path.lineJoinStyle = NSLineJoinStyleRound;
-        [[[self bandColor:s.spot.band] colorWithAlphaComponent:0.45 * [self spotAlpha:s]] setStroke];
-        [path stroke];
+    for (int pass = 0; pass < 2; ++pass)  // the others, then the lit ones over them
+        for (size_t k = 0; k < _spots.size(); ++k) {
+            const ADIFMapSpot &s = _spots[k];
+            bool spotLit = [self spotLit:k];
+            for (const ADIFSpotHeard &h : s.heard) {
+                bool lit = spotLit || litSpotters.count(adif::spotterCall(h.call));
+                if (lit != (pass == 1) || (!lit && !_style[kLayerSpots].overlay)) continue;
+                if (!lit && !drawn.insert({std::lround(h.lat * 10), std::lround(h.lon * 10), std::lround(s.lat * 10), std::lround(s.lon * 10)}).second)
+                    continue;
+                NSBezierPath *path = [self viewPath:adif::greatCirclePath(h.lat, h.lon, s.lat, s.lon, 3) close:NO wraps:YES];
+                path.lineWidth = lit ? 1.8 : 0.8;
+                path.lineJoinStyle = NSLineJoinStyleRound;
+                [[[self bandColor:s.spot.band] colorWithAlphaComponent:lit ? 0.9 : 0.45 * [self spotAlpha:s]] setStroke];
+                [path stroke];
+            }
+        }
+}
+
+// A spotter's marker, a triangle like a listening antenna, centred on p with radius r. The spots
+// are what matter, so it is see-through: a faint fill of the map's background colour inside a
+// faint outline in its ink; solid ink when lit (a spotter of the spot under the pointer).
+- (void)drawSpotterAt:(NSPoint)p radius:(double)r lit:(BOOL)lit dark:(BOOL)dark {
+    NSBezierPath *tri = [NSBezierPath bezierPath];
+    [tri moveToPoint:NSMakePoint(p.x, p.y + r)];
+    [tri lineToPoint:NSMakePoint(p.x - 0.87 * r, p.y - 0.5 * r)];
+    [tri lineToPoint:NSMakePoint(p.x + 0.87 * r, p.y - 0.5 * r)];
+    [tri closePath];
+    tri.lineJoinStyle = NSLineJoinStyleRound;
+    CGFloat ink = dark ? 1 : 0, paper = dark ? 0 : 1;
+    [[NSColor colorWithCalibratedWhite:lit ? ink : paper alpha:lit ? 0.9 : 0.35] setFill];
+    [tri fill];
+    tri.lineWidth = lit ? 1.3 : 1.0;
+    [[NSColor colorWithCalibratedWhite:lit ? paper : ink alpha:lit ? 0.9 : 0.55] setStroke];
+    [tri stroke];
+}
+
+- (double)spotterRadius:(bool)lit {
+    return (lit ? 6.5 : 5.0) * _style.marker;
+}
+
+// The stations that heard the spots (Style Options → Spotters), bigger and solid for the spot or
+// spotter under the pointer or chosen.
+- (void)drawSpotters:(MapDrawCtx &)d {
+    if (!_style[kLayerSpots].show || _style.spotters == 0) return;
+    for (size_t j = 0; j < _spotters.size(); ++j) {
+        NSPoint p = [self viewPointForLon:_spotters[j].lon lat:_spotters[j].lat];
+        if (!NSPointInRect(p, NSInsetRect(d.b, -12, -12))) continue;
+        bool lit = [self spotterLit:j];
+        [self drawSpotterAt:p radius:[self spotterRadius:lit] lit:lit dark:d.pal->dark];
     }
 }
 
-// Show: a marker at each station spotted; Labels: its call beside it, where there's room.
+// Show: a marker at each station spotted. Labels: its call beside it, where there's room, with
+// what Style Options chooses under it (mode, frequency, age, report); then the spotters' calls.
 - (void)drawSpots:(MapDrawCtx &)d {
     if (!_style[kLayerSpots].show) return;
     const MapPalette &pal = *d.pal;
@@ -1050,15 +1107,21 @@ using namespace mapkit;
     NSShadow *halo = [[NSShadow alloc] init];
     halo.shadowColor = [NSColor colorWithCalibratedWhite:pal.dark ? 0 : 1 alpha:0.9];
     halo.shadowBlurRadius = 2;
+    NSColor *textColor = [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.9];
     NSDictionary *attrs = @{NSFontAttributeName : [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightSemibold],
-                            NSForegroundColorAttributeName : [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.9], NSShadowAttributeName : halo};
+                            NSForegroundColorAttributeName : textColor, NSShadowAttributeName : halo};
+    NSDictionary *small = @{NSFontAttributeName : [NSFont systemFontOfSize:9], NSForegroundColorAttributeName : textColor,
+                            NSShadowAttributeName : halo};
+    NSDictionary *spotterAttrs = @{NSFontAttributeName : [NSFont monospacedSystemFontOfSize:9 weight:NSFontWeightRegular],
+                                   NSForegroundColorAttributeName : [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.7],
+                                   NSShadowAttributeName : halo};
     std::vector<NSRect> taken = d.taken;
     // The oldest first, so the newest are on top.
     for (size_t k = _spots.size(); k-- > 0;) {
         const ADIFMapSpot &s = _spots[k];
         NSPoint p = [self viewPointForLon:s.lon lat:s.lat];
         if (!NSPointInRect(p, NSInsetRect(d.b, -12, -12))) continue;
-        bool lit = (_hover.kind == ADIFMapHit::Spot && _hover.index == k) || (_selected.kind == ADIFMapHit::Spot && _selected.index == k);
+        bool lit = [self spotLit:k];
         CGFloat alpha = [self spotAlpha:s];
         NSColor *c = [[self bandColor:s.spot.band] colorWithAlphaComponent:alpha];
         double r = 3 * _style.marker, ring = 6 * _style.marker;
@@ -1073,21 +1136,40 @@ using namespace mapkit;
         dot.lineWidth = lit ? 1.4 : 0.8;
         [dot stroke];
     }
-    if (!_style[kLayerSpots].labels) return;
-    for (size_t k = 0; k < _spots.size() && k < 400; ++k) {  // the newest first get the room
-        const ADIFMapSpot &s = _spots[k];
-        NSPoint p = [self viewPointForLon:s.lon lat:s.lat];
-        NSString *text = ADIFString(s.spot.activator);
-        NSSize sz = [text sizeWithAttributes:attrs];
-        double gap = 6 * _style.marker + 2;
-        NSRect r = NSMakeRect(p.x + gap, p.y - sz.height / 2, sz.width, sz.height);
-        if (!NSIntersectsRect(r, d.b)) continue;
-        bool clear = true;
-        for (const NSRect &t : taken) clear &= !NSIntersectsRect(NSInsetRect(t, -2, -1), r);
-        if (!clear) continue;
-        [text drawAtPoint:r.origin withAttributes:attrs];
-        taken.push_back(r);
+    if (_style[kLayerSpots].labels) {
+        long long now = (long long)time(nullptr);
+        for (size_t k = 0; k < _spots.size() && k < 400; ++k) {  // the newest first get the room
+            const ADIFMapSpot &s = _spots[k];
+            NSPoint p = [self viewPointForLon:s.lon lat:s.lat];
+            NSString *call = ADIFString(s.spot.activator);
+            NSString *details = ADIFString(adif::spotLabelDetails(s.spot, _style.spotLabel, now));
+            NSSize cs = [call sizeWithAttributes:attrs];
+            NSSize ds = details.length ? [details sizeWithAttributes:small] : NSZeroSize;
+            double gap = 6 * _style.marker + 2;
+            NSRect r = NSMakeRect(p.x + gap, p.y - (cs.height + ds.height) / 2, std::max(cs.width, ds.width), cs.height + ds.height);
+            if (!NSIntersectsRect(r, d.b)) continue;
+            bool clear = true;
+            for (const NSRect &t : taken) clear &= !NSIntersectsRect(NSInsetRect(t, -2, -1), r);
+            if (!clear) continue;
+            [call drawAtPoint:NSMakePoint(r.origin.x, r.origin.y + ds.height) withAttributes:attrs];
+            if (details.length) [details drawAtPoint:r.origin withAttributes:small];
+            taken.push_back(r);
+        }
     }
+    if (_style.spotters == 2)  // the spotters' calls last: they give way to everything else
+        for (size_t j = 0; j < _spotters.size(); ++j) {
+            NSPoint p = [self viewPointForLon:_spotters[j].lon lat:_spotters[j].lat];
+            NSString *text = ADIFString(_spotters[j].call);
+            NSSize sz = [text sizeWithAttributes:spotterAttrs];
+            double gap = [self spotterRadius:false] + 2;
+            NSRect r = NSMakeRect(p.x + gap, p.y - sz.height / 2, sz.width, sz.height);
+            if (!NSIntersectsRect(r, d.b)) continue;
+            bool clear = true;
+            for (const NSRect &t : taken) clear &= !NSIntersectsRect(NSInsetRect(t, -2, -1), r);
+            if (!clear) continue;
+            [text drawAtPoint:r.origin withAttributes:spotterAttrs];
+            taken.push_back(r);
+        }
 }
 
 - (size_t)spotAt:(NSPoint)p {
@@ -1098,6 +1180,18 @@ using namespace mapkit;
         NSPoint q = [self viewPointForLon:_spots[k].lon lat:_spots[k].lat];
         double dist = std::hypot(q.x - p.x, q.y - p.y);
         if (dist < bestDistance) best = k, bestDistance = dist - 0.01;
+    }
+    return best;
+}
+
+- (size_t)spotterAt:(NSPoint)p {
+    if (!_style[kLayerSpots].show || _style.spotters == 0) return (size_t)-1;
+    size_t best = (size_t)-1;
+    double bestDistance = [self spotterRadius:false] + 2;
+    for (size_t j = 0; j < _spotters.size(); ++j) {
+        NSPoint q = [self viewPointForLon:_spotters[j].lon lat:_spotters[j].lat];
+        double dist = std::hypot(q.x - p.x, q.y - p.y);
+        if (dist < bestDistance) best = j, bestDistance = dist - 0.01;
     }
     return best;
 }

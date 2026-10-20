@@ -3564,6 +3564,32 @@ static void testSpotsCore() {
           "frequencies in kHz");
     CHECK(spotterCall("w3lpl-#") == "W3LPL" && spotterCall("K1TTT-2") == "K1TTT" && spotterCall(" DL1ABC ") == "DL1ABC",
           "spotters without a node's suffix");
+    {
+        const long long now = 1791407517;
+        Spot s;
+        s.mode = "FT8", s.khz = "14074", s.epoch = now - 200, s.hasSnr = true, s.snr = -12;
+        CHECK(spotAge(now - 30, now) == "just now" && spotAge(now - 200, now) == "3 min" && spotAge(now + 90, now) == "just now" &&
+                  spotAge(0, now).empty(),
+              "a spot's age: just now, else whole minutes; none without a time");
+        Spot plus;
+        plus.hasSnr = true, plus.snr = 1;
+        CHECK(spotSnr(s) == "-12 dB" && spotSnr(plus) == "+1 dB" && spotSnr(Spot()).empty(), "signal reports with their sign");
+        int snr = 0;
+        CHECK(commentReport("CW 20 dB 25 WPM CQ", &snr) && snr == 20 && commentReport("FT8 +1 dB 1383 Hz", &snr) && snr == 1 &&
+                  commentReport("cw 4dB q:5", &snr) && snr == 4 && !commentReport("S9+20 dB up 2", &snr) && !commentReport("tnx 73", &snr) &&
+                  !commentReport("", &snr),
+              "a signal report in a comment, as skimmers write it");
+        CHECK(spotLabelDetails(s, SpotLabel(), now) == "FT8 · 3 min · -12 dB", "the label's details at first: mode, age, report");
+        SpotLabel all;
+        all.khz = true;
+        CHECK(spotLabelDetails(s, all, now) == "FT8 · 14074 kHz · 3 min · -12 dB", "every detail");
+        SpotLabel none;
+        none.mode = none.age = none.snr = false;
+        Spot bare;
+        bare.khz = "7012";
+        CHECK(spotLabelDetails(s, none, now).empty() && spotLabelDetails(bare, SpotLabel(), now).empty() && spotLabelDetails(bare, all, now) == "7012 kHz",
+              "details left out when not chosen or not known");
+    }
 
     CountryTable ct;
     ct.load("DL,Fed. Rep. of Germany,230,EU,14,28,51.00,-10.00,-1.0,DA DB DC DD DE DF DG DH DI DJ DK DL DM DN DO DP DQ DR;\n"
