@@ -330,7 +330,8 @@ and the release steps.
 - Only the active document is checked.
 - The online services were tested against saved sample replies, not the live services;
   the DX cluster against a stand-in node on the Mac, with spot lines in the format of
-  DXSpider's source code.
+  DXSpider's source code, and once against a live DXSpider node (13 of 13 spots read,
+  2026-10-19).
 - A spot that doesn't say where the station is (Spothole's place, or a grid) is drawn at
   the country data's place for its call, often the middle of the country.
 - No SOTA spots: the SOTA API's terms don't allow software written with AI tools without

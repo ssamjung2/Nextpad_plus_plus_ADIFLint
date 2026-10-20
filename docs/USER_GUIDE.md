@@ -1297,8 +1297,10 @@ The log tools work on one file and never change it.
 - Enrich, Import, the uploads and spots were tested against saved sample replies and a
   stand-in TQSL, not the live services. The POTA spot format was checked against the live
   feed on 2026-10-07. The DX cluster client was tested against a stand-in node on the Mac,
-  with spot lines in the format DXSpider's source writes them (read 2026-10-19), and
-  PSKReporter's reports against the format its developer page documents (read 2026-10-19).
+  with spot lines in the format DXSpider's source writes them (read 2026-10-19), and its
+  login and spot reading once against a live DXSpider node, dxc.hamserve.uk (13 of 13 spots
+  read, 2026-10-19). PSKReporter's reports were tested against the format its developer page
+  documents (read 2026-10-19); its live reply was checked only for a call nobody had heard.
 - A spot that doesn't say where the station is goes at the country data's place for its
   call, so spots from a large country gather at its middle.
 - TQSL must have the Station Location set up. A certificate password saved in Settings is

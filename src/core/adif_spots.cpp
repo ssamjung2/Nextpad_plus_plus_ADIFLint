@@ -293,10 +293,12 @@ bool smallNumber(std::string_view w) {
 
 bool stateShaped(std::string_view w) { return w.size() == 2 && std::isupper((unsigned char)w[0]) && std::isupper((unsigned char)w[1]); }
 
-// A report such as "-9" before "dB": up to three characters, digits with an optional leading minus.
+// A report such as "-9" or "+1" before "dB": up to three characters, digits with an optional
+// leading sign (a live DXSpider node relayed "FT8 +1 dB 1383 Hz", 2026-10-19).
 bool reportShaped(std::string_view n) {
-    return !n.empty() && n.size() <= 3 && n.find_first_not_of("-0123456789") == std::string_view::npos &&
-           n.find('-', 1) == std::string_view::npos && n != "-";
+    if (n.size() > 3) return false;
+    if (!n.empty() && (n[0] == '-' || n[0] == '+')) n.remove_prefix(1);
+    return !n.empty() && n.find_first_not_of("0123456789") == std::string_view::npos;
 }
 
 // The modes a spot's comment names, as ADIF or the spot sites write them.

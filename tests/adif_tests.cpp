@@ -3667,6 +3667,16 @@ static void testCluster() {
     CHECK(parseClusterSpot("DX de WE9V-#:      7074.0 EA7ALL       FT8 -9dB Q:2+ Z:5           14 0641Z  4", now, &sp) && sp.mode == "FT8" &&
               sp.snr == -9 && sp.band == "40m",
           "a negative report");
+    // Lines from a live DXSpider node (dxc.hamserve.uk, 2026-10-19): a report with a sign.
+    CHECK(parseClusterSpot("DX de K4CUP:     21074.0  P4/WE9V      FT8 +1 dB 1383 Hz              2352Z", now, &sp) && sp.activator == "P4/WE9V" &&
+              sp.mode == "FT8" && sp.hasSnr && sp.snr == 1 && sp.band == "15m",
+          "cluster: '+1 dB' is a report");
+    CHECK(parseClusterSpot("DX de K4CUP:     21074.0  H49A         FT8 -17 dB 513 Hz              2352Z", now, &sp) && sp.hasSnr && sp.snr == -17,
+          "cluster: '-17 dB' is a report");
+    CHECK(parseClusterSpot("DX de K1WNT:     18083.2  NP4E         IOTA NA-099                    2354Z", now, &sp) && sp.activator == "NP4E" &&
+              sp.khz == "18083.2" && sp.band == "17m" && sp.comments == "IOTA NA-099" && sp.mode.empty() && !sp.hasSnr,
+          "cluster: a plain spot with a comment");
+    CHECK(!parseClusterSpot("KW9D de G1FEF-2 19-Oct-2026 2351Z dxspider >", now, &sp), "cluster: the node's prompt is not a spot");
     CHECK(parseClusterSpot("DX de WE9V-#: 10118.0 N5JCB CW 15 dB 10 WPM CQ 2259Z", now, &sp) && sp.snr == 15 && sp.band == "30m" && sp.time == "22:59" &&
               sp.epoch < now && now - sp.epoch < 86400,
           "an RBN relay line; a time ahead of now is yesterday's");
