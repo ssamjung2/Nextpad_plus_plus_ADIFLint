@@ -67,9 +67,11 @@ struct ADIFMapStyle {
     bool dayNight = false; // the night side shaded, and the terminator
     bool greyLine = false; // the twilight band (sun from 0 to 6 degrees below the horizon) tinted
     int sunTime = 0;       // 0 now, 1 the selected QSO's time
-    // Spots: the stations that heard them (0 hidden, 1 markers, 2 markers and calls), what the
-    // labels show under each call, and older spots fainter.
-    int spotters = 1;
+    // Spots: the stations that heard them (0 hidden, 1 faint grey markers, 2 markers, 3 markers
+    // and calls), the lines from them (Overlay: 0 the band's colour, 1 faint in it, 2 faint grey),
+    // what the labels show under each call, and older spots fainter.
+    int spotters = 2;
+    int spotLines = 0;
     adif::SpotLabel spotLabel;
     bool spotFade = true;
     // Squares: Show the worked squares, Overlay the Maidenhead grid, Labels its names. Countries:
@@ -368,7 +370,7 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 - (void)drawSpotLines:(MapDrawCtx &)d;
 - (void)drawSpots:(MapDrawCtx &)d;
 - (void)drawSpotters:(MapDrawCtx &)d;
-- (void)drawSpotterAt:(NSPoint)p radius:(double)r lit:(BOOL)lit dark:(BOOL)dark;
+- (void)drawSpotterAt:(NSPoint)p radius:(double)r lit:(BOOL)lit dark:(BOOL)dark faint:(BOOL)faint;
 - (double)spotterRadius:(bool)lit;
 - (size_t)spotAt:(NSPoint)p;     // the spot whose marker is under the point, or npos
 - (size_t)spotterAt:(NSPoint)p;  // the spotter whose marker is under the point, or npos

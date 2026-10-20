@@ -8,6 +8,7 @@
 #import <Network/Network.h>
 
 #include "adif_edit.h"
+#include "adif_geo.h"
 #include "adif_programs.h"
 #include "adif_spec.h"
 #include "adif_tools.h"
@@ -109,6 +110,7 @@ namespace {
 constexpr double kSpotholeEvery = 120;  // Spothole reads POTA every 2 minutes; asking faster gains nothing
 constexpr double kSpotholeRefresh = 60;  // Refresh asks Spothole again at most once a minute
 constexpr long long kPskEvery = 300;    // PSKReporter: "no more often than once every five minutes"
+constexpr long long kPskGridWindow = 1800;  // around a square: the last half hour (an hour can be 1,500 reports)
 constexpr long long kKeep = 3600;       // spots older than an hour go (Spothole keeps about an hour)
 const int kRetry[] = {15, 30, 60, 120, 300, 600};  // seconds before reconnecting a cluster, one step each failure
 
@@ -136,6 +138,7 @@ struct {
     std::string clusterStatus;
     size_t clusterSpots = 0;
     // PSKReporter
+    std::string homeGrid;
     NSTimer *pskTimer = nil;
     bool pskBusy = false;
     std::string pskStatus;
@@ -380,30 +383,50 @@ void pskFetch() {
     if (f.pskBusy) return;
     Config c = config();
     std::string call = myCall(c);
-    if (call.empty()) {
+    bool around = c.pskQuery == 1;
+    std::string square = upperText(setting("stationGrid").empty() ? f.homeGrid : setting("stationGrid")).substr(0, 4);
+    double lat, lon;
+    if (around && (square.size() < 4 || !adif::gridToLatLon(square, &lat, &lon))) {
+        f.pskStatus = tr("PSKReporter: it asks around your grid square: add your grid in Settings (Your Station).");
+        return changed();
+    }
+    if (!around && call.empty()) {
         f.pskStatus = tr("PSKReporter: it asks who hears your callsign: add it in Settings (Your Station).");
         return changed();
     }
     long long now = (long long)time(nullptr), last = std::atoll(setting("spotsPskLast").c_str());
-    if (last > 0 && last <= now && now - last < kPskEvery) return;  // asked less than five minutes ago (the timer tries again)
+    if (last > 0 && last <= now && now - last < kPskEvery) {  // asked less than five minutes ago (the timer tries again)
+        if (f.pskStatus.empty())
+            f.pskStatus = trf("PSKReporter: asked at most once in 5 minutes; next at {time} UTC.", {{"time", adif::spotTime(last + kPskEvery)}}), changed();
+        return;
+    }
     setSetting("spotsPskLast", std::to_string(now));
     f.pskBusy = true;
-    NSString *url = ADIFString(adif::pskQueryUrl(call, kKeep, c.email));
+    NSString *url = ADIFString(adif::pskQueryUrl(around ? square : call, around ? adif::PskQuery::Grid : adif::PskQuery::Callsign,
+                                                 around ? kPskGridWindow : kKeep, c.email));
     ADIFFetchPskReports(agent(), url, ^(NSData *xml, NSString *error) {
         f.pskBusy = false;
         if (!f.wanted) return;
         std::vector<adif::Spot> reports;
         std::string why = error ? ADIFStd(error) : "";
-        if (!error && !adif::parsePskReports(std::string_view((const char *)xml.bytes, xml.length), &reports, &why)) error = @"";
+        if (!error && !adif::parsePskReports(std::string_view((const char *)xml.bytes, xml.length), &reports, &why, 2000, call)) error = @"";
         if (error) {
             f.pskStatus = trf("PSKReporter: {why}", {{"why", why}});
             return changed();
         }
         size_t n = reports.size();
         f.list.replace(adif::SpotSource::PskReporter, std::move(reports));
-        f.pskStatus = trp("PSKReporter: {n} report of {call} in the last hour, at {time} UTC (every 5 minutes)",
-                          "PSKReporter: {n} reports of {call} in the last hour, at {time} UTC (every 5 minutes)", (long long)n,
-                          {{"call", call}, {"time", utcNow("%H:%M")}});
+        f.pskStatus = around ? trp("PSKReporter: {n} report around {grid} in the last half hour, at {time} UTC (every 5 minutes)",
+                                   "PSKReporter: {n} reports around {grid} in the last half hour, at {time} UTC (every 5 minutes)", (long long)n,
+                                   {{"grid", square}, {"time", utcNow("%H:%M")}})
+                             : trp("PSKReporter: {n} report of {call} in the last hour, at {time} UTC (every 5 minutes)",
+                                   "PSKReporter: {n} reports of {call} in the last hour, at {time} UTC (every 5 minutes)", (long long)n,
+                                   {{"call", call}, {"time", utcNow("%H:%M")}});
+        // None of your callsign: reports come from transmitting on a digital mode, or from a program
+        // that uploads what it hears (WSJT-X User Guide 3.2.0, 6.5 Reporting).
+        if (n == 0 && !around)
+            f.pskStatus += " " + tr("Reports come when you transmit on a digital mode, or when your program uploads what it hears (WSJT-X: "
+                                    "Settings, Reporting, Enable PSK Reporter Spotting). Or choose Around my grid square in Settings (Spots).");
         changed();
     });
 }
@@ -425,15 +448,17 @@ void restart() {
                                                                                queue:nil
                                                                           usingBlock:^(NSNotification *) { restart(); }];
     Config c = config();
-    f.spotholeStatus.clear(), f.clusterStatus.clear(), f.pskStatus.clear();
+    // What Spothole and PSKReporter said last still holds (their lists are kept); the cluster starts again.
+    f.clusterStatus.clear();
+    if (!c.spothole || f.spotholeStatus == ADIFStd(ADIFOfflineReason())) f.spotholeStatus.clear();
+    if (!c.psk) f.pskStatus.clear();
     if (!f.wanted) return changed();
     if (ADIFOffline()) {
         f.spotholeStatus = ADIFStd(ADIFOfflineReason());
         return changed();
     }
     if (c.spothole) {
-        f.spotholeAsked = 0;
-        spotholeFetch();
+        spotholeFetch();  // unless it was asked in the last 2 minutes
         f.spotholeTimer = [NSTimer scheduledTimerWithTimeInterval:kSpotholeEvery repeats:YES block:^(NSTimer *) { spotholeFetch(); }];
     }
     if (c.cluster) {
@@ -461,6 +486,8 @@ void setWanted(bool w) {
 }
 
 bool wanted() { return f.wanted; }
+
+void setHomeGrid(const std::string &grid) { f.homeGrid = grid; }
 
 const adif::SpotList &spots() { return f.list; }
 
@@ -533,6 +560,7 @@ Config config() {
     c.login = setting("spotsClusterLogin");
     c.commands = setting("spotsClusterCommands");
     c.psk = flag("spotsPsk", false);
+    c.pskQuery = std::clamp(std::atoi(setting("spotsPskQuery").c_str()), 0, 1);
     c.email = setting("spotsPskEmail");
     return c;
 }
@@ -546,11 +574,14 @@ void setConfig(const Config &c) {
     setSetting("spotsClusterLogin", c.login);
     setSetting("spotsClusterCommands", c.commands);
     setSetting("spotsPsk", c.psk ? "1" : "0");
+    setSetting("spotsPskQuery", std::to_string(c.pskQuery));
     setSetting("spotsPskEmail", c.email);
+    if (c.spothole && !was.spothole) f.spotholeAsked = 0;  // turned on: ask at once
+    if (c.pskQuery != was.pskQuery) f.pskStatus.clear();
     // A feed turned off takes its spots with it.
     if (!c.spothole && was.spothole) f.list.clear(adif::SpotSource::Spothole), f.receivedSince = 0;
     if (!c.cluster && was.cluster) f.list.clear(adif::SpotSource::Cluster);
-    if (!c.psk && was.psk) f.list.clear(adif::SpotSource::PskReporter);
+    if ((!c.psk && was.psk) || c.pskQuery != was.pskQuery) f.list.clear(adif::SpotSource::PskReporter);
     if (c.host != was.host || c.port != was.port || c.login != was.login) f.list.clear(adif::SpotSource::Cluster);
     if (f.wanted) restart();
     else changed();

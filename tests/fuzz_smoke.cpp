@@ -573,7 +573,7 @@ int main(int argc, char **argv) {
             }
             std::vector<adif::Spot> got;
             std::string why;
-            adif::parsePskReports(x, &got, &why, 5);
+            adif::parsePskReports(x, &got, &why, 5, (k & 1) ? "K9TST" : "");  // as a spot site gives it, or asked by a callsign
             bool ok = got.size() <= 5;
             for (const adif::Spot &sp : got) {
                 ok &= !sp.activator.empty() && sp.activator.size() <= 20 && !sp.khz.empty() && sp.epoch > 0;

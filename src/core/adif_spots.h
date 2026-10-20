@@ -37,6 +37,7 @@ struct Spot {
     std::string comments;
     int snr = 0;               // dB, from a skimmer or PSKReporter
     bool hasSnr = false;
+    bool heardMe = false;      // PSKReporter: a station that heard you (the activator); you are the spotter
     // Where the source says the station and the spotter are (Spothole's dx_ and de_latitude and
     // longitude), when it does; `exact` when it is better than a country's centre.
     bool placeGiven = false, placeExact = false, spotterPlaceGiven = false;
@@ -141,17 +142,24 @@ enum class ClusterPrompt { None, Login, Password, Refused };
 ClusterPrompt clusterPrompt(std::string_view text);
 
 // PSKReporter's reception reports (https://retrieve.pskreporter.info/query, documented on
-// pskreporter.info/pskdev.html, read 2026-10-19): <receptionReport receiverCallsign="KB1MBX"
-// receiverLocator="FN42hn" senderCallsign="N1DQ" frequency=14070987 flowStartSeconds=.../>, the
-// frequency in Hz and the time in Unix seconds; mode, senderLocator and sNR when they're there
-// (the page's sample shows neither quotes everywhere nor these, so both forms are read). Asked
-// for by your callsign as the sender, a report is a station that heard you: it becomes a spot of
-// that receiver (activator, grid), spotted by you (spotter, spotterGrid). At most `limit`.
-// False, with why, when the text isn't PSKReporter's answer.
-bool parsePskReports(std::string_view xml, std::vector<Spot> *out, std::string *why, size_t limit = 2000);
-// The query for who heard `call` in the last `seconds` (at most 24 hours), reports only, with
-// `appcontact` when given (PSKReporter's author asks for an address to reach whoever queries).
-std::string pskQueryUrl(std::string_view call, long long seconds, std::string_view appcontact);
+// pskreporter.info/pskdev.html, read 2026-10-19 and 2026-10-20): <receptionReport
+// receiverCallsign="KB1MBX" receiverLocator="FN42hn" senderCallsign="N1DQ" frequency=14070987
+// flowStartSeconds=.../>, the frequency in Hz and the time in Unix seconds; mode, senderLocator
+// and sNR when they're there (the page's sample shows neither quotes everywhere nor these, so
+// both forms are read). A report is a spot of its sender (activator, grid) by its receiver
+// (spotter, spotterGrid), as a spot site would give it; but when the sender is `me`, it is a
+// station that heard you: a spot of that receiver, spotted by you, marked heardMe. At most
+// `limit`. False, with why, when the text isn't PSKReporter's answer.
+bool parsePskReports(std::string_view xml, std::vector<Spot> *out, std::string *why, size_t limit = 2000, std::string_view me = "");
+// What to ask PSKReporter for: the reports with a callsign on either side (who heard you, and
+// what your station reported hearing: `callsign=`), or with either station in a grid square
+// (`callsign=` with `modify=grid`), both documented on its developer page.
+enum class PskQuery { Callsign, Grid };
+// The query for the last `seconds` (at most 24 hours), reports only, at most 1,000 of them
+// (`rptlimit`: a square's hour can be 1,500 reports, 600 KB), with `appcontact` when given
+// (PSKReporter's author asks for an address to reach whoever queries). A grid is cut to its
+// 4-character square.
+std::string pskQueryUrl(std::string_view callOrGrid, PskQuery query, long long seconds, std::string_view appcontact);
 
 // A spot's frequency in kHz from Hz, as spots show it: "14074", "7032.5".
 std::string spotKhz(double hz);

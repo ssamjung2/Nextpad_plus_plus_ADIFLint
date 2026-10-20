@@ -73,7 +73,7 @@ using namespace mapkit;
             if (![self lonLatAt:p lon:&lon lat:&lat]) continue;
             double e = adif::solarElevation(sun, lat, lon);
             double dark = 0, gold = 0;
-            if (_style.dayNight && e < 0) dark = 0.6 * std::min(1.0, -e / 18.0);  // black, up to 60% at 18 degrees down
+            if (_style.dayNight && e < 0) dark = 0.65 * std::min(1.0, -e / 18.0);  // black, up to 65% at 18 degrees down
             if (_style.greyLine && e < 0.8 && e > -6) gold = 0.32 * (1 - std::fabs(e + 2.6) / 3.4);
             gold = std::max(0.0, gold);
             // Premultiplied RGBA: black for the night, gold (0xFFB340) for the grey line, over each other.
@@ -1038,8 +1038,9 @@ using namespace mapkit;
     return false;
 }
 
-// Overlay: a line from each spotter to the station it heard, in the band's colour. The lines of
-// the spot or spotter under the pointer or chosen show while Show is on, Overlay or not, on top.
+// Overlay: a line from each spotter to the station it heard, in the band's colour, fainter, or
+// faint grey (Style Options). The lines of the spot or spotter under the pointer or chosen show
+// in the band's colour while Show is on, Overlay or not, on top.
 - (void)drawSpotLines:(MapDrawCtx &)d {
     if (!_style[kLayerSpots].show) return;
     std::set<std::string> litSpotters;
@@ -1056,9 +1057,13 @@ using namespace mapkit;
                 if (!lit && !drawn.insert({std::lround(h.lat * 10), std::lround(h.lon * 10), std::lround(s.lat * 10), std::lround(s.lon * 10)}).second)
                     continue;
                 NSBezierPath *path = [self viewPath:adif::greatCirclePath(h.lat, h.lon, s.lat, s.lon, 3) close:NO wraps:YES];
-                path.lineWidth = lit ? 1.8 : 0.8;
+                path.lineWidth = lit ? 1.8 : _style.spotLines == 0 ? 0.8 : 0.7;
                 path.lineJoinStyle = NSLineJoinStyleRound;
-                [[[self bandColor:s.spot.band] colorWithAlphaComponent:lit ? 0.9 : 0.45 * [self spotAlpha:s]] setStroke];
+                NSColor *colour = lit                      ? [[self bandColor:s.spot.band] colorWithAlphaComponent:0.9]
+                                  : _style.spotLines == 2 ? [NSColor colorWithCalibratedWhite:d.ink alpha:0.22]
+                                                          : [[self bandColor:s.spot.band]
+                                                                colorWithAlphaComponent:(_style.spotLines == 1 ? 0.2 : 0.45) * [self spotAlpha:s]];
+                [colour setStroke];
                 [path stroke];
             }
         }
@@ -1066,8 +1071,9 @@ using namespace mapkit;
 
 // A spotter's marker, a triangle like a listening antenna, centred on p with radius r. The spots
 // are what matter, so it is see-through: a faint fill of the map's background colour inside a
-// faint outline in its ink; solid ink when lit (a spotter of the spot under the pointer).
-- (void)drawSpotterAt:(NSPoint)p radius:(double)r lit:(BOOL)lit dark:(BOOL)dark {
+// faint outline in its ink, or (faint) only a pale grey outline; solid ink when lit (a spotter of
+// the spot under the pointer).
+- (void)drawSpotterAt:(NSPoint)p radius:(double)r lit:(BOOL)lit dark:(BOOL)dark faint:(BOOL)faint {
     NSBezierPath *tri = [NSBezierPath bezierPath];
     [tri moveToPoint:NSMakePoint(p.x, p.y + r)];
     [tri lineToPoint:NSMakePoint(p.x - 0.87 * r, p.y - 0.5 * r)];
@@ -1075,6 +1081,14 @@ using namespace mapkit;
     [tri closePath];
     tri.lineJoinStyle = NSLineJoinStyleRound;
     CGFloat ink = dark ? 1 : 0, paper = dark ? 0 : 1;
+    if (faint && !lit) {
+        [[NSColor colorWithCalibratedWhite:0.5 alpha:0.12] setFill];
+        [tri fill];
+        tri.lineWidth = 0.8;
+        [[NSColor colorWithCalibratedWhite:0.55 alpha:0.4] setStroke];
+        [tri stroke];
+        return;
+    }
     [[NSColor colorWithCalibratedWhite:lit ? ink : paper alpha:lit ? 0.9 : 0.35] setFill];
     [tri fill];
     tri.lineWidth = lit ? 1.3 : 1.0;
@@ -1083,7 +1097,7 @@ using namespace mapkit;
 }
 
 - (double)spotterRadius:(bool)lit {
-    return (lit ? 6.5 : 5.0) * _style.marker;
+    return (lit ? 6.5 : _style.spotters == 1 ? 4.5 : 5.0) * _style.marker;
 }
 
 // The stations that heard the spots (Style Options → Spotters), bigger and solid for the spot or
@@ -1094,7 +1108,7 @@ using namespace mapkit;
         NSPoint p = [self viewPointForLon:_spotters[j].lon lat:_spotters[j].lat];
         if (!NSPointInRect(p, NSInsetRect(d.b, -12, -12))) continue;
         bool lit = [self spotterLit:j];
-        [self drawSpotterAt:p radius:[self spotterRadius:lit] lit:lit dark:d.pal->dark];
+        [self drawSpotterAt:p radius:[self spotterRadius:lit] lit:lit dark:d.pal->dark faint:_style.spotters == 1];
     }
 }
 
@@ -1156,7 +1170,7 @@ using namespace mapkit;
             taken.push_back(r);
         }
     }
-    if (_style.spotters == 2)  // the spotters' calls last: they give way to everything else
+    if (_style.spotters == 3)  // the spotters' calls last: they give way to everything else
         for (size_t j = 0; j < _spotters.size(); ++j) {
             NSPoint p = [self viewPointForLon:_spotters[j].lon lat:_spotters[j].lat];
             NSString *text = ADIFString(_spotters[j].call);

@@ -24,6 +24,9 @@ namespace spotfeeds {
 // The Map's Spots layer turned on or off (or the Map closed): the feeds turned on in Settings
 // start or stop.
 void setWanted(bool wanted);
+// The Map's home grid (Settings, else the log's most used MY_GRIDSQUARE), for PSKReporter's
+// Around my grid square when Settings has no grid.
+void setHomeGrid(const std::string &grid);
 bool wanted();
 // Every spot the feeds have now, newest first.
 const adif::SpotList &spots();
@@ -42,6 +45,7 @@ struct Config {
     std::string host, login, commands;  // login: "" is Your Station's callsign; commands: sent after it, ";" between
     int port = 0;
     bool psk = false;
+    int pskQuery = 0;   // PSKReporter: 0 your callsign on either side (who heard you, what you heard), 1 around your grid square
     std::string email;  // PSKReporter's appcontact, when given
 };
 Config config();

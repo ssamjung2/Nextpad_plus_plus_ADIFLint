@@ -454,7 +454,8 @@ std::string printable(std::string_view s, size_t limit) {
 
 }  // namespace
 
-bool parsePskReports(std::string_view xml, std::vector<Spot> *out, std::string *why, size_t limit) {
+bool parsePskReports(std::string_view xml, std::vector<Spot> *out, std::string *why, size_t limit, std::string_view me) {
+    std::string mine = upper(trimmed(me));
     if (out) out->clear();
     if (xml.find("<receptionReports") == std::string_view::npos) {
         if (why) *why = tr("PSKReporter sent something other than its reception reports");
@@ -472,10 +473,14 @@ bool parsePskReports(std::string_view xml, std::vector<Spot> *out, std::string *
         };
         Spot sp;
         sp.source = SpotSource::PskReporter;
-        sp.activator = upper(printable(trimmed(get("receiverCallsign")), 20));
-        sp.spotter = upper(printable(trimmed(get("senderCallsign")), 20));
-        sp.grid = printable(trimmed(get("receiverLocator")), 10);
-        sp.spotterGrid = printable(trimmed(get("senderLocator")), 10);
+        std::string sender = upper(printable(trimmed(get("senderCallsign")), 20));
+        std::string receiver = upper(printable(trimmed(get("receiverCallsign")), 20));
+        std::string senderGrid = printable(trimmed(get("senderLocator")), 10), receiverGrid = printable(trimmed(get("receiverLocator")), 10);
+        sp.heardMe = !mine.empty() && spotterCall(sender) == spotterCall(mine);
+        sp.activator = sp.heardMe ? receiver : sender;
+        sp.spotter = sp.heardMe ? sender : receiver;
+        sp.grid = sp.heardMe ? receiverGrid : senderGrid;
+        sp.spotterGrid = sp.heardMe ? senderGrid : receiverGrid;
         sp.khz = spotKhz(std::atof(get("frequency").c_str()));
         sp.mode = upper(printable(trimmed(get("mode")), 12));
         long long t = std::atoll(get("flowStartSeconds").c_str());
@@ -491,7 +496,7 @@ bool parsePskReports(std::string_view xml, std::vector<Spot> *out, std::string *
     return true;
 }
 
-std::string pskQueryUrl(std::string_view call, long long seconds, std::string_view appcontact) {
+std::string pskQueryUrl(std::string_view callOrGrid, PskQuery query, long long seconds, std::string_view appcontact) {
     auto encode = [](std::string_view v) {
         std::string o;
         for (unsigned char c : v) {
@@ -505,8 +510,10 @@ std::string pskQueryUrl(std::string_view call, long long seconds, std::string_vi
         return o;
     };
     seconds = std::clamp<long long>(seconds, 60, 86400);
-    std::string url = "https://retrieve.pskreporter.info/query?senderCallsign=" + encode(upper(trimmed(call))) +
-                      "&flowStartSeconds=-" + std::to_string(seconds) + "&rronly=1";
+    std::string what = upper(trimmed(callOrGrid));
+    if (query == PskQuery::Grid) what = what.substr(0, 4);
+    std::string url = "https://retrieve.pskreporter.info/query?callsign=" + encode(what) + (query == PskQuery::Grid ? "&modify=grid" : "") +
+                      "&flowStartSeconds=-" + std::to_string(seconds) + "&rronly=1&rptlimit=1000";
     std::string contact = trimmed(appcontact);
     if (!contact.empty()) url += "&appcontact=" + encode(contact);
     return url;

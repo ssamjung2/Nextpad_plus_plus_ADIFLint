@@ -4594,9 +4594,9 @@ int main(int argc, char **argv) {
                           req.find("POTA") != std::string::npos && req.find("SOTA") == std::string::npos &&
                           req.find("allow_qrt=false&limit=1000&max_age=3600") != std::string::npos,
                       "Spothole asked once, for the programs and plain DX, never SOTA: %s", req.c_str());
-                CHECK(count(req, "PSKREPORTER https://retrieve.pskreporter.info/query?senderCallsign=K9TST&flowStartSeconds=-3600&rronly=1"
-                                 "&appcontact=test%40example.org") == 1,
-                      "PSKReporter asked once, with the address given");
+                CHECK(count(req, "PSKREPORTER https://retrieve.pskreporter.info/query?callsign=K9TST&flowStartSeconds=-3600&rronly=1"
+                                 "&rptlimit=1000&appcontact=test%40example.org") == 1,
+                      "PSKReporter asked once, for the callsign on either side, with the address given");
                 CHECK(heard == "K9TST\r\nset/skimmer\r\nsh/dx 5\r\n", "the cluster heard the login and the commands: '%s'", heard.c_str());
                 [mapw.contentView layoutSubtreeIfNeeded];
                 if (NSView *pv = popoverView(@"map.spots")) {
@@ -4658,6 +4658,12 @@ int main(int argc, char **argv) {
                 CHECK([spotterText containsString:@"heard 1 station: JA1XYZ 20m."] && [spotterText containsString:@"A Reverse Beacon Network skimmer."] &&
                           useSpot.hidden,
                       "a spotter clicked: %s", spotterText.UTF8String);
+                // PSKReporter: G4RCV (London) heard you.
+                NSPoint london = pointFor(-0.1, 51.5);
+                [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, london, 1)];
+                [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, london, 1)];
+                NSString *heardYou = labelContaining(mapw.contentView, @"G4RCV heard you (K9TST) on 14074.123 kHz FT8");
+                CHECK([heardYou containsString:@"Signal report -15 dB."], "a station that heard you: %s", heardYou.UTF8String);
                 // A skimmer's spot gives its signal report.
                 NSPoint tokyo = pointFor(139.7, 35.6);
                 [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, tokyo, 1)];
@@ -4682,6 +4688,9 @@ int main(int argc, char **argv) {
                 [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, skimmer, 1)];
                 [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, skimmer, 1)];
                 CHECK(!labelContaining(mapw.contentView, @"W3LPL-#, a spotter"), "spotters hidden: no spotter under the pointer");
+                CHECK(stylePick(@"spotters", @"Faint grey") && stylePick(@"spotLines", @"Faint grey") &&
+                          stylePick(@"spotLines", @"Faint, in the band's colour"),
+                      "spotters faint grey; the spotters' lines faint grey or faint");
                 CHECK(stylePick(@"spotters", @"Markers and calls"), "spotters with their calls");
                 if (mapw) snapshot(mapw, "map-spotters");
                 if (NSWindow *sp = stylePanel()) {
@@ -4693,10 +4702,25 @@ int main(int argc, char **argv) {
                     NSString *ini = [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint.ini"]
                                                               encoding:NSUTF8StringEncoding
                                                                  error:nil];
-                    CHECK([ini containsString:@"mapSpotLabelFreq=1"] && [ini containsString:@"mapSpotFade=0"] && [ini containsString:@"mapSpotters=2"],
+                    CHECK([ini containsString:@"mapSpotLabelFreq=1"] && [ini containsString:@"mapSpotFade=0"] &&
+                              [ini containsString:@"mapSpotterStyle=3"] && [ini containsString:@"mapSpotLineStyle=1"],
                           "the spot style is kept");
                 }
-                stylePick(@"spotters", @"Markers"), styleSet(@"spotFreq", false), styleSet(@"spotFade", true);
+                stylePick(@"spotters", @"Markers"), stylePick(@"spotLines", @"In the band's colour"), styleSet(@"spotFreq", false),
+                    styleSet(@"spotFade", true);
+                // Settings → Spots: PSKReporter around the grid square; switching doesn't ask again within five minutes.
+                run("Settings...");
+                NSPopUpButton *pskQuery = (NSPopUpButton *)viewWithIdentifier(setw.contentView, @"settings.spots.pskQuery");
+                CHECK(pskQuery.numberOfItems == 2, "Settings offers PSKReporter by callsign or around the grid square");
+                [pskQuery selectItemAtIndex:1];
+                [pskQuery sendAction:pskQuery.action to:pskQuery.target];
+                pump(0.5);
+                NSString *pskSaid = labelContaining(setw.contentView, @"PSKReporter: ");
+                CHECK([pskSaid containsString:@"PSKReporter: asked at most once in 5 minutes; next at "] && count(requests(), "PSKREPORTER ") == 1,
+                      "around the grid: no new question within five minutes (%s)", pskSaid.UTF8String);
+                [pskQuery selectItemAtIndex:0];
+                [pskQuery sendAction:pskQuery.action to:pskQuery.target];
+                [setw orderOut:nil];
                 for (NSWindow *w in NSApp.windows)
                     if ([w.identifier isEqualToString:@"map.style"]) [w orderOut:nil];
 
@@ -4707,7 +4731,8 @@ int main(int argc, char **argv) {
                 setBox(mapBox(@"show", @"spots"), true);
                 pump(0.5);
                 req = requests();
-                CHECK(count(req, "PSKREPORTER ") == 1, "PSKReporter: no second query within five minutes");
+                CHECK(count(req, "PSKREPORTER ") == 1 && count(req, "SPOTHOLE ") == 1,
+                      "shown again: PSKReporter not asked again within five minutes, nor Spothole within two");
 
                 // Offline: the feeds stop and say why.
                 setBox(mapBox(@"show", @"spots"), false);
@@ -4716,7 +4741,7 @@ int main(int argc, char **argv) {
                 [(NSButton *)viewWithIdentifier(mapw.contentView, @"map.spots.open") performClick:nil];
                 pump(0.2);
                 spotStatus = (NSTextField *)popoverView(@"map.spots.status");
-                CHECK([spotStatus.stringValue containsString:@"Offline mode is on"] && count(requests(), "SPOTHOLE ") == 2,
+                CHECK([spotStatus.stringValue containsString:@"Offline mode is on"] && count(requests(), "SPOTHOLE ") == 1,
                       "offline: no feed runs (%s)", spotStatus.stringValue.UTF8String);
                 for (NSWindow *w in [NSApp.windows copy])
                     if (viewWithIdentifier(w.contentView, @"map.spots")) [w orderOut:nil];

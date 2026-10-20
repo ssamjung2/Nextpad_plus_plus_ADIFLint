@@ -201,6 +201,14 @@ const LayerUi kLayerUi[] = {
      N(@"A line from each spotter to the station it heard (while Show is on)"), N(@"Each spotted station's call, where there's room")},
 };
 
+// Spotters before "Faint grey" was a choice (mapSpotters: 0 hidden, 1 markers, 2 with calls).
+int spotterStyleFallback() {
+    std::string old = setting("mapSpotters");
+    if (old.empty()) return 2;
+    static const int kWas[] = {0, 2, 3};
+    return kWas[std::clamp(std::atoi(old.c_str()), 0, 2)];
+}
+
 ADIFMapStyle savedStyle() {
     ADIFMapStyle s;
     static const double kSizes[] = {0.75, 1.0, 1.4, 1.9};
@@ -230,7 +238,8 @@ ADIFMapStyle savedStyle() {
     s.greyLine = flag("mapGreyLine", false);
     s.sunTime = number("mapSunTime", 0, 1);
     s.mine = flag("mapMine", true);
-    s.spotters = number("mapSpotters", 1, 2);
+    s.spotters = number("mapSpotterStyle", spotterStyleFallback(), 3);
+    s.spotLines = number("mapSpotLineStyle", 0, 2);
     s.spotLabel.mode = flag("mapSpotLabelMode", true);
     s.spotLabel.khz = flag("mapSpotLabelFreq", false);
     s.spotLabel.age = flag("mapSpotLabelAge", true);
@@ -368,8 +377,10 @@ std::string describe(const ADIFMapHit &h) {
             for (const adif::MapQso &q : mw.data.qsos)
                 if (adif::spotterCall(q.call) == call) (q.band == sp.band ? band : other) = true;
             std::string log = band ? trf("worked on {band}", {{"band", sp.band}}) : other ? tr("worked on other bands") : tr("not in this log");
-            std::string text = trf("{call} on {what}{ref}, spotted {when} {by}; {log}.",
-                                   {{"call", sp.activator}, {"what", what}, {"ref", ref}, {"when", when}, {"by", by}, {"log", log}});
+            std::string text = sp.heardMe ? trf("{call} heard you ({me}) on {what}, {when}; {log}.",
+                                                {{"call", sp.activator}, {"me", sp.spotter}, {"what", what}, {"when", when}, {"log", log}})
+                                          : trf("{call} on {what}{ref}, spotted {when} {by}; {log}.",
+                                                {{"call", sp.activator}, {"what", what}, {"ref", ref}, {"when", when}, {"by", by}, {"log", log}});
             if (sp.hasSnr) text += " " + trf("Signal report {snr}.", {{"snr", adif::spotSnr(sp)}});
             if (ms.heard.size() > 1)
                 text += " " + trp("Heard by {n} spotter.", "Heard by {n} spotters.", (long long)ms.heard.size());
@@ -379,20 +390,23 @@ std::string describe(const ADIFMapHit &h) {
         case ADIFMapHit::Spotter: {
             if (h.index >= mw.view.spotters.size()) break;
             const ADIFMapSpotter &st = mw.view.spotters[h.index];
-            // The stations it heard (or, for PSKReporter, that heard you), newest first.
-            std::string list;
-            bool psk = true;
-            for (size_t n = 0; n < st.spots.size(); ++n) {
-                const adif::Spot &sp = mw.view.spots[st.spots[n]].spot;
-                psk &= sp.source == adif::SpotSource::PskReporter;
+            // The stations it heard, and (you, with PSKReporter) those that heard you, newest first.
+            std::string heard, heardBy;
+            long long nHeard = 0, nBy = 0;
+            for (size_t k : st.spots) {
+                const adif::Spot &sp = mw.view.spots[k].spot;
+                std::string &list = sp.heardMe ? heardBy : heard;
+                long long &n = sp.heardMe ? nBy : nHeard;
                 if (n < 6) list += (list.empty() ? "" : ", ") + sp.activator + " " + sp.band;
+                else if (n == 6) list += ", ...";
+                ++n;
             }
-            if (st.spots.size() > 6) list += ", +" + std::to_string(st.spots.size() - 6);
-            long long n = (long long)st.spots.size();
-            std::string text = psk ? trp("{call}: heard by {n} station (PSKReporter): {list}.", "{call}: heard by {n} stations (PSKReporter): {list}.", n,
-                                         {{"call", st.call}, {"list", list}})
-                                   : trp("{call}, a spotter: heard {n} station: {list}.", "{call}, a spotter: heard {n} stations: {list}.", n,
-                                         {{"call", st.call}, {"list", list}});
+            std::string text;
+            if (nHeard) text = trp("{call}, a spotter: heard {n} station: {list}.", "{call}, a spotter: heard {n} stations: {list}.", nHeard,
+                                   {{"call", st.call}, {"list", heard}});
+            if (nBy)
+                text += (text.empty() ? "" : " ") + trp("{call}: heard by {n} station (PSKReporter): {list}.",
+                                                        "{call}: heard by {n} stations (PSKReporter): {list}.", nBy, {{"call", st.call}, {"list", heardBy}});
             if (st.call.size() > 2 && st.call.compare(st.call.size() - 2, 2, "-#") == 0)
                 text += " " + tr("A Reverse Beacon Network skimmer.");
             return text + fromHome(st.lat, st.lon);
@@ -583,7 +597,7 @@ void fillStyle() {
         if (NSControl *c = (NSControl *)findView(root, ident)) c.enabled = s.paths;
     if (NSControl *c = (NSControl *)findView(root, @"map.style.rings")) c.enabled = !mw.home.empty();
     if (NSControl *c = (NSControl *)findView(root, @"map.style.sunTime")) c.enabled = s.dayNight || s.greyLine;
-    for (NSString *ident in @[ @"map.style.spotters", @"map.style.spotMode", @"map.style.spotFreq", @"map.style.spotAge", @"map.style.spotSnr",
+    for (NSString *ident in @[ @"map.style.spotters", @"map.style.spotLines", @"map.style.spotMode", @"map.style.spotFreq", @"map.style.spotAge", @"map.style.spotSnr",
                                @"map.style.spotFade" ])
         if (NSControl *c = (NSControl *)findView(root, ident)) c.enabled = s[kLayerSpots].show;
 }
@@ -653,9 +667,13 @@ void showStyleOptions() {
              N(@"On the globe, draw each line as an arch rising over it (for looks: the true path, and the beam heading, is the straight line "
              @"you get with this off)")});
         section(N(@"Spots"));
-        add({"mapSpotters", @"map.style.spotters", 1, @[ N(@"Hidden##spotters"), N(@"Markers"), N(@"Markers and calls") ], N(@"Spotters:"),
+        add({"mapSpotterStyle", @"map.style.spotters", spotterStyleFallback(),
+             @[ N(@"Hidden##spotters"), N(@"Faint grey"), N(@"Markers"), N(@"Markers and calls") ], N(@"Spotters:"),
              N(@"The stations that heard the spots (a cluster's spotters, RBN skimmers; for PSKReporter, you), each a triangle. Point at a "
              @"spot or a spotter for its lines")});
+        add({"mapSpotLineStyle", @"map.style.spotLines", 0, @[ N(@"In the band's colour"), N(@"Faint, in the band's colour"), N(@"Faint grey") ],
+             N(@"Lines:"),
+             N(@"The lines from the spotters (the Spots layer's Overlay). The spot under the pointer always shows its lines in its band's colour")});
         add({"mapSpotLabelMode", @"map.style.spotMode", 1, nil, N(@"Mode"), N(@"Under each spot's call (the Spots layer's Labels): its mode")});
         rows[rows.count - 1] = @[ ADIFLabel(N(@"Labels show:")), rows.lastObject[1] ];
         add({"mapSpotLabelFreq", @"map.style.spotFreq", 0, nil, N(@"Frequency"), N(@"Under each spot's call: its frequency in kHz")});
@@ -679,7 +697,8 @@ void showStyleOptions() {
         ADIFOnAction(reset, ^{
             for (const char *key : {"mapPalette", "mapMarkerSize", "mapMarkerShape", "mapContactMarker", "mapSquareFill", "mapAreaShade", "mapLineStyle",
                                     "mapLineWidth", "mapLineOpacity", "mapArcs", "mapLegend", "mapRings", "mapDayNight", "mapGreyLine", "mapSunTime",
-                                    "mapSpotters", "mapSpotLabelMode", "mapSpotLabelFreq", "mapSpotLabelAge", "mapSpotLabelSnr", "mapSpotFade"})
+                                    "mapSpotters", "mapSpotterStyle", "mapSpotLineStyle", "mapSpotLabelMode", "mapSpotLabelFreq", "mapSpotLabelAge",
+                                    "mapSpotLabelSnr", "mapSpotFade"})
                 setSetting(key, "");
             [mw.styleWindow orderOut:nil];
             mw.styleWindow = nil;
@@ -1244,6 +1263,7 @@ void refreshSpots() {
     if (!mw.window) return;
     ADIFMapStyle st = mw.view.style;
     bool show = st[kLayerSpots].show;
+    spotfeeds::setHomeGrid(mw.home);
     spotfeeds::setWanted(show && mw.window.visible);
     std::vector<ADIFMapSpot> marks;
     long long now = (long long)time(nullptr);

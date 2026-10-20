@@ -31,7 +31,7 @@ offline map, and QSL sync with LoTW, QRZ.com, Club Log and eQSL.
 - **Spots from everywhere.** POTA, WWFF and dozens more programs through Spothole, with
   parks you haven't worked marked NEW; double-click one to log it. On the Map, the stations
   spotted now from Spothole, a DX cluster you log in to with your callsign, and
-  PSKReporter's reports of who heard you.
+  PSKReporter's reception reports of your callsign or around your grid square.
 - **Captures QSOs from your other programs.** **Monitor** adds what WSJT-X, JTDX, JS8Call,
   N1MM Logger+, GridTracker and other loggers log, as they log it. It only listens.
 - **Maps your log, offline.** A globe or a flat map with the squares, countries, US states
@@ -123,7 +123,8 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
   colours, and **distance rings**.
 - **Filters** by band, mode, date and confirmation, and **More Filters** by place.
 - **Spots**: the stations spotted now, from Spothole, a DX cluster (telnet, logged in with
-  your callsign) and PSKReporter's reports of who heard you, in their band's colours and
+  your callsign) and PSKReporter (who heard you and what you heard, or what's heard around
+  your grid square), in their band's colours and
   fading with age, with the stations that heard them and lines from them; labels with the
   mode, age and signal report; filtered by age, source and program as well as the Map's
   band, mode and places, and refreshed on request within each source's limits. Click one
@@ -271,7 +272,7 @@ your Mac.
 | Spothole | `spothole.app` | The Spots window (More programs), every 2 minutes while it is open | The programs asked for (never a login) |
 | Spothole, for the Map | `spothole.app` | Map → Spots → Show, with Spothole ticked in Settings → Spots (it is at first): every 2 minutes while the Map is open | The programs asked for and the time of the last spot received (never a login) |
 | A DX cluster | The node you choose in Settings → Spots (none at first) | Map → Spots → Show, with DX cluster ticked: one telnet connection while the Map is open | Your callsign as the login, then the commands you set (unencrypted) |
-| PSKReporter | `retrieve.pskreporter.info` | Map → Spots → Show, with PSKReporter ticked: no more than every 5 minutes while the Map is open | Your callsign, and your email if you give one |
+| PSKReporter | `retrieve.pskreporter.info` | Map → Spots → Show, with PSKReporter ticked: no more than every 5 minutes while the Map is open | Your callsign, or your 4-character grid square (Around my grid square), and your email if you give one |
 | Country files | `www.country-files.com` | Settings → Country Data → Update | Nothing but the request |
 | LoTW user list | `lotw.arrl.org` | Settings → LoTW Users → Update, and weekly while it is on | Nothing but the request |
 | POTA park list | `pota.app` | Settings → POTA Parks → Download | Nothing but the request |

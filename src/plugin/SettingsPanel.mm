@@ -32,6 +32,7 @@
     NSButton *_spotsSpothole, *_spotsCluster, *_spotsPsk;
     NSComboBox *_spotsNode;
     NSTextField *_spotsLogin, *_spotsCommands, *_spotsEmail, *_spotsStatus;
+    NSPopUpButton *_spotsPskQuery;
     id _spotsObserver;
     NSPopUpButton *_detailRegion, *_detailLevel, *_detailInstalled;
     NSButton *_detailCheck, *_detailDownload, *_detailStop, *_detailRemove;
@@ -64,7 +65,8 @@ static NSString *colon(NSString *label) { return TF(@"{label}:", @{@"label" : la
 // least 80 points (longer in some languages).
 static CGFloat labelColumnWidth() {
     NSMutableArray<NSString *> *labels = [NSMutableArray arrayWithArray:@[
-        T(@"Callsign:"), T(@"Grid:"), T(@"Logs folder:"), colon(T(@"Node")), colon(T(@"Login")), colon(T(@"Then send")), colon(T(@"Your email"))
+        T(@"Callsign:"), T(@"Grid:"), T(@"Logs folder:"), colon(T(@"Node")), colon(T(@"Login")), colon(T(@"Then send")), colon(T(@"Your email")),
+        colon(T(@"Reports"))
     ]];
     for (NSInteger s = 0; s < ADIFSourceCount; ++s) {
         [labels addObject:colon(ADIFSourceUserLabel((ADIFSource)s))];
@@ -600,7 +602,16 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     _spotsCommands.placeholderString = T(@"optional, e.g. set/skimmer");
     _spotsCommands.toolTip = T(@"Commands to send after logging in, \";\" between them; they're the node's own (see its help)");
     for (NSTextField *f in @[ _spotsNode, _spotsLogin, _spotsCommands ]) [f.widthAnchor constraintEqualToConstant:300].active = YES;
-    _spotsPsk = [NSButton checkboxWithTitle:T(@"PSKReporter: the stations that heard your callsign (every 5 minutes)") target:self action:@selector(spotsChanged:)];
+    _spotsPsk = [NSButton checkboxWithTitle:T(@"PSKReporter: the digital-mode reception reports of your callsign or your grid square (every 5 minutes)")
+                                     target:self
+                                     action:@selector(spotsChanged:)];
+    _spotsPskQuery = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [_spotsPskQuery addItemsWithTitles:@[ T(@"Of my callsign: who heard me, and what my station heard"), T(@"Around my grid square") ]];
+    _spotsPskQuery.target = self, _spotsPskQuery.action = @selector(spotsChanged:);
+    _spotsPskQuery.toolTip = T(@"My callsign: the stations that heard you, and the ones your station heard if your program uploads what it hears "
+                               @"(WSJT-X: Enable PSK Reporter Spotting). Around my grid square: what stations in your 4-character square heard, "
+                               @"and who heard them, so there is something to see when you aren't on the air");
+    _spotsPskQuery.identifier = @"settings.spots.pskQuery";
     _spotsEmail = [NSTextField textFieldWithString:@""];
     _spotsEmail.placeholderString = T(@"optional");
     _spotsEmail.toolTip = T(@"PSKReporter asks the programs that query it for a contact email address (appcontact), in case of a problem. "
@@ -610,7 +621,9 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
         @[ [NSTextField labelWithString:colon(T(@"Node"))], _spotsNode ], @[ [NSTextField labelWithString:colon(T(@"Login"))], _spotsLogin ],
         @[ [NSTextField labelWithString:colon(T(@"Then send"))], _spotsCommands ]
     ]];
-    NSGridView *pskGrid = [NSGridView gridViewWithViews:@[ @[ [NSTextField labelWithString:colon(T(@"Your email"))], _spotsEmail ] ]];
+    NSGridView *pskGrid = [NSGridView gridViewWithViews:@[
+        @[ [NSTextField labelWithString:colon(T(@"Reports"))], _spotsPskQuery ], @[ [NSTextField labelWithString:colon(T(@"Your email"))], _spotsEmail ]
+    ]];
     for (NSGridView *g in @[ grid, pskGrid ]) {
         g.rowSpacing = 6;
         g.columnSpacing = 8;
@@ -640,6 +653,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     _spotsSpothole.state = c.spothole ? NSControlStateValueOn : NSControlStateValueOff;
     _spotsCluster.state = c.cluster ? NSControlStateValueOn : NSControlStateValueOff;
     _spotsPsk.state = c.psk ? NSControlStateValueOn : NSControlStateValueOff;
+    [_spotsPskQuery selectItemAtIndex:c.pskQuery];
     _spotsNode.stringValue = c.host.empty() ? @"" : [NSString stringWithFormat:@"%s:%d", c.host.c_str(), c.port];
     _spotsLogin.stringValue = @(c.login.c_str());
     _spotsCommands.stringValue = @(c.commands.c_str());
@@ -657,6 +671,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     c.spothole = _spotsSpothole.state == NSControlStateValueOn;
     c.cluster = _spotsCluster.state == NSControlStateValueOn;
     c.psk = _spotsPsk.state == NSControlStateValueOn;
+    c.pskQuery = (int)std::max<NSInteger>(0, _spotsPskQuery.indexOfSelectedItem);
     // "host:port", or a host alone (DXSpider nodes listen on 7300; telnet's own port is 23).
     std::string node = ADIFStd([_spotsNode.stringValue stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet]);
     size_t colonAt = node.rfind(':');

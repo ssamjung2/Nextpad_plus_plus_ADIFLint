@@ -594,8 +594,8 @@ The **Spots** layer marks the stations spotted now, live, beside your log:
 - **Show** fetches the spots and marks each station: a dot in a ring in its band's colour,
   solid for 10 minutes and fainter as it ages. A station spotted on several bands has a
   marker for each band, from its newest spot. The stations that heard it, its spotters (up
-  to 12, the newest first), are faint triangles: a cluster's spotters and RBN skimmers, and,
-  for PSKReporter, you.
+  to 12, the newest first), are faint triangles: a cluster's spotters, RBN skimmers and
+  PSKReporter's receivers, and you for the stations that heard you.
 - **Overlay** draws a line from each spotter to the station it heard, while Show is on.
   Without it, pointing at a spot (or clicking it) still draws its spotters' lines, and
   pointing at a spotter draws the lines to the stations it heard.
@@ -827,16 +827,18 @@ your own use; if you pass them on, the licence goes with them.
   they read as arches from above your station too, and over the horizon for contacts on the
   far side. They are for looks: the true path, and the beam heading, is the straight line
   you get with it off.
-- **Spots** (while the Spots layer shows): **Spotters** hidden, as markers, or as markers
-  with their calls (which give way to every other label); what the spot labels show under
-  each call: **Mode**, **Frequency**, **Time since spotted** and **Signal report**; and
-  **Fade older spots**.
+- **Spots** (while the Spots layer shows): **Spotters** hidden, faint grey, as markers, or
+  as markers with their calls (which give way to every other label); **Lines** from the
+  spotters (the layer's Overlay) in the band's colour, faint in it, or faint grey (the spot
+  under the pointer always shows its lines in its band's colour); what the spot labels show
+  under each call: **Mode**, **Frequency**, **Time since spotted** and **Signal report**;
+  and **Fade older spots**.
 - **On the map**: the **Legend**; **Distance rings** from your grid, 2,500 km apart for the
   whole world, closer as you zoom in, with bearings every 30° when the globe is centred on
   home; **Day and night**; **Grey line**; and **Sun at** now or at the selected QSO's time.
 
 **Day and night** shades the side of the Earth where the sun is down, deeper as it goes
-further down (to astronomical twilight, 18° below the horizon, where it is 60% black), draws the line between day
+further down (to astronomical twilight, 18° below the horizon, where it is 65% black), draws the line between day
 and night, and marks the sun where it is overhead. **Grey line** tints the twilight band
 gold, from just before sunset until the sun is 6° down (civil twilight): a common time for
 long-distance openings. Its edges are a convention, not a propagation prediction. **Sun at**
@@ -1192,8 +1194,19 @@ Rules for every source:
     after 15 seconds, then 30, and so on up to 10 minutes, and stops if the node asks for a
     password (it never logs in with one) or refuses the login. The connection is plain
     telnet, unencrypted, as DX clusters are.
-  - **PSKReporter**: the stations that heard your callsign in the last hour
-    (`retrieve.pskreporter.info`), asked no more than every 5 minutes, as PSKReporter asks.
+  - **PSKReporter**: reception reports of digital modes from `retrieve.pskreporter.info`,
+    asked no more than every 5 minutes, as PSKReporter asks, and at most 1,000 at a time.
+    **Reports** chooses which:
+    - **Of my callsign** (at first): the last hour's reports with your callsign on either
+      side: the stations that heard you (each a spot, heard by you), and the stations your
+      station heard, if your program uploads what it hears (in WSJT-X: Settings, Reporting,
+      Enable PSK Reporter Spotting; WSJT-X User Guide 3.2.0, section 6.5). There are none
+      unless you transmitted or uploaded in that hour; the status line then says so.
+    - **Around my grid square**: the last half hour's reports with either station in your
+      4-character square (Your Station's grid, else the log's most used MY_GRIDSQUARE): who
+      the stations around you heard, and who heard them, so there is something to see when
+      you are off the air. A square's half hour can be a thousand reports.
+
     **Your email** is optional: PSKReporter asks the programs that query it for a contact
     address (its `appcontact`), and ADIF Lint sends one only if you enter it.
   - **Save** applies the changes; the line under it says what each source is doing.
@@ -1318,7 +1331,8 @@ The log tools work on one file and never change it.
   with spot lines in the format DXSpider's source writes them (read 2026-10-19), and its
   login and spot reading once against a live DXSpider node, dxc.hamserve.uk (13 of 13 spots
   read, 2026-10-19). PSKReporter's reports were tested against the format its developer page
-  documents (read 2026-10-19); its live reply was checked only for a call nobody had heard.
+  documents (read 2026-10-19), and once live around a grid square (FN42, 1,523 reports read,
+  2026-10-20).
 - A spot that doesn't say where the station is goes at the country data's place for its
   call, so spots from a large country gather at its middle.
 - TQSL must have the Station Location set up. A certificate password saved in Settings is

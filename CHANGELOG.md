@@ -18,9 +18,13 @@ Versions before 0.8.0 were development builds and were not published.
 - **Map → Refresh** (the round arrow beside Spots…): the spot sources asked again now, as
   far as each allows: Spothole once a minute at most, PSKReporter once its 5 minutes have
   passed, a DX cluster waiting to reconnect at once.
-- **Map → Style Options → Spots**: spotters hidden, as markers, or with their calls; what
-  each spot's label shows under its call (mode, frequency, time since spotted, signal
-  report); and fading older spots on or off.
+- **Map → Style Options → Spots**: spotters hidden, faint grey, as markers, or with their
+  calls; the spotters' lines in the band's colour, faint, or faint grey; what each spot's
+  label shows under its call (mode, frequency, time since spotted, signal report); and
+  fading older spots on or off.
+- **Settings → Spots → PSKReporter → Around my grid square**: the last half hour's reports
+  with either station in your 4-character square, so there are spots when you are off the
+  air.
 - A spot's description gives its signal report and how many spotters heard it. Spothole's
   RBN spots get their reports from their comments ("20 dB"), as Spothole has no field for
   them.
@@ -28,7 +32,14 @@ Versions before 0.8.0 were development builds and were not published.
 ### Changed
 
 - **Map**: **Spots…** moved from the Filters row to the Markers row.
-- **Map → Day and night**: the night side is darker (up to 60% black, from 50%).
+- **Map → Day and night**: the night side is darker (up to 65% black, from 50%).
+- **PSKReporter** (Settings → Spots → Reports) asks for your callsign on either side, so the
+  stations your station heard show too when your program uploads what it hears (WSJT-X:
+  Enable PSK Reporter Spotting), each a spot heard by you; before, only the stations that
+  heard you. When there are none, the status line says where reports come from. Queries
+  ask for at most 1,000 reports.
+- **Spots**: showing the layer again, or saving Settings → Spots, no longer asks Spothole
+  again before its 2 minutes are up; what each source said last stays shown.
 - Spot ages, the Spots age filter and fading follow the clock each minute while the Map shows.
 
 ## [1.3.0] - 2026-10-19

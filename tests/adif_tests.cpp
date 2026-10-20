@@ -3738,26 +3738,35 @@ static void testCluster() {
     // PSKReporter: the documentation's sample (unquoted numbers), and a fuller report.
     std::vector<Spot> reports;
     std::string why;
-    CHECK(parsePskReports("<receptionReports> <receptionReport receiverCallsign=\"KB1MBX\" receiverLocator=\"FN42hn\" senderCallsign=\"N1DQ\" "
-                          "frequency=14070987 flowStartSeconds=1791407000 /> </receptionReports>",
-                          &reports, &why) &&
-              reports.size() == 1 && reports[0].activator == "KB1MBX" && reports[0].grid == "FN42hn" && reports[0].spotter == "N1DQ" &&
-              reports[0].khz == "14070.987" && reports[0].band == "20m" && reports[0].epoch == 1791407000 && reports[0].source == SpotSource::PskReporter,
-          "PSKReporter's sample report: a station that heard N1DQ (%s)", why.c_str());
+    const char *sample = "<receptionReports> <receptionReport receiverCallsign=\"KB1MBX\" receiverLocator=\"FN42hn\" senderCallsign=\"N1DQ\" "
+                         "frequency=14070987 flowStartSeconds=1791407000 /> </receptionReports>";
+    CHECK(parsePskReports(sample, &reports, &why) && reports.size() == 1 && reports[0].activator == "N1DQ" && reports[0].spotter == "KB1MBX" &&
+              reports[0].spotterGrid == "FN42hn" && reports[0].grid.empty() && !reports[0].heardMe && reports[0].khz == "14070.987" &&
+              reports[0].band == "20m" && reports[0].epoch == 1791407000 && reports[0].source == SpotSource::PskReporter,
+          "PSKReporter's sample report: N1DQ heard by KB1MBX, as a spot site gives it (%s)", why.c_str());
+    CHECK(parsePskReports(sample, &reports, &why, 2000, "n1dq") && reports.size() == 1 && reports[0].activator == "KB1MBX" &&
+              reports[0].grid == "FN42hn" && reports[0].spotter == "N1DQ" && reports[0].heardMe,
+          "asked by N1DQ: KB1MBX is a station that heard you");
     CHECK(parsePskReports("<?xml version=\"1.0\"?><receptionReports currentSeconds=\"1791407517\"><activeReceiver callsign=\"X\"/>"
                           "<receptionReport receiverCallsign='ja1xyz' receiverLocator='PM95vq' senderCallsign='K9ABC' senderLocator='EN53xb' "
                           "frequency='7074123' flowStartSeconds='1791407400' mode='FT8' sNR='-12' />"
+                          "<receptionReport receiverCallsign='K9ABC' receiverLocator='EN53xb' senderCallsign='DL1ABC' senderLocator='JO62qm' "
+                          "frequency='14074500' flowStartSeconds='1791407460' mode='FT8' sNR='-3' />"
                           "<receptionReport receiverCallsign=\"\" frequency=\"14074000\" flowStartSeconds=\"1791407400\"/>"
                           "<receptionReport receiverCallsign=\"DL1&amp;X\" frequency=\"x\" flowStartSeconds=\"1791407400\"/></receptionReports>",
-                          &reports, &why) &&
-              reports.size() == 1 && reports[0].activator == "JA1XYZ" && reports[0].spotterGrid == "EN53xb" && reports[0].mode == "FT8" &&
-              reports[0].hasSnr && reports[0].snr == -12 && reports[0].band == "40m",
-          "a fuller report; ones without a call or frequency skipped");
+                          &reports, &why, 2000, "K9ABC") &&
+              reports.size() == 2 && reports[0].activator == "JA1XYZ" && reports[0].spotterGrid == "EN53xb" && reports[0].mode == "FT8" &&
+              reports[0].hasSnr && reports[0].snr == -12 && reports[0].band == "40m" && reports[0].heardMe && reports[1].activator == "DL1ABC" &&
+              reports[1].spotter == "K9ABC" && reports[1].grid == "JO62qm" && !reports[1].heardMe && reports[1].snr == -3,
+          "asked by K9ABC: a station that heard you, and one your station heard; ones without a call or frequency skipped");
     CHECK(!parsePskReports("<html>Too many requests</html>", &reports, &why) && !why.empty() && reports.empty(), "an answer that isn't reports");
-    CHECK(pskQueryUrl(" k9abc ", 1800, "me@example.org") ==
-                  "https://retrieve.pskreporter.info/query?senderCallsign=K9ABC&flowStartSeconds=-1800&rronly=1&appcontact=me%40example.org" &&
-              pskQueryUrl("K9ABC/P", 999999, "") == "https://retrieve.pskreporter.info/query?senderCallsign=K9ABC%2FP&flowStartSeconds=-86400&rronly=1",
-          "the PSKReporter query");
+    CHECK(pskQueryUrl(" k9abc ", PskQuery::Callsign, 1800, "me@example.org") ==
+                  "https://retrieve.pskreporter.info/query?callsign=K9ABC&flowStartSeconds=-1800&rronly=1&rptlimit=1000&appcontact=me%40example.org" &&
+              pskQueryUrl("K9ABC/P", PskQuery::Callsign, 999999, "") ==
+                  "https://retrieve.pskreporter.info/query?callsign=K9ABC%2FP&flowStartSeconds=-86400&rronly=1&rptlimit=1000" &&
+              pskQueryUrl("en52wa", PskQuery::Grid, 1800, "") ==
+                  "https://retrieve.pskreporter.info/query?callsign=EN52&modify=grid&flowStartSeconds=-1800&rronly=1&rptlimit=1000",
+          "the PSKReporter queries: a callsign on either side, or a grid square");
 }
 
 int main(int argc, char **argv) {

@@ -1035,7 +1035,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
             [ADIFString(e.text) drawAtPoint:NSMakePoint(at.x + 18, y + 1) withAttributes:text];
         } else if (e.kind == 13 || e.kind == 14) {
             NSPoint c = NSMakePoint(at.x + 6, y + lineH / 2);
-            if (e.kind == 13) [self drawSpotterAt:c radius:5.5 lit:NO dark:pal.dark];
+            if (e.kind == 13) [self drawSpotterAt:c radius:5.5 lit:NO dark:pal.dark faint:_style.spotters == 1];
             else {
                 NSBezierPath *dot = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(c.x - 2.5, c.y - 2.5, 5, 5)];
                 NSBezierPath *ring = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(c.x - 5, c.y - 5, 10, 10)];
