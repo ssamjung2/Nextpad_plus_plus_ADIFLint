@@ -923,6 +923,7 @@
   "PMTiles version {n}, not 3": "PMTiles 버전 {n}, 3이 아님",
   "POTA": "POTA",
   "POTA Parks": "POTA 공원",
+  "POTA activators spotted (at their park)": "스팟된 POTA 액티베이터(공원 위치)",
   "POTA location, such as US-IL": "POTA 위치(예: US-IL)",
   "POTA locations, e.g. US-IL, CA-ON, VK-NSW": "POTA 위치(예: US-IL, CA-ON, VK-NSW)",
   "POTA locations, e.g. US-WI, CA-ON": "POTA 위치, 예: US-WI, CA-ON",

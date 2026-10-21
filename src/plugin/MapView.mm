@@ -1016,7 +1016,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     const MapPalette &pal = paletteAt(_style.palette);
     struct Entry {
         // 0 swatch, 1 dot, 2 triangle, 3 diamond, 4 star, 5 line, 6 contact marker, 7 heading, 8 plain text, 9 dashed box,
-        // 10 park badge (hunted), 11 park badge (activated), 12 park badge (not worked), 13 spotter, 14 spot
+        // 10 park badge (hunted), 11 park badge (activated), 12 park badge (not worked), 13 spotter, 14 spot, 15 POTA spot
         int kind;
         NSColor *color;
         std::string text;
@@ -1111,6 +1111,8 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     if (_style[kLayerSpots].show && !_spots.empty()) {
         rows.push_back({7, nil, tr("Spots")});
         rows.push_back({14, [NSColor colorWithCalibratedWhite:pal.dark ? 0.85 : 0.35 alpha:1], tr("stations spotted (in their band's colour)")});
+        if (std::any_of(_spots.begin(), _spots.end(), [](const ADIFMapSpot &s) { return potaSpot(s.spot); }))
+            rows.push_back({15, [NSColor colorWithCalibratedWhite:pal.dark ? 0.85 : 0.35 alpha:1], tr("POTA activators spotted (at their park)")});
         if (_style.spotters != 0 && !_spotters.empty()) rows.push_back({13, nil, tr("stations that heard them")});
     }
     if ((_style[kLayerIota].show || _style[kLayerIota].overlay) && !ADIFIotaGroups().empty()) {
@@ -1143,9 +1145,10 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
                         activated:e.kind == 11
                               lit:NO];
             [ADIFString(e.text) drawAtPoint:NSMakePoint(at.x + 18, y + 1) withAttributes:text];
-        } else if (e.kind == 13 || e.kind == 14) {
+        } else if (e.kind == 13 || e.kind == 14 || e.kind == 15) {
             NSPoint c = NSMakePoint(at.x + 6, y + lineH / 2);
             if (e.kind == 13) [self drawSpotterAt:c radius:5.5 lit:NO dark:pal.dark faint:_style.spotters == 1];
+            else if (e.kind == 15) [self drawPotaSpotAt:c radius:4.4 color:e.color alpha:1 lit:NO];
             else {
                 NSBezierPath *dot = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(c.x - 2.5, c.y - 2.5, 5, 5)];
                 NSBezierPath *ring = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(c.x - 5, c.y - 5, 10, 10)];

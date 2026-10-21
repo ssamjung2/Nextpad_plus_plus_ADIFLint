@@ -623,7 +623,9 @@ QSO again.
 The **Spots** layer marks the stations spotted now, live, beside your log:
 
 - **Show** fetches the spots and marks each station: a dot in a ring in its band's colour,
-  solid for 10 minutes and fainter as it ages. A station spotted on several bands has a
+  solid for 10 minutes and fainter as it ages. A POTA activator (a spot of the POTA program)
+  is POTA's badge instead, the tree in the band's colour with the ring round it, so the
+  stations calling from a park stand out from the rest. A station spotted on several bands has a
   marker for each band, from its newest spot. The stations that heard it, its spotters (up
   to 12, the newest first), are faint triangles: a cluster's spotters, RBN skimmers and
   PSKReporter's receivers. With PSKReporter, your own signal is a spot at your grid and
@@ -885,7 +887,8 @@ view, like the list beside POTA's own map. Choose what it lists at its top:
   band and mode, in the map's colours. Choosing one chooses its marker (with Contacts ticked)
   or its grid square.
 - **Spots** (while the Spots layer shows): the stations spotted in view, in their band's
-  colour, with the frequency in kHz, the mode and how long ago they were spotted. Choosing
+  colour (POTA's tree for a POTA activator), with the frequency in kHz, the mode and how
+  long ago they were spotted. Choosing
   one chooses the spot, as a click on it does (with **Use in New QSO**).
 
 Each row also has its distance and bearing (degrees from true north, a beam heading). The

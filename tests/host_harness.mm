@@ -4888,8 +4888,31 @@ int main(int argc, char **argv) {
                           "the spots' columns fit the panel (%.0f of %.0f)", NSMaxX([rowsTable rectOfColumn:rowsTable.numberOfColumns - 1]),
                           NSWidth(listScroll.contentView.bounds));
                     snapshot(mapw, "map-list-spots");
+                    // A POTA activator's spot (K9ABC, from Spothole): POTA's tree as its mark in the list, and on the map
+                    // the park badge with the spot's ring round it (its pale disc beside the tree), found to its ring.
+                    NSInteger k9 = -1;
+                    for (NSInteger r = 0; r < rows; ++r)
+                        if ([cell(rowsTable, r, @"0") isEqualToString:@"K9ABC"]) k9 = r;
+                    auto markOf = [&](NSInteger r) {
+                        NSTextField *m = (NSTextField *)[rowsTable.delegate tableView:rowsTable viewForTableColumn:[rowsTable tableColumnWithIdentifier:@"mark"]
+                                                                                 row:r];
+                        return m.attributedStringValue;
+                    };
+                    CHECK(k9 >= 0 && dl >= 0 && markOf(k9).containsAttachments && !markOf(dl).containsAttachments,
+                          "a POTA spot's row has POTA's tree, a plain spot's a dot");
                     kind.selectedSegment = 0;
                     [kind sendAction:kind.action to:kind.target];
+                    showBox(-90.2, 42.6, -88.6, 43.5);
+                    NSPoint madison = pointFor(-89.4, 43.07);
+                    [mapView mouseMoved:mouse(NSEventTypeMouseMoved, NSMakePoint(madison.x - 60, madison.y - 60), 0)];
+                    NSColor *disc = colourAt(mapImage(), NSMakePoint(madison.x + 0.5 * 6.5, madison.y + 0.5 * 6.5));
+                    [mapView mouseMoved:mouse(NSEventTypeMouseMoved, NSMakePoint(madison.x + 9.5, madison.y), 0)];
+                    NSString *onRing = labelContaining(mapw.contentView, @"K9ABC");
+                    CHECK(disc.redComponent > 0.8 && disc.redComponent - disc.blueComponent > 0.06 && [onRing containsString:@"K9ABC on 7185 kHz"],
+                          "a POTA spot on the map: the park badge (%.2f %.2f %.2f), found at its ring: %s", disc.redComponent, disc.greenComponent,
+                          disc.blueComponent, onRing.UTF8String);
+                    snapshot(mapw, "map-pota-spot");
+                    [findButton(mapw.contentView, @"World") performClick:nil];
                 }
                 [useSpot performClick:nil];
                 pump(0.3);

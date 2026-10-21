@@ -923,6 +923,7 @@
   "PMTiles version {n}, not 3": "PMTiles のバージョン {n} (3 ではない)",
   "POTA": "POTA",
   "POTA Parks": "POTA の公園",
+  "POTA activators spotted (at their park)": "スポットされた POTA アクティベーター (公園の位置)",
   "POTA location, such as US-IL": "POTA の地域 (例: US-IL)",
   "POTA locations, e.g. US-IL, CA-ON, VK-NSW": "POTA の地域 (例: US-IL、CA-ON、VK-NSW)",
   "POTA locations, e.g. US-WI, CA-ON": "POTA のロケーション (例: US-WI、CA-ON)",

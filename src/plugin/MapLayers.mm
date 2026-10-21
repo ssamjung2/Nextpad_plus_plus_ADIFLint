@@ -818,7 +818,7 @@ using namespace mapkit;
 // ── POTA ──
 
 // A conifer, as on POTA's own map: three tiers over a trunk, h tall, its middle at c.
-- (NSBezierPath *)treeAt:(NSPoint)c size:(double)h {
+NSBezierPath *mapkit::ADIFTreePath(NSPoint c, double h) {
     NSBezierPath *t = [NSBezierPath bezierPath];
     auto tier = [&](double base, double top, double half) {
         [t moveToPoint:NSMakePoint(c.x - half * h, c.y + base * h)];
@@ -831,6 +831,12 @@ using namespace mapkit;
     tier(0.14, 0.50, 0.21);
     [t appendBezierPathWithRect:NSMakeRect(c.x - 0.07 * h, c.y - 0.50 * h, 0.14 * h, 0.21 * h)];
     return t;
+}
+
+bool mapkit::potaSpot(const adif::Spot &s) { return s.program == "POTA"; }
+
+- (NSBezierPath *)treeAt:(NSPoint)c size:(double)h {
+    return ADIFTreePath(c, h);
 }
 
 // A park's badge's radius: larger for a park you worked, smaller where many show.
@@ -1176,6 +1182,25 @@ using namespace mapkit;
     return m;
 }
 
+// A POTA activator's spot: the park badge (a pale disc with a tree, here in the band's colour)
+// with the spot's ring round it, a station calling from a park. Fainter as it ages, like the rest.
+- (void)drawPotaSpotAt:(NSPoint)p radius:(double)r color:(NSColor *)c alpha:(CGFloat)alpha lit:(BOOL)lit {
+    CGContextRef ctx = NSGraphicsContext.currentContext.CGContext;
+    CGContextSaveGState(ctx);
+    CGContextSetAlpha(ctx, alpha);
+    double ring = r * 1.6;
+    NSBezierPath *circle = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(p.x - ring, p.y - ring, 2 * ring, 2 * ring)];
+    circle.lineWidth = lit ? 2.2 : 1.4;
+    [c setStroke];
+    [circle stroke];
+    [self drawParkBadgeAt:p radius:r color:c worked:NO activated:NO lit:lit];
+    CGContextRestoreGState(ctx);
+}
+
+- (double)spotRadius:(const ADIFMapSpot &)s {
+    return (potaSpot(s.spot) ? 6.5 * 1.6 : 6) * _style.marker;
+}
+
 // Newer spots solid, older ones fainter (unless Style Options turns fading off): full for the
 // first 10 minutes, then down to 0.45 at the Spots filter's age (or an hour).
 - (CGFloat)spotAlpha:(const ADIFMapSpot &)s {
@@ -1296,6 +1321,10 @@ using namespace mapkit;
         if (!NSPointInRect(p, NSInsetRect(d.b, -12, -12))) continue;
         bool lit = [self spotLit:k];
         CGFloat alpha = [self spotAlpha:s];
+        if (potaSpot(s.spot)) {  // from a park: POTA's badge, calling
+            [self drawPotaSpotAt:p radius:6.5 * _style.marker color:[self bandColor:s.spot.band] alpha:alpha lit:lit];
+            continue;
+        }
         NSColor *c = [[self bandColor:s.spot.band] colorWithAlphaComponent:alpha];
         double r = 3 * _style.marker, ring = 6 * _style.marker;
         NSBezierPath *dot = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(p.x - r, p.y - r, 2 * r, 2 * r)];
@@ -1318,7 +1347,7 @@ using namespace mapkit;
             NSString *details = ADIFString(adif::spotLabelDetails(s.spot, _style.spotLabel, now));
             NSSize cs = [call sizeWithAttributes:attrs];
             NSSize ds = details.length ? [details sizeWithAttributes:small] : NSZeroSize;
-            double gap = 6 * _style.marker + 2;
+            double gap = [self spotRadius:s] + 2;
             NSRect r = NSMakeRect(p.x + gap, p.y - (cs.height + ds.height) / 2, std::max(cs.width, ds.width), cs.height + ds.height);
             if (!NSIntersectsRect(r, d.b)) continue;
             bool clear = true;
@@ -1348,11 +1377,11 @@ using namespace mapkit;
 - (size_t)spotAt:(NSPoint)p {
     if (!_style[kLayerSpots].show) return (size_t)-1;
     size_t best = (size_t)-1;
-    double bestDistance = 6 * _style.marker + 2;
+    double bestDistance = 1e9;
     for (size_t k = 0; k < _spots.size(); ++k) {  // newest first: on top
         NSPoint q = [self viewPointForLon:_spots[k].lon lat:_spots[k].lat];
         double dist = std::hypot(q.x - p.x, q.y - p.y);
-        if (dist < bestDistance) best = k, bestDistance = dist - 0.01;
+        if (dist <= [self spotRadius:_spots[k]] + 2 && dist < bestDistance) best = k, bestDistance = dist - 0.01;
     }
     return best;
 }

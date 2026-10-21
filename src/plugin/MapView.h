@@ -164,6 +164,8 @@ void setFill(CGContextRef ctx, unsigned hex, CGFloat a = 1);
 void setStroke(CGContextRef ctx, unsigned hex, CGFloat a = 1);
 int bandIndex(const std::string &band);
 bool darkColour(NSColor *c);  // needs a light edge to show on a dark map (60m's navy)
+NSBezierPath *ADIFTreePath(NSPoint c, double h);  // POTA's conifer, h tall, its middle at c
+bool potaSpot(const adif::Spot &s);              // a POTA activator's spot
 NSColor *ramp(double t, const MapPalette &p);
 int countBucket(size_t n);  // QSO counts in five steps: 1, 2-4, 5-9, 10-24, 25 and more
 extern const char *const kCountLabels[5];
@@ -403,6 +405,8 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 - (size_t)parkOutlineAt:(double)lon lat:(double)lat;  // the park (index in ADIFPotaParks) whose drawn outline holds the point, or npos
 - (void)drawParkLabelsIn:(NSRect)b;
 - (NSBezierPath *)spotMarkerAt:(NSPoint)p;
+- (double)spotRadius:(const ADIFMapSpot &)s;  // its marker's, ring and all
+- (void)drawPotaSpotAt:(NSPoint)p radius:(double)r color:(NSColor *)c alpha:(CGFloat)alpha lit:(BOOL)lit;
 - (CGFloat)spotAlpha:(const ADIFMapSpot &)s;
 - (bool)spotLit:(size_t)k;     // under the pointer or chosen
 - (bool)spotterLit:(size_t)j;  // so, or a spotter of such a spot

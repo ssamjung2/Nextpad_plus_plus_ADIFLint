@@ -71,7 +71,24 @@ struct ADIFViewRow {
     double span = 0.03;              // how far round it a double-click shows (degrees)
     std::vector<std::string> cells;  // the columns after the colour mark
     NSColor *color = nil;
+    bool tree = false;               // its mark POTA's tree (a POTA activator's spot), else a dot
 };
+
+// A list row's mark: POTA's tree in a colour, as text (an attachment), for a POTA activator's spot.
+static NSAttributedString *treeMark(NSColor *color) {
+    NSImage *image = [NSImage imageWithSize:NSMakeSize(11, 12)
+                                    flipped:NO
+                             drawingHandler:^BOOL(NSRect) {
+                                 [color setFill];
+                                 [ADIFTreePath(NSMakePoint(5.5, 6), 12) fill];
+                                 return YES;
+                             }];
+    image.accessibilityDescription = T(@"POTA");
+    NSTextAttachment *a = [[NSTextAttachment alloc] init];
+    a.image = image;
+    a.bounds = NSMakeRect(0, -2, 11, 12);
+    return [NSAttributedString attributedStringWithAttachment:a];
+}
 
 @interface ADIFViewList : NSObject <NSTableViewDataSource, NSTableViewDelegate>
 @property(nonatomic) std::vector<ADIFViewRow> rows;
@@ -101,7 +118,9 @@ struct ADIFViewRow {
     f.textColor = NSColor.labelColor;
     if (row < 0 || (size_t)row >= _rows.size()) return f;
     const ADIFViewRow &r = _rows[(size_t)row];
-    if (mark) {
+    if (mark && r.tree) {
+        f.attributedStringValue = treeMark(r.color ?: NSColor.secondaryLabelColor);
+    } else if (mark) {
         f.stringValue = @"\u25CF";
         f.textColor = r.color ?: NSColor.secondaryLabelColor;
     } else {
@@ -1958,6 +1977,7 @@ std::vector<ADIFViewRow> spotRows(double lat, double lon, size_t *total) {
         if (double f = std::atof(ms.spot.khz.c_str()); f > 0) snprintf(khz, sizeof khz, std::fmod(f, 1) == 0 ? "%.0f" : "%.1f", f);
         r.cells = {ms.spot.activator, khz, ms.spot.mode, adif::spotAge(ms.spot.epoch, now), km, deg};
         r.color = [mw.view bandColor:ms.spot.band];
+        r.tree = potaSpot(ms.spot);
         rows.push_back(r);
     }
     return rows;

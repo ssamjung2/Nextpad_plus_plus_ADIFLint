@@ -32,6 +32,9 @@ Versions before 0.8.0 were development builds and were not published.
   choose (US states, Canadian provinces, other countries' regions) and, in a US state, the
   counties you choose; at first, your station's location, for a map of your own state
   without the clutter of the rest. **Everywhere** shows them all.
+- **Map → Spots: POTA activators** are POTA's badge (the tree in the band's colour, with the
+  spot's ring round it) instead of the plain spot marker, on the map, in the legend, and as
+  a tree in the list of spots.
 - **Map → List**: beside the map (the **List** button shows or hides it), the 50 POTA parks,
   contacts or spots in view nearest your station, the map's centre or a grid square you
   type, with distance (mi or km) and bearing. Click one to choose it on the map,
