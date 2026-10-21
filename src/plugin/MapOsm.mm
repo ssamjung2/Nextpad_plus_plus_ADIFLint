@@ -387,10 +387,20 @@ NSColor *mix(unsigned base, unsigned with, double f) { return [rgb(base) blended
 
 // The credit OpenStreetMap's licence asks for, in the corner, whenever its data shows (also
 // in an exported PNG). OSMF Attribution Guidelines (osmfoundation.org, read 2026-10-18).
+// The credits for what the map shows: OpenStreetMap (its detail, or park outlines from it), PAD-US
+// and pota-map.info for park outlines.
+- (NSString *)creditLine {
+    NSMutableArray *parts = [NSMutableArray array];
+    if (_osmDrawn || (_outlineCredit & 1)) [parts addObject:@"© OpenStreetMap contributors"];
+    if (_outlineCredit & 2) [parts addObject:@"PAD-US 4.1 (USGS)"];
+    if (_outlineCredit & 4) [parts addObject:@"pota-map.info"];
+    return [parts componentsJoinedByString:@" · "];
+}
+
 - (void)drawOsmCredit {
-    if (!_osmDrawn) return;
+    NSString *credit = [self creditLine];
+    if (!credit.length) return;
     const MapPalette &pal = paletteAt(_style.palette);
-    NSString *credit = @"© OpenStreetMap contributors";
     NSDictionary *attrs = @{NSFontAttributeName : [NSFont systemFontOfSize:10],
                             NSForegroundColorAttributeName : [NSColor colorWithCalibratedWhite:pal.dark ? 0.9 : 0.15 alpha:1]};
     NSSize s = [credit sizeWithAttributes:attrs];

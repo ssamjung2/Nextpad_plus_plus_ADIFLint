@@ -24,5 +24,12 @@ BOOL ADIFOpenURL(NSString *url);
 // queue; the task can be cancelled. Refused in offline mode. In the tests
 // (ADIFLINT_FAKE_LOOKUP_DIR), answered from the fixtures' mapdetail folder by file name.
 NSURLSessionTask *ADIFFetchFile(NSURL *url, void (^done)(NSData *body, NSString *error));
+
+// Park outlines' requests (Overpass and PAD-US: a form POST; pota-map.info: GET when `form` is
+// nil), with the HTTP status whatever it is, so a busy server (429, 502, 503, 504) can be told
+// from a missing file (404). Refused in offline mode. In the tests, answered from the fixtures'
+// outlines folder by the address's last part ("interpreter", "query", "US-IL.geojson"), each
+// request logged in uploads.log as "OUTLINES GET|POST <address> <form>".
+NSURLSessionTask *ADIFOutlineRequest(NSURL *url, NSString *form, void (^done)(NSData *body, NSInteger status, NSString *error));
 NSURLSessionTask *ADIFFetchRange(NSURL *url, uint64_t offset, uint64_t length, NSString *etag,
                                  void (^done)(NSData *bytes, NSString *etag, NSString *error));

@@ -4320,6 +4320,68 @@ int main(int argc, char **argv) {
             [mapView mouseMoved:mouse(NSEventTypeMouseMoved, activated, 0)];
             CHECK([labelContaining(mapw.contentView, @"US-2004") hasPrefix:@"POTA US-2004 Test Park Activated (US-IL): activated by you, 1 QSO."],
                   "hovering a park you activated: %s", labelContaining(mapw.contentView, @"POTA").UTF8String);
+            // Park Outlines (Settings → POTA Parks): US-NJ from a stand-in Overpass (US-2001's area) and PAD-US
+            // ("Test Park Hunted", matched to US-1234 by name and place); US-2006 gets none.
+            {
+                NSString *outDir = [tmp stringByAppendingPathComponent:@"outline-fixtures"];
+                [[NSFileManager defaultManager] createDirectoryAtPath:[outDir stringByAppendingPathComponent:@"outlines"] withIntermediateDirectories:YES
+                                                           attributes:nil
+                                                                error:nil];
+                NSString *overpass = @"{\"version\":0.6,\"elements\":[{\"type\":\"way\",\"id\":1,\"geometry\":[{\"lat\":41.03,\"lon\":-74.63},"
+                                     @"{\"lat\":41.03,\"lon\":-74.57},{\"lat\":41.08,\"lon\":-74.57},{\"lat\":41.08,\"lon\":-74.63},{\"lat\":41.03,\"lon\":-74.63}],"
+                                     @"\"tags\":{\"communication:amateur_radio:pota\":\"US-2001\",\"name\":\"North Woods\"}}]}";
+                NSString *padus = @"{\"features\":[{\"attributes\":{\"Unit_Nm\":\"Test Park Hunted\",\"Des_Tp\":\"SP\"},\"geometry\":{\"rings\":"
+                                  @"[[[-74.43,40.68],[-74.37,40.68],[-74.37,40.73],[-74.43,40.73],[-74.43,40.68]]]}},"
+                                  @"{\"attributes\":{\"Unit_Nm\":\"Test Park Hunted\",\"Des_Tp\":\"SP\"},\"geometry\":{\"rings\":"
+                                  @"[[[-80.0,30.0],[-79.9,30.0],[-79.9,30.1],[-80.0,30.0]]]}}]}";
+                [overpass writeToFile:[outDir stringByAppendingPathComponent:@"outlines/interpreter"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
+                [padus writeToFile:[outDir stringByAppendingPathComponent:@"outlines/query"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
+                std::string fixtures = getenv("ADIFLINT_FAKE_LOOKUP_DIR") ?: "";
+                setenv("ADIFLINT_FAKE_LOOKUP_DIR", outDir.UTF8String, 1);
+                run("Settings...");
+                NSComboBox *where = (NSComboBox *)viewWithIdentifier(psw.contentView, @"settings.outlines.location");
+                NSTextField *outlinesStatus = (NSTextField *)viewWithIdentifier(psw.contentView, @"settings.outlines.status");
+                CHECK(where && [where indexOfItemWithObjectValue:@"US-NJ"] != NSNotFound && [where indexOfItemWithObjectValue:@"US-IL"] != NSNotFound &&
+                          [outlinesStatus.stringValue isEqualToString:@"None downloaded."],
+                      "Settings: Park Outlines offers the park list's locations; none downloaded (%s)", outlinesStatus.stringValue.UTF8String);
+                where.stringValue = @"us-nj";
+                [(NSButton *)viewWithIdentifier(psw.contentView, @"settings.outlines.download") performClick:nil];
+                for (int i = 0; i < 60 && ![outlinesStatus.stringValue containsString:@"have an outline"]; ++i) pump(0.05);
+                NSString *log = [NSString stringWithContentsOfFile:[outDir stringByAppendingPathComponent:@"uploads.log"] encoding:NSUTF8StringEncoding
+                                                             error:nil] ?: @"";
+                CHECK([outlinesStatus.stringValue isEqualToString:@"US-NJ: 2 of 3 parks have an outline (OSM 1, PAD-US 1)."] &&
+                          [log containsString:@"OUTLINES POST https://overpass-api.de/api/interpreter data=%5Bout%3Ajson%5D"] &&
+                          [log containsString:@"OUTLINES POST https://edits.nationalmap.gov/arcgis/rest/services/PAD-US/PAD_US_4_1/MapServer/0/query "] &&
+                          [log containsString:@"where=State_Nm%3D%27NJ%27%20AND%20%28UPPER%28Unit_Nm%29%20LIKE%20%27%25TEST%25HUNTED%25%27"] &&
+                          [[NSFileManager defaultManager] fileExistsAtPath:[tmp stringByAppendingPathComponent:@"parks/US-NJ.outlines"]],
+                      "US-NJ's outlines: OSM's for US-2001, PAD-US's matched for US-1234, saved (%s)", outlinesStatus.stringValue.UTF8String);
+                [psw orderOut:nil];
+                setenv("ADIFLINT_FAKE_LOOKUP_DIR", fixtures.c_str(), 1);
+                showBox(-75.6, 40.2, -73.8, 41.5);
+                [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-74.585, 41.072), 0)];  // in US-2001's area, away from its ring
+                CHECK([labelContaining(mapw.contentView, @"US-2001") hasSuffix:@"not worked. Outline: OSM."] ||
+                          [labelContaining(mapw.contentView, @"US-2001") containsString:@"not worked. Outline: OSM."],
+                      "inside a park's outline: the park, and where its outline is from (%s)", labelContaining(mapw.contentView, @"POTA").UTF8String);
+                [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-74.375, 40.684), 0)];  // in US-1234's matched outline
+                CHECK([labelContaining(mapw.contentView, @"US-1234") containsString:@"Outline: PAD-US, matched by name: Test Park Hunted."],
+                      "inside a matched outline: said so (%s)", labelContaining(mapw.contentView, @"POTA").UTF8String);
+                snapshot(mapw, "map-pota-outlines");
+                showBox(-74.72, 40.62, -74.28, 41.12);  // a region's fit stops at about 8 degrees: zoom in from there
+                for (int k = 0; k < 5; ++k) [findButton(mapw.contentView, @"+") performClick:nil];
+                snapshot(mapw, "map-pota-outlines-near");
+                NSString *credit = [mapView performSelector:@selector(creditLine)];
+                CHECK([credit isEqualToString:@"© OpenStreetMap contributors · PAD-US 4.1 (USGS)"], "the outlines' sources credited: %s",
+                      credit.UTF8String);
+                run("Settings...");
+                where.stringValue = @"US-NJ";
+                [(NSButton *)viewWithIdentifier(psw.contentView, @"settings.outlines.remove") performClick:nil];
+                CHECK(![[NSFileManager defaultManager] fileExistsAtPath:[tmp stringByAppendingPathComponent:@"parks/US-NJ.outlines"]] &&
+                          [outlinesStatus.stringValue isEqualToString:@"None downloaded."],
+                      "Remove: the location's outlines gone");
+                [psw orderOut:nil];
+                [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-74.585, 41.072), 0)];
+                CHECK(![labelContaining(mapw.contentView, @"Outline: OSM") length], "no outline once removed");
+            }
             // Many parks: dots instead of rings, no counts, and each still found by the pointer.
             {
                 NSString *many = [tmp stringByAppendingPathComponent:@"many-parks"];

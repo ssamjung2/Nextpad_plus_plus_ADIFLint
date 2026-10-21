@@ -246,6 +246,7 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
     ADIFMapStyle _style;
     std::shared_ptr<OsmCache> _osm;
     BOOL _osmDrawn;  // OpenStreetMap detail is showing: credit it
+    uint8_t _outlineCredit;  // park outlines drawn from: 1 OSM, 2 PAD-US, 4 pota-map.info
     std::vector<ADIFMapSpot> _spots;  // newest first
     std::vector<ADIFMapSpotter> _spotters;  // the stations that heard them, from _spots
     std::vector<ADIFInfoRow> _info;         // the information box, bottom right; empty: none
@@ -346,6 +347,7 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 - (double)maxZoomHere;
 - (void)drawOsm:(MapDrawCtx &)d;
 - (void)drawOsmCredit;
+- (NSString *)creditLine;  // "" when nothing needs crediting
 @end
 
 @interface ADIFMapView (Layers)
@@ -373,6 +375,8 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 - (void)drawParkPinAt:(NSPoint)p color:(NSColor *)c activated:(BOOL)activated lit:(BOOL)lit;
 - (void)placeParks;
 - (void)drawParkRings;
+- (void)drawParkOutlines;
+- (size_t)parkOutlineAt:(double)lon lat:(double)lat;  // the park (index in ADIFPotaParks) whose drawn outline holds the point, or npos
 - (void)drawParkPins;
 - (void)drawParkLabelsIn:(NSRect)b;
 - (NSBezierPath *)spotMarkerAt:(NSPoint)p;

@@ -75,6 +75,58 @@ void later(void (^block)(void)) { dispatch_async(dispatch_get_main_queue(), bloc
 
 }  // namespace
 
+NSURLSessionTask *ADIFOutlineRequest(NSURL *url, NSString *form, void (^done)(NSData *body, NSInteger status, NSString *error)) {
+    if (ADIFOffline()) {
+        NSString *why = ADIFOfflineReason();
+        later(^{ done(nil, 0, why); });
+        return nil;
+    }
+    if (const char *dir = getenv("ADIFLINT_FAKE_LOOKUP_DIR"); dir && *dir) {
+        NSString *base = @(dir);
+        NSString *log = [base stringByAppendingPathComponent:@"uploads.log"];
+        if (![[NSFileManager defaultManager] fileExistsAtPath:log]) [[NSFileManager defaultManager] createFileAtPath:log contents:nil attributes:nil];
+        NSFileHandle *h = [NSFileHandle fileHandleForWritingAtPath:log];
+        [h seekToEndOfFile];
+        NSString *line = [NSString stringWithFormat:@"OUTLINES %@ %@ %@\n", form ? @"POST" : @"GET", url.absoluteString, form ?: @""];
+        [h writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+        [h closeFile];
+        NSString *path = [[base stringByAppendingPathComponent:@"outlines"] stringByAppendingPathComponent:url.lastPathComponent];
+        NSData *d = [NSData dataWithContentsOfFile:path];
+        later(^{ done(d, d ? 200 : 404, d ? nil : @"HTTP 404 (fixture)"); });
+        return nil;
+    }
+    // Their own session: Overpass may say nothing for minutes while it is busy.
+    static NSURLSession *slow;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSURLSessionConfiguration *c = [NSURLSessionConfiguration ephemeralSessionConfiguration];
+        c.timeoutIntervalForRequest = 240;
+        c.timeoutIntervalForResource = 900;
+        c.HTTPMaximumConnectionsPerHost = 1;  // one request at a time to each server
+        slow = [NSURLSession sessionWithConfiguration:c];
+    });
+    NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:url];
+    [r setValue:userAgent() forHTTPHeaderField:@"User-Agent"];
+    if (form) {
+        r.HTTPMethod = @"POST";
+        [r setValue:@"application/x-www-form-urlencoded" forHTTPHeaderField:@"Content-Type"];
+        r.HTTPBody = [form dataUsingEncoding:NSUTF8StringEncoding];
+    }
+    NSURLSessionDataTask *task = [slow dataTaskWithRequest:r
+                                         completionHandler:^(NSData *data, NSURLResponse *response, NSError *err) {
+                                             NSInteger status = [response isKindOfClass:NSHTTPURLResponse.class]
+                                                                    ? ((NSHTTPURLResponse *)response).statusCode
+                                                                    : 0;
+                                             NSString *problem = err ? err.localizedDescription
+                                                                 : status != 200
+                                                                     ? [NSString stringWithFormat:T(@"HTTP %ld from %@"), (long)status, url.host]
+                                                                     : nil;
+                                             later(^{ done(problem ? nil : data, status, problem); });
+                                                      }];
+    [task resume];
+    return task;
+}
+
 NSURLSessionTask *ADIFFetchFile(NSURL *url, void (^done)(NSData *body, NSString *error)) {
     if (ADIFOffline()) {
         NSString *why = ADIFOfflineReason();

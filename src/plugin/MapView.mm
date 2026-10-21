@@ -366,7 +366,9 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     }
     NSRect bounds = self.bounds;
     CGFloat boxH = std::min(height - lineGap + 2 * pad, NSHeight(bounds) - 16);
-    NSRect box = NSMakeRect(NSMaxX(bounds) - 8 - (width + 2 * pad), NSMinY(bounds) + 8, width + 2 * pad, boxH);
+    CGFloat above = [self creditLine].length ? 22 : 8;  // over the credit line, when there is one
+    boxH = std::min(boxH, NSHeight(bounds) - above - 8);
+    NSRect box = NSMakeRect(NSMaxX(bounds) - 8 - (width + 2 * pad), NSMinY(bounds) + above, width + 2 * pad, boxH);
     NSBezierPath *bg = [NSBezierPath bezierPathWithRoundedRect:box xRadius:6 yRadius:6];
     [[NSColor colorWithCalibratedWhite:pal.dark ? 0 : 1 alpha:0.78] setFill];
     [bg fill];
@@ -952,6 +954,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     [self drawDayNight:d];  // over the land and areas, under the markers and labels
     // POTA: the parks you haven't worked (rings, or dots when there are many); the worked ones' pins go on top, with the markers.
     [self placeParks];
+    [self drawParkOutlines];
     [self drawParkRings];
     [self drawCities:d];
     [self drawLines:d];
@@ -1187,6 +1190,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
             if (d < bestDistance) best = &*it, bestDistance = d;
         }
         if (best) return h.kind = ADIFMapHit::Pota, h.index = best->park, h;
+        if (size_t k = [self parkOutlineAt:lon lat:lat]; k != (size_t)-1) return h.kind = ADIFMapHit::Pota, h.index = k, h;  // inside its outline
     }
     for (size_t i = 0; i < _data.parks.size(); ++i) {
         if (![self programShown:_data.parks[i]] || [self parkPinned:_data.parks[i]]) continue;

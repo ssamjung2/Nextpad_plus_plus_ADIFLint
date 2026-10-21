@@ -66,6 +66,32 @@ hotlinking its builds (docs.protomaps.com/basemaps/downloads, read 2026-10-18), 
 reads only the downloaded files, never the build, while it draws. The tests use a made-up
 stand-in (`tests/fixtures/lookup/mapdetail`, made by `tools/pmtiles_dev.cpp fixture`).
 
+## Park outlines (not included)
+
+The outlines of **Settings → POTA Parks → Park Outlines** are downloaded by the user, for one
+POTA location at a time, into the plugin config folder's `parks` folder; nothing of them is in
+the repository or a release, and the tests use made-up stand-ins written by the harness.
+
+- **OpenStreetMap** areas tagged `communication:amateur_radio:pota` (9,666 on taginfo,
+  2026-10-20), © OpenStreetMap contributors under the Open Database License
+  (https://www.openstreetmap.org/copyright), read through the Overpass API
+  (https://overpass-api.de; its usage policy on https://wiki.openstreetmap.org/wiki/Overpass_API,
+  read 2026-10-20: identify the program, keep well under 10,000 queries a day, wait after
+  429). The Map credits "© OpenStreetMap contributors" whenever it draws one.
+- **pota-map.info** (DK5UR), its GeoJSON per POTA location (https://pota-map.info/geojson/,
+  read 2026-10-20): the compilation is MIT-licensed; its sources are government open data
+  under their own licences (Germany: the federal Nutzungsbestimmungen and the states'
+  dl-de/zero-2-0, dl-de/by-2-0, CC BY 3.0 DE, CC BY 4.0 and ODbL; Austria and Czechia CC BY
+  4.0; Switzerland opendata.swiss's terms; Denmark and Luxembourg CC0). Liechtenstein's file
+  comes from WDPA, whose terms are narrower, so it isn't used. The Map credits pota-map.info.
+- **PAD-US 4.1**: U.S. Geological Survey (USGS) Gap Analysis Project (GAP), 2025, Protected
+  Areas Database of the United States (PAD-US) 4.1: U.S. Geological Survey data release,
+  https://doi.org/10.5066/P96WBCHS, queried at
+  https://edits.nationalmap.gov/arcgis/rest/services/PAD-US/PAD_US_4_1/MapServer/0 (fields
+  Unit_Nm, Des_Tp and State_Nm; its designation codes read 2026-10-20). US Government data,
+  credited as "PAD-US 4.1 (USGS)" on the Map. Matched to POTA's parks by name and place, so a
+  match can be wrong; the Map says which outlines are matched and to which unit.
+
 ## Language tables (`lang/`)
 
 `lang/ko.json`, `fr.json`, `de.json`, `es.json` and `ja.json` translate ADIF Lint's own

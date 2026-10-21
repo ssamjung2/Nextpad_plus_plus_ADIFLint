@@ -1,5 +1,6 @@
 #import "Map.h"
 #import "Night.h"
+#import "ParkOutlines.h"
 #import "L10n.h"
 #import "MapView.h"
 
@@ -331,9 +332,14 @@ std::string describe(const ADIFMapHit &h) {
             if (!w.activated.empty())
                 what += (what.empty() ? "" : "; ") + trf("activated by you, {qsos}", {{"qsos", plural(w.activated.size(), "QSO")}});
             if (what.empty()) what = tr("not worked");
+            // Where its outline came from, and what a match by name took it to be.
+            std::string outline;
+            if (const adif::ParkOutline *o = parkoutlines::find(p.ref))
+                outline = " " + (o->matched ? trf("Outline: {source}, matched by name: {name}.", {{"source", o->source}, {"name", o->name}})
+                                            : trf("Outline: {source}.", {{"source", o->source}}));
             return trf(p.active ? "POTA {ref} {name} ({location}): {what}." : "POTA {ref} {name} ({location}, inactive): {what}.",
                        {{"ref", p.ref}, {"name", p.name}, {"location", p.location}, {"what", what}}) +
-                   fromHome(p.lat, p.lon);
+                   outline + fromHome(p.lat, p.lon);
         }
         case ADIFMapHit::Area: {
             const adif::AreaIndex &index = adif::areaIndex(layerOverlay(h.layer));
@@ -1815,6 +1821,10 @@ void cmdMap() {
         ]];
         [mw.window center];
         // New spots redraw the layer; closing the window stops the feeds.
+        [[NSNotificationCenter defaultCenter] addObserverForName:ADIFParkOutlinesChangedNotification
+                                                          object:nil
+                                                           queue:nil
+                                                      usingBlock:^(NSNotification *) { mw.view.needsDisplay = YES; }];
         [[NSNotificationCenter defaultCenter] addObserverForName:ADIFNightModeChangedNotification
                                                           object:nil
                                                            queue:nil

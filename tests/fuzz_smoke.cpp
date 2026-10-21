@@ -24,6 +24,8 @@
 #include "adif_pmtiles.h"
 #include "adif_mvt.h"
 #include "adif_spots.h"
+#include "adif_json.h"
+#include "adif_outlines.h"
 
 #include <chrono>
 #include <cmath>
@@ -587,6 +589,84 @@ int main(int argc, char **argv) {
             }
         }
         std::printf("PSKReporter answers: %d mutated, %zu reports still read\n", iterations * 4, reports);
+    }
+
+    // Park outlines' sources, mutated (Overpass, GeoJSON, ArcGIS JSON, and the cache file): no
+    // crash, every outline a shaped reference with closed rings of real coordinates; deep or
+    // huge JSON refused quickly.
+    {
+        const std::string seeds[] = {
+            "{\"elements\":[{\"type\":\"way\",\"geometry\":[{\"lat\":0,\"lon\":0},{\"lat\":0,\"lon\":1},{\"lat\":1,\"lon\":1},{\"lat\":0,\"lon\":0}],"
+            "\"tags\":{\"communication:amateur_radio:pota\":\"US-0001;US-0002\"}},{\"type\":\"relation\",\"members\":[{\"type\":\"way\",\"geometry\":"
+            "[{\"lat\":5,\"lon\":5},{\"lat\":5,\"lon\":6}]},{\"type\":\"way\",\"geometry\":[{\"lat\":5,\"lon\":6},{\"lat\":6,\"lon\":6},{\"lat\":5,\"lon\":5}]}],"
+            "\"tags\":{\"communication:amateur_radio:pota\":\"DE-0003\"}}]}",
+            "{\"type\":\"FeatureCollection\",\"features\":[{\"properties\":{\"id\":\"LI-0001\"},\"geometry\":{\"type\":\"MultiPolygon\",\"coordinates\":"
+            "[[[[9,47],[9.1,47],[9.1,47.1],[9,47]]]]}},{\"properties\":{\"id\":\"LI-0002\"},\"geometry\":{\"type\":\"Polygon\",\"coordinates\":"
+            "[[[8,46],[8.1,46],[8.1,46.1],[8,46]]]}}]}",
+            "{\"features\":[{\"attributes\":{\"Unit_Nm\":\"Beall Woods\",\"Des_Tp\":\"SP\"},\"geometry\":{\"rings\":[[[-87.8,38.3],[-87.7,38.3],"
+            "[-87.7,38.4],[-87.8,38.3]]]}}],\"exceededTransferLimit\":true}",
+            "# ADIF Lint park outlines 1\nP\tUS-0001\tOSM\t0\tA Park\nR 0,0 100000,0 100000,100000 0,0\n"};
+        size_t outlines = 0;
+        auto check = [&](const std::vector<adif::ParkOutline> &got, const std::string &x) {
+            for (const adif::ParkOutline &o : got) {
+                bool ok = adif::potaRefShaped(o.ref) && !o.rings.empty();
+                for (const adif::OutlineRing &r : o.rings) {
+                    ok &= r.size() >= 4 && r.front() == r.back();
+                    for (const adif::OutlinePoint &p : r) ok &= std::fabs(p.first) <= 180 && std::fabs(p.second) <= 90;
+                }
+                if (!ok) {
+                    std::printf("FAIL park outline from: %s\n", x.c_str());
+                    ++gFailures;
+                    return false;
+                }
+                adif::inOutline(o, 0.5, 0.5);
+                adif::outlineDistanceKm(o.rings, 0.5, 0.5);
+            }
+            outlines += got.size();
+            return true;
+        };
+        for (int k = 0; k < iterations * 8; ++k) {
+            std::string x = seeds[k % 4];
+            for (int e = 1 + (int)(rng() % 6); e > 0; --e) {
+                size_t at = rng() % x.size();
+                switch (rng() % 3) {
+                    case 0: x[at] = (char)(rng() & 0xff); break;
+                    case 1: x.erase(at, 1 + rng() % 4); break;
+                    default: x.insert(at, 1, (char)(rng() & 0xff)); break;
+                }
+                if (x.empty()) x = "x";
+            }
+            std::vector<adif::ParkOutline> got;
+            std::vector<adif::PadUnit> units;
+            std::string why;
+            bool more = false;
+            bool ok = true;
+            switch (k % 4) {
+                case 0: adif::overpassOutlines(x, &got, &why), ok = check(got, x); break;
+                case 1: adif::geojsonOutlines(x, "pota-map.info", &got, &why), ok = check(got, x); break;
+                case 2:
+                    adif::arcgisUnits(x, &units, &more, &why);
+                    ok = check(adif::matchPadUnits({{"US-0001", "Beall Woods State Park", 38.35, -87.75}}, units), x);
+                    break;
+                default: adif::readOutlines(x, &got, &why), ok = check(got, x); break;
+            }
+            if (!ok) break;
+        }
+        // Hostile JSON: very deep, very long; refused or read quickly.
+        auto start = std::chrono::steady_clock::now();
+        adif::json::Value v;
+        std::string why;
+        bool deep = adif::json::parse(std::string(200000, '[') + std::string(200000, ']'), &v, &why);
+        std::string longArray = "[";
+        for (int i = 0; i < 400000; ++i) longArray += i ? ",[1.5,2.5]" : "[1.5,2.5]";
+        longArray += "]";
+        bool wide = adif::json::parse(longArray, &v, &why) && v.stride == 2 && v.size() == 400000;
+        double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+        if (deep || !wide || secs > 5) {
+            std::printf("FAIL hostile JSON: deep %d, wide %d, %.1f s\n", deep, wide, secs);
+            ++gFailures;
+        }
+        std::printf("park outline sources: %d mutated, %zu outlines still read; hostile JSON in %.2f s\n", iterations * 8, outlines, secs);
     }
 
     // The Map's worked areas: the area at any point (also off the Earth and across the 180th

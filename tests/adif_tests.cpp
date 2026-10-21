@@ -32,6 +32,8 @@
 #include "adif_programs.h"
 #include "adif_formats.h"
 #include "adif_import.h"
+#include "adif_json.h"
+#include "adif_outlines.h"
 
 #include <algorithm>
 #include <cmath>
@@ -3797,6 +3799,124 @@ static void testCluster() {
           "the PSKReporter queries: a callsign on either side, or a grid square");
 }
 
+static void testJson() {
+    json::Value v;
+    std::string why;
+    CHECK(json::parse("{\"a\": [1, 2.5, -3e2], \"b\": \"x\\\"y\\u00e9\\ud83d\\ude00\", \"c\": [true, false, null], \"d\": {}}", &v, &why) &&
+              v.get("a")->stride == 1 && v.get("a")->packed == std::vector<double>({1, 2.5, -300}) && v.str("b") == "x\"y\xC3\xA9\xF0\x9F\x98\x80" &&
+              v.get("c")->size() == 3 && v.get("c")->items[1].type == json::Value::Type::Bool && !v.get("c")->items[1].boolean &&
+              v.get("d")->isObject() && v.get("missing") == nullptr,
+          "JSON: numbers, escapes and surrogate pairs, literals (%s)", why.c_str());
+    CHECK(json::parse("[[1,2],[3,4],[5,6]]", &v, &why) && v.stride == 2 && v.size() == 3 && v.packed[4] == 5 &&
+              json::parse("[{\"lat\":51.5,\"lon\":-0.1},{\"lon\":1,\"lat\":2}]", &v, &why) && v.stride == 2 && v.packed[0] == -0.1 &&
+              v.packed[1] == 51.5 && v.packed[2] == 1 && v.packed[3] == 2 && json::parse("[[1,2],[3]]", &v, &why) && v.stride == 0 && v.items.size() == 2,
+          "JSON: coordinate pairs and lat/lon objects packed; uneven arrays not");
+    CHECK(!json::parse("{\"a\":1,}", &v, &why) && !json::parse("[1 2]", &v, &why) && !json::parse("012", &v, &why) &&
+              !json::parse("\"\x01\"", &v, &why) && !json::parse("[1] x", &v, &why) && !json::parse("", &v, &why) &&
+              !json::parse(std::string(100, '[') + std::string(100, ']'), &v, &why) && !json::parse("[1,2,3]", &v, &why, 2),
+          "JSON: broken text, too deep, too many values refused");
+    CHECK(json::parse("1.5e-3", &v, &why) && std::fabs(v.number - 0.0015) < 1e-15 && json::parse(" -0.000123 ", &v, &why) &&
+              std::fabs(v.number + 0.000123) < 1e-15 && json::parse("12345678901234567890123", &v, &why) && v.number > 1.2e22 && v.number < 1.3e22,
+          "JSON: numbers read without the locale");
+}
+
+static void testOutlines() {
+    CHECK(potaRefShaped("US-1234") && potaRefShaped("VK-12345") && potaRefShaped("9A-0001") && !potaRefShaped("US-123") &&
+              !potaRefShaped("us-1234") && !potaRefShaped("DE--0038") && !potaRefShaped("yes"),
+          "POTA reference shapes");
+    // Three segments of one square, out of order and one reversed, and a stray open one.
+    std::vector<OutlineRing> segs = {{{0, 0}, {1, 0}}, {{1, 1}, {1, 0}}, {{1, 1}, {0, 1}, {0, 0}}, {{5, 5}, {6, 6}}};
+    std::vector<OutlineRing> rings = joinRings(segs);
+    CHECK(rings.size() == 1 && rings[0].size() == 5 && rings[0].front() == rings[0].back(), "way segments joined into a ring; the open one dropped");
+    OutlineRing wiggly = {{0, 0}, {0.5, 0.00001}, {1, 0}, {1, 1}, {0, 1}, {0, 0}};
+    OutlineRing simple = simplifyRing(wiggly, 0.001);
+    CHECK(simple.size() == 5 && simple.front() == simple.back(), "a ring simplified, still closed (%zu points)", simple.size());
+
+    std::vector<ParkOutline> got;
+    std::string why;
+    const char *overpass =
+        "{\"version\":0.6,\"elements\":["
+        "{\"type\":\"way\",\"id\":1,\"geometry\":[{\"lat\":0,\"lon\":0},{\"lat\":0,\"lon\":1},{\"lat\":1,\"lon\":1},{\"lat\":0,\"lon\":0}],"
+        "\"tags\":{\"communication:amateur_radio:pota\":\"GB-5341\",\"name\":\"Warwick Wood\"}},"
+        "{\"type\":\"way\",\"id\":2,\"geometry\":[{\"lat\":2,\"lon\":2},{\"lat\":2,\"lon\":3},{\"lat\":3,\"lon\":3},{\"lat\":2,\"lon\":2}],"
+        "\"tags\":{\"communication:amateur_radio:pota\":\"GB-5341\"}},"
+        "{\"type\":\"relation\",\"id\":3,\"members\":["
+        "{\"type\":\"way\",\"ref\":10,\"role\":\"outer\",\"geometry\":[{\"lat\":10,\"lon\":10},{\"lat\":10,\"lon\":11}]},"
+        "{\"type\":\"way\",\"ref\":11,\"role\":\"outer\",\"geometry\":[{\"lat\":11,\"lon\":11},{\"lat\":10,\"lon\":11}]},"
+        "{\"type\":\"way\",\"ref\":12,\"role\":\"outer\",\"geometry\":[{\"lat\":11,\"lon\":11},{\"lat\":11,\"lon\":10},{\"lat\":10,\"lon\":10}]},"
+        "{\"type\":\"node\",\"ref\":13,\"role\":\"label\",\"lat\":10.5,\"lon\":10.5}],"
+        "\"tags\":{\"communication:amateur_radio:pota\":\"US-7977, CA-0448\",\"name\":\"Border Park\"}},"
+        "{\"type\":\"way\",\"id\":4,\"geometry\":[],\"tags\":{\"communication:amateur_radio:pota\":\"yes\"}}]}";
+    CHECK(overpassOutlines(overpass, &got, &why) && got.size() == 3 && got[0].ref == "CA-0448" && got[1].ref == "GB-5341" &&
+              got[1].rings.size() == 2 && got[1].name == "Warwick Wood" && got[1].source == "OSM" && got[2].ref == "US-7977" &&
+              got[2].rings.size() == 1 && inOutline(got[2], 10.5, 10.5) && !inOutline(got[2], 12, 12) && got[2].west == 10 && got[2].north == 11,
+          "Overpass: a park's ways as one outline; a relation's members joined; two references; a bad one skipped (%s)", why.c_str());
+    CHECK(!overpassOutlines("{\"remark\":\"runtime error\"}", &got, &why) && !why.empty() && !overpassOutlines("<html>busy</html>", &got, &why),
+          "Overpass: an answer without elements refused");
+
+    const char *geojson =
+        "{\"type\":\"FeatureCollection\",\"features\":["
+        "{\"type\":\"Feature\",\"properties\":{\"id\":\"LI-0001\",\"loc\":\"LI-BA\",\"name\":\"Aeulehaeg\"},"
+        "\"geometry\":{\"type\":\"Polygon\",\"coordinates\":[[[9,47],[9.1,47],[9.1,47.1],[9,47]],[[9.02,47.01],[9.05,47.01],[9.05,47.04],[9.02,47.01]]]}},"
+        "{\"type\":\"Feature\",\"properties\":{\"id\":\"LI-0002\"},\"geometry\":{\"type\":\"MultiPolygon\",\"coordinates\":"
+        "[[[[8,46],[8.1,46],[8.1,46.1],[8,46]]],[[[8.2,46],[8.3,46],[8.3,46.1],[8.2,46]]]]}},"
+        "{\"type\":\"Feature\",\"properties\":{\"id\":\"LI-0003\"},\"geometry\":{\"type\":\"MultiLineString\",\"coordinates\":[[[8,46],[8.1,46]]]}}]}";
+    CHECK(geojsonOutlines(geojson, "pota-map.info", &got, &why) && got.size() == 2 && got[0].ref == "LI-0001" && got[0].rings.size() == 2 &&
+              got[0].source == "pota-map.info" && !inOutline(got[0], 9.045, 47.02) && inOutline(got[0], 9.08, 47.01) && got[1].rings.size() == 2,
+          "pota-map.info GeoJSON: polygons with holes and multipolygons; a trail skipped (%s)", why.c_str());
+
+    const char *arcgis =
+        "{\"geometryType\":\"esriGeometryPolygon\",\"features\":["
+        "{\"attributes\":{\"Unit_Nm\":\"Beall Woods Land and Water Reserve\",\"Des_Tp\":\"SCA\"},\"geometry\":{\"rings\":[[[-87.84,38.36],[-87.82,38.36],[-87.82,38.38],[-87.84,38.36]]]}},"
+        "{\"attributes\":{\"Unit_Nm\":\"Adeline Jay Geo-Karis Illinois Beach State Park\",\"Des_Tp\":\"SP\"},\"geometry\":{\"rings\":[[[-87.82,42.42],[-87.79,42.42],[-87.79,42.47],[-87.82,42.42]]]}},"
+        "{\"attributes\":{\"Unit_Nm\":\"Adeline Jay Geo-Karis Illinois Beach State Park\",\"Des_Tp\":\"SP\"},\"geometry\":{\"rings\":[[[-87.81,42.48],[-87.80,42.48],[-87.80,42.50],[-87.81,42.48]]]}},"
+        "{\"attributes\":{\"Unit_Nm\":\"Illinois Beach Nature Preserve\",\"Des_Tp\":\"SNP\"},\"geometry\":{\"rings\":[[[-87.82,42.42],[-87.80,42.42],[-87.80,42.44],[-87.82,42.42]]]}},"
+        "{\"attributes\":{\"Unit_Nm\":\"Beall Woods State Park\",\"Des_Tp\":\"SP\"},\"geometry\":{\"rings\":[[[-90.0,40.0],[-89.9,40.0],[-89.9,40.1],[-90.0,40.0]]]}},"
+        "{\"attributes\":{\"Unit_Nm\":\"Lincoln Park\",\"Des_Tp\":\"LP\"},\"geometry\":{\"rings\":[[[-89.66,39.82],[-89.64,39.82],[-89.64,39.84],[-89.66,39.82]]]}},"
+        "{\"attributes\":{\"Unit_Nm\":\"Disconnected land along river south of Moraine Hills State Park\",\"Des_Tp\":\"SP\"},\"geometry\":{\"rings\":[[[-88.23,42.30],[-88.21,42.30],[-88.21,42.32],[-88.23,42.30]]]}}],"
+        "\"exceededTransferLimit\":true}";
+    std::vector<PadUnit> units;
+    bool more = false;
+    CHECK(arcgisUnits(arcgis, &units, &more, &why) && units.size() == 7 && more && units[1].designation == "SP" && units[0].rings.size() == 1,
+          "PAD-US: an ArcGIS answer's units, and that more wait (%s)", why.c_str());
+    CHECK(!arcgisUnits("{\"error\":{\"code\":400,\"message\":\"Invalid query\"}}", &units, &more, &why) && why == "PAD-US: Invalid query",
+          "PAD-US: an error answer");
+    arcgisUnits(arcgis, &units, &more, &why);
+
+    CHECK(parkNameWords("Campbell's Island State Park") == std::vector<std::string>({"campbell", "island"}) &&
+              parkNameWords("Beall Woods State Park") == std::vector<std::string>({"beall", "wood"}) &&
+              parkNameWords("Iroquois County State Wildlife Area") == std::vector<std::string>({"iroquoi"}) &&
+              parkNameWords("Fish & Wildlife Area").empty(),
+          "a park's name as words to match, its designation dropped");
+    CHECK(padUsWhere("il", {{"beall", "wood"}, {"campbell", "island"}, {}}) ==
+              "State_Nm='IL' AND (UPPER(Unit_Nm) LIKE '%BEALL%WOOD%' OR UPPER(Unit_Nm) LIKE '%CAMPBE%ISLAND%')" &&
+              padUsWhere("IL", {{"o'neil"}}) == "State_Nm='IL' AND (UPPER(Unit_Nm) LIKE '%O''NEIL%')",
+          "the PAD-US query: each name's words in order, quotes doubled");
+
+    // Illinois Beach: the state park (SP fits "State Park") beats the nature preserve inside it,
+    // whose name is closer. Beall Woods: the reserve near POTA's place, not the namesake 200 km away.
+    std::vector<ParkSite> sites = {{"US-0001", "Illinois Beach State Park", 42.43, -87.81},
+                                   {"US-0002", "Beall Woods State Park", 38.37, -87.83},
+                                   {"US-0003", "Nowhere State Park", 38.0, -88.0},
+                                   {"US-8320", "Lincoln Tomb State Historic Site", 39.83, -89.65},
+                                   {"US-1012", "Moraine Hills State Park", 42.31, -88.22}};
+    std::vector<ParkOutline> matched = matchPadUnits(sites, units);
+    CHECK(matched.size() == 2 && matched[0].ref == "US-0001" && matched[0].name == "Adeline Jay Geo-Karis Illinois Beach State Park" &&
+              matched[0].rings.size() == 2 && matched[0].matched && matched[0].source == "PAD-US" && matched[1].ref == "US-0002" &&
+              matched[1].name == "Beall Woods Land and Water Reserve",
+          "PAD-US matched by name and place: the state park's parcels; the near reserve, not the far namesake; not Lincoln Park for "
+          "Lincoln Tomb, nor the land south of Moraine Hills");
+
+    std::vector<ParkOutline> all = got;
+    all.insert(all.end(), matched.begin(), matched.end());
+    std::vector<ParkOutline> back;
+    std::string text = writeOutlines(all);
+    CHECK(readOutlines(text, &back, &why) && back.size() == all.size() && back[0].ref == "LI-0001" && back[0].rings.size() == 2 &&
+              std::fabs(back[0].rings[0][1].first - 9.1) < 1e-9 && back[2].matched && back[2].name == all[2].name &&
+              !readOutlines("hello", &back, &why),
+          "the outline cache written and read back (%s)", why.c_str());
+}
+
 int main(int argc, char **argv) {
     testStructure();
     testHeader();
@@ -3849,6 +3969,8 @@ int main(int argc, char **argv) {
     testI18n();
     testSpotsCore();
     testCluster();
+    testJson();
+    testOutlines();
     testProjections();
     testPalettes();
     for (int i = 1; i < argc; ++i)

@@ -752,6 +752,14 @@ its layer shows):
   park under its new name (US-, GB-, PE-, GT-, SM-, TR-). Programs that were renumbered (the
   US territories, GI, GM and GW) and Canada's old VE- (now Venezuela's) don't, and stay at
   the QSO's grid as triangles. Download the park list first in Settings → POTA Parks.
+
+  With **Park Outlines** downloaded for a location (Settings → POTA Parks), parks there are
+  drawn as their outlines once they are a few points across: filled in the pin's colours for
+  a park you worked (with Show), outlined in the park colour for one you haven't (with
+  Overlay). Pointing anywhere inside a park finds it, and its description says where the
+  outline came from. An outline matched by name (PAD-US's, for US parks) is dashed and says
+  which PAD-US unit it is ("Outline: PAD-US, matched by name: Rock Cave State Natural Area"),
+  so a doubtful one is easy to spot. The sources are credited at the bottom right of the map.
 - **IOTA**: IOTA's island groups, each the box of latitude and longitude IOTA gives it. The
   groups in the log's IOTA field are filled in (more strongly when a QSO is confirmed), the
   rest dashed; labels give each group's reference, and its name where the box is wide
@@ -1234,6 +1242,29 @@ Rules for every source:
   about 9.5 MB: every park's reference, name, location and place) for the Map's POTA
   overlay; download again for new parks. It is only fetched when you press Download. ADIF
   Lint isn't affiliated with Parks on the Air.
+
+  **Park Outlines** downloads the parks' boundaries for one POTA location at a time (type or
+  pick it, such as `US-IL`, `DE-HE` or `VK-NSW`; it starts at the location of the park
+  nearest your grid) and keeps them in the plugin config folder's `parks` folder; **Remove**
+  deletes a location's. Three sources, each only when you press Download:
+  - **OpenStreetMap**: areas tagged with the park's reference
+    (`communication:amateur_radio:pota`), through the Overpass API. About 9,700 parks are
+    tagged so far (2026-10-20): most of Australia's, about a third of Germany's, few
+    elsewhere (about 700 of the US's 13,000). Overpass is a volunteer service that is often
+    busy; when it says so, the other sources still come and the status line asks you to try
+    again later for OpenStreetMap's.
+  - **pota-map.info** (DK5UR's compilation of government park data) for Austria, Czechia,
+    Denmark, Germany, Luxembourg and Switzerland: the location's own file.
+  - **PAD-US** (the USGS Protected Areas Database of the United States, 4.1) for US parks.
+    PAD-US knows parks by their official names, not POTA references, so a unit counts when
+    its name holds the park's (or the park's holds the unit's), it lies within 5 km of POTA's
+    place for the park, and, when the name says what it is ("State Park", "National
+    Wildlife Refuge"), its designation agrees; land "south of" a park, or a local or private
+    unit for a state or national park, doesn't count. In tests on 2026-10-20 this gave
+    outlines to 70% of Illinois's parks and 80% of Missouri's; the rest stay pins or dots.
+
+  An exact reference wins over a match by name, and OpenStreetMap's over pota-map.info's. A
+  state takes from a few seconds to a minute or two, and a few hundred KB to a few MB.
 - **Map Detail:** OpenStreetMap streets and buildings for the regions you download (see
   [Map Detail](#map-detail-streets-and-buildings)).
 - **Spots:** where the Map's Spots layer gets its spots (see
@@ -1310,7 +1341,8 @@ nothing is sent:
 - callbook lookups (New QSO, Enrich) and sign-in tests;
 - the Spots window, and the Map's spots (Spothole, the DX cluster and PSKReporter);
 - uploads, TQSL included, and imports from LoTW, QRZ.com Logbook and eQSL;
-- the downloads in Settings (country data, LoTW users, POTA parks, IOTA groups, Map Detail),
+- the downloads in Settings (country data, LoTW users, POTA parks and their outlines, IOTA
+  groups, Map Detail),
   and the weekly LoTW users refresh;
 - web pages ADIF Lint would open in your browser (About's links, pota.app's uploads page).
 

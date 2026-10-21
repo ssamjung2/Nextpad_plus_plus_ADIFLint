@@ -5,6 +5,11 @@
 #import "Lookup.h"
 #import "Spots.h"
 #import "SpotOffer.h"
+#import "ParkOutlines.h"
+#import "PotaParks.h"
+
+#include "PluginHost.h"
+#include "adif_geo.h"
 #import "ToolWindow.h"
 
 // Flipped, so the sections start at the top of the scroll view.
@@ -35,6 +40,9 @@
     NSComboBox *_spotsNode;
     NSTextField *_spotsLogin, *_spotsCommands, *_spotsEmail, *_spotsStatus;
     NSPopUpButton *_spotsPskQuery;
+    NSComboBox *_outlinesLocation;
+    NSButton *_outlinesDownload, *_outlinesRemove;
+    NSTextField *_outlinesStatus;
     NSButton *_spotsOffer;
     NSTextField *_spotsPskCall;
     id _spotsObserver;
@@ -478,7 +486,98 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
                                  NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
     _potaUpdate = [NSButton buttonWithTitle:T(@"Download") target:self action:@selector(potaUpdate:)];
     _potaStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
-    return sectionStack(@[ sectionTitle(@"POTA Parks"), help, _potaUpdate, _potaStatus ], @"settings.pota");
+    // Park Outlines: a POTA location's park boundaries, downloaded when asked.
+    NSTextField *outlinesTitle = [NSTextField labelWithString:T(@"Park Outlines")];
+    outlinesTitle.font = [NSFont boldSystemFontOfSize:NSFont.smallSystemFontSize + 1];
+    NSTextField *outlinesHelp = wrapping(
+        @"Draws parks as their outlines on the Map's POTA layer, for one POTA location at a time (US-IL, DE-HE, VK-NSW), downloaded when you "
+        @"press Download: OpenStreetMap's areas tagged with the park's reference (through Overpass), pota-map.info's for Austria, Czechia, "
+        @"Denmark, Germany, Luxembourg and Switzerland, and for US parks USGS's PAD-US, matched by name and by POTA's place for the park "
+        @"(dashed on the map, and said so). A state can take a minute; Overpass is sometimes too busy, and then OpenStreetMap's are left "
+        @"for another try.",
+        NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    _outlinesLocation = [[NSComboBox alloc] initWithFrame:NSZeroRect];
+    _outlinesLocation.completes = YES;
+    _outlinesLocation.numberOfVisibleItems = 15;
+    _outlinesLocation.placeholderString = T(@"POTA location, such as US-IL");
+    _outlinesLocation.identifier = @"settings.outlines.location";
+    [_outlinesLocation.widthAnchor constraintEqualToConstant:150].active = YES;
+    _outlinesDownload = [NSButton buttonWithTitle:T(@"Download") target:self action:@selector(outlinesDownload:)];
+    _outlinesDownload.identifier = @"settings.outlines.download";
+    _outlinesRemove = [NSButton buttonWithTitle:T(@"Remove") target:self action:@selector(outlinesRemove:)];
+    _outlinesRemove.identifier = @"settings.outlines.remove";
+    NSStackView *outlinesRow = [NSStackView stackViewWithViews:@[ _outlinesLocation, _outlinesDownload, _outlinesRemove ]];
+    outlinesRow.spacing = 8;
+    _outlinesStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    _outlinesStatus.identifier = @"settings.outlines.status";
+    [self fillOutlines];
+    return sectionStack(@[ sectionTitle(@"POTA Parks"), help, _potaUpdate, _potaStatus, outlinesTitle, outlinesHelp, outlinesRow, _outlinesStatus ],
+                        @"settings.pota");
+}
+
+// The locations to choose from (the park list's), the one to offer (the last chosen, else your
+// grid's nearest park's), and what is downloaded.
+- (void)fillOutlines {
+    if (!_outlinesLocation) return;
+    std::vector<std::string> locations = parkoutlines::locations();
+    [_outlinesLocation removeAllItems];
+    for (const std::string &l : locations) [_outlinesLocation addItemWithObjectValue:@(l.c_str())];
+    if (!_outlinesLocation.stringValue.length) {
+        std::string chosen = adifhost::setting("outlinesLocation");
+        double lat, lon;
+        if (chosen.empty() && adif::gridToLatLon(adifhost::setting("stationGrid"), &lat, &lon)) {
+            double best = 1e9;
+            for (const adif::PotaPark &p : ADIFPotaParks().parks()) {
+                if (!p.active || !p.placed) continue;
+                double d = std::hypot(p.lat - lat, (p.lon - lon) * std::cos(lat * M_PI / 180));
+                if (d < best) best = d, chosen = p.location.substr(0, p.location.find(','));
+            }
+        }
+        _outlinesLocation.stringValue = @(chosen.c_str());
+    }
+    bool none = locations.empty();
+    _outlinesLocation.enabled = !none && !parkoutlines::busy();
+    _outlinesDownload.enabled = !none && !parkoutlines::busy();
+    if (parkoutlines::busy()) return;
+    std::string have;
+    for (const parkoutlines::Downloaded &d : parkoutlines::downloaded()) {
+        char size[32];
+        snprintf(size, sizeof size, d.bytes >= 1000000 ? "%.1f MB" : "%.0f KB", d.bytes >= 1000000 ? d.bytes / 1e6 : std::max(1.0, d.bytes / 1e3));
+        have += (have.empty() ? "" : "; ") + adif::i18n::trf("{location} ({n} of {total} parks, {size})",
+                                                             {{"location", d.location}, {"n", std::to_string(d.outlines)},
+                                                              {"total", std::to_string(d.parks)}, {"size", size}});
+    }
+    _outlinesStatus.stringValue = none ? T(@"Download POTA's park list first.")
+                                       : have.empty() ? T(@"None downloaded.")
+                                                      : @(adif::i18n::trf("Downloaded: {list}.", {{"list", have}}).c_str());
+    _outlinesStatus.textColor = NSColor.secondaryLabelColor;
+}
+
+- (void)outlinesDownload:(id)sender {
+    std::string location = ADIFStd([[_outlinesLocation.stringValue stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet] uppercaseString]);
+    adifhost::setSetting("outlinesLocation", location);
+    _outlinesDownload.enabled = NO, _outlinesLocation.enabled = NO;
+    __weak ADIFSettingsPanel *weakSelf = self;
+    parkoutlines::download(
+        location,
+        ^(NSString *what) {
+            ADIFSettingsPanel *me = weakSelf;
+            if (!me) return;
+            me->_outlinesStatus.stringValue = what;
+            me->_outlinesStatus.textColor = NSColor.secondaryLabelColor;
+        },
+        ^(BOOL ok, NSString *message) {
+            ADIFSettingsPanel *me = weakSelf;
+            if (!me) return;
+            [me fillOutlines];
+            me->_outlinesStatus.stringValue = message;
+            me->_outlinesStatus.textColor = ok ? NSColor.secondaryLabelColor : NSColor.systemRedColor;
+        });
+}
+
+- (void)outlinesRemove:(id)sender {
+    parkoutlines::remove(ADIFStd([[_outlinesLocation.stringValue stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet] uppercaseString]));
+    [self fillOutlines];
 }
 
 - (void)potaUpdate:(id)sender {
@@ -489,6 +588,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
 }
 
 - (void)setPotaStatus:(NSString *)text ok:(BOOL)ok {
+    [self fillOutlines];  // the list's locations (it may have just been downloaded)
     _potaUpdate.enabled = YES;
     _potaStatus.stringValue = T(text);
     _potaStatus.textColor = ok ? NSColor.secondaryLabelColor : NSColor.systemRedColor;

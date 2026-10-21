@@ -19,7 +19,8 @@ supported.
   shown again. Settings → Remove deletes them.
 - **Network requests** use HTTPS and go only to the service you chose, when you ask:
   Enrich, Import, Upload, Test Sign-In, a callbook lookup you turned on in New QSO, an open
-  Spots window, the Map's Spots layer while its Show is ticked, Settings → Country Data → Update, or the LoTW user list once you turn it on
+  Spots window, the Map's Spots layer while its Show is ticked, Settings → POTA Parks (the park
+  list, and Park Outlines from Overpass, pota-map.info and PAD-US), Settings → Country Data → Update, or the LoTW user list once you turn it on
   (Update, then weekly). The README lists every address. The
   QRZ.com sign-in is sent as a POST; HamQTH's sign-in, LoTW's report API and eQSL's
   DownloadInBox take the login in the HTTPS address, as those services document it.

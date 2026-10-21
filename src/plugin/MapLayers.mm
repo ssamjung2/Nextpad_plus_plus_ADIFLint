@@ -3,6 +3,7 @@
 
 #import "IotaGroups.h"
 #import "PluginHost.h"
+#import "ParkOutlines.h"
 #import "PotaParks.h"
 #import "ToolWindow.h"
 #include "adif_geo.h"
@@ -936,6 +937,68 @@ using namespace mapkit;
 }
 
 // The parks you haven't worked: rings, or dots where they are many.
+// Whether a park's outline is drawn: POTA's Show for a park you worked (filled in its pin's
+// colours), Overlay for the others the Filters let show (outlined in the park colour); not when
+// it would be under a few points across, where its pin or dot says it all.
+- (bool)outlineDrawn:(const adif::ParkOutline &)o park:(const adif::PotaPark *)p worked:(bool)worked {
+    if (!p || !(worked ? _style[kLayerPota].show : _style[kLayerPota].overlay && [self parkFiltered:*p])) return false;
+    NSPoint a = [self viewPointForLon:o.west lat:o.south], b = [self viewPointForLon:o.east lat:o.north];
+    return std::max(std::fabs(b.x - a.x), std::fabs(b.y - a.y)) >= 4;
+}
+
+// POTA parks' outlines (Settings → POTA Parks → Park Outlines), under the rings and pins.
+- (void)drawParkOutlines {
+    _outlineCredit = 0;
+    if (!_style[kLayerPota].show && !_style[kLayerPota].overlay) return;
+    const std::vector<adif::ParkOutline> &outlines = parkoutlines::all();
+    if (outlines.empty()) return;
+    const MapPalette &pal = paletteAt(_style.palette);
+    const adif::PotaParks &list = ADIFPotaParks();
+    double west, south, east, north;
+    [self visibleWest:&west south:&south east:&east north:&north];
+    std::map<size_t, const ADIFParkSpot *> pins;  // the parks you worked, with their colours
+    for (const ADIFParkSpot &sp : _potaSpots)
+        if (sp.pin) pins[sp.park] = &sp;
+    for (const adif::ParkOutline &o : outlines) {
+        if (o.north < south || o.south > north || ((o.east < west || o.west > east) && west < east)) continue;
+        const adif::PotaPark *p = list.find(o.ref);
+        size_t index = list.indexOf(p);
+        auto pin = pins.find(index);
+        bool worked = pin != pins.end();
+        if (![self outlineDrawn:o park:p worked:worked]) continue;
+        bool lit = (_hover.kind == ADIFMapHit::Pota && _hover.index == index) || (_selected.kind == ADIFMapHit::Pota && _selected.index == index);
+        NSBezierPath *path = [NSBezierPath bezierPath];
+        for (const adif::OutlineRing &r : o.rings) [path appendBezierPath:[self viewPath:r close:YES wraps:NO]];
+        path.windingRule = NSWindingRuleEvenOdd;
+        NSColor *c = worked ? (pin->second->activated ? rgb(pal.me) : [self colorFor:pin->second->agg entity:NO]) : rgb(pal.park);
+        [[c colorWithAlphaComponent:worked ? 0.32 : 0.10] setFill];
+        [path fill];
+        path.lineWidth = lit ? 2.2 : worked ? 1.3 : 0.9;
+        [(lit ? [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:1] : [c colorWithAlphaComponent:worked ? 0.9 : 0.75]) setStroke];
+        if (o.matched) {  // matched by name: dashed, so it reads as less certain
+            CGFloat dash[] = {4, 2};
+            [path setLineDash:dash count:2 phase:0];
+        }
+        [path stroke];
+        _outlineCredit |= o.source == "OSM" ? 1 : o.source == "PAD-US" ? 2 : 4;
+    }
+}
+
+- (size_t)parkOutlineAt:(double)lon lat:(double)lat {
+    if (!_style[kLayerPota].show && !_style[kLayerPota].overlay) return (size_t)-1;
+    const adif::PotaParks &list = ADIFPotaParks();
+    std::set<size_t> worked;
+    for (const ADIFParkSpot &sp : _potaSpots)
+        if (sp.pin) worked.insert(sp.park);
+    for (const adif::ParkOutline &o : parkoutlines::all()) {
+        if (!adif::inOutline(o, lon, lat)) continue;
+        const adif::PotaPark *p = list.find(o.ref);
+        size_t index = list.indexOf(p);
+        if ([self outlineDrawn:o park:p worked:worked.count(index) > 0]) return index;
+    }
+    return (size_t)-1;
+}
+
 - (void)drawParkRings {
     const MapPalette &pal = paletteAt(_style.palette);
     CGFloat ink = pal.dark ? 1 : 0;

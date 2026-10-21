@@ -11,6 +11,15 @@ Versions before 0.8.0 were development builds and were not published.
 
 ### Added
 
+- **Map → POTA: park outlines** (Settings → POTA Parks → Park Outlines). For one POTA location
+  at a time, downloaded on request and kept in the plugin config folder: OpenStreetMap's
+  areas tagged with the park's reference (through Overpass), pota-map.info's for Austria,
+  Czechia, Denmark, Germany, Luxembourg and Switzerland, and for US parks USGS's PAD-US 4.1,
+  matched by name, by POTA's place for the park and by designation (70% of Illinois's parks
+  and 80% of Missouri's in tests). Parks you worked are filled in their pins' colours, the
+  others outlined; matched outlines are dashed and name the PAD-US unit; pointing anywhere
+  in a park finds it; the sources are credited on the map.
+
 - **Map → Spots: spotters.** The stations that heard each spot (up to 12: a cluster's
   spotters, RBN skimmers, and you for PSKReporter) are faint triangles. Point at a spot for
   its spotters' lines, or at a spotter for the stations it heard; click one for the list.

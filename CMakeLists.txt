@@ -32,6 +32,8 @@ set(WARNINGS -Wall -Wextra -Wno-unused-parameter)
 # ── Core: ADIF tables, validator, length fixer (no platform dependencies) ────
 add_library(adif_core STATIC
     src/core/adif_spec.cpp
+    src/core/adif_json.cpp
+    src/core/adif_outlines.cpp
     src/core/adif_spec_317.cpp
     src/core/adif_lint.cpp
     src/core/adif_edit.cpp
@@ -117,7 +119,7 @@ add_test(NAME adiflint_tools COMMAND sh ${CMAKE_SOURCE_DIR}/tests/cli_tools.sh $
 if(NOT ADIF_SANITIZE)
     add_library(ADIFLint SHARED src/plugin/ADIFLint.mm src/plugin/RecordPanel.mm src/plugin/NewQsoPanel.mm
         src/plugin/EnrichPanel.mm src/plugin/Lookup.mm src/plugin/SettingsPanel.mm src/plugin/QsoFieldsPanel.mm
-        src/plugin/ToolWindow.mm src/plugin/LogTools.mm src/plugin/CheckLog.mm src/plugin/Families.mm src/plugin/Station.mm src/plugin/Monitor.mm src/plugin/Contest.mm src/plugin/Labels.mm src/plugin/LotwUsers.mm src/plugin/IotaGroups.mm src/plugin/PotaParks.mm src/plugin/Map.mm src/plugin/MapView.mm src/plugin/MapLayers.mm src/plugin/MapOsm.mm src/plugin/MapDetail.mm src/plugin/Network.mm src/plugin/L10n.mm src/plugin/Spots.mm src/plugin/Night.mm src/plugin/SpotOffer.mm
+        src/plugin/ToolWindow.mm src/plugin/LogTools.mm src/plugin/CheckLog.mm src/plugin/Families.mm src/plugin/Station.mm src/plugin/Monitor.mm src/plugin/Contest.mm src/plugin/Labels.mm src/plugin/LotwUsers.mm src/plugin/IotaGroups.mm src/plugin/PotaParks.mm src/plugin/Map.mm src/plugin/MapView.mm src/plugin/MapLayers.mm src/plugin/MapOsm.mm src/plugin/MapDetail.mm src/plugin/Network.mm src/plugin/L10n.mm src/plugin/Spots.mm src/plugin/Night.mm src/plugin/SpotOffer.mm src/plugin/ParkOutlines.mm
         src/plugin/Uploads.mm src/plugin/Imports.mm src/plugin/Country.mm)
     target_include_directories(ADIFLint PRIVATE
         third_party/nextpad

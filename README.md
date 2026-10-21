@@ -116,7 +116,9 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
   for detail, or jump to a continent with **Region**.
 - Layers, each with **Show** (what you worked), **Overlay** and **Labels**: **grid
   squares**, **countries** (DXCC), **US states**, **US counties**, **CQ zones**, **ITU
-  zones**, **POTA** parks and **IOTA** groups, and **cities**. A state, county or zone counts
+  zones**, **POTA** parks (as their outlines where you download them: OpenStreetMap,
+  pota-map.info, and USGS's PAD-US for US parks) and **IOTA** groups, and **cities**. A state,
+  county or zone counts
   by the QSO's own field, else by where the QSO was.
 - **Contacts** at their exact place (LAT/LON or a 6-character grid, ignoring QRZ.com's
   placeholders), other programs' references, **lines to contacts** in their contacts'
@@ -277,6 +279,9 @@ your Mac.
 | Country files | `www.country-files.com` | Settings → Country Data → Update | Nothing but the request |
 | LoTW user list | `lotw.arrl.org` | Settings → LoTW Users → Update, and weekly while it is on | Nothing but the request |
 | POTA park list | `pota.app` | Settings → POTA Parks → Download | Nothing but the request |
+| Park outlines: OpenStreetMap | `overpass-api.de` | Settings → POTA Parks → Park Outlines → Download | A query for the areas tagged with POTA references in the location's box |
+| Park outlines: pota-map.info | `pota-map.info` | the same, for Austria, Czechia, Denmark, Germany, Luxembourg and Switzerland | Nothing but the request |
+| Park outlines: PAD-US | `edits.nationalmap.gov` (USGS) | the same, for US locations | Queries for the units named like the location's parks |
 | IOTA group list | `www.iota-world.org` | Settings → IOTA Groups → Download | Nothing but the request |
 | Protomaps build list | `build-metadata.protomaps.dev` | Settings → Map Detail → Check Size | Nothing but the request |
 | Protomaps build | `build.protomaps.com` | Settings → Map Detail: Check Size (the region's index), Download (its tiles) | The byte ranges asked for |
