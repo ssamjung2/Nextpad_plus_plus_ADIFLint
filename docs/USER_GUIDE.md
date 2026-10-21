@@ -529,7 +529,8 @@ At the top, a grid of layers (grid squares, countries, US states, US counties, C
 zones, POTA, IOTA, cities, spots) with three rows of boxes: **Show**, **Overlay** and
 **Labels**. Then **Markers** (contacts, lines, other programs, your station, and how to colour
 them), **Filters** (which QSOs, and **Spots…**), and a row to zoom, jump to a **Region**, choose the projection,
-open **Style Options…** and **Export PNG…**. Under the map, a list shows the QSOs of
+open **Style Options…** and **Export PNG…**, and show or hide **Parks** (the list of
+[parks in view](#parks-in-view) beside the map). Under the map, a list shows the QSOs of
 whatever you click, and the status line says what is under the pointer.
 
 ### Layers: Show, Overlay and Labels
@@ -537,7 +538,7 @@ whatever you click, and the status line says what is under the pointer.
 Each layer has up to three boxes:
 
 - **Show** marks what you worked on that layer: the worked grid squares, countries, states,
-  counties and zones shaded in the map's colours, the POTA parks you worked pinned, the IOTA
+  counties and zones shaded in the map's colours, the POTA parks you worked badged, the IOTA
   groups you worked filled in. Ticking Show ticks the layer's Overlay and Labels too, so the
   worked areas show among the rest; untick Overlay to see only the worked ones, each with
   its own outline.
@@ -588,7 +589,7 @@ Where a QSO counts on each layer:
 - **Colour by** (see [Colours](#colours)).
 
 POTA parks you hunted are triangles at the QSO's GRIDSQUARE while POTA's **Show** is on;
-with POTA's park list downloaded, they are pinned at the parks themselves instead (see
+with POTA's park list downloaded, they get a badge at the parks themselves instead (see
 [Overlays](#overlays)).
 
 ### Filters
@@ -739,14 +740,17 @@ its layer shows):
 - **Cities**: 7,300 cities and towns (Natural Earth), the largest first and more as you zoom
   in, labelled with names where they don't run into each other. With counties labelled too,
   a city's name goes first and a county's name only where it is clear of the cities.
-- **POTA**: POTA's parks, at the parks themselves. With **Show**, a pin with a triangle
-  marks each park you hunted (POTA_REF, or SIG_INFO with SIG POTA), coloured as the map
-  colours, and a pin with a star, in your station's colour, each park you activated
-  (MY_POTA_REF, or MY_SIG_INFO). The **Overlay** puts a ring at each active park you haven't
-  worked, or a small dot where more than 1,500 would show; zoom in, or limit them with
-  **More Filters → Also limit the POTA parks you haven't worked**, to see fewer. Labels
-  give the references of the parks you worked, of the others once you are zoomed in to a few
-  hundred, and their names once fewer show. Point at a park for its name, location, your
+- **POTA**: POTA's parks, at the parks themselves, each a round badge with a tree in it, as
+  on POTA's own map. With **Show**, a badge marks each park you hunted (POTA_REF, or SIG_INFO
+  with SIG POTA), the tree in the map's colours, and each park you activated (MY_POTA_REF,
+  or MY_SIG_INFO) gets one in your station's colour with a star at its shoulder. The
+  **Overlay** puts a smaller badge, its tree in the park colour, at each active park you
+  haven't worked; a still smaller one where more than 250 show, and a small dot where more
+  than 1,500 would; zoom in, or limit them with **More Filters → Also limit the POTA parks
+  you haven't worked**, to see fewer. Labels put each reference in a box under its badge
+  (over it or beside it when another label or badge is in the way): the parks you worked
+  always, the others once you are zoomed in to 250 or fewer, with their names under the
+  references once 60 or fewer show. Point at a park for its name, location, your
   QSOs there and how far it is; click it to list the QSOs. References written before POTA
   renamed its programs in 2024 and kept the numbers (K-, G-, OA-, TG-, T7-, TA-) find the
   park under its new name (US-, GB-, PE-, GT-, SM-, TR-). Programs that were renumbered (the
@@ -754,12 +758,16 @@ its layer shows):
   the QSO's grid as triangles. Download the park list first in Settings → POTA Parks.
 
   With **Park Outlines** downloaded for a location (Settings → POTA Parks), parks there are
-  drawn as their outlines once they are a few points across: filled in the pin's colours for
-  a park you worked (with Show), outlined in the park colour for one you haven't (with
+  drawn as their outlines once they are a few points across: filled in the badge's colours
+  for a park you worked (with Show), outlined in the park colour for one you haven't (with
   Overlay). Pointing anywhere inside a park finds it, and its description says where the
   outline came from. An outline matched by name (PAD-US's, for US parks) is dashed and says
   which PAD-US unit it is ("Outline: PAD-US, matched by name: Rock Cave State Natural Area"),
   so a doubtful one is easy to spot. The sources are credited at the bottom right of the map.
+  To see the outlines without the badges on them, choose **Style Options → POTA parks →
+  Parks with an outline: Outline only**: a park whose outline is big enough to see is then
+  just its outline and its label; zoomed further out, where the outline would be too small,
+  it gets its badge back.
 - **IOTA**: IOTA's island groups, each the box of latitude and longitude IOTA gives it. The
   groups in the log's IOTA field are filled in (more strongly when a QSO is confirmed), the
   rest dashed; labels give each group's reference, and its name where the box is wide
@@ -838,6 +846,29 @@ On the globe:
   bearing. **Click** it to list its
   QSOs under the map, and double-click one to go to its record in the log.
 
+### Parks in View
+
+![Parks in View: the parks the map shows around northern New Jersey, nearest first, with distance and bearing](images/map-parks.png)
+
+**Parks** (in the zoom row) shows or hides a list beside the map of the POTA parks the map
+marks in the view, like the list beside POTA's own map. Each row has the park's colour on
+the map (the dot), its reference, its name, and its distance and bearing (degrees from true
+north, a beam heading). The 50 nearest are listed, nearest first; the title says how many
+there are when more show.
+
+- **Nearest to** chooses where they are measured from: **Your station** (Settings → Your
+  Station's grid, else the log's most used MY_GRIDSQUARE), **Map centre**, or a **Grid
+  square** you type (4, 6 or 8 characters).
+- **mi** and **km** choose the units.
+- **Click** a park to choose it on the map (as if you clicked it there: its description in
+  the status line, its QSOs in the list under the map); clicking a park on the map chooses
+  its row. **Double-click** zooms right in to it: its outline, where downloaded, or a few
+  kilometres round it.
+
+The list follows the POTA layer: with **Show** it has the parks you worked, with **Overlay**
+the others too (and the Filters, when they limit the parks you haven't worked). It changes
+as you move and zoom the map. Every choice is remembered.
+
 ### Map Detail: streets and buildings
 
 ![Downtown Madison, Wisconsin, at street level: buildings, streets with their names, the Capitol square, the lakeshore](images/map-detail.png)
@@ -892,6 +923,8 @@ your own use; if you pass them on, the licence goes with them.
   they read as arches from above your station too, and over the horizon for contacts on the
   far side. They are for looks: the true path, and the beam heading, is the straight line
   you get with it off.
+- **POTA parks**: **Parks with an outline**: a badge on the outline, or the outline alone
+  once it is big enough to see (only with outlines downloaded; see [Overlays](#overlays)).
 - **Spots** (while the Spots layer shows): **Spotters** hidden, faint grey, as markers, or
   as markers with their calls (which give way to every other label); **Lines** from the
   spotters (the layer's Overlay) in the band's colour, faint in it, or faint grey (the spot
@@ -1245,8 +1278,13 @@ Rules for every source:
 
   **Park Outlines** downloads the parks' boundaries for one POTA location at a time (type or
   pick it, such as `US-IL`, `DE-HE` or `VK-NSW`; it starts at the location of the park
-  nearest your grid) and keeps them in the plugin config folder's `parks` folder; **Remove**
-  deletes a location's. Three sources, each only when you press Download:
+  nearest your grid; the line under it says how many parks it has and what you have of it)
+  and keeps them in the plugin config folder's `parks` folder. **Downloaded** lists each
+  location you have, with how many of its parks have an outline, its size and the day it
+  was downloaded ("US-IL: 154 of 219 parks, 1.2 MB, 2026-10-20"), and **Remove** deletes the
+  one chosen there; under it, a line sums them all up ("3 locations, 2.4 MB: 412 of 590 parks
+  have an outline (70%)."). Choosing a location you have says where its outlines came from
+  ("OSM 12, PAD-US 142") and when. Download a location again to update it. Three sources, each only when you press Download:
   - **OpenStreetMap**: areas tagged with the park's reference
     (`communication:amateur_radio:pota`), through the Overpass API. About 9,700 parks are
     tagged so far (2026-10-20): most of Australia's, about a third of Germany's, few
@@ -1261,7 +1299,7 @@ Rules for every source:
     place for the park, and, when the name says what it is ("State Park", "National
     Wildlife Refuge"), its designation agrees; land "south of" a park, or a local or private
     unit for a state or national park, doesn't count. In tests on 2026-10-20 this gave
-    outlines to 70% of Illinois's parks and 80% of Missouri's; the rest stay pins or dots.
+    outlines to 70% of Illinois's parks and 80% of Missouri's; the rest stay badges or dots.
 
   An exact reference wins over a match by name, and OpenStreetMap's over pota-map.info's. A
   state takes from a few seconds to a minute or two, and a few hundred KB to a few MB.

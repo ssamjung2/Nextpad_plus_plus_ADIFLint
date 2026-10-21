@@ -37,6 +37,7 @@ constexpr double kSimplify = 0.00005;  // degrees, about 5 m
 std::vector<adif::ParkOutline> gAll;
 std::map<std::string, size_t> gIndex;
 bool gLoaded = false, gBusy = false;
+size_t gGeneration = 0;
 
 std::string folder() { return adifhost::configDir() + "/parks"; }
 std::string fileFor(const std::string &location) { return folder() + "/" + location + ".outlines"; }
@@ -72,25 +73,33 @@ void load() {
 
 void changed() {
     gLoaded = false;
+    ++gGeneration;
     [[NSNotificationCenter defaultCenter] postNotificationName:ADIFParkOutlinesChangedNotification object:nil];
+}
+
+// Whether a park is in a location: one of its list's ("US-DC,US-MD,US-WV").
+bool inLocation(const adif::PotaPark &p, const std::string &location) {
+    for (size_t b = 0; b <= p.location.size();) {
+        size_t e = p.location.find(',', b);
+        if (e == std::string::npos) e = p.location.size();
+        if (p.location.compare(b, e - b, location) == 0) return true;
+        b = e + 1;
+    }
+    return false;
 }
 
 // The location's parks in POTA's list, with a place.
 std::vector<adif::ParkSite> sitesOf(const std::string &location) {
     std::vector<adif::ParkSite> out;
-    for (const adif::PotaPark &p : ADIFPotaParks().parks()) {
-        if (!p.active || !p.placed) continue;
-        for (size_t b = 0; b <= p.location.size();) {  // "US-DC,US-MD,US-WV"
-            size_t e = p.location.find(',', b);
-            if (e == std::string::npos) e = p.location.size();
-            if (p.location.compare(b, e - b, location) == 0) {
-                out.push_back({p.ref, p.name, p.lat, p.lon});
-                break;
-            }
-            b = e + 1;
-        }
-    }
+    for (const adif::PotaPark &p : ADIFPotaParks().parks())
+        if (p.active && p.placed && inLocation(p, location)) out.push_back({p.ref, p.name, p.lat, p.lon});
     return out;
+}
+
+std::string sizeText(long long bytes) {
+    char size[32];
+    snprintf(size, sizeof size, bytes >= 1000000 ? "%.1f MB" : "%.0f KB", bytes >= 1000000 ? bytes / 1e6 : std::max(1.0, bytes / 1e3));
+    return size;
 }
 
 NSString *formEncode(NSDictionary<NSString *, NSString *> *fields) {
@@ -251,9 +260,9 @@ void finish(std::shared_ptr<Job> job) {
         if (n) from += (from.empty() ? "" : ", ") + std::string(source) + " " + std::to_string(n);
     };
     part(osm, "OSM"), part(potaMap, "pota-map.info"), part(padUs, "PAD-US");
-    job->done(YES, ADIFString(trf("{location}: {n} of {total} parks have an outline ({from}).",
-                                  {{"location", job->location}, {"n", std::to_string(all.size())},
-                                   {"total", std::to_string(job->sites.size())}, {"from", from.empty() ? tr("none") : from}}) +
+    job->done(YES, ADIFString(adif::i18n::trp("{location}: {have} of {n} park has an outline ({from}).",
+                                              "{location}: {have} of {n} parks have an outline ({from}).", (long long)job->sites.size(),
+                                              {{"location", job->location}, {"have", std::to_string(all.size())}, {"from", from.empty() ? tr("none") : from}}) +
                               notes));
 }
 
@@ -281,23 +290,65 @@ std::vector<Downloaded> downloaded() {
     for (NSString *file in files) {
         if (![file hasSuffix:@".outlines"]) continue;
         std::string location = ADIFStd([file stringByDeletingPathExtension]);
+        if (!locationShaped(location)) continue;
         Downloaded d;
         d.location = location;
         NSDictionary *attrs = [[NSFileManager defaultManager] attributesOfItemAtPath:@((folder() + "/" + ADIFStd(file)).c_str()) error:nil];
         d.bytes = [attrs[NSFileSize] longLongValue];
+        if (NSDate *when = attrs[NSFileModificationDate]) {
+            NSDateFormatter *f = [[NSDateFormatter alloc] init];
+            f.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
+            f.dateFormat = @"yyyy-MM-dd";
+            d.date = ADIFStd([f stringFromDate:when]);
+        }
         d.parks = sitesOf(location).size();
         by[location] = d;
     }
+    // A park's outline counts for each downloaded location it is in (one across a border, in each).
     for (const adif::ParkOutline &o : gAll) {
         const adif::PotaPark *p = ADIFPotaParks().find(o.ref);
         if (!p) continue;
         for (auto &kv : by)
-            if (p->location.find(kv.first) != std::string::npos) ++kv.second.outlines;
+            if (inLocation(*p, kv.first)) {
+                ++kv.second.outlines;
+                ++(o.source == "OSM" ? kv.second.osm : o.source == "PAD-US" ? kv.second.padUs : kv.second.potaMap);
+            }
     }
     std::vector<Downloaded> out;
     for (auto &kv : by) out.push_back(kv.second);
     return out;
 }
+
+std::string sources(const Downloaded &d) {
+    std::string from;
+    auto part = [&](size_t n, const char *source) {
+        if (n) from += (from.empty() ? "" : ", ") + std::string(source) + " " + std::to_string(n);
+    };
+    part(d.osm, "OSM"), part(d.potaMap, "pota-map.info"), part(d.padUs, "PAD-US");
+    return from.empty() ? tr("none") : from;
+}
+
+std::string describe(const Downloaded &d) {
+    return adif::i18n::trp("{location}: {have} of {n} park, {size}, {date}", "{location}: {have} of {n} parks, {size}, {date}", (long long)d.parks,
+                           {{"location", d.location}, {"have", std::to_string(d.outlines)}, {"size", sizeText(d.bytes)}, {"date", d.date}});
+}
+
+std::string summary(const std::vector<Downloaded> &all) {
+    if (all.empty()) return tr("None downloaded.");
+    size_t outlines = 0, parks = 0;
+    long long bytes = 0;
+    for (const Downloaded &d : all) outlines += d.outlines, parks += d.parks, bytes += d.bytes;
+    char share[16];
+    snprintf(share, sizeof share, "%.0f", parks ? 100.0 * (double)outlines / (double)parks : 0.0);
+    return adif::i18n::trp("{locations}, {size}: {have} of {n} park has an outline ({share}%).",
+                           "{locations}, {size}: {have} of {n} parks have an outline ({share}%).", (long long)parks,
+                           {{"locations", adifhost::plural(all.size(), "location")}, {"size", sizeText(bytes)}, {"have", std::to_string(outlines)},
+                            {"share", share}});
+}
+
+size_t generation() { return gGeneration; }
+
+size_t parksIn(const std::string &location) { return locationShaped(location) ? sitesOf(location).size() : 0; }
 
 const std::vector<adif::ParkOutline> &all() {
     load();

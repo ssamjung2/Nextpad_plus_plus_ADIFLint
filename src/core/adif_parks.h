@@ -44,4 +44,16 @@ private:
 // "@location" (ADIF POTARef: program-number[@ISO 3166-2]). "" when it isn't one.
 std::string potaListRef(std::string_view ref);
 
+// A park's distance and bearing from a place, for the Map's list of parks in view.
+struct ParkDistance {
+    size_t park = 0;          // as given (an index into the list's parks)
+    double km = 0, bearing = 0;  // great-circle kilometres; initial bearing, degrees from true north
+};
+// The given parks (indexes into `parks`; those without a place left out) nearest a place,
+// nearest first (ties by reference), at most `limit` of them.
+std::vector<ParkDistance> nearestParks(const std::vector<PotaPark> &parks, const std::vector<size_t> &candidates, double lat, double lon,
+                                       size_t limit);
+// A distance as the list shows it: "4.7 mi", "12 mi", "0.8 km" (a decimal under 10).
+std::string distanceText(double km, bool miles);
+
 }  // namespace adif

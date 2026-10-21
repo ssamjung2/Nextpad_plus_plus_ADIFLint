@@ -3802,7 +3802,7 @@ int main(int argc, char **argv) {
             NSPoint fn31 = pointFor(-73, 41.5);  // inside FN31, K1AB's square
             [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, fn31, 1)];
             [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, fn31, 1)];
-            NSTableView *qsoList = findTable(mapw.contentView);
+            NSTableView *qsoList = (NSTableView *)viewWithIdentifier(mapw.contentView, @"map.qsos");
             CHECK(qsoList && [qsoList.dataSource numberOfRowsInTableView:qsoList] == 1 && [cell(qsoList, 0, @"1") isEqualToString:@"K1AB"] &&
                       [labelContaining(mapw.contentView, @"FN31:") hasPrefix:@"FN31: 1 QSO, confirmed (K1AB)"],
                   "a click on FN31 lists its QSO: %s", labelContaining(mapw.contentView, @"FN31").UTF8String);
@@ -3846,7 +3846,7 @@ int main(int argc, char **argv) {
             pinHead.y += 8.8;  // the head sits above the point
             [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, pinHead, 1)];
             [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, pinHead, 1)];
-            NSTableView *contactList = findTable(mapw.contentView);
+            NSTableView *contactList = (NSTableView *)viewWithIdentifier(mapw.contentView, @"map.qsos");
             CHECK([contactList.dataSource numberOfRowsInTableView:contactList] == 1 && [cell(contactList, 0, @"1") isEqualToString:@"K1AB"] &&
                       [labelContaining(mapw.contentView, @"K1AB:") hasPrefix:@"K1AB: 1 QSO at 41.7292 N, 72.7083 W (from FN31pr)."] &&
                       [labelContaining(mapw.contentView, @"K1AB:") containsString:@"from EN52WA."],
@@ -4299,27 +4299,89 @@ int main(int argc, char **argv) {
             [findButton(mapw.contentView, @"World") performClick:nil];
             snapshot(mapw, "map-pota-world");
             showBox(-75.6, 40.2, -73.8, 41.5);
-            NSPoint hunted = pointFor(-74.40, 40.70);
-            hunted.y += 2.2 * 4 * 1.2;  // the pin's head
+            NSPoint hunted = pointFor(-74.40, 40.70);  // its badge, at the park
             [mapView mouseMoved:mouse(NSEventTypeMouseMoved, hunted, 0)];
             CHECK([labelContaining(mapw.contentView, @"US-1234") hasPrefix:@"POTA US-1234 Test Park Hunted (US-NJ): hunted, 1 QSO (W2CD)."],
-                  "hovering a hunted park's pin: %s", labelContaining(mapw.contentView, @"POTA").UTF8String);
+                  "hovering a hunted park's badge: %s", labelContaining(mapw.contentView, @"POTA").UTF8String);
             [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, hunted, 1)];
             [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, hunted, 1)];
             CHECK([qsoList.dataSource numberOfRowsInTableView:qsoList] == 1 && [cell(qsoList, 0, @"1") isEqualToString:@"W2CD"],
-                  "a click on the park's pin lists its QSO");
+                  "a click on the park's badge lists its QSO");
             [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-74.60, 41.05), 0)];
             CHECK([labelContaining(mapw.contentView, @"US-2001") hasPrefix:@"POTA US-2001 Test Park North (US-NJ): not worked."],
                   "hovering a park not worked: %s", labelContaining(mapw.contentView, @"POTA").UTF8String);
             [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-74.90, 40.80), 0)];
             CHECK(![labelContaining(mapw.contentView, @"US-2003") length], "an inactive park isn't drawn");
+            pump(0.3);  // the list of parks in view follows the view
             snapshot(mapw, "map-pota");
             showBox(-88.8, 41.7, -87.6, 42.5);
             NSPoint activated = pointFor(-88.20, 42.10);
-            activated.y += 2.2 * 4 * 1.2;
             [mapView mouseMoved:mouse(NSEventTypeMouseMoved, activated, 0)];
             CHECK([labelContaining(mapw.contentView, @"US-2004") hasPrefix:@"POTA US-2004 Test Park Activated (US-IL): activated by you, 1 QSO."],
                   "hovering a park you activated: %s", labelContaining(mapw.contentView, @"POTA").UTF8String);
+            // Parks in View: beside the map, the parks it marks, nearest first to the place chosen (here a grid
+            // square typed); a click on a row chooses the park on the map, one on the map its row; a double-click zooms in.
+            NSString *(^mapStatusText)(void) = ^NSString * { return ((NSTextField *)viewWithIdentifier(mapw.contentView, @"map.status")).stringValue; };
+            {
+                NSView *panel = viewWithIdentifier(mapw.contentView, @"map.parks");
+                NSTableView *parks = (NSTableView *)viewWithIdentifier(mapw.contentView, @"map.parks.table");
+                NSPopUpButton *from = (NSPopUpButton *)viewWithIdentifier(mapw.contentView, @"map.parks.from");
+                NSTextField *grid = (NSTextField *)viewWithIdentifier(mapw.contentView, @"map.parks.grid");
+                NSSegmentedControl *units = (NSSegmentedControl *)viewWithIdentifier(mapw.contentView, @"map.parks.units");
+                NSButton *toggle = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.parks.toggle");
+                NSTextField *title = (NSTextField *)viewWithIdentifier(mapw.contentView, @"map.parks.title");
+                CHECK(panel && !panel.hidden && toggle.state == NSControlStateValueOn && parks && from && grid && units,
+                      "Parks in View: the panel shows beside the map");
+                showBox(-75.6, 40.2, -73.8, 41.5);
+                [from selectItemAtIndex:2];
+                [from sendAction:from.action to:from.target];
+                grid.stringValue = @"FN20sq";
+                [grid sendAction:grid.action to:grid.target];
+                units.selectedSegment = 1;
+                [units sendAction:units.action to:units.target];
+                pump(0.3);
+                auto refs = [&]() {
+                    std::string out;
+                    for (NSInteger r = 0; r < [parks.dataSource numberOfRowsInTableView:parks]; ++r)
+                        out += (out.empty() ? "" : " ") + std::string(cell(parks, r, @"ref").UTF8String);
+                    return out;
+                };
+                CHECK(refs() == "US-1234 US-2001 US-2002 US-2006" && [title.stringValue isEqualToString:@"Parks in View (4)"] && !grid.hidden &&
+                          [cell(parks, 0, @"name") isEqualToString:@"Test Park Hunted"] && [cell(parks, 1, @"distance") isEqualToString:@"42 km"] &&
+                          [cell(parks, 1, @"bearing") hasSuffix:@"\u00B0"],
+                      "the parks in view, nearest FN20sq first (not the inactive one): %s; %s, %s %s", refs().c_str(), title.stringValue.UTF8String,
+                      cell(parks, 1, @"distance").UTF8String, cell(parks, 1, @"bearing").UTF8String);
+                units.selectedSegment = 0;
+                [units sendAction:units.action to:units.target];
+                CHECK([cell(parks, 1, @"distance") isEqualToString:@"26 mi"], "in miles: %s", cell(parks, 1, @"distance").UTF8String);
+                units.selectedSegment = 1;
+                [units sendAction:units.action to:units.target];
+                [parks selectRowIndexes:[NSIndexSet indexSetWithIndex:1] byExtendingSelection:NO];
+                CHECK([mapStatusText() hasPrefix:@"POTA US-2001 Test Park North (US-NJ): not worked."], "a row chosen: the park chosen on the map: %s",
+                      mapStatusText().UTF8String);
+                [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, pointFor(-74.40, 40.70), 1)];
+                [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, pointFor(-74.40, 40.70), 1)];
+                CHECK(parks.selectedRow == 0, "a park clicked on the map: its row chosen (%ld)", (long)parks.selectedRow);
+                [parks selectRowIndexes:[NSIndexSet indexSetWithIndex:1] byExtendingSelection:NO];
+                double before = std::atof(zoomShown().c_str());
+                [NSApp sendAction:parks.doubleAction to:parks.target from:parks];
+                pump(0.3);
+                CHECK(std::atof(zoomShown().c_str()) >= 300 && before < 100 && [mapStatusText() hasPrefix:@"POTA US-2001"] && parks.selectedRow == 0 &&
+                          [title.stringValue isEqualToString:@"Parks in View (1)"],
+                      "a double-click zooms to the park (%s, was %.0f): %s; %s", zoomShown().c_str(), before, title.stringValue.UTF8String,
+                      mapStatusText().UTF8String);
+                snapshot(mapw, "map-pota-park");
+                CGFloat narrow = mapView.frame.size.width;
+                [toggle performClick:nil];
+                [mapw.contentView layoutSubtreeIfNeeded];
+                CHECK(panel.hidden && mapView.frame.size.width > narrow + 300, "Parks hides the panel and the map takes the room (%.0f to %.0f)", narrow,
+                      mapView.frame.size.width);
+                [toggle performClick:nil];
+                [mapw.contentView layoutSubtreeIfNeeded];
+                CHECK(!panel.hidden && overlaps(mapw.contentView) == 0, "and shows it again; nothing overlaps (%d)", overlaps(mapw.contentView));
+                [from selectItemAtIndex:0];
+                [from sendAction:from.action to:from.target];
+            }
             // Park Outlines (Settings → POTA Parks): US-NJ from a stand-in Overpass (US-2001's area) and PAD-US
             // ("Test Park Hunted", matched to US-1234 by name and place); US-2006 gets none.
             {
@@ -4341,9 +4403,15 @@ int main(int argc, char **argv) {
                 run("Settings...");
                 NSComboBox *where = (NSComboBox *)viewWithIdentifier(psw.contentView, @"settings.outlines.location");
                 NSTextField *outlinesStatus = (NSTextField *)viewWithIdentifier(psw.contentView, @"settings.outlines.status");
+                NSTextField *outlinesSummary = (NSTextField *)viewWithIdentifier(psw.contentView, @"settings.outlines.summary");
+                NSPopUpButton *installed = (NSPopUpButton *)viewWithIdentifier(psw.contentView, @"settings.outlines.installed");
                 CHECK(where && [where indexOfItemWithObjectValue:@"US-NJ"] != NSNotFound && [where indexOfItemWithObjectValue:@"US-IL"] != NSNotFound &&
-                          [outlinesStatus.stringValue isEqualToString:@"None downloaded."],
-                      "Settings: Park Outlines offers the park list's locations; none downloaded (%s)", outlinesStatus.stringValue.UTF8String);
+                          [outlinesSummary.stringValue isEqualToString:@"None downloaded."] && !installed.enabled,
+                      "Settings: Park Outlines offers the park list's locations; none downloaded (%s)", outlinesSummary.stringValue.UTF8String);
+                where.stringValue = @"US-IL";
+                [where sendAction:where.action to:where.target];
+                CHECK([outlinesStatus.stringValue isEqualToString:@"US-IL: 1 park; not downloaded."], "a location chosen: its parks, not downloaded (%s)",
+                      outlinesStatus.stringValue.UTF8String);
                 where.stringValue = @"us-nj";
                 [(NSButton *)viewWithIdentifier(psw.contentView, @"settings.outlines.download") performClick:nil];
                 for (int i = 0; i < 60 && ![outlinesStatus.stringValue containsString:@"have an outline"]; ++i) pump(0.05);
@@ -4355,6 +4423,20 @@ int main(int argc, char **argv) {
                           [log containsString:@"where=State_Nm%3D%27NJ%27%20AND%20%28UPPER%28Unit_Nm%29%20LIKE%20%27%25TEST%25HUNTED%25%27"] &&
                           [[NSFileManager defaultManager] fileExistsAtPath:[tmp stringByAppendingPathComponent:@"parks/US-NJ.outlines"]],
                       "US-NJ's outlines: OSM's for US-2001, PAD-US's matched for US-1234, saved (%s)", outlinesStatus.stringValue.UTF8String);
+                CHECK(installed.enabled && installed.numberOfItems == 1 && [installed.titleOfSelectedItem hasPrefix:@"US-NJ: 2 of 3 parks, "] &&
+                          [outlinesSummary.stringValue hasPrefix:@"1 location, "] &&
+                          [outlinesSummary.stringValue hasSuffix:@": 2 of 3 parks have an outline (67%)."],
+                      "what is downloaded, a location each and summed up: %s; %s", installed.titleOfSelectedItem.UTF8String,
+                      outlinesSummary.stringValue.UTF8String);
+                [where sendAction:where.action to:where.target];
+                CHECK([outlinesStatus.stringValue hasPrefix:@"US-NJ: 2 of 3 parks have an outline (OSM 1, PAD-US 1), downloaded 20"] &&
+                          [where.stringValue isEqualToString:@"US-NJ"] &&
+                          [outlinesStatus.stringValue hasSuffix:@". Download again to update."],
+                      "the location chosen again: what it has, and when (%s)", outlinesStatus.stringValue.UTF8String);
+                [potaSection scrollRectToVisible:potaSection.bounds];
+                [psw.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(potaSection) == 0, "Settings: POTA Parks with outlines downloaded does not overlap (%d)", overlaps(potaSection));
+                snapshot(psw, "settings-pota-outlines");
                 [psw orderOut:nil];
                 setenv("ADIFLINT_FAKE_LOOKUP_DIR", fixtures.c_str(), 1);
                 showBox(-75.6, 40.2, -73.8, 41.5);
@@ -4369,15 +4451,35 @@ int main(int argc, char **argv) {
                 showBox(-74.72, 40.62, -74.28, 41.12);  // a region's fit stops at about 8 degrees: zoom in from there
                 for (int k = 0; k < 5; ++k) [findButton(mapw.contentView, @"+") performClick:nil];
                 snapshot(mapw, "map-pota-outlines-near");
+                // Style Options: outline only. US-2001's outline, big enough now, is drawn without its badge (the
+                // badge's pale disc beside its tree gone); the pointer still finds the park in it.
+                {
+                    NSPoint parkAt = pointFor(-74.60, 41.05);
+                    NSPoint onDisc = NSMakePoint(parkAt.x + 0.45 * 7, parkAt.y + 0.45 * 7);  // on the disc, off the tree and the ring
+                    [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-74.70, 40.75), 0)];  // the pointer away: no hover ring
+                    auto pale = [&]() {
+                        NSColor *c = colourAt(mapImage(), onDisc);
+                        return c.redComponent > 0.8 && c.redComponent - c.blueComponent > 0.06;
+                    };
+                    bool badge = pale();
+                    CHECK(stylePick(@"parkOutlines", @"Outline only"), "Style Options: Parks with an outline: Outline only");
+                    bool gone = !pale();
+                    [mapView mouseMoved:mouse(NSEventTypeMouseMoved, parkAt, 0)];
+                    CHECK(badge && gone && [mapStatusText() hasPrefix:@"POTA US-2001 Test Park North (US-NJ): not worked."],
+                          "outline only: the badge gone (it was %s), the park found in its outline: %s", badge ? "there" : "missing",
+                          mapStatusText().UTF8String);
+                    snapshot(mapw, "map-pota-outline-only");
+                    CHECK(stylePick(@"parkOutlines", @"Badge and outline"), "and back to a badge on the outline");
+                    [stylePanel() orderOut:nil];
+                }
                 NSString *credit = [mapView performSelector:@selector(creditLine)];
                 CHECK([credit isEqualToString:@"© OpenStreetMap contributors · PAD-US 4.1 (USGS)"], "the outlines' sources credited: %s",
                       credit.UTF8String);
                 run("Settings...");
-                where.stringValue = @"US-NJ";
                 [(NSButton *)viewWithIdentifier(psw.contentView, @"settings.outlines.remove") performClick:nil];
                 CHECK(![[NSFileManager defaultManager] fileExistsAtPath:[tmp stringByAppendingPathComponent:@"parks/US-NJ.outlines"]] &&
-                          [outlinesStatus.stringValue isEqualToString:@"None downloaded."],
-                      "Remove: the location's outlines gone");
+                          [outlinesSummary.stringValue isEqualToString:@"None downloaded."] && !installed.enabled,
+                      "Remove: the location chosen in Downloaded gone");
                 [psw orderOut:nil];
                 [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-74.585, 41.072), 0)];
                 CHECK(![labelContaining(mapw.contentView, @"Outline: OSM") length], "no outline once removed");

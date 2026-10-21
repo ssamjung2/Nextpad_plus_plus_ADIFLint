@@ -40,6 +40,7 @@ docs-map-states map-states
 docs-map-colour-blind map-colour-blind
 docs-map-city map-city
 docs-map-day-night map-day-night
+map-pota map-parks
 docs-log-table log-table
 check-log check-log
 new-qso-lookup new-qso-lookup

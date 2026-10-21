@@ -3171,6 +3171,22 @@ static void testWorld() {
         CHECK(potaListRef(" us-1234@us-wi ") == "US-1234" && potaListRef("VE-12345") == "VE-12345" && potaListRef("US-123").empty() &&
                   potaListRef("US-1234@").empty(),
               "park references as the list writes them");
+        {  // the parks nearest a place: nearest first, ties by reference, parks without a place left out, at most the limit
+            std::vector<PotaPark> near(5);
+            const double at[][2] = {{43.10, -89.40}, {43.00, -89.40}, {0, 0}, {43.20, -89.40}, {43.00, -89.40}};
+            const char *refs[] = {"US-0010", "US-0012", "US-0013", "US-0014", "US-0011"};
+            for (size_t i = 0; i < near.size(); ++i) near[i].ref = refs[i], near[i].lat = at[i][0], near[i].lon = at[i][1], near[i].placed = i != 2;
+            std::vector<ParkDistance> d = nearestParks(near, {0, 1, 2, 3, 4, 99}, 43.0, -89.4, 3);
+            CHECK(d.size() == 3 && d[0].park == 4 && d[1].park == 1 && d[2].park == 0 && d[0].km < 1e-6 && std::fabs(d[2].km - 11.12) < 0.05 &&
+                      std::fabs(d[2].bearing) < 0.01,
+                  "the 3 parks nearest Madison: the two there (by reference), then 11 km north (%zu)", d.size());
+            CHECK(nearestParks(near, {3, 0}, 43.0, -89.4, 50).size() == 2 && nearestParks(near, {}, 0, 0, 50).empty() &&
+                      nearestParks(near, {0, 1}, 43.0, -89.4, 0).empty(),
+                  "fewer parks than the limit; none; a limit of 0");
+            CHECK(distanceText(7.5644, true) == "4.7 mi" && distanceText(19.3, true) == "12 mi" && distanceText(0.8, false) == "0.8 km" &&
+                      distanceText(9.94, false) == "9.9 km" && distanceText(9.96, false) == "10 km" && distanceText(1234.4, false) == "1234 km",
+                  "distances in miles or kilometres, a decimal under 10 (%s)", distanceText(7.5644, true).c_str());
+        }
         PotaParks none;
         CHECK(none.load("reference,name\r\nUS-0001,x\r\n") == 0 && none.load("") == 0 && none.load("<html>") == 0, "not the park list");
         std::string log = "<CALL:4>W9AB<QSO_DATE:8>20260101<TIME_ON:4>1200<BAND:3>20m<MODE:3>SSB<POTA_REF:23>us-0002@US-WI,K-0001<EOR>\n"

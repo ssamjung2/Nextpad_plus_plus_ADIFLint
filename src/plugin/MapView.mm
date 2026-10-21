@@ -403,6 +403,30 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     return _selected;
 }
 
+- (void)selectPark:(size_t)index {
+    ADIFMapHit h;
+    h.kind = ADIFMapHit::Pota, h.index = index;
+    const adif::PotaParks &list = ADIFPotaParks();
+    if (index < list.size() && list.parks()[index].placed) h.square = adif::squareAt(list.parks()[index].lon, list.parks()[index].lat);
+    _selected = h;
+    self.needsDisplay = YES;
+    if (self.onSelect) self.onSelect(h);
+}
+
+- (void)showPlaceWest:(double)w south:(double)s east:(double)e north:(double)n {
+    if ([self globe]) _pr = adif::Projector(adif::Projection::Globe, (s + n) / 2, (w + e) / 2);
+    else _pr = _base;
+    double west = 1e9, east = -1e9, south = 1e9, north = -1e9;
+    for (int i = 0; i <= 4; ++i)
+        for (int j = 0; j <= 4; ++j) {
+            double x, y;
+            if (!_pr.forward(w + (e - w) * i / 4, s + (n - s) * j / 4, &x, &y)) continue;
+            west = std::min(west, x), east = std::max(east, x), south = std::min(south, y), north = std::max(north, y);
+        }
+    if (west > east) return;
+    [self fitPlaneWest:west south:south east:east north:north minSpan:0.06];
+}
+
 - (void)setParkFilter:(const adif::MapFilter &)filter on:(BOOL)on {
     _parkFilter = filter, _filterParks = on;
     _parksPlacedFor = {};
@@ -707,19 +731,25 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     [self fitPlaneWest:west south:south east:east north:north];
 }
 
-// Fit the view to a part of the plane; on the globe, centred where it is turned to.
+// Fit the view to a part of the plane; on the globe, centred where it is turned to. A region
+// shows at least 8 by 4 degrees; a place (minSpan) less.
 - (void)fitPlaneWest:(double)west south:(double)south east:(double)east north:(double)north {
+    [self fitPlaneWest:west south:south east:east north:north minSpan:0];
+}
+
+- (void)fitPlaneWest:(double)west south:(double)south east:(double)east north:(double)north minSpan:(double)minSpan {
     if ([self globe]) {  // the span is twice the farthest point in front
         double r = std::max({std::fabs(west), std::fabs(east), std::fabs(south), std::fabs(north)});
         west = -r, east = r, south = -r, north = r;
     }
-    double spanX = std::max(8.0, (east - west) * 1.15), spanY = std::max(4.0, (north - south) * 1.15);
+    double spanX = std::max(minSpan > 0 ? minSpan : 8.0, (east - west) * 1.15), spanY = std::max(minSpan > 0 ? minSpan : 4.0, (north - south) * 1.15);
     double minX, minY, maxX, maxY;
     _pr.bounds(&minX, &minY, &maxX, &maxY);
     NSRect b = self.bounds;
     double base = std::min(b.size.width / (maxX - minX), b.size.height / (maxY - minY));
-    _zoom = std::clamp(std::min(b.size.width / spanX, b.size.height / spanY) / base, 1.0, kMaxZoom);  // a region: not into Map Detail
     _cx = (west + east) / 2, _cy = (south + north) / 2;
+    double most = minSpan > 0 ? [self maxZoomHere] : kMaxZoom;  // a region: not into Map Detail; a place: where it is downloaded
+    _zoom = std::clamp(std::min(b.size.width / spanX, b.size.height / spanY) / base, 1.0, most);
     [self viewChanged];
 }
 
@@ -882,7 +912,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     return pk.program == "POTA" ? _style[kLayerPota].show : !_hiddenPrograms.count(pk.program);
 }
 
-// A POTA park the POTA overlay pins at the park itself, so the Parks layer leaves it out.
+// A POTA park the POTA layer marks at the park itself, so the Parks layer leaves it out.
 - (BOOL)parkPinned:(const adif::MapPark &)pk {
     if (!_style[kLayerPota].show || pk.program != "POTA") return NO;
     const adif::PotaPark *p = ADIFPotaParks().find(pk.reference);
@@ -952,20 +982,21 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     [self drawOverlays:d];
     [self drawIota:d];
     [self drawDayNight:d];  // over the land and areas, under the markers and labels
-    // POTA: the parks you haven't worked (rings, or dots when there are many); the worked ones' pins go on top, with the markers.
-    [self placeParks];
-    [self drawParkOutlines];
-    [self drawParkRings];
     [self drawCities:d];
     [self drawLines:d];
     [self drawSpotLines:d];
     [self drawSquares:d];
     [self drawGridLabels:d];
+    // POTA: the parks' outlines and the badges of those you haven't worked (dots when there are many), over the
+    // worked squares; the worked ones' badges go on top, with the markers.
+    [self placeParks];
+    [self drawParkOutlines];
+    [self drawParkBadges:NO];
     [self drawRings:d];
     [self drawDxccDots:d];
     [self drawContacts:d];
     [self drawPrograms:d];
-    [self drawParkPins];
+    [self drawParkBadges:YES];
     if (_style[kLayerPota].labels) [self drawParkLabelsIn:d.b];
     [self drawSpotters:d];
     [self drawSpots:d];
@@ -983,7 +1014,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     const MapPalette &pal = paletteAt(_style.palette);
     struct Entry {
         // 0 swatch, 1 dot, 2 triangle, 3 diamond, 4 star, 5 line, 6 contact marker, 7 heading, 8 plain text, 9 dashed box,
-        // 10 park pin (hunted), 11 park pin (activated), 12 ring, 13 spotter, 14 spot
+        // 10 park badge (hunted), 11 park badge (activated), 12 park badge (not worked), 13 spotter, 14 spot
         int kind;
         NSColor *color;
         std::string text;
@@ -1104,8 +1135,10 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     CGFloat y = NSMaxY(box) - 5 - lineH;
     for (const Entry &e : rows) {
         NSPoint at = NSMakePoint(NSMinX(box) + 8, y);
-        if (e.kind == 10 || e.kind == 11) {
-            [self drawParkPinAt:NSMakePoint(at.x + 6, y + 1) color:e.color activated:e.kind == 11 lit:NO];
+        if (e.kind == 10 || e.kind == 11 || e.kind == 12) {
+            [self drawParkBadgeAt:NSMakePoint(at.x + 6, y + lineH / 2) radius:e.kind == 12 ? 5.5 : 6.5 color:e.color worked:e.kind != 12
+                        activated:e.kind == 11
+                              lit:NO];
             [ADIFString(e.text) drawAtPoint:NSMakePoint(at.x + 18, y + 1) withAttributes:text];
         } else if (e.kind == 13 || e.kind == 14) {
             NSPoint c = NSMakePoint(at.x + 6, y + lineH / 2);
@@ -1132,7 +1165,6 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
                 case 3: m = [self marker:2 at:c size:5]; break;
                 case 4: m = [self marker:3 at:c size:6]; break;
                 case 6: m = [self contactMarkerAt:NSMakePoint(c.x, _style.contact == 0 ? c.y - 5 : c.y)]; break;
-                case 12: m = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(c.x - 3.5, c.y - 3.5, 7, 7)]; break;
                 case 9: {
                     m = [NSBezierPath bezierPathWithRect:NSMakeRect(c.x - 5, c.y - 5, 10, 10)];
                     CGFloat dash[] = {3, 2};
@@ -1151,8 +1183,8 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
                     [m lineToPoint:NSMakePoint(c.x + 6, c.y)];
                     break;
             }
-            if (e.kind == 5 || e.kind == 9 || e.kind == 12 || (e.kind == 6 && _style.contact == 2)) {
-                if (e.kind == 6 || e.kind == 12) m.lineWidth = 1.5;
+            if (e.kind == 5 || e.kind == 9 || (e.kind == 6 && _style.contact == 2)) {
+                if (e.kind == 6) m.lineWidth = 1.5;
                 [e.color setStroke];
                 [m stroke];
             } else {
@@ -1175,14 +1207,15 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     if (h.square.empty()) return h;
     if (size_t k = [self spotAt:p]; k != (size_t)-1) return h.kind = ADIFMapHit::Spot, h.index = k, h;  // drawn on top
     if (size_t k = [self spotterAt:p]; k != (size_t)-1) return h.kind = ADIFMapHit::Spotter, h.index = k, h;
-    // POTA: the pins (drawn last, on top), the rings, then the counts.
+    // POTA: the badges of parks you worked (drawn last, on top), the others', then the outlines.
     [self placeParks];
-    {  // a pin first (they're on top), else the nearest ring or dot within reach
+    {  // a worked park's badge first (they're on top), else the nearest other badge or dot within reach
         const ADIFParkSpot *best = nullptr;
         double bestDistance = 1e9;
         for (auto it = _potaSpots.rbegin(); it != _potaSpots.rend(); ++it) {
+            if (it->outlined) continue;  // found inside its outline, below
             double d = std::hypot(it->at.x - p.x, it->at.y - p.y);
-            if (d > (it->pin ? kPin * 1.2 * _style.marker + 2 : it->dot ? 3 : 5 * _style.marker)) continue;
+            if (d > (it->dot ? 3 : [self parkBadgeRadius:*it] + 2)) continue;
             if (it->pin) {
                 best = &*it;
                 break;

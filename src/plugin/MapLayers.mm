@@ -817,47 +817,80 @@ using namespace mapkit;
 
 // ── POTA ──
 
-// A POTA park's pin, its point at p: a head 2.2 radii above it, with a triangle in it for a
-// park you hunted, or a star for one you activated.
-- (void)drawParkPinAt:(NSPoint)p color:(NSColor *)c activated:(BOOL)activated lit:(BOOL)lit {
-    const MapPalette &pal = paletteAt(_style.palette);
-    double r = kPin * 1.2 * _style.marker;
-    NSPoint head = NSMakePoint(p.x, p.y + 2.2 * r);
-    double t = std::acos(1 / 2.2) * 180 / M_PI;  // the tangent points, from straight down
-    NSBezierPath *pin = [NSBezierPath bezierPath];
-    [pin moveToPoint:p];
-    [pin appendBezierPathWithArcWithCenter:head radius:r startAngle:-90 + t endAngle:270 - t clockwise:NO];
-    [pin closePath];
-    [c setFill];
-    [pin fill];
-    [[NSColor colorWithCalibratedWhite:lit ? (pal.dark ? 1 : 0) : (pal.dark && darkColour(c) ? 1 : 0) alpha:lit ? 1 : 0.85] setStroke];
-    pin.lineWidth = lit ? 1.6 : 1;
-    [pin stroke];
-    NSBezierPath *mark;
-    if (activated) {
-        mark = [self marker:3 at:head size:r * 0.78];
-    } else {
-        double e = r * 0.6;
-        mark = [NSBezierPath bezierPath];
-        [mark moveToPoint:NSMakePoint(head.x, head.y + e)];
-        [mark lineToPoint:NSMakePoint(head.x - e * 0.95, head.y - e * 0.7)];
-        [mark lineToPoint:NSMakePoint(head.x + e * 0.95, head.y - e * 0.7)];
-        [mark closePath];
-    }
-    [[NSColor colorWithCalibratedWhite:darkColour(c) ? 1 : 0 alpha:0.85] setFill];
-    [mark fill];
+// A conifer, as on POTA's own map: three tiers over a trunk, h tall, its middle at c.
+- (NSBezierPath *)treeAt:(NSPoint)c size:(double)h {
+    NSBezierPath *t = [NSBezierPath bezierPath];
+    auto tier = [&](double base, double top, double half) {
+        [t moveToPoint:NSMakePoint(c.x - half * h, c.y + base * h)];
+        [t lineToPoint:NSMakePoint(c.x + half * h, c.y + base * h)];
+        [t lineToPoint:NSMakePoint(c.x, c.y + top * h)];
+        [t closePath];
+    };
+    tier(-0.30, 0.12, 0.40);
+    tier(-0.08, 0.33, 0.31);
+    tier(0.14, 0.50, 0.21);
+    [t appendBezierPathWithRect:NSMakeRect(c.x - 0.07 * h, c.y - 0.50 * h, 0.14 * h, 0.21 * h)];
+    return t;
 }
 
-// Where the POTA layer's markers go in the view as it is now. Show: a pin at each park you
-// worked (hunted first, then the ones you activated, on top). Overlay: a ring at each other
-// active park, or a small dot each where more than 1,500 would show (the Filters limit them).
-// Worked out again when the view, the log or the list changes; the pointer finds them here.
+// A park's badge's radius: larger for a park you worked, smaller where many show.
+- (double)parkBadgeRadius:(const ADIFParkSpot &)sp {
+    return (sp.pin ? 9.0 : sp.small ? 4.5 : 7.0) * _style.marker;
+}
+
+// A park's badge, as on POTA's own map: a pale disc with a tree in the park's colour, ringed in
+// it (dark on the Night palette, to keep night vision); a star at its shoulder, in your
+// station's colour, for a park you activated; the one under the pointer or chosen ringed in ink.
+- (void)drawParkBadgeAt:(NSPoint)c radius:(double)r color:(NSColor *)tree worked:(BOOL)worked activated:(BOOL)activated lit:(BOOL)lit {
+    const MapPalette &pal = paletteAt(_style.palette);
+    NSBezierPath *disc = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(c.x - r, c.y - r, 2 * r, 2 * r)];
+    [(pal.night ? [NSColor colorWithCalibratedWhite:0.12 alpha:0.9] : [NSColor colorWithCalibratedRed:0.965 green:0.925 blue:0.85 alpha:worked ? 0.97 : 0.9])
+        setFill];
+    [disc fill];
+    // A light colour (20m's yellow, a worked orange) gets a darker edge, to stand out on the pale disc.
+    NSColor *srgb = [tree colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+    bool light = srgb && 0.2126 * srgb.redComponent + 0.7152 * srgb.greenComponent + 0.0722 * srgb.blueComponent > 0.45;
+    NSColor *edge = light ? [tree blendedColorWithFraction:0.45 ofColor:NSColor.blackColor] : tree;
+    disc.lineWidth = lit ? 2.2 : worked ? 1.5 : r < 5 ? 0.8 : 1.1;
+    [(lit ? [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:1] : [edge colorWithAlphaComponent:0.95]) setStroke];
+    [disc stroke];
+    NSBezierPath *glyph = [self treeAt:c size:r * 1.5];
+    [tree setFill];
+    [glyph fill];
+    if (light && r >= 5) {
+        glyph.lineWidth = 0.6;
+        glyph.lineJoinStyle = NSLineJoinStyleRound;
+        [[edge colorWithAlphaComponent:0.9] setStroke];
+        [glyph stroke];
+    }
+    if (activated) {
+        NSBezierPath *star = [self marker:3 at:NSMakePoint(c.x + r * 0.8, c.y + r * 0.8) size:std::max(3.5, r * 0.55)];
+        [rgb(pal.me) setFill];
+        [star fill];
+        star.lineWidth = 0.8;
+        [[NSColor colorWithCalibratedWhite:pal.dark ? 0 : 0.2 alpha:0.8] setStroke];
+        [star stroke];
+    }
+}
+
+- (NSColor *)parkColor:(const ADIFParkSpot &)sp {
+    const MapPalette &pal = paletteAt(_style.palette);
+    return sp.activated ? rgb(pal.me) : sp.pin ? [self colorFor:sp.agg entity:NO] : rgb(pal.park);
+}
+
+// Where the POTA layer's markers go in the view as it is now. Show: a badge at each park you
+// worked (hunted first, then the ones you activated, on top). Overlay: a badge at each other
+// active park, smaller where more than 250 show, a small dot each where more than 1,500 would
+// (the Filters limit them). With Style Options' outline only, a park whose outline is big enough
+// to see is drawn as that instead. Worked out again when the view, the log, the list or the
+// outlines change; the pointer and the list of parks in view find them here.
 - (void)placeParks {
     NSRect b = self.bounds;
     const adif::PotaParks &list = ADIFPotaParks();
     bool show = _style[kLayerPota].show, open = _style[kLayerPota].overlay;
     auto key = std::make_tuple(_cx, _cy, _zoom, _pr.centerLat(), _pr.centerLon(), (int)_pr.kind(), b.size.width, b.size.height, _style.marker,
-                               (int)show * 2 + (int)open, (uintptr_t)list.parks().data(), list.size(), _dataGeneration);
+                               (int)show * 2 + (int)open + 4 * (int)_style.parkOutlineOnly, (uintptr_t)list.parks().data(), list.size(),
+                               _dataGeneration, (uintptr_t)parkoutlines::generation(), parkoutlines::all().size());
     if (key == _parksPlacedFor) return;
     _parksPlacedFor = key;
     _potaSpots.clear();
@@ -878,22 +911,42 @@ using namespace mapkit;
             const adif::PotaPark &p = list.parks()[i];
             if (!p.active || !p.placed || p.lat < south - 1 || p.lat > north + 1 || byPark.count(i) || ![self parkFiltered:p]) continue;
             NSPoint q = [self viewPointForLon:p.lon lat:p.lat];
-            if (NSPointInRect(q, NSInsetRect(b, -6, -6))) notWorked.emplace_back(i, q);
+            if (NSPointInRect(q, NSInsetRect(b, -8, -8))) notWorked.emplace_back(i, q);
         }
-        bool dots = notWorked.size() > 1500;
-        for (const auto &[i, q] : notWorked) _potaSpots.push_back({i, q, false, false, {}, dots});
+        bool dots = notWorked.size() > 1500, small = notWorked.size() > 250;
+        for (const auto &[i, q] : notWorked) {
+            ADIFParkSpot sp;
+            sp.park = i, sp.at = q, sp.small = small, sp.dot = dots;
+            _potaSpots.push_back(sp);
+        }
     }
-    if (!show) return;
-    double rise = 2.2 * kPin * 1.2 * _style.marker;  // a pin's head above its point
-    for (int pass = 0; pass < 2; ++pass)
-        for (const auto &[i, w] : byPark) {
-            bool activated = !w.activated.empty();
-            if (activated != (pass == 1)) continue;
-            const adif::PotaPark &p = list.parks()[i];
-            NSPoint q = [self viewPointForLon:p.lon lat:p.lat];
-            if (NSPointInRect(q, NSInsetRect(b, -12, -12)))
-                _potaSpots.push_back({i, NSMakePoint(q.x, q.y + rise), true, activated, [self aggregate:w.hunted], false});
+    if (show)
+        for (int pass = 0; pass < 2; ++pass)
+            for (const auto &[i, w] : byPark) {
+                bool activated = !w.activated.empty();
+                if (activated != (pass == 1)) continue;
+                const adif::PotaPark &p = list.parks()[i];
+                NSPoint q = [self viewPointForLon:p.lon lat:p.lat];
+                if (!NSPointInRect(q, NSInsetRect(b, -12, -12))) continue;
+                ADIFParkSpot sp;
+                sp.park = i, sp.at = q, sp.pin = true, sp.activated = activated, sp.agg = [self aggregate:w.hunted];
+                _potaSpots.push_back(sp);
+            }
+    if (_style.parkOutlineOnly)
+        for (ADIFParkSpot &sp : _potaSpots) {
+            const adif::ParkOutline *o = parkoutlines::find(list.parks()[sp.park].ref);
+            if (!o) continue;
+            NSPoint a = [self viewPointForLon:o->west lat:o->south], c = [self viewPointForLon:o->east lat:o->north];
+            sp.outlined = std::max(std::fabs(c.x - a.x), std::fabs(c.y - a.y)) >= 2 * [self parkBadgeRadius:sp] + 8;
         }
+}
+
+- (std::vector<ADIFParkSpot>)parksInView {
+    [self placeParks];
+    std::vector<ADIFParkSpot> out;
+    for (const ADIFParkSpot &sp : _potaSpots)
+        if (NSPointInRect(sp.at, self.bounds)) out.push_back(sp);
+    return out;
 }
 
 // Whether the Filters' places let a park (one you haven't worked) show: its locations, its
@@ -936,10 +989,9 @@ using namespace mapkit;
     return YES;
 }
 
-// The parks you haven't worked: rings, or dots where they are many.
-// Whether a park's outline is drawn: POTA's Show for a park you worked (filled in its pin's
+// Whether a park's outline is drawn: POTA's Show for a park you worked (filled in its badge's
 // colours), Overlay for the others the Filters let show (outlined in the park colour); not when
-// it would be under a few points across, where its pin or dot says it all.
+// it would be under a few points across, where its badge or dot says it all.
 - (bool)outlineDrawn:(const adif::ParkOutline &)o park:(const adif::PotaPark *)p worked:(bool)worked {
     if (!p || !(worked ? _style[kLayerPota].show : _style[kLayerPota].overlay && [self parkFiltered:*p])) return false;
     NSPoint a = [self viewPointForLon:o.west lat:o.south], b = [self viewPointForLon:o.east lat:o.north];
@@ -956,7 +1008,7 @@ using namespace mapkit;
     const adif::PotaParks &list = ADIFPotaParks();
     double west, south, east, north;
     [self visibleWest:&west south:&south east:&east north:&north];
-    std::map<size_t, const ADIFParkSpot *> pins;  // the parks you worked, with their colours
+    std::map<size_t, const ADIFParkSpot *> pins;  // the parks you worked (their badges), with their colours
     for (const ADIFParkSpot &sp : _potaSpots)
         if (sp.pin) pins[sp.park] = &sp;
     for (const adif::ParkOutline &o : outlines) {
@@ -974,6 +1026,9 @@ using namespace mapkit;
         [[c colorWithAlphaComponent:worked ? 0.32 : 0.10] setFill];
         [path fill];
         path.lineWidth = lit ? 2.2 : worked ? 1.3 : 0.9;
+        NSColor *srgb = [c colorUsingColorSpace:NSColorSpace.sRGBColorSpace];  // a light colour's edge darker, as on its badge
+        if (srgb && 0.2126 * srgb.redComponent + 0.7152 * srgb.greenComponent + 0.0722 * srgb.blueComponent > 0.45)
+            c = [c blendedColorWithFraction:0.45 ofColor:NSColor.blackColor];
         [(lit ? [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:1] : [c colorWithAlphaComponent:worked ? 0.9 : 0.75]) setStroke];
         if (o.matched) {  // matched by name: dashed, so it reads as less certain
             CGFloat dash[] = {4, 2};
@@ -999,72 +1054,92 @@ using namespace mapkit;
     return (size_t)-1;
 }
 
-- (void)drawParkRings {
+// The parks' badges: those you haven't worked (badges, or dots where they are many), or those you
+// worked; not where the outline is drawn instead.
+- (void)drawParkBadges:(BOOL)worked {
     const MapPalette &pal = paletteAt(_style.palette);
-    CGFloat ink = pal.dark ? 1 : 0;
     NSColor *tint = rgb(pal.park);
-    double r = 3.2 * _style.marker, dr = 1.7 * _style.marker;
-    NSBezierPath *rings = [NSBezierPath bezierPath], *dots = [NSBezierPath bezierPath], *lit = [NSBezierPath bezierPath];
+    NSBezierPath *dots = [NSBezierPath bezierPath];
     for (const ADIFParkSpot &sp : _potaSpots) {
-        if (sp.pin) continue;
-        bool on = (_hover.kind == ADIFMapHit::Pota && _hover.index == sp.park) || (_selected.kind == ADIFMapHit::Pota && _selected.index == sp.park);
-        double rr = on ? r : sp.dot ? dr : r;
-        [(on ? lit : sp.dot ? dots : rings) appendBezierPathWithOvalInRect:NSMakeRect(sp.at.x - rr, sp.at.y - rr, 2 * rr, 2 * rr)];
+        if (sp.pin != (bool)worked || sp.outlined) continue;
+        bool lit = (_hover.kind == ADIFMapHit::Pota && _hover.index == sp.park) || (_selected.kind == ADIFMapHit::Pota && _selected.index == sp.park);
+        if (sp.dot && !lit) {
+            double r = 1.7 * _style.marker;
+            [dots appendBezierPathWithOvalInRect:NSMakeRect(sp.at.x - r, sp.at.y - r, 2 * r, 2 * r)];
+            continue;
+        }
+        ADIFParkSpot big = sp;
+        big.dot = false;
+        if (lit) big.small = false;
+        [self drawParkBadgeAt:sp.at radius:[self parkBadgeRadius:big] color:[self parkColor:sp] worked:sp.pin activated:sp.activated lit:lit];
     }
     [[tint colorWithAlphaComponent:0.85] setFill];
     [dots fill];
-    [[NSColor colorWithCalibratedWhite:pal.dark ? 0 : 1 alpha:0.55] setFill];
-    [rings fill];
-    [lit fill];
-    rings.lineWidth = 1.3;
-    [[tint colorWithAlphaComponent:0.95] setStroke];
-    [rings stroke];
-    lit.lineWidth = 2.2;
-    [[NSColor colorWithCalibratedWhite:ink alpha:1] setStroke];
-    [lit stroke];
 }
 
-// The pins of the parks you hunted (a triangle, in the map's colours) and activated (a star, in
-// your station's colour).
-- (void)drawParkPins {
-    const MapPalette &pal = paletteAt(_style.palette);
-    double rise = 2.2 * kPin * 1.2 * _style.marker;
-    for (const ADIFParkSpot &sp : _potaSpots) {
-        if (!sp.pin) continue;
-        bool lit = (_hover.kind == ADIFMapHit::Pota && _hover.index == sp.park) || (_selected.kind == ADIFMapHit::Pota && _selected.index == sp.park);
-        [self drawParkPinAt:NSMakePoint(sp.at.x, sp.at.y - rise) color:sp.activated ? rgb(pal.me) : [self colorFor:sp.agg entity:NO]
-                  activated:sp.activated
-                        lit:lit];
-    }
-}
-
-// Each park's reference beside its marker, where it doesn't run into another: the parks you
-// worked always, the others once the view is down to 400 of them, and names too once it is down
-// to 150.
+// Each park's reference in a box under its badge, as on POTA's own map (at the park's place where
+// its outline is drawn instead), where it doesn't run into another: the parks you worked always,
+// the others once the view is down to 250 of them, and their names too once it is down to 60.
 - (void)drawParkLabelsIn:(NSRect)b {
     const adif::PotaParks &list = ADIFPotaParks();
     const MapPalette &pal = paletteAt(_style.palette);
-    NSShadow *halo = [[NSShadow alloc] init];
-    halo.shadowColor = [NSColor colorWithCalibratedWhite:pal.dark ? 0 : 1 alpha:0.9];
-    halo.shadowBlurRadius = 2;
-    NSDictionary *attrs = @{NSFontAttributeName : [NSFont systemFontOfSize:10 weight:NSFontWeightSemibold],
-                            NSForegroundColorAttributeName : [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.9], NSShadowAttributeName : halo};
-    size_t rings = (size_t)std::count_if(_potaSpots.begin(), _potaSpots.end(), [](const ADIFParkSpot &sp) { return !sp.pin; });
-    bool ringLabels = rings <= 400, names = _potaSpots.size() <= 150;
-    std::vector<NSRect> taken;
+    NSColor *ink = pal.night ? [NSColor colorWithCalibratedWhite:1 alpha:0.9] : [NSColor colorWithCalibratedWhite:0.08 alpha:0.92];
+    NSDictionary *refAttrs = @{NSFontAttributeName : [NSFont systemFontOfSize:10 weight:NSFontWeightSemibold], NSForegroundColorAttributeName : ink};
+    NSDictionary *nameAttrs = @{NSFontAttributeName : [NSFont systemFontOfSize:9], NSForegroundColorAttributeName : ink};
+    size_t others = (size_t)std::count_if(_potaSpots.begin(), _potaSpots.end(), [](const ADIFParkSpot &sp) { return !sp.pin; });
+    bool otherLabels = others <= 250, names = _potaSpots.size() <= 60;
+    std::vector<NSRect> taken, badges;  // the labels placed, and every badge (a label covers none)
+    for (const ADIFParkSpot &sp : _potaSpots)
+        if (!sp.dot && !sp.outlined) {
+            double r = [self parkBadgeRadius:sp];
+            badges.push_back(NSMakeRect(sp.at.x - r, sp.at.y - r, 2 * r, 2 * r));
+        }
     for (int pass = 0; pass < 2; ++pass)
         for (const ADIFParkSpot &sp : _potaSpots) {
-            if (sp.pin != (pass == 0) || sp.park >= list.size() || (!sp.pin && !ringLabels)) continue;
+            if (sp.pin != (pass == 0) || sp.park >= list.size() || (!sp.pin && !otherLabels)) continue;
             const adif::PotaPark &p = list.parks()[sp.park];
-            NSString *text = ADIFString(names ? p.ref + " " + p.name : p.ref);
-            NSSize sz = [text sizeWithAttributes:attrs];
-            double gap = sp.pin ? kPin * 1.2 * _style.marker + 3 : 3.2 * _style.marker + 3;
-            NSRect r = NSMakeRect(sp.at.x + gap, sp.at.y - sz.height / 2, sz.width, sz.height);
-            if (!NSIntersectsRect(r, b)) continue;
-            bool clear = true;
-            for (const NSRect &t : taken) clear &= !NSIntersectsRect(NSInsetRect(t, -2, -1), r);
-            if (!clear) continue;
-            [text drawAtPoint:r.origin withAttributes:attrs];
+            NSString *ref = ADIFString(p.ref), *name = nil;
+            if (names) {
+                std::string n = p.name;
+                if (n.size() > 34) {  // cut at a character's start, then an ellipsis
+                    size_t cut = 33;
+                    while (cut > 0 && ((unsigned char)n[cut] & 0xC0) == 0x80) --cut;
+                    n = n.substr(0, cut) + "\u2026";
+                }
+                name = ADIFString(n);
+            }
+            NSSize rs = [ref sizeWithAttributes:refAttrs], ns = name ? [name sizeWithAttributes:nameAttrs] : NSZeroSize;
+            CGFloat w = std::max(rs.width, ns.width) + 8, h = rs.height + ns.height + 2;
+            // Under the badge (on the park's place where its outline is drawn instead), else over it, else
+            // beside it, wherever it covers no other label or badge.
+            double radius = sp.outlined ? 0 : [self parkBadgeRadius:sp], gap = sp.outlined ? 0 : radius + 2;
+            NSRect own = NSMakeRect(sp.at.x - radius, sp.at.y - radius, 2 * radius, 2 * radius);
+            std::vector<NSPoint> places = {NSMakePoint(sp.at.x - w / 2, sp.at.y - gap - h)};
+            if (sp.outlined) places[0].y = sp.at.y - h / 2;
+            else
+                places.insert(places.end(), {NSMakePoint(sp.at.x - w / 2, sp.at.y + gap), NSMakePoint(sp.at.x + gap, sp.at.y - h / 2),
+                                             NSMakePoint(sp.at.x - gap - w, sp.at.y - h / 2)});
+            NSRect r = NSZeroRect;
+            for (NSPoint o : places) {
+                NSRect c = NSMakeRect(std::round(o.x), std::round(o.y), w, h);
+                if (!NSIntersectsRect(c, b)) continue;
+                bool clear = true;
+                for (const NSRect &t : taken) clear &= !NSIntersectsRect(NSInsetRect(t, -2, -1), c);
+                for (const NSRect &k : badges) clear &= NSEqualRects(k, own) || !NSIntersectsRect(NSInsetRect(k, 1, 1), c);
+                if (clear) {
+                    r = c;
+                    break;
+                }
+            }
+            if (NSIsEmptyRect(r)) continue;
+            NSBezierPath *box = [NSBezierPath bezierPathWithRoundedRect:r xRadius:3 yRadius:3];
+            [(pal.night ? [NSColor colorWithCalibratedWhite:0 alpha:0.8] : [NSColor colorWithCalibratedWhite:1 alpha:0.92]) setFill];
+            [box fill];
+            box.lineWidth = 0.6;
+            [[NSColor colorWithCalibratedWhite:pal.night ? 0.5 : 0.55 alpha:0.8] setStroke];
+            [box stroke];
+            [ref drawAtPoint:NSMakePoint(NSMidX(r) - rs.width / 2, NSMaxY(r) - 1 - rs.height) withAttributes:refAttrs];
+            if (name) [name drawAtPoint:NSMakePoint(NSMidX(r) - ns.width / 2, NSMinY(r) + 1) withAttributes:nameAttrs];
             taken.push_back(r);
         }
 }

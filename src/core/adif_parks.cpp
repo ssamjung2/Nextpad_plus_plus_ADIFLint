@@ -1,11 +1,13 @@
 #include "adif_parks.h"
 
 #include "adif_formats.h"
+#include "adif_geo.h"
 #include "adif_lint.h"
 #include "adif_tools.h"
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 
 namespace adif {
 namespace {
@@ -82,6 +84,31 @@ const PotaPark *PotaParks::find(std::string_view ref) const {
     for (const auto &r : kRenamed)
         if (program == r[0]) return look(r[1] + number);
     return nullptr;
+}
+
+std::vector<ParkDistance> nearestParks(const std::vector<PotaPark> &parks, const std::vector<size_t> &candidates, double lat, double lon,
+                                       size_t limit) {
+    std::vector<ParkDistance> out;
+    out.reserve(candidates.size());
+    for (size_t i : candidates)
+        if (i < parks.size() && parks[i].placed)
+            out.push_back({i, greatCircleKm(lat, lon, parks[i].lat, parks[i].lon), initialBearing(lat, lon, parks[i].lat, parks[i].lon)});
+    auto nearer = [&](const ParkDistance &a, const ParkDistance &b) { return a.km != b.km ? a.km < b.km : parks[a.park].ref < parks[b.park].ref; };
+    if (out.size() > limit) {
+        std::partial_sort(out.begin(), out.begin() + (std::ptrdiff_t)limit, out.end(), nearer);
+        out.resize(limit);
+    } else {
+        std::sort(out.begin(), out.end(), nearer);
+    }
+    return out;
+}
+
+std::string distanceText(double km, bool miles) {
+    double v = miles ? km / 1.609344 : km;  // the international mile, 1,609.344 m
+    char out[32];
+    if (v < 9.95) std::snprintf(out, sizeof out, "%.1f %s", v, miles ? "mi" : "km");
+    else std::snprintf(out, sizeof out, "%.0f %s", std::round(v), miles ? "mi" : "km");
+    return out;
 }
 
 }  // namespace adif

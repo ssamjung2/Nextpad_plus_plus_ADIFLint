@@ -63,6 +63,61 @@ using namespace mapkit;
 }
 @end
 
+// Parks in View: a row a park (its colour on the map, reference, name, distance and bearing); a
+// click chooses it, a double-click goes to it.
+struct ADIFParkRow {
+    size_t park = 0;
+    std::string ref, name, distance, bearing;
+    NSColor *color = nil;
+};
+
+@interface ADIFParkTable : NSObject <NSTableViewDataSource, NSTableViewDelegate>
+@property(nonatomic) std::vector<ADIFParkRow> rows;
+@property(nonatomic) BOOL quiet;  // the map chose the row: don't tell it back
+@property(nonatomic, copy) void (^onChoose)(size_t park);
+@property(nonatomic, copy) void (^onOpen)(size_t park);
+@end
+
+@implementation ADIFParkTable
+- (NSInteger)numberOfRowsInTableView:(NSTableView *)t {
+    return (NSInteger)_rows.size();
+}
+- (NSView *)tableView:(NSTableView *)t viewForTableColumn:(NSTableColumn *)col row:(NSInteger)row {
+    NSTextField *f = [t makeViewWithIdentifier:col.identifier owner:self];
+    if (!f) {
+        f = [NSTextField labelWithString:@""];
+        f.identifier = col.identifier;
+        f.lineBreakMode = NSLineBreakByTruncatingTail;
+        bool number = [col.identifier isEqualToString:@"distance"] || [col.identifier isEqualToString:@"bearing"];
+        f.alignment = number ? NSTextAlignmentRight : NSTextAlignmentLeft;
+        f.font = [col.identifier isEqualToString:@"ref"] || number ? [NSFont monospacedDigitSystemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightRegular]
+                                                                     : [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    }
+    if (row < 0 || (size_t)row >= _rows.size()) return f;
+    const ADIFParkRow &r = _rows[(size_t)row];
+    NSString *c = col.identifier;
+    f.textColor = NSColor.labelColor;
+    if ([c isEqualToString:@"mark"]) {
+        f.stringValue = @"\u25CF";
+        f.textColor = r.color ?: NSColor.secondaryLabelColor;
+        f.accessibilityLabel = nil;
+    } else {
+        f.stringValue = ADIFString([c isEqualToString:@"ref"] ? r.ref : [c isEqualToString:@"name"] ? r.name : [c isEqualToString:@"distance"] ? r.distance : r.bearing);
+    }
+    return f;
+}
+- (void)tableViewSelectionDidChange:(NSNotification *)n {
+    NSTableView *t = n.object;
+    if (_quiet || t.selectedRow < 0 || (size_t)t.selectedRow >= _rows.size()) return;
+    if (self.onChoose) self.onChoose(_rows[(size_t)t.selectedRow].park);
+}
+- (void)opened:(id)sender {
+    NSTableView *t = sender;
+    NSInteger row = t.clickedRow >= 0 ? t.clickedRow : t.selectedRow;  // the row double-clicked, else the one chosen
+    if (row >= 0 && (size_t)row < _rows.size() && self.onOpen) self.onOpen(_rows[(size_t)row].park);
+}
+@end
+
 // Completions for a token field: the candidates that start with what was typed, then those that
 // contain it.
 @interface ADIFTokenCompleter : NSObject <NSTokenFieldDelegate>
@@ -118,6 +173,16 @@ struct {
     NSButton *spotSource[3] = {};
     NSTextField *spotStatus = nil;
     id spotsObserver = nil, closeObserver = nil;
+    // Parks in View: the panel beside the map, and what places it.
+    NSView *parkPanel = nil;
+    NSButton *parkToggle = nil;
+    NSTextField *parkTitle = nil, *parkHint = nil, *parkGrid = nil;
+    NSPopUpButton *parkFrom = nil;
+    NSSegmentedControl *parkUnits = nil;
+    NSTableView *parkTable = nil;
+    ADIFParkTable *parkRows = nil;
+    NSLayoutConstraint *mapToEdge = nil, *mapToPanel = nil;
+    bool parkListQueued = false;
     void (^spotHandler)(const std::vector<std::pair<std::string, std::string>> &) = nil;
     adif::MapData data;
     std::vector<ADIFMapEntity> dxcc;
@@ -189,10 +254,11 @@ const LayerUi kLayerUi[] = {
      N(@"Each ITU zone worked, shaded: from ITUZ, else where the QSO was, else the country data"),
      N(@"ITU zones 1-90 (HB9HIL's hamradio-zones-geojson, MIT); approximate"), N(@"The ITU zones' numbers")},
     {kLayerPota, @"pota", N(@"POTA"), "mapShowPota", "mapPota", "mapPotaLabels", true, false,
-     N(@"The POTA parks you hunted (a pin) and activated (a pin with a star), at the parks themselves with POTA's park list "
-     @"(Settings, POTA Parks), else at the QSO's grid"),
-     N(@"Every active POTA park you haven't worked, as a dot (needs POTA's park list, from Settings)"),
-     N(@"Each park's reference (US-1234): the parks you worked always, the others once zoomed in to a few hundred, and names once zoomed in to fewer")},
+     N(@"The POTA parks you hunted (a badge with a tree, in the map's colours) and activated (with a star), at the parks themselves with "
+     @"POTA's park list (Settings, POTA Parks), else at the QSO's grid"),
+     N(@"Every active POTA park you haven't worked, as a smaller badge (a dot where very many show; needs POTA's park list, from Settings)"),
+     N(@"Each park's reference (US-1234) in a box by its badge: the parks you worked always, the others once zoomed in to a few hundred, and "
+     @"names once zoomed in to fewer")},
     {kLayerIota, @"iota", N(@"IOTA"), "mapShowIota", "mapIota", "mapIotaLabels", false, false,
      N(@"The IOTA groups in your log, filled in (needs IOTA's group list, from Settings)"), N(@"Every IOTA group's box, dashed"),
      N(@"Each group's reference (EU-005), and its name where there is room")},
@@ -248,6 +314,7 @@ ADIFMapStyle savedStyle() {
     s.spotLabel.age = flag("mapSpotLabelAge", true);
     s.spotLabel.snr = flag("mapSpotLabelSnr", true);
     s.spotFade = flag("mapSpotFade", true);
+    s.parkOutlineOnly = number("mapParkOutlines", 0, 1) == 1;
     return s;
 }
 
@@ -536,6 +603,8 @@ std::vector<ADIFInfoRow> spotInfo(const ADIFMapHit &h) {
     return rows;
 }
 
+void showParkRow(const ADIFMapHit &h);
+
 void selected(const ADIFMapHit &h) {
     std::vector<size_t> qsos;
     if (h.kind == ADIFMapHit::Square) qsos = mw.data.squares[h.index].qsoIndex;
@@ -559,6 +628,7 @@ void selected(const ADIFMapHit &h) {
     [mw.view setInfo:h.kind == ADIFMapHit::Spot || h.kind == ADIFMapHit::Spotter ? spotInfo(h) : std::vector<ADIFInfoRow>{}];
     mw.chosen = h.kind == ADIFMapHit::None ? "" : describe(h) + (qsos.empty() ? "" : " " + tr("Double-click a QSO to go to it in the log."));
     setStatus(mw.chosen.empty() ? mw.summary : mw.chosen);
+    showParkRow(h);
 }
 
 void updateZoomLabel() {
@@ -591,9 +661,12 @@ void applyProjection() {
     [mw.projection selectItemAtIndex:p];
 }
 
+void queueParkList();
+
 void applyStyle() {
     mw.view.style = savedStyle();
     mw.view.hiddenPrograms = hiddenPrograms();
+    queueParkList();
 }
 
 NSImage *swatch(NSColor *color, bool diamond) {
@@ -706,6 +779,7 @@ void fillStyle() {
     if (NSControl *c = (NSControl *)findView(root, @"map.style.rings")) c.enabled = !mw.home.empty();
     if (NSControl *c = (NSControl *)findView(root, @"map.style.sunTime")) c.enabled = s.dayNight || s.greyLine;
     if (NSControl *c = (NSControl *)findView(root, @"map.style.palette")) c.enabled = !ADIFNightMode();  // Night Mode sets it
+    if (NSControl *c = (NSControl *)findView(root, @"map.style.parkOutlines")) c.enabled = !parkoutlines::all().empty();
     for (NSString *ident in @[ @"map.style.spotters", @"map.style.spotLines", @"map.style.spotMode", @"map.style.spotFreq", @"map.style.spotAge", @"map.style.spotSnr",
                                @"map.style.spotFade" ])
         if (NSControl *c = (NSControl *)findView(root, ident)) c.enabled = s[kLayerSpots].show;
@@ -792,6 +866,10 @@ void showStyleOptions() {
              N(@"Under each spot's call: the signal report in dB, from an RBN skimmer or PSKReporter")});
         add({"mapSpotFade", @"map.style.spotFade", 1, nil, N(@"Fade older spots"),
              N(@"Spots older than 10 minutes fainter, down to half at the Spots filter's age")});
+        section(N(@"POTA parks"));
+        add({"mapParkOutlines", @"map.style.parkOutlines", 0, @[ N(@"Badge and outline"), N(@"Outline only") ], N(@"Parks with an outline:"),
+             N(@"For the parks whose outlines you downloaded (Settings, POTA Parks, Park Outlines): a badge on the outline, or the outline "
+             @"and the park's label alone once it is big enough to see (zoomed further out, the badge again)")});
         section(N(@"On the map"));
         add({"mapLegend", @"map.style.legend", 1, nil, N(@"Legend"), nil});
         add({"mapRings", @"map.style.rings", 0, nil, N(@"Distance rings from my grid"), nil});
@@ -808,7 +886,7 @@ void showStyleOptions() {
             for (const char *key : {"mapPalette", "mapMarkerSize", "mapMarkerShape", "mapContactMarker", "mapSquareFill", "mapAreaShade", "mapLineStyle",
                                     "mapLineWidth", "mapLineOpacity", "mapArcs", "mapLegend", "mapRings", "mapDayNight", "mapGreyLine", "mapSunTime",
                                     "mapSpotters", "mapSpotterStyle", "mapSpotLineStyle", "mapSpotLabelMode", "mapSpotLabelFreq", "mapSpotLabelAge",
-                                    "mapSpotLabelSnr", "mapSpotFade"})
+                                    "mapSpotLabelSnr", "mapSpotFade", "mapParkOutlines"})
                 setSetting(key, "");
             [mw.styleWindow orderOut:nil];
             mw.styleWindow = nil;
@@ -983,6 +1061,7 @@ void refresh() {
         mw.chosen.clear();
         setStatus(mw.summary);
         mw.useSpot.hidden = YES;
+        queueParkList();
         refreshSpots();  // the band, mode and place filters apply to spots too
     } catch (...) {
     }
@@ -1541,6 +1620,113 @@ void layerChanged(MapLayerId id, int which) {
         setStatus("POTA: download POTA's park list first, in Settings (POTA Parks). Until then, the parks you hunted show at the QSO's grid.");
 }
 
+// ── Parks in View ──
+
+// Where the list measures from: your station (home), the map's centre, or a grid square typed.
+// False when there's no such place (no home, a grid that isn't one): then the map's centre.
+bool parkListFrom(double *lat, double *lon, std::string *from) {
+    NSInteger choice = mw.parkFrom.indexOfSelectedItem;
+    if (choice == 0 && !mw.home.empty() && adif::gridToLatLon(mw.home, lat, lon)) return *from = mw.home, true;
+    std::string grid = ADIFStd([mw.parkGrid.stringValue stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet]);
+    if (choice == 2 && adif::gridToLatLon(grid, lat, lon)) return *from = grid, true;
+    NSRect b = mw.view.bounds;
+    double clon = 0, clat = 0;
+    if (![mw.view lonLatAt:NSMakePoint(NSMidX(b), NSMidY(b)) lon:&clon lat:&clat]) clon = clat = 0;
+    *lat = clat, *lon = clon, *from = adif::squareAt(clon, clat);
+    return choice == 1;
+}
+
+// The list again: the parks the map marks in the view, the 50 nearest the chosen place.
+void fillParkList() {
+    mw.parkListQueued = false;
+    if (!mw.parkPanel || mw.parkPanel.hidden) return;
+    const adif::PotaParks &list = ADIFPotaParks();
+    std::string home = mw.home.empty() ? tr("no grid set") : mw.home;
+    [mw.parkFrom itemAtIndex:0].title = TF(@"Your station ({grid})", @{@"grid" : ADIFString(home)});
+    [mw.parkFrom itemAtIndex:0].enabled = !mw.home.empty();
+    mw.parkGrid.hidden = mw.parkFrom.indexOfSelectedItem != 2;
+    std::vector<ADIFParkSpot> spots = [mw.view parksInView];
+    std::map<size_t, ADIFParkSpot> byPark;
+    std::vector<size_t> candidates;
+    for (const ADIFParkSpot &sp : spots)
+        if (byPark.emplace(sp.park, sp).second) candidates.push_back(sp.park);
+    double lat = 0, lon = 0;
+    std::string from;
+    bool chosenPlace = parkListFrom(&lat, &lon, &from);
+    bool miles = mw.parkUnits.selectedSegment == 0;
+    std::vector<adif::ParkDistance> near = adif::nearestParks(list.parks(), candidates, lat, lon, 50);
+    std::vector<ADIFParkRow> rows;
+    for (const adif::ParkDistance &d : near) {
+        const adif::PotaPark &p = list.parks()[d.park];
+        char bearing[16];
+        snprintf(bearing, sizeof bearing, "%.0f\u00B0", std::fmod(std::round(d.bearing) + 360, 360));
+        rows.push_back({d.park, p.ref, p.name, adif::distanceText(d.km, miles), bearing, [mw.view parkColor:byPark[d.park]]});
+    }
+    mw.parkRows.rows = rows;
+    mw.parkRows.quiet = YES;
+    [mw.parkTable reloadData];
+    showParkRow(mw.view.selectedHit);
+    mw.parkRows.quiet = NO;
+    mw.parkTitle.stringValue = candidates.size() > rows.size()
+                                   ? TF(@"Parks in View: {n} nearest of {total}", @{@"n" : @(rows.size()), @"total" : @(candidates.size())})
+                                   : TF(@"Parks in View ({n})", @{@"n" : @(rows.size())});
+    std::string hint;
+    if (!list.size()) hint = tr("Download POTA's park list first: Settings, POTA Parks.");
+    else if (!mw.view.style[kLayerPota].show && !mw.view.style[kLayerPota].overlay)
+        hint = tr("Tick the POTA layer's Show (the parks you worked) or Overlay (the others) to list its parks.");
+    else if (rows.empty()) hint = mw.view.style[kLayerPota].overlay ? tr("No POTA parks in view.") : tr("No parks you worked in view; tick POTA's Overlay for the others.");
+    else if (!chosenPlace && mw.parkFrom.indexOfSelectedItem != 1)
+        hint = mw.parkFrom.indexOfSelectedItem == 2 ? trf("Not a grid square; from the map's centre ({grid}).", {{"grid", from}})
+                                                    : trf("No grid for your station (Settings, Your Station); from the map's centre ({grid}).", {{"grid", from}});
+    else hint = trf("Nearest first, from {grid}. Click a park to choose it; double-click to zoom to it.", {{"grid", from}});
+    mw.parkHint.stringValue = ADIFString(hint);
+}
+
+void queueParkList() {
+    if (mw.parkListQueued || !mw.parkPanel || mw.parkPanel.hidden) return;
+    mw.parkListQueued = true;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(NSEC_PER_SEC / 6)), dispatch_get_main_queue(), ^{ fillParkList(); });
+}
+
+// The park chosen on the map, chosen in the list too (nothing chosen there for anything else).
+void showParkRow(const ADIFMapHit &h) {
+    if (!mw.parkTable) return;
+    BOOL was = mw.parkRows.quiet;
+    mw.parkRows.quiet = YES;
+    NSInteger at = -1;
+    if (h.kind == ADIFMapHit::Pota)
+        for (size_t i = 0; i < mw.parkRows.rows.size(); ++i)
+            if (mw.parkRows.rows[i].park == h.index) at = (NSInteger)i;
+    if (at >= 0) {
+        [mw.parkTable selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)at] byExtendingSelection:NO];
+        [mw.parkTable scrollRowToVisible:at];
+    } else {
+        [mw.parkTable deselectAll:nil];
+    }
+    mw.parkRows.quiet = was;
+}
+
+// Double-click: the park filling the map (its outline where downloaded, else a few kilometres
+// round it), and chosen.
+void openPark(size_t park) {
+    const adif::PotaParks &list = ADIFPotaParks();
+    if (park >= list.size() || !list.parks()[park].placed) return;
+    const adif::PotaPark &p = list.parks()[park];
+    if (const adif::ParkOutline *o = parkoutlines::find(p.ref)) [mw.view showPlaceWest:o->west south:o->south east:o->east north:o->north];
+    else [mw.view showPlaceWest:p.lon - 0.03 south:p.lat - 0.02 east:p.lon + 0.03 north:p.lat + 0.02];
+    [mw.view selectPark:park];
+}
+
+// The panel shown or not: the map takes the room.
+void showParkPanel(bool on) {
+    saveFlag("mapParkList", on);
+    mw.parkToggle.state = on ? NSControlStateValueOn : NSControlStateValueOff;
+    mw.parkPanel.hidden = !on;
+    mw.mapToEdge.active = !on;
+    mw.mapToPanel.active = on;
+    if (on) queueParkList();
+}
+
 NSButton *smallButton(NSString *title, NSString *tip, void (^action)(void)) {
     NSButton *b = [NSButton buttonWithTitle:T(title) target:nil action:nil];
     b.toolTip = T(tip);
@@ -1559,7 +1745,7 @@ NSPopUpButton *pullDown(NSString *title, NSString *tip) {
 
 void cmdMap() {
     if (!mw.window) {
-        mw.window = [[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 1100, 820)
+        mw.window = [[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 1240, 820)
                                                styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable |
                                                          NSWindowStyleMaskUtilityWindow
                                                  backing:NSBackingStoreBuffered
@@ -1743,20 +1929,137 @@ void cmdMap() {
         NSStackView *filters =
             [NSStackView stackViewWithViews:@[ ADIFLabel(@"Filters:"), mw.band, mw.mode, mw.dates, mw.confirmed, mw.moreFilters, mw.clearFilters ]];
         filters.spacing = 8;
-        NSStackView *zoomRow =
-            [NSStackView stackViewWithViews:@[ ADIFLabel(@"Zoom:"), out, mw.zoomLabel, in, fit, world, mw.region, mw.projection, styleButton, save ]];
+        // Parks in View: the panel beside the map (its button shows or hides it).
+        mw.parkToggle = [NSButton buttonWithTitle:T(@"Parks") target:nil action:nil];
+        [mw.parkToggle setButtonType:NSButtonTypePushOnPushOff];
+        mw.parkToggle.image = [NSImage imageWithSystemSymbolName:@"sidebar.right" accessibilityDescription:nil];
+        mw.parkToggle.imagePosition = NSImageLeading;
+        mw.parkToggle.toolTip = T(@"Parks in View: beside the map, the POTA parks it shows, nearest first to your station, the map's centre or "
+                                  @"a grid square");
+        mw.parkToggle.identifier = @"map.parks.toggle";
+        ADIFOnAction(mw.parkToggle, ^{ showParkPanel(mw.parkToggle.state == NSControlStateValueOn); });
+        NSStackView *zoomRow = [NSStackView
+            stackViewWithViews:@[ ADIFLabel(@"Zoom:"), out, mw.zoomLabel, in, fit, world, mw.region, mw.projection, styleButton, save, mw.parkToggle ]];
         zoomRow.spacing = 8;
         [zoomRow setCustomSpacing:24 afterView:world];
+        [zoomRow setCustomSpacing:16 afterView:save];
+        mw.parkPanel = [[NSView alloc] initWithFrame:NSZeroRect];
+        mw.parkPanel.identifier = @"map.parks";
+        mw.parkTitle = ADIFLabel(@"Parks in View");
+        mw.parkTitle.font = [NSFont boldSystemFontOfSize:NSFont.systemFontSize];
+        mw.parkTitle.lineBreakMode = NSLineBreakByTruncatingTail;
+        mw.parkTitle.identifier = @"map.parks.title";
+        [mw.parkTitle setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+        mw.parkUnits = [NSSegmentedControl segmentedControlWithLabels:@[ @"mi", @"km" ] trackingMode:NSSegmentSwitchTrackingSelectOne target:nil
+                                                               action:nil];
+        mw.parkUnits.controlSize = NSControlSizeSmall;
+        mw.parkUnits.selectedSegment = setting("mapParkListUnits") == "mi" ? 0 : 1;
+        mw.parkUnits.toolTip = T(@"Distances in miles or kilometres");
+        mw.parkUnits.identifier = @"map.parks.units";
+        ADIFOnAction(mw.parkUnits, ^{
+            setSetting("mapParkListUnits", mw.parkUnits.selectedSegment == 0 ? "mi" : "km");
+            fillParkList();
+        });
+        mw.parkFrom = ADIFPopup(@[ @"Your station", @"Map centre", @"Grid square:" ]);
+        mw.parkFrom.autoenablesItems = NO;
+        [mw.parkFrom selectItemAtIndex:number("mapParkListFrom", 0, 2)];
+        mw.parkFrom.toolTip = T(@"Where the distances and bearings are from, and so which parks come first: your station's grid (Settings, Your "
+                                @"Station), the middle of the map, or a grid square you type");
+        mw.parkFrom.identifier = @"map.parks.from";
+        mw.parkGrid = [NSTextField textFieldWithString:ADIFString(setting("mapParkListGrid"))];
+        mw.parkGrid.placeholderString = @"EN50";
+        mw.parkGrid.toolTip = T(@"A grid square of 4, 6 or 8 characters");
+        mw.parkGrid.identifier = @"map.parks.grid";
+        ((NSTextFieldCell *)mw.parkGrid.cell).sendsActionOnEndEditing = YES;
+        [mw.parkGrid.widthAnchor constraintEqualToConstant:76].active = YES;
+        ADIFOnAction(mw.parkFrom, ^{
+            setSetting("mapParkListFrom", std::to_string(mw.parkFrom.indexOfSelectedItem));
+            fillParkList();
+            if (mw.parkFrom.indexOfSelectedItem == 2 && !mw.parkGrid.stringValue.length) [mw.window makeFirstResponder:mw.parkGrid];
+        });
+        ADIFOnAction(mw.parkGrid, ^{
+            mw.parkGrid.stringValue = [mw.parkGrid.stringValue stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+            setSetting("mapParkListGrid", ADIFStd(mw.parkGrid.stringValue));
+            fillParkList();
+        });
+        mw.parkRows = [[ADIFParkTable alloc] init];
+        mw.parkRows.onChoose = ^(size_t park) { [mw.view selectPark:park]; };
+        mw.parkRows.onOpen = ^(size_t park) { openPark(park); };
+        mw.parkTable = [[NSTableView alloc] initWithFrame:NSZeroRect];
+        {
+            struct Column {
+                NSString *ident;
+                const char *title;
+                CGFloat width;
+            };
+            const Column columns[] = {{@"mark", "", 12}, {@"ref", N_("Reference"), 70}, {@"name", N_("Park"), 160}, {@"distance", N_("Distance"), 58},
+                                      {@"bearing", N_("Bearing"), 50}};
+            for (const Column &c : columns) {
+                NSTableColumn *col = [[NSTableColumn alloc] initWithIdentifier:c.ident];
+                col.title = *c.title ? @(tr(c.title).c_str()) : @"";
+                col.width = c.width;
+                col.minWidth = [c.ident isEqualToString:@"name"] ? 60 : c.width;
+                col.resizingMask = [c.ident isEqualToString:@"name"] ? NSTableColumnAutoresizingMask | NSTableColumnUserResizingMask : NSTableColumnNoResizing;
+                if ([c.ident isEqualToString:@"distance"] || [c.ident isEqualToString:@"bearing"]) col.headerCell.alignment = NSTextAlignmentRight;
+                [mw.parkTable addTableColumn:col];
+            }
+        }
+        mw.parkTable.columnAutoresizingStyle = NSTableViewUniformColumnAutoresizingStyle;
+        mw.parkTable.dataSource = mw.parkRows;
+        mw.parkTable.delegate = mw.parkRows;
+        mw.parkTable.target = mw.parkRows;
+        mw.parkTable.doubleAction = @selector(opened:);
+        mw.parkTable.usesAlternatingRowBackgroundColors = YES;
+        mw.parkTable.allowsEmptySelection = YES;
+        mw.parkTable.identifier = @"map.parks.table";
+        mw.parkTable.accessibilityLabel = T(@"Parks in View");
+        NSScrollView *parkScroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
+        parkScroll.documentView = mw.parkTable;
+        parkScroll.hasVerticalScroller = YES;
+        parkScroll.borderType = NSBezelBorder;
+        mw.parkHint = [NSTextField wrappingLabelWithString:@""];
+        mw.parkHint.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        mw.parkHint.textColor = NSColor.secondaryLabelColor;
+        mw.parkHint.maximumNumberOfLines = 4;
+        mw.parkHint.identifier = @"map.parks.hint";
+        NSStackView *parkFromRow = [NSStackView stackViewWithViews:@[ ADIFLabel(@"Nearest to:"), mw.parkFrom, mw.parkGrid ]];
+        parkFromRow.spacing = 6;
+        for (NSView *v in @[ mw.parkTitle, mw.parkUnits, parkFromRow, parkScroll, mw.parkHint ]) {
+            v.translatesAutoresizingMaskIntoConstraints = NO;
+            [mw.parkPanel addSubview:v];
+        }
+        [NSLayoutConstraint activateConstraints:@[
+            [mw.parkTitle.topAnchor constraintEqualToAnchor:mw.parkPanel.topAnchor],
+            [mw.parkTitle.leadingAnchor constraintEqualToAnchor:mw.parkPanel.leadingAnchor],
+            [mw.parkTitle.trailingAnchor constraintLessThanOrEqualToAnchor:mw.parkUnits.leadingAnchor constant:-8],
+            [mw.parkUnits.centerYAnchor constraintEqualToAnchor:mw.parkTitle.centerYAnchor],
+            [mw.parkUnits.trailingAnchor constraintEqualToAnchor:mw.parkPanel.trailingAnchor],
+            [parkFromRow.topAnchor constraintEqualToAnchor:mw.parkTitle.bottomAnchor constant:8],
+            [parkFromRow.leadingAnchor constraintEqualToAnchor:mw.parkPanel.leadingAnchor],
+            [parkFromRow.trailingAnchor constraintLessThanOrEqualToAnchor:mw.parkPanel.trailingAnchor],
+            [parkScroll.topAnchor constraintEqualToAnchor:parkFromRow.bottomAnchor constant:8],
+            [parkScroll.leadingAnchor constraintEqualToAnchor:mw.parkPanel.leadingAnchor],
+            [parkScroll.trailingAnchor constraintEqualToAnchor:mw.parkPanel.trailingAnchor],
+            [mw.parkHint.topAnchor constraintEqualToAnchor:parkScroll.bottomAnchor constant:6],
+            [mw.parkHint.leadingAnchor constraintEqualToAnchor:mw.parkPanel.leadingAnchor],
+            [mw.parkHint.trailingAnchor constraintEqualToAnchor:mw.parkPanel.trailingAnchor],
+            [mw.parkHint.bottomAnchor constraintEqualToAnchor:mw.parkPanel.bottomAnchor],
+            [mw.parkHint.heightAnchor constraintGreaterThanOrEqualToConstant:28],
+        ]];
         mw.view = [[ADIFMapView alloc] initWithFrame:NSZeroRect];
         mw.view.onHover = ^(const ADIFMapHit &h) {
             std::string d = describe(h);
             setStatus(!d.empty() ? d : !mw.chosen.empty() ? mw.chosen : mw.summary);
         };
         mw.view.onSelect = ^(const ADIFMapHit &h) { selected(h); };
-        mw.view.onViewChanged = ^{ updateZoomLabel(); };
+        mw.view.onViewChanged = ^{
+            updateZoomLabel();
+            queueParkList();
+        };
         mw.list = [[ADIFMapList alloc] init];
         mw.list.onActivate = ^(NSInteger rowIndex) { goToQso(rowIndex); };
         mw.table = [[NSTableView alloc] initWithFrame:NSZeroRect];
+        mw.table.identifier = @"map.qsos";
         const char *titles[] = {N_("Record"), N_("Call"), N_("Date"), "UTC", N_("Band"), N_("Mode"), N_("Grid"), N_("Confirmed")};
         const CGFloat widths[] = {60, 100, 90, 60, 60, 70, 80, 80};
         for (size_t i = 0; i < 8; ++i) {
@@ -1775,13 +2078,14 @@ void cmdMap() {
         scroll.hasVerticalScroller = YES;
         scroll.borderType = NSBezelBorder;
         mw.status = [NSTextField wrappingLabelWithString:@""];
+        mw.status.identifier = @"map.status";
         mw.status.maximumNumberOfLines = 3;
         mw.status.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
         mw.useSpot = smallButton(@"Use in New QSO", @"Fill New QSO with the spot chosen on the map: its call, frequency, band, mode and reference",
                                  ^{ useSelectedSpot(); });
         mw.useSpot.identifier = @"map.spots.use";
         mw.useSpot.hidden = YES;
-        for (NSView *v in @[ mw.target, layers, markers, spotsRow, filters, zoomRow, mw.view, scroll, mw.status, mw.useSpot ]) {
+        for (NSView *v in @[ mw.target, layers, markers, spotsRow, filters, zoomRow, mw.view, scroll, mw.status, mw.useSpot, mw.parkPanel ]) {
             v.translatesAutoresizingMaskIntoConstraints = NO;
             [root addSubview:v];
         }
@@ -1806,7 +2110,10 @@ void cmdMap() {
             [zoomRow.trailingAnchor constraintLessThanOrEqualToAnchor:root.trailingAnchor constant:-m],
             [mw.view.topAnchor constraintEqualToAnchor:zoomRow.bottomAnchor constant:8],
             [mw.view.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
-            [mw.view.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-m],
+            [mw.parkPanel.topAnchor constraintEqualToAnchor:mw.view.topAnchor],
+            [mw.parkPanel.bottomAnchor constraintEqualToAnchor:mw.view.bottomAnchor],
+            [mw.parkPanel.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-m],
+            [mw.parkPanel.widthAnchor constraintEqualToConstant:380],
             [scroll.topAnchor constraintEqualToAnchor:mw.view.bottomAnchor constant:8],
             [scroll.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
             [scroll.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-m],
@@ -1819,12 +2126,19 @@ void cmdMap() {
             [mw.status.bottomAnchor constraintEqualToAnchor:root.bottomAnchor constant:-m],
             [mw.status.heightAnchor constraintGreaterThanOrEqualToConstant:30],
         ]];
+        mw.mapToEdge = [mw.view.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-m];
+        mw.mapToPanel = [mw.view.trailingAnchor constraintEqualToAnchor:mw.parkPanel.leadingAnchor constant:-10];
+        showParkPanel(flag("mapParkList", true));
         [mw.window center];
         // New spots redraw the layer; closing the window stops the feeds.
         [[NSNotificationCenter defaultCenter] addObserverForName:ADIFParkOutlinesChangedNotification
                                                           object:nil
                                                            queue:nil
-                                                      usingBlock:^(NSNotification *) { mw.view.needsDisplay = YES; }];
+                                                      usingBlock:^(NSNotification *) {
+                                                          mw.view.needsDisplay = YES;
+                                                          fillStyle();  // outline only needs outlines
+                                                          queueParkList();
+                                                      }];
         [[NSNotificationCenter defaultCenter] addObserverForName:ADIFNightModeChangedNotification
                                                           object:nil
                                                            queue:nil
@@ -1866,6 +2180,7 @@ void iotaGroupsChanged() {
 
 void parkListChanged() {
     if (mw.view) mw.view.needsDisplay = YES;
+    queueParkList();
 }
 
 bool shownArea(std::array<double, 4> *box) {

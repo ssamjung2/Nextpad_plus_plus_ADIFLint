@@ -42,7 +42,8 @@
     NSPopUpButton *_spotsPskQuery;
     NSComboBox *_outlinesLocation;
     NSButton *_outlinesDownload, *_outlinesRemove;
-    NSTextField *_outlinesStatus;
+    NSTextField *_outlinesStatus, *_outlinesSummary;
+    NSPopUpButton *_outlinesHave;
     NSButton *_spotsOffer;
     NSTextField *_spotsPskCall;
     id _spotsObserver;
@@ -479,8 +480,9 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
 }
 
 - (NSView *)potaSection {
-    NSTextField *help = wrapping(@"Places POTA parks on the Map's POTA layer: with Show, a pin at each park you've hunted or "
-                                 @"activated, at the park itself; with Overlay, a ring or dot at each park you haven't worked. Download fetches POTA's list of "
+    NSTextField *help = wrapping(@"Places POTA parks on the Map's POTA layer: with Show, a badge (a tree in a circle) at each park you've "
+                                 @"hunted or activated, at the park itself; with Overlay, a smaller badge or a dot at each park you haven't worked; and "
+                                 @"the Map's Parks in View lists them. Download fetches POTA's list of "
                                  @"parks (pota.app, about 9.5 MB: every park's name and place) into the plugin's settings folder on "
                                  @"this Mac; download again for new parks. ADIF Lint isn't affiliated with Parks on the Air.",
                                  NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
@@ -502,16 +504,27 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     _outlinesLocation.placeholderString = T(@"POTA location, such as US-IL");
     _outlinesLocation.identifier = @"settings.outlines.location";
     [_outlinesLocation.widthAnchor constraintEqualToConstant:150].active = YES;
+    _outlinesLocation.target = self;
+    _outlinesLocation.action = @selector(outlinesLocationChosen:);
     _outlinesDownload = [NSButton buttonWithTitle:T(@"Download") target:self action:@selector(outlinesDownload:)];
     _outlinesDownload.identifier = @"settings.outlines.download";
-    _outlinesRemove = [NSButton buttonWithTitle:T(@"Remove") target:self action:@selector(outlinesRemove:)];
-    _outlinesRemove.identifier = @"settings.outlines.remove";
-    NSStackView *outlinesRow = [NSStackView stackViewWithViews:@[ _outlinesLocation, _outlinesDownload, _outlinesRemove ]];
+    NSStackView *outlinesRow = [NSStackView stackViewWithViews:@[ _outlinesLocation, _outlinesDownload ]];
     outlinesRow.spacing = 8;
     _outlinesStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
     _outlinesStatus.identifier = @"settings.outlines.status";
+    // What is downloaded: a location each in the menu (to remove one), and all of them summed up.
+    _outlinesHave = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    _outlinesHave.identifier = @"settings.outlines.installed";
+    [_outlinesHave.widthAnchor constraintEqualToConstant:330].active = YES;
+    _outlinesRemove = [NSButton buttonWithTitle:T(@"Remove") target:self action:@selector(outlinesRemove:)];
+    _outlinesRemove.identifier = @"settings.outlines.remove";
+    NSStackView *have = [NSStackView stackViewWithViews:@[ [NSTextField labelWithString:T(@"Downloaded:")], _outlinesHave, _outlinesRemove ]];
+    have.spacing = 8;
+    _outlinesSummary = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    _outlinesSummary.identifier = @"settings.outlines.summary";
     [self fillOutlines];
-    return sectionStack(@[ sectionTitle(@"POTA Parks"), help, _potaUpdate, _potaStatus, outlinesTitle, outlinesHelp, outlinesRow, _outlinesStatus ],
+    return sectionStack(@[ sectionTitle(@"POTA Parks"), help, _potaUpdate, _potaStatus, outlinesTitle, outlinesHelp, outlinesRow, _outlinesStatus, have,
+                           _outlinesSummary ],
                         @"settings.pota");
 }
 
@@ -538,26 +551,58 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     bool none = locations.empty();
     _outlinesLocation.enabled = !none && !parkoutlines::busy();
     _outlinesDownload.enabled = !none && !parkoutlines::busy();
+    std::vector<parkoutlines::Downloaded> have = parkoutlines::downloaded();
+    NSString *was = _outlinesHave.selectedItem.representedObject;
+    [_outlinesHave removeAllItems];
+    for (const parkoutlines::Downloaded &d : have)
+        [_outlinesHave.menu addItemWithTitle:@(parkoutlines::describe(d).c_str()) action:nil keyEquivalent:@""].representedObject = @(d.location.c_str());
+    if (have.empty()) [_outlinesHave addItemWithTitle:T(@"(none)")];
+    NSInteger at = was ? [_outlinesHave indexOfItemWithRepresentedObject:was] : -1;
+    if (at >= 0) [_outlinesHave selectItemAtIndex:at];
+    _outlinesHave.enabled = !have.empty();
+    _outlinesRemove.enabled = !have.empty() && !parkoutlines::busy();
+    _outlinesSummary.stringValue = @(parkoutlines::summary(have).c_str());
     if (parkoutlines::busy()) return;
-    std::string have;
-    for (const parkoutlines::Downloaded &d : parkoutlines::downloaded()) {
-        char size[32];
-        snprintf(size, sizeof size, d.bytes >= 1000000 ? "%.1f MB" : "%.0f KB", d.bytes >= 1000000 ? d.bytes / 1e6 : std::max(1.0, d.bytes / 1e3));
-        have += (have.empty() ? "" : "; ") + adif::i18n::trf("{location} ({n} of {total} parks, {size})",
-                                                             {{"location", d.location}, {"n", std::to_string(d.outlines)},
-                                                              {"total", std::to_string(d.parks)}, {"size", size}});
+    if (none) {
+        _outlinesStatus.stringValue = T(@"Download POTA's park list first.");
+        _outlinesStatus.textColor = NSColor.secondaryLabelColor;
+    } else {
+        [self showOutlinesLocation];
     }
-    _outlinesStatus.stringValue = none ? T(@"Download POTA's park list first.")
-                                       : have.empty() ? T(@"None downloaded.")
-                                                      : @(adif::i18n::trf("Downloaded: {list}.", {{"list", have}}).c_str());
+}
+
+// What the location chosen has: its parks, and what was downloaded for it, and when.
+- (void)showOutlinesLocation {
+    std::string location = ADIFStd([[_outlinesLocation.stringValue stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet] uppercaseString]);
+    size_t parks = parkoutlines::parksIn(location);
+    std::string text;
+    if (location.empty() || !parks) {
+        text = location.empty() ? "" : adif::i18n::trf("{location}: no parks there in POTA's list.", {{"location", location}});
+    } else {
+        text = adif::i18n::trp("{location}: {n} park; not downloaded.", "{location}: {n} parks; not downloaded.", (long long)parks,
+                               {{"location", location}});
+        for (const parkoutlines::Downloaded &d : parkoutlines::downloaded())
+            if (d.location == location)
+                text = adif::i18n::trp("{location}: {have} of {n} park has an outline ({from}), downloaded {date}. Download again to update.",
+                                       "{location}: {have} of {n} parks have an outline ({from}), downloaded {date}. Download again to update.",
+                                       (long long)d.parks,
+                                       {{"location", location}, {"have", std::to_string(d.outlines)}, {"from", parkoutlines::sources(d)}, {"date", d.date}});
+    }
+    _outlinesStatus.stringValue = @(text.c_str());
     _outlinesStatus.textColor = NSColor.secondaryLabelColor;
+}
+
+- (void)outlinesLocationChosen:(id)sender {
+    if (!parkoutlines::busy()) [self showOutlinesLocation];
 }
 
 - (void)outlinesDownload:(id)sender {
     std::string location = ADIFStd([[_outlinesLocation.stringValue stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet] uppercaseString]);
     adifhost::setSetting("outlinesLocation", location);
-    _outlinesDownload.enabled = NO, _outlinesLocation.enabled = NO;
+    _outlinesLocation.stringValue = @(location.c_str());  // as POTA writes it
+    _outlinesDownload.enabled = NO, _outlinesLocation.enabled = NO, _outlinesRemove.enabled = NO;
     __weak ADIFSettingsPanel *weakSelf = self;
+    NSString *chosen = @(location.c_str());
     parkoutlines::download(
         location,
         ^(NSString *what) {
@@ -570,13 +615,17 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
             ADIFSettingsPanel *me = weakSelf;
             if (!me) return;
             [me fillOutlines];
+            NSInteger at = [me->_outlinesHave indexOfItemWithRepresentedObject:chosen];
+            if (at >= 0) [me->_outlinesHave selectItemAtIndex:at];  // the one just downloaded
             me->_outlinesStatus.stringValue = message;
             me->_outlinesStatus.textColor = ok ? NSColor.secondaryLabelColor : NSColor.systemRedColor;
         });
 }
 
 - (void)outlinesRemove:(id)sender {
-    parkoutlines::remove(ADIFStd([[_outlinesLocation.stringValue stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet] uppercaseString]));
+    NSString *location = _outlinesHave.selectedItem.representedObject;
+    if (!location) return;
+    parkoutlines::remove(ADIFStd(location));
     [self fillOutlines];
 }
 

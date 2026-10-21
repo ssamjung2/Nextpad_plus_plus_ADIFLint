@@ -74,6 +74,9 @@ struct ADIFMapStyle {
     int spotLines = 0;
     adif::SpotLabel spotLabel;
     bool spotFade = true;
+    // POTA: a park with a downloaded outline big enough to see shows the outline (and its label)
+    // without its badge.
+    bool parkOutlineOnly = false;
     // Squares: Show the worked squares, Overlay the Maidenhead grid, Labels its names. Countries:
     // Show each worked DXCC entity's land. POTA and IOTA need their lists (downloaded in Settings).
     std::array<LayerState, kLayerCount> layer;
@@ -132,14 +135,17 @@ struct ADIFMapAgg {
 struct ADIFParkWork {
     std::vector<size_t> hunted, activated;  // into MapData::qsos
 };
-// A POTA park's marker in the view: its index in ADIFPotaParks(), and where it is (a pin's head).
+// A POTA park's marker in the view: its index in ADIFPotaParks(), and where it is (the park's
+// place, the middle of its badge).
 struct ADIFParkSpot {
     size_t park = 0;
     NSPoint at = NSZeroPoint;
-    bool pin = false;        // a park you worked; else a ring
-    bool activated = false;  // a pin for a park you activated
+    bool pin = false;        // a park you worked (a larger badge); else one you haven't
+    bool activated = false;  // a park you activated
     ADIFMapAgg agg;          // a hunted park's QSOs, for its colour
-    bool dot = false;        // a small dot, where too many rings would show
+    bool small = false;      // a smaller badge, where many parks show
+    bool dot = false;        // a small dot, where too many badges would show
+    bool outlined = false;   // its outline drawn instead of a badge (Style Options: outline only)
 };
 
 namespace mapkit {
@@ -225,7 +231,7 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
     std::vector<ADIFParkSpot> _potaSpots;                  // where the parks' markers are (placeParks)
     adif::MapFilter _parkFilter;  // the Filters' places, for parks not worked
     BOOL _filterParks;             // "Apply to POTA parks"
-    std::tuple<double, double, double, double, double, int, double, double, double, int, uintptr_t, size_t, int> _parksPlacedFor;
+    std::tuple<double, double, double, double, double, int, double, double, double, int, uintptr_t, size_t, int, uintptr_t, size_t> _parksPlacedFor;
     int _dataGeneration;                                   // counts setData, for placeParks
     std::vector<std::string> _bands;  // in the data, frequency order
     int _minYear, _maxYear;
@@ -282,6 +288,9 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 - (const std::vector<ADIFInfoRow> &)info;
 - (NSString *)infoText;  // the box as text, a line a row ("Band: 20m"): the view's accessibility value too
 - (ADIFMapHit)selectedHit;  // what was clicked last
+- (void)selectPark:(size_t)index;  // as if clicked (an index into ADIFPotaParks())
+// Zoom right in to a small place (a park, or its outline's box), as close as the map goes there.
+- (void)showPlaceWest:(double)w south:(double)s east:(double)e north:(double)n;
 @end
 
 // What MapView.mm implements for the layers and the window.
@@ -314,6 +323,7 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 - (void)viewChanged;
 - (void)zoomBy:(double)factor at:(NSPoint)p;
 - (void)fitPlaneWest:(double)west south:(double)south east:(double)east north:(double)north;
+- (void)fitPlaneWest:(double)west south:(double)south east:(double)east north:(double)north minSpan:(double)minSpan;
 - (NSColor *)bandColor:(const std::string &)band;
 - (void)setQsosPerBand:(std::map<std::string, size_t>)counts;
 - (NSColor *)colorFor:(const ADIFMapAgg &)a entity:(BOOL)entity;
@@ -372,12 +382,17 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 - (void)drawPrograms:(MapDrawCtx &)d;
 - (void)drawMine:(MapDrawCtx &)d;
 - (void)drawSelection:(MapDrawCtx &)d;
-- (void)drawParkPinAt:(NSPoint)p color:(NSColor *)c activated:(BOOL)activated lit:(BOOL)lit;
+// The POTA parks marked in the view now (a badge, dot or outline each), and a park's colour
+// there: its tree's, as the legend gives it.
+- (std::vector<ADIFParkSpot>)parksInView;
+- (NSColor *)parkColor:(const ADIFParkSpot &)spot;
+- (NSBezierPath *)treeAt:(NSPoint)c size:(double)h;
+- (double)parkBadgeRadius:(const ADIFParkSpot &)spot;
+- (void)drawParkBadgeAt:(NSPoint)c radius:(double)r color:(NSColor *)tree worked:(BOOL)worked activated:(BOOL)activated lit:(BOOL)lit;
 - (void)placeParks;
-- (void)drawParkRings;
+- (void)drawParkBadges:(BOOL)worked;
 - (void)drawParkOutlines;
 - (size_t)parkOutlineAt:(double)lon lat:(double)lat;  // the park (index in ADIFPotaParks) whose drawn outline holds the point, or npos
-- (void)drawParkPins;
 - (void)drawParkLabelsIn:(NSRect)b;
 - (NSBezierPath *)spotMarkerAt:(NSPoint)p;
 - (CGFloat)spotAlpha:(const ADIFMapSpot &)s;

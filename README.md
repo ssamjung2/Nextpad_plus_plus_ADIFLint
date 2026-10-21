@@ -116,8 +116,10 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
   for detail, or jump to a continent with **Region**.
 - Layers, each with **Show** (what you worked), **Overlay** and **Labels**: **grid
   squares**, **countries** (DXCC), **US states**, **US counties**, **CQ zones**, **ITU
-  zones**, **POTA** parks (as their outlines where you download them: OpenStreetMap,
-  pota-map.info, and USGS's PAD-US for US parks) and **IOTA** groups, and **cities**. A state,
+  zones**, **POTA** parks (a badge with a tree at each, as on POTA's map, or their outlines
+  where you download them: OpenStreetMap, pota-map.info, and USGS's PAD-US for US parks, with
+  a list beside the map of the parks in view, nearest first) and **IOTA** groups, and
+  **cities**. A state,
   county or zone counts
   by the QSO's own field, else by where the QSO was.
 - **Contacts** at their exact place (LAT/LON or a 6-character grid, ignoring QRZ.com's

@@ -16,9 +16,21 @@ Versions before 0.8.0 were development builds and were not published.
   areas tagged with the park's reference (through Overpass), pota-map.info's for Austria,
   Czechia, Denmark, Germany, Luxembourg and Switzerland, and for US parks USGS's PAD-US 4.1,
   matched by name, by POTA's place for the park and by designation (70% of Illinois's parks
-  and 80% of Missouri's in tests). Parks you worked are filled in their pins' colours, the
+  and 80% of Missouri's in tests). Parks you worked are filled in their badges' colours, the
   others outlined; matched outlines are dashed and name the PAD-US unit; pointing anywhere
-  in a park finds it; the sources are credited on the map.
+  in a park finds it; the sources are credited on the map. **Downloaded** lists each
+  location (parks with an outline, its size and date) with **Remove**, a line sums them all
+  up, and the location chosen says what you have of it and from which sources.
+- **Map → POTA: park badges**, as on POTA's own map: a round badge with a tree at each park
+  (larger for the parks you worked, the tree in the map's colours; a star for those you
+  activated; smaller where many show), the reference in a box under it, placed clear of
+  other badges and labels. They replace the pins and rings. **Style Options → POTA parks →
+  Parks with an outline: Outline only** shows a park whose outline is big enough to see as
+  just the outline and its label.
+- **Map → Parks in View**: beside the map (the **Parks** button shows or hides it), the 50
+  POTA parks nearest your station, the map's centre or a grid square you type, among those
+  the map shows, with distance (mi or km) and bearing. Click one to choose it on the map,
+  double-click to zoom right in to it; a park clicked on the map chooses its row.
 
 - **Map → Spots: spotters.** The stations that heard each spot (up to 12: a cluster's
   spotters, RBN skimmers, and you for PSKReporter) are faint triangles. Point at a spot for
