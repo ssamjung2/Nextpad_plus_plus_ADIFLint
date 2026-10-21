@@ -10,6 +10,7 @@
 #include "adif_projection.h"
 #include "adif_spots.h"
 #include "adif_world.h"
+#include "adif_worked.h"
 
 #include <array>
 #include <cstdint>
@@ -19,6 +20,7 @@
 #include <set>
 #include <string>
 #include <tuple>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -231,6 +233,10 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
     std::vector<ADIFParkSpot> _potaSpots;                  // where the parks' markers are (placeParks)
     adif::MapFilter _parkFilter;  // the Filters' places, for parks not worked
     BOOL _filterParks;             // "Apply to POTA parks"
+    adif::ParkPlaces _parkPlaces;  // the park filter (POTA parks in), for parks not worked
+    std::string _parkPlacesName;   // its name, for the legend
+    std::unordered_map<size_t, std::string> _parkCounties;  // a park's county (parkCounty), as asked for
+    uintptr_t _parkCountiesFor;                              // the park list they are for
     std::tuple<double, double, double, double, double, int, double, double, double, int, uintptr_t, size_t, int, uintptr_t, size_t> _parksPlacedFor;
     int _dataGeneration;                                   // counts setData, for placeParks
     std::vector<std::string> _bands;  // in the data, frequency order
@@ -277,6 +283,8 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 - (const std::vector<ADIFMapContact> &)contacts;
 - (std::vector<size_t>)areaQsos:(int)layer name:(const std::string &)name;  // a worked area's QSOs
 - (void)setParkFilter:(const adif::MapFilter &)filter on:(BOOL)on;      // the Filters, for parks not worked
+// The park filter, for the parks not worked, and its name for the legend ("US-IL"; "" for none).
+- (void)setParkPlaces:(const adif::ParkPlaces &)places named:(const std::string &)name;
 - (std::vector<size_t>)iotaQsos:(const std::string &)ref;  // the QSOs with this IOTA reference
 - (ADIFParkWork)parkWork:(const std::string &)ref;          // your QSOs with this POTA park (as the list writes it)
 - (void)selectedPlace:(double *)lat lon:(double *)lon name:(std::string *)name;
@@ -288,7 +296,7 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 - (const std::vector<ADIFInfoRow> &)info;
 - (NSString *)infoText;  // the box as text, a line a row ("Band: 20m"): the view's accessibility value too
 - (ADIFMapHit)selectedHit;  // what was clicked last
-- (void)selectPark:(size_t)index;  // as if clicked (an index into ADIFPotaParks())
+- (void)selectHit:(const ADIFMapHit &)hit;  // as if clicked
 // Zoom right in to a small place (a park, or its outline's box), as close as the map goes there.
 - (void)showPlaceWest:(double)w south:(double)s east:(double)e north:(double)n;
 @end

@@ -7,6 +7,8 @@
 
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 namespace adif {
 
@@ -25,5 +27,13 @@ double initialBearing(double lat1, double lon1, double lat2, double lon2);
 std::string gridDistanceKm(std::string_view myGrid, std::string_view grid);
 // "1,804 km at 268°" between two locators, for showing; "" unless both are locators.
 std::string gridDistanceText(std::string_view myGrid, std::string_view grid);
+
+// Points (lat, lon) by their distance from a place, nearest first (ties in the given order), at
+// most `limit` of them: each one's index, distance and initial bearing from the place.
+struct PointDistance {
+    size_t index = 0;
+    double km = 0, bearing = 0;
+};
+std::vector<PointDistance> nearestPoints(const std::vector<std::pair<double, double>> &latLon, double lat, double lon, size_t limit);
 
 }  // namespace adif

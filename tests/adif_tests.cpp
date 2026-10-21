@@ -3218,6 +3218,44 @@ static void testWorked() {
               counties.area(counties.at(-89.40, 43.07, "WI,")).name == "WI,Dane" && counties.at(-89.40, 43.07, "IL,") == AreaIndex::npos,
           "the state and county at a place (Madison: Wisconsin, Dane)");
 
+    {  // POTA parks by place: a park's county, the park filter, the location a place is in
+        std::string csv = "\"reference\",\"name\",\"active\",\"entityId\",\"locationDesc\",\"latitude\",\"longitude\",\"grid\"\r\n"
+                          "\"US-0001\",\"Madison Park\",\"1\",\"291\",\"US-WI\",\"43.07\",\"-89.40\",\"\"\r\n"
+                          "\"US-0002\",\"Milwaukee Park\",\"1\",\"291\",\"US-WI\",\"43.04\",\"-87.91\",\"\"\r\n"
+                          "\"US-0003\",\"Chicago Park\",\"1\",\"291\",\"US-IL\",\"41.88\",\"-87.63\",\"\"\r\n"
+                          "\"US-0004\",\"Border Trail\",\"1\",\"291\",\"US-IL,US-WI\",\"42.49\",\"-89.04\",\"\"\r\n"
+                          "\"VK-0001\",\"Sydney Park\",\"1\",\"150\",\"VK-NSW\",\"-33.87\",\"151.21\",\"\"\r\n";
+        PotaParks pp;
+        CHECK(pp.load(csv) == 5, "a park list for places");
+        const PotaPark &madison = *pp.find("US-0001"), &milwaukee = *pp.find("US-0002"), &chicago = *pp.find("US-0003"), &border = *pp.find("US-0004"),
+                       &sydney = *pp.find("VK-0001");
+        CHECK(parkCounty(madison) == "WI,Dane" && parkCounty(milwaukee) == "WI,Milwaukee" && parkCounty(chicago) == "IL,Cook" && parkCounty(sydney).empty(),
+              "a park's US county (%s, %s)", parkCounty(madison).c_str(), parkCounty(chicago).c_str());
+        ParkPlaces wi;
+        wi.locations = {"US-WI"};
+        CHECK(parkInPlaces(madison, wi, "WI,Dane") && !parkInPlaces(chicago, wi, "IL,Cook") && parkInPlaces(border, wi, parkCounty(border)) &&
+                  !parkInPlaces(sydney, wi, "") && parkInPlaces(sydney, ParkPlaces(), ""),
+              "parks in a location (one across two counts in either); no places: every park");
+        ParkPlaces dane = wi;
+        dane.counties = {countyKey("WI,Dane")};
+        CHECK(parkInPlaces(madison, dane, "WI,Dane") && !parkInPlaces(milwaukee, dane, "WI,Milwaukee"), "a county narrows its state's parks");
+        ParkPlaces both;
+        both.locations = {"US-WI", "US-IL"}, both.counties = {countyKey("WI,Dane")};
+        CHECK(parkInPlaces(chicago, both, "IL,Cook") && !parkInPlaces(milwaukee, both, "WI,Milwaukee"),
+              "a state without counties chosen keeps all its parks");
+        ParkPlaces onlyCounty;
+        onlyCounty.counties = {countyKey("IL,Cook")};
+        CHECK(parkInPlaces(chicago, onlyCounty, "IL,Cook") && parkInPlaces(madison, onlyCounty, "WI,Dane") &&
+                  !parkInPlaces(*pp.find("US-0003"), onlyCounty, "IL,DuPage") && parkInPlaces(border, onlyCounty, "WI,Rock"),
+              "counties without locations: every location, those states narrowed (a park in two states passes by the other)");
+        CHECK(parkLocationAt(pp, 43.07, -89.40) == "US-WI" && parkLocationAt(pp, 41.9, -87.7) == "US-IL" && parkLocationAt(pp, -33.8, 151.0) == "VK-NSW" &&
+                  parkLocationAt(pp, -33.8, 160.0).empty() && parkLocationAt(pp, 0, -30).empty(),
+              "the location a place is in: its US state, else the nearest park's within 300 km (%s)", parkLocationAt(pp, -33.8, 151.0).c_str());
+        std::vector<PointDistance> near = nearestPoints({{43.2, -89.4}, {43.0, -89.4}, {43.0, -89.4}, {50, 0}}, 43.0, -89.4, 3);
+        CHECK(near.size() == 3 && near[0].index == 1 && near[1].index == 2 && near[2].index == 0 && std::fabs(near[2].km - 22.24) < 0.05 &&
+                  nearestPoints({}, 0, 0, 5).empty(),
+              "points nearest first, ties in order, at most the limit");
+    }
     QsoPlaceFacts f;  // Madison, by LAT/LON, logged with STATE IL and no zones
     f.dxcc = 291, f.state = "IL", f.exact = true, f.lat = 43.07, f.lon = -89.40;
     QsoAreas a = resolveAreas(f);

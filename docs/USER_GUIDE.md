@@ -528,10 +528,12 @@ from 2.5×, and towns' built-up areas at 1:10m. Every choice is remembered.
 At the top, a grid of layers (grid squares, countries, US states, US counties, CQ zones, ITU
 zones, POTA, IOTA, cities, spots) with three rows of boxes: **Show**, **Overlay** and
 **Labels**. Then **Markers** (contacts, lines, other programs, your station, and how to colour
-them), **Filters** (which QSOs, and **Spots…**), and a row to zoom, jump to a **Region**, choose the projection,
-open **Style Options…** and **Export PNG…**, and show or hide **Parks** (the list of
-[parks in view](#parks-in-view) beside the map). Under the map, a list shows the QSOs of
-whatever you click, and the status line says what is under the pointer.
+them), **Spots…** and **POTA parks in** (which parks you haven't worked show), **Filters**
+(which QSOs), and a row to zoom, jump to a **Region**, choose the projection, open **Style
+Options…** and **Export PNG…**, and show or hide the **List** beside the map
+([what's in view](#the-list-beside-the-map-parks-contacts-and-spots-in-view)). Under the map,
+a list shows the QSOs of whatever you click, and the status line says what is under the
+pointer.
 
 ### Layers: Show, Overlay and Labels
 
@@ -742,12 +744,14 @@ its layer shows):
   a city's name goes first and a county's name only where it is clear of the cities.
 - **POTA**: POTA's parks, at the parks themselves, each a round badge with a tree in it, as
   on POTA's own map. With **Show**, a badge marks each park you hunted (POTA_REF, or SIG_INFO
-  with SIG POTA), the tree in the map's colours, and each park you activated (MY_POTA_REF,
-  or MY_SIG_INFO) gets one in your station's colour with a star at its shoulder. The
-  **Overlay** puts a smaller badge, its tree in the park colour, at each active park you
-  haven't worked; a still smaller one where more than 250 show, and a small dot where more
-  than 1,500 would; zoom in, or limit them with **More Filters → Also limit the POTA parks
-  you haven't worked**, to see fewer. Labels put each reference in a box under its badge
+  with SIG POTA), filled in the map's colours (**Colour by**: band, mode, confirmation…)
+  with a white tree and a white rim, and each park you activated (MY_POTA_REF, or
+  MY_SIG_INFO) gets one in your station's colour with a star at its shoulder. The
+  **Overlay** puts a pale badge, its tree in the park colour, at each active park you
+  haven't worked; a smaller one where more than 250 show, and a small dot where more than
+  1,500 would. To see fewer, zoom in, or choose where with **POTA parks in** (below), or
+  use **More Filters → Also limit the POTA parks you haven't worked**. Labels put each
+  reference in a box under its badge
   (over it or beside it when another label or badge is in the way): the parks you worked
   always, the others once you are zoomed in to 250 or fewer, with their names under the
   references once 60 or fewer show. Point at a park for its name, location, your
@@ -846,28 +850,58 @@ On the globe:
   bearing. **Click** it to list its
   QSOs under the map, and double-click one to go to its record in the log.
 
-### Parks in View
+### POTA parks in: fewer parks
 
-![Parks in View: the parks the map shows around northern New Jersey, nearest first, with distance and bearing](images/map-parks.png)
+POTA has tens of thousands of parks, and a map of several states is crowded with them.
+**POTA parks in** (beside Spots…) chooses where the parks you haven't worked show, on the map
+and in the list beside it; the parks you worked always show. Its button names the places
+chosen ("US-IL…", "US-NJ, 1 county…", "everywhere…"); click it to change them:
 
-**Parks** (in the zoom row) shows or hides a list beside the map of the POTA parks the map
-marks in the view, like the list beside POTA's own map. Each row has the park's colour on
-the map (the dot), its reference, its name, and its distance and bearing (degrees from true
-north, a beam heading). The 50 nearest are listed, nearest first; the title says how many
-there are when more show.
+- **Locations**: POTA's locations, as it names them: US states (`US-IL`), Canadian provinces
+  (`CA-ON`), and the other countries' regions (`VK-NSW`, `DE-BY`, `GB-ENG`…). Type a few
+  letters for the choices. With none, the parks show everywhere.
+- **US counties** (`IL,Cook; IL,DuPage`): within a US state, only these counties' parks (by
+  the county outline the park's place is in). A state with no county chosen keeps all its
+  parks. The choices offered are the chosen states' counties.
+- **Your Station's (US-IL)** goes back to the location your station is in (Settings → Your
+  Station's grid: its US state, else the location of the nearest park), and follows your
+  grid if it changes. **Everywhere** shows every park.
+
+At first it is your station's location, so the map starts with the parks of your own state
+or province. The legend says so ("not worked, in US-IL"). There are county outlines for the
+US only, so elsewhere a location is the finest choice.
+
+### The list beside the map: parks, contacts and spots in view
+
+![The list beside the map: the parks the map shows around northern New Jersey, nearest first, with distance and bearing](images/map-parks.png)
+
+**List** (in the zoom row) shows or hides a list beside the map of what the map shows in the
+view, like the list beside POTA's own map. Choose what it lists at its top:
+
+- **Parks**: the POTA parks the map marks (with Show, the parks you worked; with Overlay,
+  the others too, as POTA parks in and the Filters let them show): the park's colour on the
+  map, its reference and name.
+- **Contacts**: the QSOs in view, by their LAT and LON, else their GRIDSQUARE: the call, date,
+  band and mode, in the map's colours. Choosing one chooses its marker (with Contacts ticked)
+  or its grid square.
+- **Spots** (while the Spots layer shows): the stations spotted in view, in their band's
+  colour, with the frequency in kHz, the mode and how long ago they were spotted. Choosing
+  one chooses the spot, as a click on it does (with **Use in New QSO**).
+
+Each row also has its distance and bearing (degrees from true north, a beam heading). The
+50 nearest are listed, nearest first; the title says how many there are when more show.
 
 - **Nearest to** chooses where they are measured from: **Your station** (Settings → Your
   Station's grid, else the log's most used MY_GRIDSQUARE), **Map centre**, or a **Grid
   square** you type (4, 6 or 8 characters).
 - **mi** and **km** choose the units.
-- **Click** a park to choose it on the map (as if you clicked it there: its description in
-  the status line, its QSOs in the list under the map); clicking a park on the map chooses
-  its row. **Double-click** zooms right in to it: its outline, where downloaded, or a few
-  kilometres round it.
+- **Click** a row to choose it on the map (as if you clicked it there: its description in
+  the status line, its QSOs in the list under the map); clicking something on the map
+  chooses its row. **Double-click** zooms right in to it: a park's outline, where
+  downloaded, a QSO's square, or a little round it.
 
-The list follows the POTA layer: with **Show** it has the parks you worked, with **Overlay**
-the others too (and the Filters, when they limit the parks you haven't worked). It changes
-as you move and zoom the map. Every choice is remembered.
+The list changes as you move and zoom the map, and as spots come. Every choice is
+remembered.
 
 ### Map Detail: streets and buildings
 

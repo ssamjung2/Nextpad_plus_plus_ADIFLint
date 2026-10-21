@@ -835,29 +835,38 @@ using namespace mapkit;
 
 // A park's badge's radius: larger for a park you worked, smaller where many show.
 - (double)parkBadgeRadius:(const ADIFParkSpot &)sp {
-    return (sp.pin ? 9.0 : sp.small ? 4.5 : 7.0) * _style.marker;
+    return (sp.pin ? 10.0 : sp.small ? 6.0 : 9.0) * _style.marker;
 }
 
-// A park's badge, as on POTA's own map: a pale disc with a tree in the park's colour, ringed in
-// it (dark on the Night palette, to keep night vision); a star at its shoulder, in your
-// station's colour, for a park you activated; the one under the pointer or chosen ringed in ink.
-- (void)drawParkBadgeAt:(NSPoint)c radius:(double)r color:(NSColor *)tree worked:(BOOL)worked activated:(BOOL)activated lit:(BOOL)lit {
+// A park's badge, as on POTA's own map. A park you haven't worked: a pale disc (dark on the
+// Night palette, to keep night vision) with a tree in the park colour, ringed in it. A park you
+// worked: the disc in its colour (the map's Colour by: band, mode, confirmation...) with a white
+// tree, or a dark one on a light colour; a star at its shoulder, in your station's colour, for a
+// park you activated. The one under the pointer or chosen is ringed in ink.
+- (void)drawParkBadgeAt:(NSPoint)c radius:(double)r color:(NSColor *)color worked:(BOOL)worked activated:(BOOL)activated lit:(BOOL)lit {
     const MapPalette &pal = paletteAt(_style.palette);
-    NSBezierPath *disc = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(c.x - r, c.y - r, 2 * r, 2 * r)];
-    [(pal.night ? [NSColor colorWithCalibratedWhite:0.12 alpha:0.9] : [NSColor colorWithCalibratedRed:0.965 green:0.925 blue:0.85 alpha:worked ? 0.97 : 0.9])
-        setFill];
-    [disc fill];
-    // A light colour (20m's yellow, a worked orange) gets a darker edge, to stand out on the pale disc.
-    NSColor *srgb = [tree colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+    NSColor *srgb = [color colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
     bool light = srgb && 0.2126 * srgb.redComponent + 0.7152 * srgb.greenComponent + 0.0722 * srgb.blueComponent > 0.45;
-    NSColor *edge = light ? [tree blendedColorWithFraction:0.45 ofColor:NSColor.blackColor] : tree;
-    disc.lineWidth = lit ? 2.2 : worked ? 1.5 : r < 5 ? 0.8 : 1.1;
+    NSColor *edge = light ? [color blendedColorWithFraction:0.45 ofColor:NSColor.blackColor] : color;  // to stand out on a pale disc or map
+    NSBezierPath *disc = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(c.x - r, c.y - r, 2 * r, 2 * r)];
+    if (worked && !lit) {  // a white halo, so it shows on an area shaded in its own colour
+        NSBezierPath *halo = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(c.x - r - 1.6, c.y - r - 1.6, 2 * r + 3.2, 2 * r + 3.2)];
+        [[NSColor colorWithCalibratedWhite:pal.night ? 0.6 : 1 alpha:0.9] setFill];
+        [halo fill];
+    }
+    NSColor *fill = worked ? [color colorWithAlphaComponent:0.96]
+                    : pal.night ? [NSColor colorWithCalibratedWhite:0.12 alpha:0.9]
+                                : [NSColor colorWithCalibratedRed:0.965 green:0.925 blue:0.85 alpha:0.92];
+    [fill setFill];
+    [disc fill];
+    disc.lineWidth = lit ? 2.2 : worked ? 1.4 : r < 7 ? 0.9 : 1.2;
     [(lit ? [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:1] : [edge colorWithAlphaComponent:0.95]) setStroke];
     [disc stroke];
     NSBezierPath *glyph = [self treeAt:c size:r * 1.5];
+    NSColor *tree = worked ? [NSColor colorWithCalibratedWhite:light ? 0.12 : 1 alpha:0.95] : color;
     [tree setFill];
     [glyph fill];
-    if (light && r >= 5) {
+    if (!worked && light && r >= 5) {
         glyph.lineWidth = 0.6;
         glyph.lineJoinStyle = NSLineJoinStyleRound;
         [[edge colorWithAlphaComponent:0.9] setStroke];
@@ -949,10 +958,22 @@ using namespace mapkit;
     return out;
 }
 
-// Whether the Filters' places let a park (one you haven't worked) show: its locations, its
-// state and region, its entity and continent. Without "Also limit the POTA parks you haven't
-// worked", every park shows.
+// Whether a park (one you haven't worked) may show: in the park filter's places (Parks in...),
+// and in the Filters' places (its locations, its state and region, its entity and continent)
+// when "Also limit the POTA parks you haven't worked" is on.
 - (BOOL)parkFiltered:(const adif::PotaPark &)p {
+    if (_parkPlaces.any()) {
+        const adif::PotaParks &list = ADIFPotaParks();
+        if ((uintptr_t)list.parks().data() != _parkCountiesFor) _parkCounties.clear(), _parkCountiesFor = (uintptr_t)list.parks().data();
+        std::string county;
+        if (!_parkPlaces.counties.empty()) {  // only then: a county is a search of the outlines
+            size_t i = list.indexOf(&p);
+            auto it = _parkCounties.find(i);
+            if (it == _parkCounties.end()) it = _parkCounties.emplace(i, adif::parkCounty(p)).first;
+            county = it->second;
+        }
+        if (!adif::parkInPlaces(p, _parkPlaces, county)) return NO;
+    }
     const adif::MapFilter &f = _parkFilter;
     if (!_filterParks || !f.any()) return YES;
     std::vector<std::string> locs;

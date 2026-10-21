@@ -1,5 +1,7 @@
 #include "adif_geo.h"
 
+#include <algorithm>
+
 #include "adif_lint.h"
 
 #include <cmath>
@@ -83,6 +85,21 @@ std::string gridDistanceText(std::string_view myGrid, std::string_view grid) {
     char buf[64];
     std::snprintf(buf, sizeof buf, " km at %ld\xC2\xB0", std::lround(initialBearing(a, b, c, d)) % 360);
     return n + buf;
+}
+
+std::vector<PointDistance> nearestPoints(const std::vector<std::pair<double, double>> &latLon, double lat, double lon, size_t limit) {
+    std::vector<PointDistance> out;
+    out.reserve(latLon.size());
+    for (size_t i = 0; i < latLon.size(); ++i)
+        out.push_back({i, greatCircleKm(lat, lon, latLon[i].first, latLon[i].second), initialBearing(lat, lon, latLon[i].first, latLon[i].second)});
+    auto nearer = [](const PointDistance &a, const PointDistance &b) { return a.km != b.km ? a.km < b.km : a.index < b.index; };
+    if (out.size() > limit) {
+        std::partial_sort(out.begin(), out.begin() + (std::ptrdiff_t)limit, out.end(), nearer);
+        out.resize(limit);
+    } else {
+        std::sort(out.begin(), out.end(), nearer);
+    }
+    return out;
 }
 
 }  // namespace adif

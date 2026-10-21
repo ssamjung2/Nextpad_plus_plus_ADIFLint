@@ -403,11 +403,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     return _selected;
 }
 
-- (void)selectPark:(size_t)index {
-    ADIFMapHit h;
-    h.kind = ADIFMapHit::Pota, h.index = index;
-    const adif::PotaParks &list = ADIFPotaParks();
-    if (index < list.size() && list.parks()[index].placed) h.square = adif::squareAt(list.parks()[index].lon, list.parks()[index].lat);
+- (void)selectHit:(const ADIFMapHit &)h {
     _selected = h;
     self.needsDisplay = YES;
     if (self.onSelect) self.onSelect(h);
@@ -425,6 +421,12 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         }
     if (west > east) return;
     [self fitPlaneWest:west south:south east:east north:north minSpan:0.06];
+}
+
+- (void)setParkPlaces:(const adif::ParkPlaces &)places named:(const std::string &)name {
+    _parkPlaces = places, _parkPlacesName = name;
+    _parksPlacedFor = {};
+    self.needsDisplay = YES;
 }
 
 - (void)setParkFilter:(const adif::MapFilter &)filter on:(BOOL)on {
@@ -1103,7 +1105,8 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
             rows.push_back({10, rgb(pal.worked), tr("hunted (in the map's colours)")});
             rows.push_back({11, rgb(pal.me), tr("activated by you")});
         }
-        if (_style[kLayerPota].overlay) rows.push_back({12, rgb(pal.park), tr("not worked")});
+        if (_style[kLayerPota].overlay)
+            rows.push_back({12, rgb(pal.park), _parkPlacesName.empty() ? tr("not worked") : trf("not worked, in {places}", {{"places", _parkPlacesName}})});
     }
     if (_style[kLayerSpots].show && !_spots.empty()) {
         rows.push_back({7, nil, tr("Spots")});

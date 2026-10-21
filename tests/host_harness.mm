@@ -4307,6 +4307,42 @@ int main(int argc, char **argv) {
             [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, hunted, 1)];
             CHECK([qsoList.dataSource numberOfRowsInTableView:qsoList] == 1 && [cell(qsoList, 0, @"1") isEqualToString:@"W2CD"],
                   "a click on the park's badge lists its QSO");
+            // POTA parks in: the parks you haven't worked show only in your station's location at first
+            // (EN52wa: US-IL), so New Jersey's are hidden; then a location and one of its counties, then everywhere.
+            NSString *(^mapStatusText)(void) = ^NSString * { return ((NSTextField *)viewWithIdentifier(mapw.contentView, @"map.status")).stringValue; };
+            auto anyWindowView = [&](NSString *ident) -> NSView * {
+                for (NSWindow *w in NSApp.windows)
+                    if (NSView *v = viewWithIdentifier(w.contentView, ident)) return v;
+                return nil;
+            };
+            {
+                NSButton *placesButton = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.parkplaces.open");
+                [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-74.60, 41.05), 0)];
+                CHECK([placesButton.title isEqualToString:@"US-IL\u2026"] && ![mapStatusText() containsString:@"US-2001"],
+                      "POTA parks in: your station's location at first (%s); a New Jersey park not worked is hidden: %s", placesButton.title.UTF8String,
+                      mapStatusText().UTF8String);
+                [placesButton performClick:nil];
+                pump(0.2);
+                NSTokenField *locations = (NSTokenField *)anyWindowView(@"map.parkplaces.locations");
+                NSTokenField *counties = (NSTokenField *)anyWindowView(@"map.parkplaces.counties");
+                NSButton *homeButton = (NSButton *)anyWindowView(@"map.parkplaces.home");
+                CHECK(locations && counties && [locations.objectValue isEqual:@[ @"US-IL" ]] && [homeButton.title isEqualToString:@"Your Station's (US-IL)"],
+                      "the popover: the locations and the home button (%s)", homeButton.title.UTF8String);
+                locations.objectValue = @[ @"us-nj" ];
+                [locations sendAction:locations.action to:locations.target];
+                counties.objectValue = @[ @"NJ,Sussex" ];
+                [counties sendAction:counties.action to:counties.target];
+                [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-74.60, 41.05), 0)];
+                NSString *inSussex = mapStatusText();
+                [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-75.20, 40.45), 0)];
+                CHECK([placesButton.title isEqualToString:@"US-NJ, 1 county\u2026"] && [inSussex hasPrefix:@"POTA US-2001 Test Park North (US-NJ)"] &&
+                          ![mapStatusText() containsString:@"US-2002"],
+                      "US-NJ, Sussex County: its park shows, Pennsylvania's doesn't (%s; %s)", placesButton.title.UTF8String, inSussex.UTF8String);
+                [(NSButton *)anyWindowView(@"map.parkplaces.all") performClick:nil];
+                CHECK([placesButton.title isEqualToString:@"everywhere\u2026"] && [locations.objectValue count] == 0 && [counties.objectValue count] == 0,
+                      "Everywhere: every park again (%s)", placesButton.title.UTF8String);
+                [anyWindowView(@"map.parkplaces").window orderOut:nil];
+            }
             [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-74.60, 41.05), 0)];
             CHECK([labelContaining(mapw.contentView, @"US-2001") hasPrefix:@"POTA US-2001 Test Park North (US-NJ): not worked."],
                   "hovering a park not worked: %s", labelContaining(mapw.contentView, @"POTA").UTF8String);
@@ -4319,19 +4355,21 @@ int main(int argc, char **argv) {
             [mapView mouseMoved:mouse(NSEventTypeMouseMoved, activated, 0)];
             CHECK([labelContaining(mapw.contentView, @"US-2004") hasPrefix:@"POTA US-2004 Test Park Activated (US-IL): activated by you, 1 QSO."],
                   "hovering a park you activated: %s", labelContaining(mapw.contentView, @"POTA").UTF8String);
-            // Parks in View: beside the map, the parks it marks, nearest first to the place chosen (here a grid
-            // square typed); a click on a row chooses the park on the map, one on the map its row; a double-click zooms in.
-            NSString *(^mapStatusText)(void) = ^NSString * { return ((NSTextField *)viewWithIdentifier(mapw.contentView, @"map.status")).stringValue; };
+            // The list beside the map: the parks it marks, nearest first to the place chosen (here a grid square
+            // typed); a click on a row chooses the park on the map, one on the map its row; a double-click zooms in.
+            // Then the contacts in view, and the spots (none until the Spots layer shows).
             {
-                NSView *panel = viewWithIdentifier(mapw.contentView, @"map.parks");
-                NSTableView *parks = (NSTableView *)viewWithIdentifier(mapw.contentView, @"map.parks.table");
-                NSPopUpButton *from = (NSPopUpButton *)viewWithIdentifier(mapw.contentView, @"map.parks.from");
-                NSTextField *grid = (NSTextField *)viewWithIdentifier(mapw.contentView, @"map.parks.grid");
-                NSSegmentedControl *units = (NSSegmentedControl *)viewWithIdentifier(mapw.contentView, @"map.parks.units");
-                NSButton *toggle = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.parks.toggle");
-                NSTextField *title = (NSTextField *)viewWithIdentifier(mapw.contentView, @"map.parks.title");
-                CHECK(panel && !panel.hidden && toggle.state == NSControlStateValueOn && parks && from && grid && units,
-                      "Parks in View: the panel shows beside the map");
+                NSView *panel = viewWithIdentifier(mapw.contentView, @"map.list");
+                NSTableView *rowsTable = (NSTableView *)viewWithIdentifier(mapw.contentView, @"map.list.table");
+                NSSegmentedControl *kind = (NSSegmentedControl *)viewWithIdentifier(mapw.contentView, @"map.list.kind");
+                NSPopUpButton *from = (NSPopUpButton *)viewWithIdentifier(mapw.contentView, @"map.list.from");
+                NSTextField *grid = (NSTextField *)viewWithIdentifier(mapw.contentView, @"map.list.grid");
+                NSSegmentedControl *units = (NSSegmentedControl *)viewWithIdentifier(mapw.contentView, @"map.list.units");
+                NSButton *toggle = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.list.toggle");
+                NSTextField *title = (NSTextField *)viewWithIdentifier(mapw.contentView, @"map.list.title");
+                NSTextField *hint = (NSTextField *)viewWithIdentifier(mapw.contentView, @"map.list.hint");
+                CHECK(panel && !panel.hidden && toggle.state == NSControlStateValueOn && rowsTable && kind.selectedSegment == 0 && from && grid && units,
+                      "the list beside the map shows, with the parks");
                 showBox(-75.6, 40.2, -73.8, 41.5);
                 [from selectItemAtIndex:2];
                 [from sendAction:from.action to:from.target];
@@ -4340,33 +4378,50 @@ int main(int argc, char **argv) {
                 units.selectedSegment = 1;
                 [units sendAction:units.action to:units.target];
                 pump(0.3);
-                auto refs = [&]() {
+                auto column = [&](NSString *ident) {
                     std::string out;
-                    for (NSInteger r = 0; r < [parks.dataSource numberOfRowsInTableView:parks]; ++r)
-                        out += (out.empty() ? "" : " ") + std::string(cell(parks, r, @"ref").UTF8String);
+                    for (NSInteger r = 0; r < [rowsTable.dataSource numberOfRowsInTableView:rowsTable]; ++r)
+                        out += (out.empty() ? "" : " ") + std::string(cell(rowsTable, r, ident).UTF8String);
                     return out;
                 };
-                CHECK(refs() == "US-1234 US-2001 US-2002 US-2006" && [title.stringValue isEqualToString:@"Parks in View (4)"] && !grid.hidden &&
-                          [cell(parks, 0, @"name") isEqualToString:@"Test Park Hunted"] && [cell(parks, 1, @"distance") isEqualToString:@"42 km"] &&
-                          [cell(parks, 1, @"bearing") hasSuffix:@"\u00B0"],
-                      "the parks in view, nearest FN20sq first (not the inactive one): %s; %s, %s %s", refs().c_str(), title.stringValue.UTF8String,
-                      cell(parks, 1, @"distance").UTF8String, cell(parks, 1, @"bearing").UTF8String);
+                CHECK(column(@"0") == "US-1234 US-2001 US-2002 US-2006" && [title.stringValue isEqualToString:@"Parks in View (4)"] && !grid.hidden &&
+                          [cell(rowsTable, 0, @"1") isEqualToString:@"Test Park Hunted"] && [cell(rowsTable, 1, @"2") isEqualToString:@"42 km"] &&
+                          [cell(rowsTable, 1, @"3") hasSuffix:@"°"],
+                      "the parks in view, nearest FN20sq first (not the inactive one): %s; %s, %s %s", column(@"0").c_str(), title.stringValue.UTF8String,
+                      cell(rowsTable, 1, @"2").UTF8String, cell(rowsTable, 1, @"3").UTF8String);
                 units.selectedSegment = 0;
                 [units sendAction:units.action to:units.target];
-                CHECK([cell(parks, 1, @"distance") isEqualToString:@"26 mi"], "in miles: %s", cell(parks, 1, @"distance").UTF8String);
+                CHECK([cell(rowsTable, 1, @"2") isEqualToString:@"26 mi"], "in miles: %s", cell(rowsTable, 1, @"2").UTF8String);
                 units.selectedSegment = 1;
                 [units sendAction:units.action to:units.target];
-                [parks selectRowIndexes:[NSIndexSet indexSetWithIndex:1] byExtendingSelection:NO];
+                [rowsTable selectRowIndexes:[NSIndexSet indexSetWithIndex:1] byExtendingSelection:NO];
                 CHECK([mapStatusText() hasPrefix:@"POTA US-2001 Test Park North (US-NJ): not worked."], "a row chosen: the park chosen on the map: %s",
                       mapStatusText().UTF8String);
                 [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, pointFor(-74.40, 40.70), 1)];
                 [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, pointFor(-74.40, 40.70), 1)];
-                CHECK(parks.selectedRow == 0, "a park clicked on the map: its row chosen (%ld)", (long)parks.selectedRow);
-                [parks selectRowIndexes:[NSIndexSet indexSetWithIndex:1] byExtendingSelection:NO];
+                CHECK(rowsTable.selectedRow == 0, "a park clicked on the map: its row chosen (%ld)", (long)rowsTable.selectedRow);
+                // Contacts in view: W2CD (FN20) and K1AB (FN31pr), nearest FN20sq first; K1AB's row chooses its square.
+                kind.selectedSegment = 1;
+                [kind sendAction:kind.action to:kind.target];
+                CHECK([title.stringValue isEqualToString:@"Contacts in View (2)"] && column(@"0") == "W2CD K1AB" && [cell(rowsTable, 0, @"2") isEqualToString:@"20m"] &&
+                          [rowsTable.tableColumns[1].title isEqualToString:@"Call"],
+                      "Contacts: the QSOs in view, nearest first (%s: %s)", title.stringValue.UTF8String, column(@"0").c_str());
+                snapshot(mapw, "map-list-contacts");
+                [rowsTable selectRowIndexes:[NSIndexSet indexSetWithIndex:1] byExtendingSelection:NO];
+                CHECK([mapStatusText() hasPrefix:@"FN31: 1 QSO, confirmed (K1AB)"] && [qsoList.dataSource numberOfRowsInTableView:qsoList] == 1,
+                      "a contact chosen: its square on the map, its QSO under it (%s)", mapStatusText().UTF8String);
+                kind.selectedSegment = 2;
+                [kind sendAction:kind.action to:kind.target];
+                CHECK([title.stringValue isEqualToString:@"Spots in View (0)"] && [hint.stringValue hasPrefix:@"Tick the Spots layer's Show"],
+                      "Spots: none until the Spots layer shows (%s)", hint.stringValue.UTF8String);
+                snapshot(mapw, "map-list-spots-off");
+                kind.selectedSegment = 0;
+                [kind sendAction:kind.action to:kind.target];
+                [rowsTable selectRowIndexes:[NSIndexSet indexSetWithIndex:1] byExtendingSelection:NO];
                 double before = std::atof(zoomShown().c_str());
-                [NSApp sendAction:parks.doubleAction to:parks.target from:parks];
+                [NSApp sendAction:rowsTable.doubleAction to:rowsTable.target from:rowsTable];
                 pump(0.3);
-                CHECK(std::atof(zoomShown().c_str()) >= 300 && before < 100 && [mapStatusText() hasPrefix:@"POTA US-2001"] && parks.selectedRow == 0 &&
+                CHECK(std::atof(zoomShown().c_str()) >= 300 && before < 100 && [mapStatusText() hasPrefix:@"POTA US-2001"] && rowsTable.selectedRow == 0 &&
                           [title.stringValue isEqualToString:@"Parks in View (1)"],
                       "a double-click zooms to the park (%s, was %.0f): %s; %s", zoomShown().c_str(), before, title.stringValue.UTF8String,
                       mapStatusText().UTF8String);
@@ -4374,7 +4429,7 @@ int main(int argc, char **argv) {
                 CGFloat narrow = mapView.frame.size.width;
                 [toggle performClick:nil];
                 [mapw.contentView layoutSubtreeIfNeeded];
-                CHECK(panel.hidden && mapView.frame.size.width > narrow + 300, "Parks hides the panel and the map takes the room (%.0f to %.0f)", narrow,
+                CHECK(panel.hidden && mapView.frame.size.width > narrow + 300, "List hides the panel and the map takes the room (%.0f to %.0f)", narrow,
                       mapView.frame.size.width);
                 [toggle performClick:nil];
                 [mapw.contentView layoutSubtreeIfNeeded];
@@ -4455,7 +4510,7 @@ int main(int argc, char **argv) {
                 // badge's pale disc beside its tree gone); the pointer still finds the park in it.
                 {
                     NSPoint parkAt = pointFor(-74.60, 41.05);
-                    NSPoint onDisc = NSMakePoint(parkAt.x + 0.45 * 7, parkAt.y + 0.45 * 7);  // on the disc, off the tree and the ring
+                    NSPoint onDisc = NSMakePoint(parkAt.x + 0.5 * 9, parkAt.y + 0.5 * 9);  // on the disc, off the tree and the ring
                     [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-74.70, 40.75), 0)];  // the pointer away: no hover ring
                     auto pale = [&]() {
                         NSColor *c = colourAt(mapImage(), onDisc);
@@ -4810,6 +4865,32 @@ int main(int argc, char **argv) {
                 CHECK([described containsString:@"by K1TTT (DX cluster); not in this log."] && !useSpot.hidden,
                       "a spot clicked: %s", described.UTF8String);
                 if (mapw) snapshot(mapw, "map-spots");
+                // The list beside the map, of spots: each station spotted in view, with its frequency, mode and age;
+                // a row chooses the spot as a click on it does.
+                {
+                    NSSegmentedControl *kind = (NSSegmentedControl *)viewWithIdentifier(mapw.contentView, @"map.list.kind");
+                    NSTableView *rowsTable = (NSTableView *)viewWithIdentifier(mapw.contentView, @"map.list.table");
+                    NSTextField *title = (NSTextField *)viewWithIdentifier(mapw.contentView, @"map.list.title");
+                    kind.selectedSegment = 2;
+                    [kind sendAction:kind.action to:kind.target];
+                    NSInteger rows = [rowsTable.dataSource numberOfRowsInTableView:rowsTable], dl = -1;
+                    for (NSInteger r = 0; r < rows; ++r)
+                        if ([cell(rowsTable, r, @"0") isEqualToString:@"DL1ABC"]) dl = r;
+                    CHECK(rows >= 3 && [title.stringValue hasPrefix:@"Spots in View ("] && dl >= 0 && [cell(rowsTable, dl, @"1") isEqualToString:@"7012"] &&
+                              rowsTable.selectedRow == dl,
+                          "Spots: the stations spotted in view (%s), DL1ABC on 7012 kHz chosen as on the map (row %ld)", title.stringValue.UTF8String, (long)dl);
+                    [rowsTable deselectAll:nil];
+                    if (dl >= 0) [rowsTable selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)dl] byExtendingSelection:NO];
+                    CHECK([labelContaining(mapw.contentView, @"DL1ABC on 7012 kHz") length] && !useSpot.hidden, "a spot's row chooses the spot");
+                    [mapw.contentView layoutSubtreeIfNeeded];
+                    NSScrollView *listScroll = rowsTable.enclosingScrollView;
+                    CHECK(NSMaxX([rowsTable rectOfColumn:rowsTable.numberOfColumns - 1]) <= NSWidth(listScroll.contentView.bounds) + 0.5,
+                          "the spots' columns fit the panel (%.0f of %.0f)", NSMaxX([rowsTable rectOfColumn:rowsTable.numberOfColumns - 1]),
+                          NSWidth(listScroll.contentView.bounds));
+                    snapshot(mapw, "map-list-spots");
+                    kind.selectedSegment = 0;
+                    [kind sendAction:kind.action to:kind.target];
+                }
                 [useSpot performClick:nil];
                 pump(0.3);
                 NSWindow *qwSpot = qsoWindow();

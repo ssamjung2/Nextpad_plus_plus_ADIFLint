@@ -22,15 +22,20 @@ Versions before 0.8.0 were development builds and were not published.
   location (parks with an outline, its size and date) with **Remove**, a line sums them all
   up, and the location chosen says what you have of it and from which sources.
 - **Map → POTA: park badges**, as on POTA's own map: a round badge with a tree at each park
-  (larger for the parks you worked, the tree in the map's colours; a star for those you
-  activated; smaller where many show), the reference in a box under it, placed clear of
-  other badges and labels. They replace the pins and rings. **Style Options → POTA parks →
+  (for the parks you worked, filled in the map's colours (band, mode, confirmation…) with a
+  white tree and rim; a star for those you activated; pale with the tree in the park colour
+  for the others, smaller where many show), the reference in a box under it, placed clear
+  of other badges and labels. They replace the pins and rings. **Style Options → POTA parks →
   Parks with an outline: Outline only** shows a park whose outline is big enough to see as
   just the outline and its label.
-- **Map → Parks in View**: beside the map (the **Parks** button shows or hides it), the 50
-  POTA parks nearest your station, the map's centre or a grid square you type, among those
-  the map shows, with distance (mi or km) and bearing. Click one to choose it on the map,
-  double-click to zoom right in to it; a park clicked on the map chooses its row.
+- **Map → POTA parks in**: the parks you haven't worked show only in the POTA locations you
+  choose (US states, Canadian provinces, other countries' regions) and, in a US state, the
+  counties you choose; at first, your station's location, for a map of your own state
+  without the clutter of the rest. **Everywhere** shows them all.
+- **Map → List**: beside the map (the **List** button shows or hides it), the 50 POTA parks,
+  contacts or spots in view nearest your station, the map's centre or a grid square you
+  type, with distance (mi or km) and bearing. Click one to choose it on the map,
+  double-click to zoom right in to it; something clicked on the map chooses its row.
 
 - **Map → Spots: spotters.** The stations that heard each spot (up to 12: a cluster's
   spotters, RBN skimmers, and you for PSKReporter) are faint triangles. Point at a spot for

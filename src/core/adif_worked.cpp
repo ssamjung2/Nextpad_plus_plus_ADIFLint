@@ -1,5 +1,7 @@
 #include "adif_worked.h"
 
+#include "adif_geo.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -212,6 +214,47 @@ QsoAreas resolveAreas(const QsoPlaceFacts &q) {
     zone(q.cqz, q.ctyCq, Overlay::CqZones, 40, &a.cq, &a.cqFrom);
     zone(q.ituz, q.ctyItu, Overlay::ItuZones, 90, &a.itu, &a.ituFrom);
     return a;
+}
+
+std::string parkCounty(const PotaPark &p) {
+    if (!p.placed || p.location.find("US-") == std::string::npos) return "";
+    const AreaIndex &counties = areaIndex(Overlay::UsCounties);
+    size_t at = counties.at(p.lon, p.lat);
+    return at == AreaIndex::npos ? "" : counties.area(at).name;
+}
+
+bool parkInPlaces(const PotaPark &p, const ParkPlaces &places, std::string_view county) {
+    if (!places.any()) return true;
+    std::string key = countyKey(county);
+    for (size_t b = 0; b <= p.location.size();) {  // "US-DC,US-MD,US-WV": any of them will do
+        size_t e = p.location.find(',', b);
+        if (e == std::string::npos) e = p.location.size();
+        std::string loc = p.location.substr(b, e - b);
+        b = e + 1;
+        if (loc.empty() || (!places.locations.empty() && !places.locations.count(loc))) continue;
+        if (loc.size() == 5 && loc.compare(0, 3, "US-") == 0) {  // a state with counties chosen: one of them
+            std::string state = loc.substr(3) + ",";
+            auto it = places.counties.lower_bound(state);
+            bool narrowed = it != places.counties.end() && it->compare(0, state.size(), state) == 0;
+            if (narrowed && !places.counties.count(key)) continue;
+        }
+        return true;
+    }
+    return false;
+}
+
+std::string parkLocationAt(const PotaParks &parks, double lat, double lon) {
+    const AreaIndex &states = areaIndex(Overlay::UsStates);
+    if (size_t at = states.at(lon, lat); at != AreaIndex::npos) return "US-" + states.area(at).name;
+    double best = 300;
+    std::string out;
+    for (const PotaPark &p : parks.parks()) {
+        if (!p.active || !p.placed) continue;
+        if (std::fabs(p.lat - lat) > 3) continue;  // over 300 km north or south
+        double km = greatCircleKm(lat, lon, p.lat, p.lon);
+        if (km < best) best = km, out = p.location.substr(0, p.location.find(','));
+    }
+    return out;
 }
 
 }  // namespace adif

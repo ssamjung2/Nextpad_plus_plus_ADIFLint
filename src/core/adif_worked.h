@@ -6,10 +6,12 @@
 #pragma once
 
 #include "adif_country.h"
+#include "adif_parks.h"
 #include "adif_world.h"
 
 #include <array>
 #include <cstddef>
+#include <set>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -65,5 +67,21 @@ QsoAreas resolveAreas(const QsoPlaceFacts &q);
 bool isUsEntity(int dxcc);
 // The facts of one of the map's QSOs; `countries` may be null or empty.
 QsoPlaceFacts placeFacts(const MapQso &m, const CountryTable *countries);
+
+// POTA parks by place, for the Map's park filter. A park's US county: the Map's county holding
+// its place ("IL,Cook"); "" outside the US's counties.
+std::string parkCounty(const PotaPark &p);
+// The places chosen: POTA locations (none: every location), and US counties ("IL,Cook"), each
+// narrowing the parks of its own state to the counties chosen there.
+struct ParkPlaces {
+    std::set<std::string> locations;  // "US-IL", "CA-ON", as POTA writes them
+    std::set<std::string> counties;   // countyKey()s: "IL,COOK"
+    bool any() const { return !locations.empty() || !counties.empty(); }
+};
+// Whether a park is in them, given its county (parkCounty, worked out once by the caller).
+bool parkInPlaces(const PotaPark &p, const ParkPlaces &places, std::string_view county);
+// The POTA location a place is in: the US state there ("US-IL"), else the first location of the
+// nearest active park within 300 km; "" when there is none.
+std::string parkLocationAt(const PotaParks &parks, double lat, double lon);
 
 }  // namespace adif

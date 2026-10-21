@@ -117,8 +117,8 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
 - Layers, each with **Show** (what you worked), **Overlay** and **Labels**: **grid
   squares**, **countries** (DXCC), **US states**, **US counties**, **CQ zones**, **ITU
   zones**, **POTA** parks (a badge with a tree at each, as on POTA's map, or their outlines
-  where you download them: OpenStreetMap, pota-map.info, and USGS's PAD-US for US parks, with
-  a list beside the map of the parks in view, nearest first) and **IOTA** groups, and
+  where you download them: OpenStreetMap, pota-map.info, and USGS's PAD-US for US parks; only
+  your own state's or the places you choose, if you like) and **IOTA** groups, and
   **cities**. A state,
   county or zone counts
   by the QSO's own field, else by where the QSO was.
@@ -126,6 +126,8 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
   placeholders), other programs' references, **lines to contacts** in their contacts'
   colours, and **distance rings**.
 - **Filters** by band, mode, date and confirmation, and **More Filters** by place.
+- A **list beside the map** of the POTA parks, contacts or spots in view, nearest first to
+  your station, the map's centre or a grid square, with distance and bearing.
 - **Spots**: the stations spotted now, from Spothole, a DX cluster (telnet, logged in with
   your callsign) and PSKReporter (who heard you and what you heard, or what's heard around
   your grid square), in their band's colours and
