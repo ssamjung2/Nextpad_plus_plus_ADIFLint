@@ -415,7 +415,7 @@ static NSPopUpButton *findPopup(NSView *v) {
 
 // A visible label containing `text`, or nil.
 static NSString *labelContaining(NSView *v, NSString *text) {
-    if (v.hidden) return nil;
+    if (v.hidden || [v isKindOfClass:NSTableView.class]) return nil;  // a table's cells aren't labels
     if ([v isKindOfClass:NSTextField.class] && [((NSTextField *)v).stringValue containsString:text]) return ((NSTextField *)v).stringValue;
     for (NSView *s in v.subviews)
         if (NSString *found = labelContaining(s, text)) return found;
@@ -3766,9 +3766,13 @@ int main(int argc, char **argv) {
             }
 
             // Interacting: zoom, a click on a square lists its QSOs, a hover names a DXCC, the list goes to the record.
-            NSView *mapView = nil;
-            for (NSView *v in mapw.contentView.subviews)
+            NSView *mapView = nil;  // inside the split views
+            std::function<void(NSView *)> findMap = [&](NSView *v) {
                 if ([NSStringFromClass(v.class) isEqualToString:@"ADIFMapView"]) mapView = v;
+                for (NSView *sub in v.subviews)
+                    if (!mapView) findMap(sub);
+            };
+            findMap(mapw.contentView);
             auto zoomShown = [&]() {
                 NSMutableArray *labels = [NSMutableArray array];
                 collect(mapw.contentView, NSTextField.class, labels);
@@ -3802,13 +3806,13 @@ int main(int argc, char **argv) {
             NSPoint fn31 = pointFor(-73, 41.5);  // inside FN31, K1AB's square
             [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, fn31, 1)];
             [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, fn31, 1)];
-            NSTableView *qsoList = (NSTableView *)viewWithIdentifier(mapw.contentView, @"map.qsos");
-            CHECK(qsoList && [qsoList.dataSource numberOfRowsInTableView:qsoList] == 1 && [cell(qsoList, 0, @"1") isEqualToString:@"K1AB"] &&
+            NSTableView *qsoList = (NSTableView *)viewWithIdentifier(mapw.contentView, @"map.list.table");
+            CHECK(qsoList && [qsoList.dataSource numberOfRowsInTableView:qsoList] == 1 && [cell(qsoList, 0, @"call") isEqualToString:@"K1AB"] &&
                       [labelContaining(mapw.contentView, @"FN31:") hasPrefix:@"FN31: 1 QSO, confirmed (K1AB)"],
                   "a click on FN31 lists its QSO: %s", labelContaining(mapw.contentView, @"FN31").UTF8String);
-            void (^activate)(NSInteger) = [(NSObject *)qsoList.dataSource valueForKey:@"onActivate"];
             H.pos = 0;
-            if (activate) activate(0);
+            [qsoList selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
+            [NSApp sendAction:qsoList.doubleAction to:qsoList.target from:qsoList];
             CHECK(H.pos == (intptr_t)H.doc.find("<CALL:4>K1AB"), "double-clicking the QSO goes to its record (%ld)", (long)H.pos);
             [findButton(mapw.contentView, @"World") performClick:nil];
             [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(12.43, 41.90), 0)];  // 1A's centre in the test country file
@@ -3846,8 +3850,8 @@ int main(int argc, char **argv) {
             pinHead.y += 8.8;  // the head sits above the point
             [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, pinHead, 1)];
             [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, pinHead, 1)];
-            NSTableView *contactList = (NSTableView *)viewWithIdentifier(mapw.contentView, @"map.qsos");
-            CHECK([contactList.dataSource numberOfRowsInTableView:contactList] == 1 && [cell(contactList, 0, @"1") isEqualToString:@"K1AB"] &&
+            NSTableView *contactList = (NSTableView *)viewWithIdentifier(mapw.contentView, @"map.list.table");
+            CHECK([contactList.dataSource numberOfRowsInTableView:contactList] == 1 && [cell(contactList, 0, @"call") isEqualToString:@"K1AB"] &&
                       [labelContaining(mapw.contentView, @"K1AB:") hasPrefix:@"K1AB: 1 QSO at 41.7292 N, 72.7083 W (from FN31pr)."] &&
                       [labelContaining(mapw.contentView, @"K1AB:") containsString:@"from EN52WA."],
                   "a click on the contact's pin: %s", labelContaining(mapw.contentView, @"K1AB:").UTF8String);
@@ -3937,7 +3941,7 @@ int main(int argc, char **argv) {
                 NSPoint at = pointFor(-73, 41.5);
                 [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, at, 1)];
                 [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, at, 1)];
-                return [qsoList.dataSource numberOfRowsInTableView:qsoList] == 1 && [cell(qsoList, 0, @"1") isEqualToString:@"K1AB"];
+                return [qsoList.dataSource numberOfRowsInTableView:qsoList] == 1 && [cell(qsoList, 0, @"call") isEqualToString:@"K1AB"];
             };
             pick(proj, @"Equal Earth");
             CHECK(clickFn31(), "Equal Earth: a click on FN31 lists K1AB");
@@ -4011,7 +4015,7 @@ int main(int argc, char **argv) {
             NSPoint fn31Now = pointFor(-73, 41.5);
             [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, fn31Now, 1)];
             [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, fn31Now, 1)];
-            CHECK([qsoList.dataSource numberOfRowsInTableView:qsoList] == 1 && [cell(qsoList, 0, @"1") isEqualToString:@"K1AB"],
+            CHECK([qsoList.dataSource numberOfRowsInTableView:qsoList] == 1 && [cell(qsoList, 0, @"call") isEqualToString:@"K1AB"],
                   "globe: zoomed in on FN31, a click lists K1AB");
             CHECK([labelContaining(mapw.contentView, @"FN31:") containsString:@"from EN52WA"], "the status gives distance and bearing from home: %s",
                   labelContaining(mapw.contentView, @"FN31:").UTF8String);
@@ -4237,7 +4241,7 @@ int main(int argc, char **argv) {
             NSPoint northSea = pointFor(1.5, 58.0);
             [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, northSea, 1)];
             [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, northSea, 1)];
-            CHECK([qsoList.dataSource numberOfRowsInTableView:qsoList] == 1 && [cell(qsoList, 0, @"1") isEqualToString:@"G4ABC"],
+            CHECK([qsoList.dataSource numberOfRowsInTableView:qsoList] == 1 && [cell(qsoList, 0, @"call") isEqualToString:@"G4ABC"],
                   "a click on the IOTA group lists its QSO");
             [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-84.0, 20.5), 0)];  // the sea south of Cuba, in NA-046's box
             CHECK([labelContaining(mapw.contentView, @"NA-046") hasPrefix:@"IOTA NA-046 Test Group Caribbean: not worked."],
@@ -4305,7 +4309,7 @@ int main(int argc, char **argv) {
                   "hovering a hunted park's badge: %s", labelContaining(mapw.contentView, @"POTA").UTF8String);
             [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, hunted, 1)];
             [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, hunted, 1)];
-            CHECK([qsoList.dataSource numberOfRowsInTableView:qsoList] == 1 && [cell(qsoList, 0, @"1") isEqualToString:@"W2CD"],
+            CHECK([qsoList.dataSource numberOfRowsInTableView:qsoList] == 1 && [cell(qsoList, 0, @"call") isEqualToString:@"W2CD"],
                   "a click on the park's badge lists its QSO");
             // POTA parks in: the parks you haven't worked show only in your station's location at first
             // (EN52wa: US-IL), so New Jersey's are hidden; then a location and one of its counties, then everywhere.
@@ -4368,8 +4372,10 @@ int main(int argc, char **argv) {
                 NSButton *toggle = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.list.toggle");
                 NSTextField *title = (NSTextField *)viewWithIdentifier(mapw.contentView, @"map.list.title");
                 NSTextField *hint = (NSTextField *)viewWithIdentifier(mapw.contentView, @"map.list.hint");
-                CHECK(panel && !panel.hidden && toggle.state == NSControlStateValueOn && rowsTable && kind.selectedSegment == 0 && from && grid && units,
-                      "the list beside the map shows, with the parks");
+                kind.selectedSegment = 2;  // Parks
+                [kind sendAction:kind.action to:kind.target];
+                CHECK(panel && !panel.hidden && toggle.state == NSControlStateValueOn && rowsTable && kind.segmentCount == 4 && from && grid && units,
+                      "the list beside the map shows: Selected, Contacts, Parks, Spots");
                 showBox(-75.6, 40.2, -73.8, 41.5);
                 [from selectItemAtIndex:2];
                 [from sendAction:from.action to:from.target];
@@ -4384,14 +4390,14 @@ int main(int argc, char **argv) {
                         out += (out.empty() ? "" : " ") + std::string(cell(rowsTable, r, ident).UTF8String);
                     return out;
                 };
-                CHECK(column(@"0") == "US-1234 US-2001 US-2002 US-2006" && [title.stringValue isEqualToString:@"Parks in View (4)"] && !grid.hidden &&
-                          [cell(rowsTable, 0, @"1") isEqualToString:@"Test Park Hunted"] && [cell(rowsTable, 1, @"2") isEqualToString:@"42 km"] &&
-                          [cell(rowsTable, 1, @"3") hasSuffix:@"°"],
-                      "the parks in view, nearest FN20sq first (not the inactive one): %s; %s, %s %s", column(@"0").c_str(), title.stringValue.UTF8String,
-                      cell(rowsTable, 1, @"2").UTF8String, cell(rowsTable, 1, @"3").UTF8String);
+                CHECK(column(@"ref") == "US-1234 US-2001 US-2002 US-2006" && [title.stringValue isEqualToString:@"Parks in View (4)"] && !grid.hidden &&
+                          [cell(rowsTable, 0, @"name") isEqualToString:@"Test Park Hunted"] && [cell(rowsTable, 1, @"distance") isEqualToString:@"42 km"] &&
+                          [cell(rowsTable, 1, @"bearing") hasSuffix:@"°"],
+                      "the parks in view, nearest FN20sq first (not the inactive one): %s; %s, %s %s", column(@"ref").c_str(), title.stringValue.UTF8String,
+                      cell(rowsTable, 1, @"distance").UTF8String, cell(rowsTable, 1, @"bearing").UTF8String);
                 units.selectedSegment = 0;
                 [units sendAction:units.action to:units.target];
-                CHECK([cell(rowsTable, 1, @"2") isEqualToString:@"26 mi"], "in miles: %s", cell(rowsTable, 1, @"2").UTF8String);
+                CHECK([cell(rowsTable, 1, @"distance") isEqualToString:@"26 mi"], "in miles: %s", cell(rowsTable, 1, @"distance").UTF8String);
                 units.selectedSegment = 1;
                 [units sendAction:units.action to:units.target];
                 [rowsTable selectRowIndexes:[NSIndexSet indexSetWithIndex:1] byExtendingSelection:NO];
@@ -4403,19 +4409,23 @@ int main(int argc, char **argv) {
                 // Contacts in view: W2CD (FN20) and K1AB (FN31pr), nearest FN20sq first; K1AB's row chooses its square.
                 kind.selectedSegment = 1;
                 [kind sendAction:kind.action to:kind.target];
-                CHECK([title.stringValue isEqualToString:@"Contacts in View (2)"] && column(@"0") == "W2CD K1AB" && [cell(rowsTable, 0, @"2") isEqualToString:@"20m"] &&
+                CHECK([title.stringValue isEqualToString:@"Contacts in View (2)"] && column(@"call") == "W2CD K1AB" && [cell(rowsTable, 0, @"band") isEqualToString:@"20m"] &&
                           [rowsTable.tableColumns[1].title isEqualToString:@"Call"],
-                      "Contacts: the QSOs in view, nearest first (%s: %s)", title.stringValue.UTF8String, column(@"0").c_str());
+                      "Contacts: the QSOs in view, nearest first (%s: %s)", title.stringValue.UTF8String, column(@"call").c_str());
                 snapshot(mapw, "map-list-contacts");
                 [rowsTable selectRowIndexes:[NSIndexSet indexSetWithIndex:1] byExtendingSelection:NO];
-                CHECK([mapStatusText() hasPrefix:@"FN31: 1 QSO, confirmed (K1AB)"] && [qsoList.dataSource numberOfRowsInTableView:qsoList] == 1,
-                      "a contact chosen: its square on the map, its QSO under it (%s)", mapStatusText().UTF8String);
-                kind.selectedSegment = 2;
+                NSInteger stays = kind.selectedSegment;
+                kind.selectedSegment = 0;  // Selected: the square's QSOs
+                [kind sendAction:kind.action to:kind.target];
+                CHECK(stays == 1 && [mapStatusText() hasPrefix:@"FN31: 1 QSO, confirmed (K1AB)"] && [rowsTable.dataSource numberOfRowsInTableView:rowsTable] == 1 &&
+                          [cell(rowsTable, 0, @"call") isEqualToString:@"K1AB"] && [title.stringValue isEqualToString:@"Selected (1)"],
+                      "a contact chosen (the list staying on Contacts): its square on the map, its QSO under Selected (%s)", mapStatusText().UTF8String);
+                kind.selectedSegment = 3;
                 [kind sendAction:kind.action to:kind.target];
                 CHECK([title.stringValue isEqualToString:@"Spots in View (0)"] && [hint.stringValue hasPrefix:@"Tick the Spots layer's Show"],
                       "Spots: none until the Spots layer shows (%s)", hint.stringValue.UTF8String);
                 snapshot(mapw, "map-list-spots-off");
-                kind.selectedSegment = 0;
+                kind.selectedSegment = 2;
                 [kind sendAction:kind.action to:kind.target];
                 [rowsTable selectRowIndexes:[NSIndexSet indexSetWithIndex:1] byExtendingSelection:NO];
                 double before = std::atof(zoomShown().c_str());
@@ -4873,12 +4883,12 @@ int main(int argc, char **argv) {
                     NSSegmentedControl *kind = (NSSegmentedControl *)viewWithIdentifier(mapw.contentView, @"map.list.kind");
                     NSTableView *rowsTable = (NSTableView *)viewWithIdentifier(mapw.contentView, @"map.list.table");
                     NSTextField *title = (NSTextField *)viewWithIdentifier(mapw.contentView, @"map.list.title");
-                    kind.selectedSegment = 2;
+                    kind.selectedSegment = 3;
                     [kind sendAction:kind.action to:kind.target];
                     NSInteger rows = [rowsTable.dataSource numberOfRowsInTableView:rowsTable], dl = -1;
                     for (NSInteger r = 0; r < rows; ++r)
-                        if ([cell(rowsTable, r, @"0") isEqualToString:@"DL1ABC"]) dl = r;
-                    CHECK(rows >= 3 && [title.stringValue hasPrefix:@"Spots in View ("] && dl >= 0 && [cell(rowsTable, dl, @"1") isEqualToString:@"7012"] &&
+                        if ([cell(rowsTable, r, @"call") isEqualToString:@"DL1ABC"]) dl = r;
+                    CHECK(rows >= 3 && [title.stringValue hasPrefix:@"Spots in View ("] && dl >= 0 && [cell(rowsTable, dl, @"khz") isEqualToString:@"7012"] &&
                               rowsTable.selectedRow == dl,
                           "Spots: the stations spotted in view (%s), DL1ABC on 7012 kHz chosen as on the map (row %ld)", title.stringValue.UTF8String, (long)dl);
                     [rowsTable deselectAll:nil];
@@ -4894,7 +4904,7 @@ int main(int argc, char **argv) {
                     // the park badge with the spot's ring round it (its pale disc beside the tree), found to its ring.
                     NSInteger k9 = -1;
                     for (NSInteger r = 0; r < rows; ++r)
-                        if ([cell(rowsTable, r, @"0") isEqualToString:@"K9ABC"]) k9 = r;
+                        if ([cell(rowsTable, r, @"call") isEqualToString:@"K9ABC"]) k9 = r;
                     auto markOf = [&](NSInteger r) {
                         NSTextField *m = (NSTextField *)[rowsTable.delegate tableView:rowsTable viewForTableColumn:[rowsTable tableColumnWithIdentifier:@"mark"]
                                                                                  row:r];
@@ -4907,7 +4917,7 @@ int main(int argc, char **argv) {
                     // and by mode, their own.
                     NSInteger sm = -1;
                     for (NSInteger r = 0; r < [rowsTable.dataSource numberOfRowsInTableView:rowsTable]; ++r)
-                        if ([cell(rowsTable, r, @"0") isEqualToString:@"1A0KM"]) sm = r;
+                        if ([cell(rowsTable, r, @"call") isEqualToString:@"1A0KM"]) sm = r;
                     auto markColour = [&](NSInteger r) {
                         NSTextField *m = (NSTextField *)[rowsTable.delegate tableView:rowsTable viewForTableColumn:[rowsTable tableColumnWithIdentifier:@"mark"]
                                                                                  row:r];
@@ -4932,7 +4942,7 @@ int main(int argc, char **argv) {
                           "the spot says what it means for the log: %s", smInfo.c_str());
                     [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, berlin, 1)];  // DL1ABC again, for Use in New QSO below
                     [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, berlin, 1)];
-                    kind.selectedSegment = 0;
+                    kind.selectedSegment = 2;
                     [kind sendAction:kind.action to:kind.target];
                     showBox(-90.2, 42.6, -88.6, 43.5);
                     NSPoint madison = pointFor(-89.4, 43.07);
@@ -5094,8 +5104,9 @@ int main(int argc, char **argv) {
                 // Only spots of one station: DL1ABC (the cluster's spot), with K1TTT, which heard it.
                 NSButton *onlyBox = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.spots.only");
                 NSTextField *onlyCall = (NSTextField *)viewWithIdentifier(mapw.contentView, @"map.spots.onlyCall");
-                CHECK(onlyBox && onlyCall && onlyBox.superview == refreshButton.superview && onlyBox.state == NSControlStateValueOff,
-                      "Only spots of, in the Spots row under Markers, off at first");
+                CHECK(onlyBox && onlyCall && [onlyBox isDescendantOf:viewWithIdentifier(mapw.contentView, @"map.group.spots")] &&
+                          onlyBox.state == NSControlStateValueOff,
+                      "Only spots of, in the Spots group, off at first");
                 onlyCall.stringValue = @"dl1abc";
                 [onlyCall sendAction:onlyCall.action to:onlyCall.target];
                 [(NSButton *)viewWithIdentifier(mapw.contentView, @"map.spots.open") performClick:nil];
