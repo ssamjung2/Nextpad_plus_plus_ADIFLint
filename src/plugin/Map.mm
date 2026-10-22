@@ -295,8 +295,8 @@ const LayerUi kLayerUi[] = {
     {kLayerCities, @"cities", N(@"Cities"), nullptr, "mapCities", "mapCityLabels", false, false, nil,
      N(@"7,300 cities and towns (Natural Earth, public domain), more as you zoom in"), N(@"City names, where they don't run into each other")},
     {kLayerSpots, @"spots", N(@"Spots"), "mapShowSpots", "mapSpotLines", "mapSpotLabels", false, false,
-     N(@"The stations spotted now, in their band's colour, from the sources chosen in Spots... (Spothole, a DX cluster, PSKReporter); "
-     @"older spots fade"),
+     N(@"The stations spotted now, from the sources chosen in Spots... (Spothole, a DX cluster, PSKReporter), coloured as Colour by says "
+     @"(by confirmation: a new DXCC, a new band or mode, worked, confirmed); older spots fade"),
      N(@"A line from each spotter to the station it heard (while Show is on)"), N(@"Each spotted station's call, where there's room")},
 };
 
@@ -533,6 +533,22 @@ void showList(const std::vector<size_t> &qsos) {
     [mw.table reloadData];
 }
 
+// What a spot means for the log, in words: "new DXCC: Japan", "new band for Germany (17m)",
+// "Germany worked on 40m"; and "new park" for a POTA park not hunted.
+std::string spotNeedLine(const adif::SpotStatus &st, const std::string &band) {
+    std::string out;
+    switch (st.need) {
+        case adif::SpotNeed::NewDxcc: out = trf("new DXCC: {entity}", {{"entity", st.entity}}); break;
+        case adif::SpotNeed::NewBand: out = trf("new band for {entity} ({band})", {{"entity", st.entity}, {"band", band}}); break;
+        case adif::SpotNeed::NewMode: out = trf("new mode on {band} for {entity}", {{"entity", st.entity}, {"band", band}}); break;
+        case adif::SpotNeed::Worked: out = trf("{entity} worked on {band}, not confirmed", {{"entity", st.entity}, {"band", band}}); break;
+        case adif::SpotNeed::Confirmed: out = trf("{entity} confirmed on {band}", {{"entity", st.entity}, {"band", band}}); break;
+        default: break;
+    }
+    if (st.newPark) out += (out.empty() ? "" : "; ") + tr("new park");
+    return out;
+}
+
 // The information box for a clicked spot or spotter: everything known about the station.
 std::vector<ADIFInfoRow> spotInfo(const ADIFMapHit &h) {
     std::vector<ADIFInfoRow> rows;
@@ -601,6 +617,7 @@ std::vector<ADIFInfoRow> spotInfo(const ADIFMapHit &h) {
         country(sp.activator);
         distance(ms.lat, ms.lon);
         if (!sp.heardMe) row(N_("In this log"), inLog(sp));
+        if (!sp.heardMe) row(N_("For this log"), spotNeedLine(ms.status, sp.band));
         row(N_("Comment"), sp.comments);
         std::vector<std::string> by;
         for (const ADIFSpotHeard &hd : ms.heard) by.push_back(heard(hd.call, hd.hasSnr, hd.snr, hd.epoch));
@@ -886,9 +903,9 @@ void showStyleOptions() {
              @[ N(@"Hidden##spotters"), N(@"Faint grey"), N(@"Markers"), N(@"Markers and calls") ], N(@"Spotters:"),
              N(@"The stations that heard the spots (a cluster's spotters, RBN skimmers; for PSKReporter, you), each a triangle. Point at a "
              @"spot or a spotter for its lines")});
-        add({"mapSpotLineStyle", @"map.style.spotLines", 0, @[ N(@"In the band's colour"), N(@"Faint, in the band's colour"), N(@"Faint grey") ],
+        add({"mapSpotLineStyle", @"map.style.spotLines", 0, @[ N(@"In the spot's colour"), N(@"Faint, in the spot's colour"), N(@"Faint grey") ],
              N(@"Lines:"),
-             N(@"The lines from the spotters (the Spots layer's Overlay). The spot under the pointer always shows its lines in its band's colour")});
+             N(@"The lines from the spotters (the Spots layer's Overlay). The spot under the pointer always shows its lines in its own colour")});
         add({"mapSpotLabelMode", @"map.style.spotMode", 1, nil, N(@"Mode"), N(@"Under each spot's call (the Spots layer's Labels): its mode")});
         rows[rows.count - 1] = @[ ADIFLabel(N(@"Labels show:")), rows.lastObject[1] ];
         add({"mapSpotLabelFreq", @"map.style.spotFreq", 0, nil, N(@"Frequency"), N(@"Under each spot's call: its frequency in kHz")});
@@ -1976,7 +1993,7 @@ std::vector<ADIFViewRow> spotRows(double lat, double lon, size_t *total) {
         char khz[24] = "";  // to 100 Hz: PSKReporter gives Hz
         if (double f = std::atof(ms.spot.khz.c_str()); f > 0) snprintf(khz, sizeof khz, std::fmod(f, 1) == 0 ? "%.0f" : "%.1f", f);
         r.cells = {ms.spot.activator, khz, ms.spot.mode, adif::spotAge(ms.spot.epoch, now), km, deg};
-        r.color = [mw.view bandColor:ms.spot.band];
+        r.color = [mw.view spotColor:ms];
         r.tree = potaSpot(ms.spot);
         rows.push_back(r);
     }

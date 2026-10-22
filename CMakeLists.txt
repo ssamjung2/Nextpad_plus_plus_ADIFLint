@@ -57,6 +57,7 @@ add_library(adif_core STATIC
     src/core/adif_palette.cpp
     src/core/adif_detail.cpp
     src/core/adif_parks.cpp
+    src/core/adif_needs.cpp
     src/core/adif_worked.cpp
     src/core/adif_regions.cpp
     src/core/adif_sun.cpp

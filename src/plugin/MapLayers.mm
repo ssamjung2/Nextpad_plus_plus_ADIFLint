@@ -1174,7 +1174,7 @@ bool mapkit::potaSpot(const adif::Spot &s) { return s.program == "POTA"; }
 
 // ── Spots ──
 
-// A spot: a dot inside a ring, in its band's colour, like a station calling.
+// A spot: a dot inside a ring, in its colour (spotColor: Colour by), like a station calling.
 - (NSBezierPath *)spotMarkerAt:(NSPoint)p {
     double r = 3 * _style.marker, ring = 6 * _style.marker;
     NSBezierPath *m = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(p.x - r, p.y - r, 2 * r, 2 * r)];
@@ -1182,7 +1182,7 @@ bool mapkit::potaSpot(const adif::Spot &s) { return s.program == "POTA"; }
     return m;
 }
 
-// A POTA activator's spot: the park badge (a pale disc with a tree, here in the band's colour)
+// A POTA activator's spot: the park badge (a pale disc with a tree, here in the spot's colour)
 // with the spot's ring round it, a station calling from a park. Fainter as it ages, like the rest.
 - (void)drawPotaSpotAt:(NSPoint)p radius:(double)r color:(NSColor *)c alpha:(CGFloat)alpha lit:(BOOL)lit {
     CGContextRef ctx = NSGraphicsContext.currentContext.CGContext;
@@ -1222,9 +1222,9 @@ bool mapkit::potaSpot(const adif::Spot &s) { return s.program == "POTA"; }
     return false;
 }
 
-// Overlay: a line from each spotter to the station it heard, in the band's colour, fainter, or
+// Overlay: a line from each spotter to the station it heard, in the spot's colour, fainter, or
 // faint grey (Style Options). The lines of the spot or spotter under the pointer or chosen show
-// in the band's colour while Show is on, Overlay or not, on top.
+// in the spot's colour while Show is on, Overlay or not, on top.
 - (void)drawSpotLines:(MapDrawCtx &)d {
     if (!_style[kLayerSpots].show) return;
     std::set<std::string> litSpotters;
@@ -1243,10 +1243,9 @@ bool mapkit::potaSpot(const adif::Spot &s) { return s.program == "POTA"; }
                 NSBezierPath *path = [self viewPath:adif::greatCirclePath(h.lat, h.lon, s.lat, s.lon, 3) close:NO wraps:YES];
                 path.lineWidth = lit ? 1.8 : _style.spotLines == 0 ? 0.8 : 0.7;
                 path.lineJoinStyle = NSLineJoinStyleRound;
-                NSColor *colour = lit                      ? [[self bandColor:s.spot.band] colorWithAlphaComponent:0.9]
+                NSColor *colour = lit                      ? [[self spotColor:s] colorWithAlphaComponent:0.9]
                                   : _style.spotLines == 2 ? [NSColor colorWithCalibratedWhite:d.ink alpha:0.22]
-                                                          : [[self bandColor:s.spot.band]
-                                                                colorWithAlphaComponent:(_style.spotLines == 1 ? 0.2 : 0.45) * [self spotAlpha:s]];
+                                                          : [[self spotColor:s] colorWithAlphaComponent:(_style.spotLines == 1 ? 0.2 : 0.45) * [self spotAlpha:s]];
                 [colour setStroke];
                 [path stroke];
             }
@@ -1322,10 +1321,10 @@ bool mapkit::potaSpot(const adif::Spot &s) { return s.program == "POTA"; }
         bool lit = [self spotLit:k];
         CGFloat alpha = [self spotAlpha:s];
         if (potaSpot(s.spot)) {  // from a park: POTA's badge, calling
-            [self drawPotaSpotAt:p radius:6.5 * _style.marker color:[self bandColor:s.spot.band] alpha:alpha lit:lit];
+            [self drawPotaSpotAt:p radius:6.5 * _style.marker color:[self spotColor:s] alpha:alpha lit:lit];
             continue;
         }
-        NSColor *c = [[self bandColor:s.spot.band] colorWithAlphaComponent:alpha];
+        NSColor *c = [[self spotColor:s] colorWithAlphaComponent:alpha];
         double r = 3 * _style.marker, ring = 6 * _style.marker;
         NSBezierPath *dot = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(p.x - r, p.y - r, 2 * r, 2 * r)];
         NSBezierPath *circle = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(p.x - ring, p.y - ring, 2 * ring, 2 * ring)];

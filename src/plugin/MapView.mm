@@ -2,6 +2,7 @@
 
 #import "L10n.h"
 
+#import "Country.h"
 #import "IotaGroups.h"
 #import "PluginHost.h"
 #import "PotaParks.h"
@@ -239,6 +240,8 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     _iotaQsos.clear();
     _potaWork.clear();
     ++_dataGeneration;
+    _worked = adif::workedIndex(_data.qsos, &ADIFCountries());  // what the spots mean for this log
+    for (ADIFMapSpot &s : _spots) s.status = adif::spotStatus(_worked, s.spot, &ADIFCountries());
     for (size_t i = 0; i < _data.qsos.size(); ++i) {
         if (!_data.qsos[i].iota.empty()) _iotaQsos[_data.qsos[i].iota].push_back(i);
         for (const std::string &ref : _data.qsos[i].potaHunted) _potaWork[ref].hunted.push_back(i);
@@ -314,6 +317,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     same(_hover);
     same(_selected);
     _spots = spots;
+    for (ADIFMapSpot &s : _spots) s.status = adif::spotStatus(_worked, s.spot, &ADIFCountries());
     _spotters = std::move(spotters);
     _spotsNow = now, _spotMaxAge = maxAge;
     self.needsDisplay = YES;
@@ -397,6 +401,10 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 
 - (const std::vector<ADIFMapSpot> &)spots {
     return _spots;
+}
+
+- (const adif::WorkedIndex &)worked {
+    return _worked;
 }
 
 - (ADIFMapHit)selectedHit {
@@ -786,6 +794,28 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     }
 }
 
+- (NSColor *)spotColor:(const ADIFMapSpot &)s {
+    const MapPalette &p = paletteAt(_style.palette);
+    NSColor *none = rgb(adif::kUnknownBandColour);  // not known, or not worked
+    switch (_style.colorBy) {
+        case 1: return [self bandColor:s.spot.band];
+        case 2: return s.spot.mode.empty() ? none : rgb(p.qualitative[(size_t)adif::modeGroup(s.spot.mode) % p.qualitative.size()]);
+        case 3: return s.status.callQsos ? ramp(countBucket(s.status.callQsos) / 4.0, p) : none;
+        case 4:
+            if (!s.status.callFirstYear) return none;
+            return ramp(_maxYear > _minYear ? std::clamp((double)(s.status.callFirstYear - _minYear) / (_maxYear - _minYear), 0.0, 1.0) : 1.0, p);
+        default:
+            switch (s.status.need) {
+                case adif::SpotNeed::NewDxcc: return rgb(p.needDxcc);
+                case adif::SpotNeed::NewBand:
+                case adif::SpotNeed::NewMode: return rgb(p.needBand);
+                case adif::SpotNeed::Worked: return rgb(p.worked);
+                case adif::SpotNeed::Confirmed: return rgb(p.confirmed);
+                default: return none;
+            }
+    }
+}
+
 - (NSColor *)programColor:(const std::string &)program {
     const MapPalette &p = paletteAt(_style.palette);
     size_t i = kProgramCount;
@@ -1110,7 +1140,32 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     }
     if (_style[kLayerSpots].show && !_spots.empty()) {
         rows.push_back({7, nil, tr("Spots")});
-        rows.push_back({14, [NSColor colorWithCalibratedWhite:pal.dark ? 0.85 : 0.35 alpha:1], tr("stations spotted (in their band's colour)")});
+        // The spots' colours, as Colour by says (their own key: the QSOs' may not show).
+        NSColor *grey = [NSColor colorWithCalibratedWhite:pal.dark ? 0.85 : 0.35 alpha:1];
+        switch (_style.colorBy) {
+            case 1: {
+                std::set<std::string> seen;
+                std::vector<std::string> bands;
+                for (const ADIFMapSpot &s : _spots)
+                    if (!s.spot.band.empty() && seen.insert(s.spot.band).second) bands.push_back(s.spot.band);
+                std::sort(bands.begin(), bands.end(), [](const std::string &a, const std::string &b) { return adif::bandOrder(a) < adif::bandOrder(b); });
+                if (bands.size() > 10) bands.resize(10);
+                rows.push_back({14, grey, tr("stations spotted (in their band's colour)")});
+                for (const std::string &b : bands) rows.push_back({14, [self bandColor:b], b});
+                break;
+            }
+            case 2:
+                for (int m = 0; m < 3; ++m) rows.push_back({14, rgb(pal.qualitative[(size_t)m % pal.qualitative.size()]), tr(kModeLabels[m])});
+                break;
+            case 3:
+            case 4: rows.push_back({14, grey, tr("stations spotted (by your QSOs with them; grey: none)")}); break;
+            default:
+                rows.push_back({14, rgb(pal.needDxcc), tr("new DXCC")});
+                rows.push_back({14, rgb(pal.needBand), tr("new band or mode for its DXCC")});
+                rows.push_back({14, rgb(pal.worked), tr("its DXCC worked on the band")});
+                rows.push_back({14, rgb(pal.confirmed), tr("its DXCC confirmed on the band")});
+                break;
+        }
         if (std::any_of(_spots.begin(), _spots.end(), [](const ADIFMapSpot &s) { return potaSpot(s.spot); }))
             rows.push_back({15, [NSColor colorWithCalibratedWhite:pal.dark ? 0.85 : 0.35 alpha:1], tr("POTA activators spotted (at their park)")});
         if (_style.spotters != 0 && !_spotters.empty()) rows.push_back({13, nil, tr("stations that heard them")});

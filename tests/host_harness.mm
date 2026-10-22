@@ -4702,8 +4702,10 @@ int main(int argc, char **argv) {
                     @"\"dx_longitude\":-89.4,\"dx_location_good\":true,\"de_call\":\"N9XYZ\",\"source\":\"POTA\",\"received_time\":%lld},"
                     @"{\"id\":\"m3\",\"dx_call\":\"W7SOTA\",\"freq\":14062000,\"mode\":\"CW\",\"time\":%lld,\"activities\":[\"SOTA\"],"
                     @"\"activity_refs\":[{\"id\":\"W7A/AE-001\"}],\"source\":\"SOTA\",\"received_time\":%lld},"
-                    @"{\"id\":\"m4\",\"dx_call\":\"VK2OLD\",\"freq\":14025000,\"mode\":\"CW\",\"time\":%lld,\"source\":\"Cluster\",\"received_time\":%lld}]",
-                    now - 300, now - 290, now - 120, now - 100, now - 60, now - 50, now - 5000, now - 4990];
+                    @"{\"id\":\"m4\",\"dx_call\":\"VK2OLD\",\"freq\":14025000,\"mode\":\"CW\",\"time\":%lld,\"source\":\"Cluster\",\"received_time\":%lld},"
+                    @"{\"id\":\"m5\",\"dx_call\":\"1A0KM\",\"freq\":7010000,\"mode\":\"CW\",\"time\":%lld,\"activities\":[],\"activity_refs\":[],"
+                    @"\"dx_latitude\":41.9,\"dx_longitude\":12.43,\"dx_location_good\":true,\"de_call\":\"IK0XYZ\",\"source\":\"Cluster\",\"received_time\":%lld}]",
+                    now - 300, now - 290, now - 120, now - 100, now - 60, now - 50, now - 5000, now - 4990, now - 30, now - 25];
                 [mapSpots writeToFile:[spotDir stringByAppendingPathComponent:@"spothole/map-spots.json"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
                 NSString *psk = [NSString stringWithFormat:
                     @"<?xml version=\"1.0\"?><receptionReports><receptionReport receiverCallsign=\"G4RCV\" receiverLocator=\"IO91wm\" "
@@ -4815,12 +4817,12 @@ int main(int argc, char **argv) {
                 [(NSButton *)viewWithIdentifier(mapw.contentView, @"map.spots.open") performClick:nil];
                 pump(0.2);
                 NSTextField *spotStatus = (NSTextField *)popoverView(@"map.spots.status");
-                for (int k = 0; k < 40 && ![spotStatus.stringValue hasPrefix:@"4 stations on the map"]; ++k) pump(0.1);
+                for (int k = 0; k < 40 && ![spotStatus.stringValue hasPrefix:@"5 stations on the map"]; ++k) pump(0.1);
                 std::string req = requests();
-                CHECK([spotStatus.stringValue hasPrefix:@"4 stations on the map, from 5 spots."] &&
+                CHECK([spotStatus.stringValue hasPrefix:@"5 stations on the map, from 6 spots."] &&
                           [spotStatus.stringValue containsString:@"DX cluster: connected to 127.0.0.1"] &&
                           [spotStatus.stringValue containsString:@"as K9TST"] && [spotStatus.stringValue containsString:@"PSKReporter: 1 report of K9TST"],
-                      "the feeds' spots on the map: an RBN and a POTA spot from Spothole, the cluster's, PSKReporter's; SOTA dropped, "
+                      "the feeds' spots on the map: an RBN, a POTA and a DX spot from Spothole, the cluster's, PSKReporter's; SOTA dropped, "
                       "the old one filtered (%s)",
                       spotStatus.stringValue.UTF8String);
                 CHECK(count(req, "SPOTHOLE https://spothole.app/api/v3/spots?activity=") == 1 && req.find("NO_ACTIVITY") != std::string::npos &&
@@ -4848,7 +4850,7 @@ int main(int argc, char **argv) {
                 CHECK([spotStatus.stringValue hasPrefix:@"1 station on the map"], "only POTA spots: %s", spotStatus.stringValue.UTF8String);
                 [programPop selectItemWithTitle:@"Plain DX spots"];
                 [programPop sendAction:programPop.action to:programPop.target];
-                CHECK([spotStatus.stringValue hasPrefix:@"3 stations on the map"], "only plain DX spots: %s", spotStatus.stringValue.UTF8String);
+                CHECK([spotStatus.stringValue hasPrefix:@"4 stations on the map"], "only plain DX spots: %s", spotStatus.stringValue.UTF8String);
                 [programPop selectItemAtIndex:0];
                 [programPop sendAction:programPop.action to:programPop.target];
                 for (NSWindow *w in [NSApp.windows copy])
@@ -4900,6 +4902,36 @@ int main(int argc, char **argv) {
                     };
                     CHECK(k9 >= 0 && dl >= 0 && markOf(k9).containsAttachments && !markOf(dl).containsAttachments,
                           "a POTA spot's row has POTA's tree, a plain spot's a dot");
+                    // Colour by applies to spots: by confirmation, what each means for the log (1A0KM on 40m: the SMOM
+                    // worked only on 20m, a new band; DL1ABC: an entity the test country data doesn't know, grey); by band
+                    // and by mode, their own.
+                    NSInteger sm = -1;
+                    for (NSInteger r = 0; r < [rowsTable.dataSource numberOfRowsInTableView:rowsTable]; ++r)
+                        if ([cell(rowsTable, r, @"0") isEqualToString:@"1A0KM"]) sm = r;
+                    auto markColour = [&](NSInteger r) {
+                        NSTextField *m = (NSTextField *)[rowsTable.delegate tableView:rowsTable viewForTableColumn:[rowsTable tableColumnWithIdentifier:@"mark"]
+                                                                                 row:r];
+                        return [m.textColor colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+                    };
+                    pick(colour, @"Colour by confirmation");
+                    [kind sendAction:kind.action to:kind.target];
+                    NSColor *smNeed = markColour(sm), *dlNeed = markColour(dl);
+                    pick(colour, @"Colour by band");
+                    [kind sendAction:kind.action to:kind.target];
+                    NSColor *smBand = markColour(sm);
+                    pick(colour, @"Colour by mode");
+                    [kind sendAction:kind.action to:kind.target];
+                    NSColor *smMode = markColour(sm);
+                    CHECK(sm >= 0 && ![smNeed isEqual:dlNeed] && ![smNeed isEqual:smBand] && ![smBand isEqual:smMode],
+                          "spots follow Colour by: what they mean for the log, their band, their mode");
+                    pick(colour, @"Colour by confirmation");
+                    [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, pointFor(12.43, 41.9), 1)];
+                    [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, pointFor(12.43, 41.9), 1)];
+                    std::string smInfo = ((NSString *)[mapView performSelector:@selector(infoText)]).UTF8String;
+                    CHECK(smInfo.find("For this log: new band for Sov Mil Order of Malta (40m)") != std::string::npos,
+                          "the spot says what it means for the log: %s", smInfo.c_str());
+                    [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, berlin, 1)];  // DL1ABC again, for Use in New QSO below
+                    [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, berlin, 1)];
                     kind.selectedSegment = 0;
                     [kind sendAction:kind.action to:kind.target];
                     showBox(-90.2, 42.6, -88.6, 43.5);
@@ -4988,7 +5020,7 @@ int main(int argc, char **argv) {
                 [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, skimmer, 1)];
                 CHECK(!labelContaining(mapw.contentView, @"W3LPL-#, a spotter"), "spotters hidden: no spotter under the pointer");
                 CHECK(stylePick(@"spotters", @"Faint grey") && stylePick(@"spotLines", @"Faint grey") &&
-                          stylePick(@"spotLines", @"Faint, in the band's colour"),
+                          stylePick(@"spotLines", @"Faint, in the spot's colour"),
                       "spotters faint grey; the spotters' lines faint grey or faint");
                 CHECK(stylePick(@"spotters", @"Markers and calls"), "spotters with their calls");
                 if (mapw) snapshot(mapw, "map-spotters");
@@ -5005,7 +5037,7 @@ int main(int argc, char **argv) {
                               [ini containsString:@"mapSpotterStyle=3"] && [ini containsString:@"mapSpotLineStyle=1"],
                           "the spot style is kept");
                 }
-                stylePick(@"spotters", @"Markers"), stylePick(@"spotLines", @"In the band's colour"), styleSet(@"spotFreq", false),
+                stylePick(@"spotters", @"Markers"), stylePick(@"spotLines", @"In the spot's colour"), styleSet(@"spotFreq", false),
                     styleSet(@"spotFade", true);
                 // Settings → Spots: PSKReporter around the grid square; switching doesn't ask again within five minutes.
                 run("Settings...");

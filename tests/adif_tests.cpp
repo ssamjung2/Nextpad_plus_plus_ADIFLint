@@ -18,6 +18,7 @@
 #include "adif_palette.h"
 #include "adif_detail.h"
 #include "adif_parks.h"
+#include "adif_needs.h"
 #include "adif_worked.h"
 #include "adif_regions.h"
 #include "adif_sun.h"
@@ -3678,6 +3679,42 @@ static void testSpotsCore() {
     ct.load("DL,Fed. Rep. of Germany,230,EU,14,28,51.00,-10.00,-1.0,DA DB DC DD DE DF DG DH DI DJ DK DL DM DN DO DP DQ DR;\n"
             "JA,Japan,339,AS,25,45,36.40,-138.38,-9.0,JA JE JF JG JH JI JJ JK JL JM JN JO JP JQ JR JS;\n"
             "K,United States,291,NA,5,8,37.60,91.87,5.0,AA AB AC AD AE AF AG AI AJ AK K N W;\n");
+    {  // What a log has worked, and what a spot means for it
+        auto qso = [](const char *call, const char *band, const char *mode, bool confirmed, const char *date = "20240101") {
+            MapQso q;
+            q.call = call, q.band = band, q.mode = mode, q.modeGroup = modeGroup(mode), q.confirmed = confirmed, q.date8 = date;
+            return q;
+        };
+        std::vector<MapQso> log = {qso("DL1ABC", "20m", "CW", true, "20220501"), qso("DL2XYZ", "40M", "FT8", false), qso("dl1abc/p", "40m", "SSB", false)};
+        log[2].potaHunted = {"US-1234"};
+        WorkedIndex w = workedIndex(log, &ct);
+        CHECK(w.entities.size() == 1 && w.entities[230].bands == std::set<std::string>({"20m", "40m"}) &&
+                  w.entities[230].confirmedBands == std::set<std::string>({"20m"}) && w.calls["DL1ABC"].qsos == 2 &&
+                  w.calls["DL1ABC"].firstYear == 2022 && w.calls["DL1ABC"].confirmed && w.parks.count("US-1234"),
+              "the worked index: Germany on 20m and 40m (20m confirmed), DL1ABC twice (its portable form too), a park hunted");
+        auto spot = [](const char *call, const char *band, const char *mode) {
+            Spot sp;
+            sp.activator = call, sp.band = band, sp.mode = mode;
+            return sp;
+        };
+        CHECK(spotStatus(w, spot("JA1XYZ", "20m", "CW"), &ct).need == SpotNeed::NewDxcc, "an entity never worked: a new DXCC");
+        CHECK(spotStatus(w, spot("DL9AAA", "17m", "CW"), &ct).need == SpotNeed::NewBand, "Germany on a band not worked: a new band");
+        CHECK(spotStatus(w, spot("DL9AAA", "40m", "CW"), &ct).need == SpotNeed::NewMode, "Germany on 40m CW, worked there only in data and phone");
+        SpotStatus st = spotStatus(w, spot("DL1ABC", "20M", "CW"), &ct);
+        CHECK(st.need == SpotNeed::Confirmed && st.callQsos == 2 && st.callFirstYear == 2022 && st.entity == "Fed. Rep. of Germany" &&
+                  spotStatus(w, spot("DL9AAA", "40m", "FT8"), &ct).need == SpotNeed::Worked,
+              "worked and confirmed on the band; the call's QSOs (%zu)", st.callQsos);
+        CHECK(spotStatus(w, spot("ZZ9ZZ", "20m", "CW"), &ct).need == SpotNeed::Unknown && spotStatus(w, spot("JA1XYZ", "20m", "CW"), nullptr).need == SpotNeed::Unknown,
+              "no entity without the country data or a known prefix");
+        Spot park = spot("K9ABC", "40m", "SSB");
+        park.program = "POTA", park.refs = {"US-1234"};
+        Spot newPark = park;
+        newPark.refs = {"US-9999"};
+        CHECK(!spotStatus(w, park, &ct).newPark && spotStatus(w, newPark, &ct).newPark && spotWanted(spotStatus(w, newPark, &ct)) &&
+                  !spotWanted(spotStatus(w, spot("DL1ABC", "20m", "CW"), &ct)) && spotWanted(spotStatus(w, spot("JA1XYZ", "20m", "CW"), &ct)),
+              "a park not hunted is wanted; a slot already worked isn't");
+    }
+
     SpotPlace p = stationPlace("DL1ABC", "JO62qm", &ct);
     CHECK(p.ok && p.exact && p.from == "grid" && std::fabs(p.lat - 52.52) < 0.05 && std::fabs(p.lon - 13.38) < 0.05, "a spot at its 6-character grid");
     p = stationPlace("DL1ABC", "", &ct);

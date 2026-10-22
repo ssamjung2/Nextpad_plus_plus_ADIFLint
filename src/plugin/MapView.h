@@ -6,6 +6,7 @@
 #import <Cocoa/Cocoa.h>
 
 #include "adif_detail.h"
+#include "adif_needs.h"
 #include "adif_palette.h"
 #include "adif_projection.h"
 #include "adif_spots.h"
@@ -102,6 +103,7 @@ struct ADIFMapSpot {
     double lat = 0, lon = 0;
     bool exact = false;  // at its 6-character grid; else its grid square or country
     std::vector<ADIFSpotHeard> heard;  // newest first, one per spotter, at most 12, each where it is
+    adif::SpotStatus status;           // what it means for the log (set by the view)
 };
 
 // A line of the information box (what is known about a clicked spot or spotter): a heading, or
@@ -264,6 +266,7 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
     std::vector<ADIFMapSpot> _spots;  // newest first
     std::vector<ADIFMapSpotter> _spotters;  // the stations that heard them, from _spots
     std::vector<ADIFInfoRow> _info;         // the information box, bottom right; empty: none
+    adif::WorkedIndex _worked;              // what the log has worked, for the spots
     long long _spotsNow;             // when the spots were given, for their age
     long long _spotMaxAge;           // the Spots filter's age (fading); 0 any
 }
@@ -293,6 +296,10 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 // The spots to mark (the Spots layer), as of `now` (Unix seconds); older ones fade toward maxAge.
 - (void)setSpots:(const std::vector<ADIFMapSpot> &)spots now:(long long)now maxAge:(long long)maxAge;
 - (const std::vector<ADIFMapSpot> &)spots;
+- (const adif::WorkedIndex &)worked;
+// A spot's colour, as the map's Colour by says: its band, its mode, what it means for the log
+// (a new DXCC, a new band, worked, confirmed), your QSOs with the call, or the year you first did.
+- (NSColor *)spotColor:(const ADIFMapSpot &)s;
 - (const std::vector<ADIFMapSpotter> &)spotters;
 - (void)setInfo:(const std::vector<ADIFInfoRow> &)rows;  // the information box ({} hides it)
 - (const std::vector<ADIFInfoRow> &)info;

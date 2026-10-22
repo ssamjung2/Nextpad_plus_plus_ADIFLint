@@ -97,20 +97,20 @@ const MapPalette &mapPalette(int i) {
     static const std::vector<MapPalette> all = {
         // Close to macOS's own green, orange, teal, blue, purple and red in the dark appearance.
         {"Standard", 0x17202B, 0x21334A, 0x546154, 0x5C85B3, 0xCCD1C2, true, 0x30D158, 0xFF9F0A, 0x40C8E0, 0x0A84FF, 0xBF5AF2, 0xFF453A,
-         tableau, 0.2, false},
+         tableau, 0.2, false, false, 0xFF375F, 0x64D2FF},
         // Okabe and Ito's colours for confirmed and worked, DXCC worked, parks and your station;
         // white for DXCC confirmed (their bluish green barely stood out from the ocean); modes
         // and programs take the band set; counts and years start further along viridis.
         {"Colour-blind safe", 0x17202B, 0x21334A, 0x546154, 0x5C85B3, 0xCCD1C2, true, 0x56B4E9, 0xE69F00, 0xFFFFFF, 0xD55E00, 0xCC79A7,
-         0xF0E442, colourBlindBandSet(), 0.3, true},
+         0xF0E442, colourBlindBandSet(), 0.3, true, false, 0xCC79A7, 0xF0E442},
         {"High contrast", 0x000000, 0x0A1A2F, 0x3C3C3C, 0x4FA3FF, 0xFFFFFF, true, 0x00FF66, 0xFF2D95, 0x00E5FF, 0xFFD400, 0xB388FF, 0xFF3B30,
-         bright, 0.3, false},
+         bright, 0.3, false, false, 0xFFFFFF, 0xFFD400},
         {"Light", 0xFFFFFF, 0xDCE9F5, 0xF2EFE6, 0x7FA7D0, 0x8A8A8A, false, 0x1A9850, 0xF46D43, 0x2C7BB6, 0x8C510A, 0x762A83, 0xD7191C,
-         tableau, 0.0, false},
+         tableau, 0.0, false, false, 0xC51B7D, 0x01665E},
         // For the dark: the standard colours, which the Map then shows as reds of their brightness
         // (red on black keeps night vision); confirmed and worked differ in brightness too.
         {"Night (red)", 0x000000, 0x0A0F16, 0x3A4038, 0x3E5A7A, 0x9AA090, true, 0xF0F0F0, 0x8A8A8A, 0xFFFFFF, 0x9A9A9A, 0xBF5AF2, 0xFFD60A,
-         tableau, 0.2, false, true},
+         tableau, 0.2, false, true, 0xFFFFFF, 0xC8C8C8},
     };
     return all[(size_t)std::clamp(i, 0, (int)all.size() - 1)];
 }

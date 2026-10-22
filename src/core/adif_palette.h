@@ -28,6 +28,8 @@ struct MapPalette {
     double rampFrom;                    // where counts and years start along viridis
     bool safeBands;                     // bands from colourBlindBandSet() instead of PSKReporter's
     bool night = false;                 // shown red on black, to keep night vision: each colour as a red of its brightness
+    // Spots, coloured by what they mean for the log: a new DXCC entity, a band new for its entity.
+    unsigned needDxcc = 0xFF375F, needBand = 0x64D2FF;
 };
 size_t mapPaletteCount();
 // Clamped: 0 standard, 1 colour-blind safe, 2 high contrast, 3 light, 4 night (red).
