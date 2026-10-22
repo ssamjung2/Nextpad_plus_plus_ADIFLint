@@ -258,12 +258,17 @@ struct {
     NSTextField *target = nil, *status = nil, *zoomLabel = nil;
     NSTextField *situation = nil;  // the status bar's right side: the log and the spots, for the operator
     NSTextField *slots = nil;      // the contact's DXCC entity's band slots, under its description
+    NSTextField *contactTitle = nil;  // what the contact panel is about, in bold, over its description
     NSTextField *today = nil, *air = nil, *wantedLabel = nil;
     NSStackView *wanted = nil;     // the spots most wanted, as links
     ADIFMapHit chosenHit;          // what was clicked last (the contact panel shows it when the pointer is on nothing)
     NSSplitView *mainSplit = nil, *outerSplit = nil, *statusSplit = nil;  // map | list; map and list | status bar; contact | situation
     ADIFSplitKeeper *splitKeeper = nil;
     bool splitsRestored = false;
+    // The control groups under the toolbar, which Controls shows or hides.
+    NSView *controlsView = nil;
+    NSButton *controlsToggle = nil;
+    NSLayoutConstraint *controlsGap = nil, *controlsGone = nil, *underGap = nil;
     // More Filters: places.
     NSButton *moreFilters = nil, *clearFilters = nil;
     NSPopover *filterPopover = nil;
@@ -286,7 +291,8 @@ struct {
     NSButton *listToggle = nil;
     NSSegmentedControl *listKind = nil, *listUnits = nil;
     NSTextField *listTitle = nil, *listHint = nil, *listGrid = nil, *listPageLabel = nil;
-    NSPopUpButton *listFrom = nil, *listPageSize = nil, *listColumnsMenu = nil;
+    NSPopUpButton *listFrom = nil, *listPageSize = nil, *listColumnsMenu = nil, *listWithin = nil;
+    NSSearchField *listSearch = nil;
     NSButton *listPrev = nil, *listNext = nil;
     NSTableView *listTable = nil;
     ADIFViewList *listRows = nil;
@@ -432,6 +438,8 @@ ADIFMapStyle savedStyle() {
     s.spotLabel.snr = flag("mapSpotLabelSnr", true);
     s.spotFade = flag("mapSpotFade", true);
     s.parkOutlineOnly = number("mapParkOutlines", 0, 1) == 1;
+    s.reference = number("mapReference", 1, 2);
+    s.spotlight = flag("mapSpotlight", false);
     return s;
 }
 
@@ -492,6 +500,40 @@ void showSlots(int dxcc, const std::string &entity, const std::string &call) {
     mw.slots.attributedStringValue = out;
 }
 
+std::string callsOf(const std::vector<size_t> &qsos);
+
+// What the contact panel is about, in a few words: a spot's call, frequency and mode; a park's
+// reference and name; a square; a contact's calls; an entity, area or IOTA group's name.
+std::string contactTitle(const ADIFMapHit &h) {
+    switch (h.kind) {
+        case ADIFMapHit::Spot: {
+            if (h.index >= mw.view.spots.size()) return "";
+            const adif::Spot &sp = mw.view.spots[h.index].spot;
+            std::string t = sp.activator;
+            if (!sp.khz.empty()) t += "  \u00B7  " + sp.khz + " kHz";
+            if (!sp.mode.empty()) t += " " + sp.mode;
+            if (!sp.reference.empty()) t += "  \u00B7  " + (sp.program.empty() ? "" : sp.program + " ") + sp.reference;
+            return t;
+        }
+        case ADIFMapHit::Spotter: return h.index < mw.view.spotters.size() ? mw.view.spotters[h.index].call : "";
+        case ADIFMapHit::Pota: {
+            const adif::PotaParks &list = ADIFPotaParks();
+            return h.index < list.size() ? list.parks()[h.index].ref + "  " + list.parks()[h.index].name : "";
+        }
+        case ADIFMapHit::Contact: return h.index < mw.view.contacts.size() ? callsOf(mw.view.contacts[h.index].qsos) : "";
+        case ADIFMapHit::Square:
+        case ADIFMapHit::Empty: return h.square;
+        case ADIFMapHit::Dxcc: return h.index < mw.dxcc.size() ? mw.dxcc[h.index].name : "";
+        case ADIFMapHit::Area: {
+            const adif::AreaIndex &index = adif::areaIndex(layerOverlay(h.layer));
+            return h.index < index.size() ? index.area(h.index).name : "";
+        }
+        case ADIFMapHit::Iota: return h.index < ADIFIotaGroups().size() ? ADIFIotaGroups()[h.index].ref + "  " + ADIFIotaGroups()[h.index].name : "";
+        case ADIFMapHit::Park: return h.index < mw.data.parks.size() ? mw.data.parks[h.index].program + " " + mw.data.parks[h.index].reference : "";
+        default: return "";
+    }
+}
+
 // The contact panel for what's under the pointer, or chosen, or nothing: its description, and
 // for a station (a spot, a contact, a DXCC entity) its entity's band slots.
 void showContact(const ADIFMapHit &h, const std::string &text) {
@@ -506,6 +548,11 @@ void showContact(const ADIFMapHit &h, const std::string &text) {
         else if (!countries.empty() && countries.lookup(c, &info)) dxcc = info.dxcc;
         entity = entityName(dxcc, c);
     };
+    if (mw.contactTitle) {
+        std::string title = contactTitle(h);
+        mw.contactTitle.stringValue = ADIFString(title);
+        mw.contactTitle.hidden = title.empty();
+    }
     if (h.kind == ADIFMapHit::Spot && h.index < mw.view.spots.size()) {
         const ADIFMapSpot &ms = mw.view.spots[h.index];
         if (!ms.spot.heardMe) dxcc = ms.status.dxcc, entity = ms.status.entity, call = ms.spot.activator;
@@ -884,6 +931,7 @@ void applyProjection() {
 
 void queueViewList();
 void applyParkPlaces();
+void showContact(const ADIFMapHit &h, const std::string &text);
 
 void applyStyle() {
     mw.view.style = savedStyle();
@@ -1072,6 +1120,7 @@ void showStyleOptions() {
         add({"mapArcs", @"map.style.arcs", 1, nil, N(@"Arch over the globe"),
              N(@"On the globe, draw each line as an arch rising over it (for looks: the true path, and the beam heading, is the straight line "
              @"you get with this off)")});
+        NSUInteger secondColumn = rows.count;  // from here on, the right-hand column
         section(N(@"Spots"));
         add({"mapSpotterStyle", @"map.style.spotters", spotterStyleFallback(),
              @[ N(@"Hidden##spotters"), N(@"Faint grey"), N(@"Markers"), N(@"Markers and calls") ], N(@"Spotters:"),
@@ -1093,6 +1142,11 @@ void showStyleOptions() {
              N(@"For the parks whose outlines you downloaded (Settings, POTA Parks, Park Outlines): a badge on the outline, or the outline "
              @"and the park's label alone once it is big enough to see (zoomed further out, the badge again)")});
         section(N(@"On the map"));
+        add({"mapReference", @"map.style.reference", 1, @[ N(@"Strong##reference"), N(@"Subtle"), N(@"Faint##reference") ], N(@"Reference layers:"),
+             N(@"How strongly the grid, the overlays' lines and names, and the distance rings show: subtle or faint, your QSOs, parks and "
+             @"spots stand out from them")});
+        add({"mapSpotlight", @"map.style.spotlight", 0, nil, N(@"Spotlight what's chosen"),
+             N(@"With something clicked on the map, dim the rest of it: the chosen marker, square, area, outline or box stays clear")});
         add({"mapLegend", @"map.style.legend", 1, nil, N(@"Legend"), nil});
         add({"mapRings", @"map.style.rings", 0, nil, N(@"Distance rings from my grid"), nil});
         add({"mapDayNight", @"map.style.dayNight", 0, nil, N(@"Day and night"), N(@"The night side shaded, deeper as the sun goes further down, and the "
@@ -1108,7 +1162,7 @@ void showStyleOptions() {
             for (const char *key : {"mapPalette", "mapMarkerSize", "mapMarkerShape", "mapContactMarker", "mapSquareFill", "mapAreaShade", "mapLineStyle",
                                     "mapLineWidth", "mapLineOpacity", "mapArcs", "mapLegend", "mapRings", "mapDayNight", "mapGreyLine", "mapSunTime",
                                     "mapSpotters", "mapSpotterStyle", "mapSpotLineStyle", "mapSpotLabelMode", "mapSpotLabelFreq", "mapSpotLabelAge",
-                                    "mapSpotLabelSnr", "mapSpotFade", "mapParkOutlines"})
+                                    "mapSpotLabelSnr", "mapSpotFade", "mapParkOutlines", "mapReference", "mapSpotlight"})
                 setSetting(key, "");
             [mw.styleWindow orderOut:nil];
             mw.styleWindow = nil;
@@ -1116,31 +1170,49 @@ void showStyleOptions() {
             fillPrograms();
             showStyleOptions();
         });
-        [rows addObject:@[ [NSGridCell emptyContentView], reset ]];
-        NSGridView *grid = [NSGridView gridViewWithViews:rows];
-        grid.rowSpacing = 6;
-        grid.columnSpacing = 10;
-        [grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
-        grid.rowAlignment = NSGridRowAlignmentFirstBaseline;
-        for (NSInteger r = 0; r < grid.numberOfRows; ++r) {  // section titles span both columns, with room above
-            NSGridCell *first = [grid cellAtColumnIndex:0 rowIndex:r];
-            if ([first.contentView isKindOfClass:NSTextField.class] && ((NSTextField *)first.contentView).font.pointSize >= NSFont.systemFontSize &&
-                [((NSTextField *)first.contentView).font.fontDescriptor symbolicTraits] & NSFontDescriptorTraitBold) {
-                [grid mergeCellsInHorizontalRange:NSMakeRange(0, 2) verticalRange:NSMakeRange(r, 1)];
-                first.xPlacement = NSGridCellPlacementLeading;
-                if (r > 0) [grid rowAtIndex:r].topPadding = 8;
+        // Two columns side by side (markers, areas and lines; spots, parks and the map), Reset under them.
+        auto makeGrid = [](NSArray *gridRows) {
+            NSGridView *grid = [NSGridView gridViewWithViews:gridRows];
+            grid.rowSpacing = 6;
+            grid.columnSpacing = 10;
+            [grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
+            grid.rowAlignment = NSGridRowAlignmentFirstBaseline;
+            for (NSInteger r = 0; r < grid.numberOfRows; ++r) {  // section titles span both columns, with room above
+                NSGridCell *first = [grid cellAtColumnIndex:0 rowIndex:r];
+                if ([first.contentView isKindOfClass:NSTextField.class] && ((NSTextField *)first.contentView).font.pointSize >= NSFont.systemFontSize &&
+                    [((NSTextField *)first.contentView).font.fontDescriptor symbolicTraits] & NSFontDescriptorTraitBold) {
+                    [grid mergeCellsInHorizontalRange:NSMakeRange(0, 2) verticalRange:NSMakeRange(r, 1)];
+                    first.xPlacement = NSGridCellPlacementLeading;
+                    if (r > 0) [grid rowAtIndex:r].topPadding = 8;
+                }
+                // Fading isn't one of the label's details: a little room above it.
+                if ([[grid cellAtColumnIndex:1 rowIndex:r].contentView.identifier isEqualToString:@"map.style.spotFade"])
+                    [grid rowAtIndex:r].topPadding = 6;
             }
-            // Fading isn't one of the label's details: a little room above it.
-            if ([[grid cellAtColumnIndex:1 rowIndex:r].contentView.identifier isEqualToString:@"map.style.spotFade"])
-                [grid rowAtIndex:r].topPadding = 6;
+            return grid;
+        };
+        NSGridView *left = makeGrid([rows subarrayWithRange:NSMakeRange(0, secondColumn)]);
+        NSGridView *right = makeGrid([rows subarrayWithRange:NSMakeRange(secondColumn, rows.count - secondColumn)]);
+        NSBox *between = [[NSBox alloc] initWithFrame:NSZeroRect];
+        between.boxType = NSBoxSeparator;
+        for (NSView *v in @[ left, between, right, reset ]) {
+            v.translatesAutoresizingMaskIntoConstraints = NO;
+            [p.contentView addSubview:v];
         }
-        grid.translatesAutoresizingMaskIntoConstraints = NO;
-        [p.contentView addSubview:grid];
         [NSLayoutConstraint activateConstraints:@[
-            [grid.topAnchor constraintEqualToAnchor:p.contentView.topAnchor constant:16],
-            [grid.leadingAnchor constraintEqualToAnchor:p.contentView.leadingAnchor constant:16],
-            [grid.trailingAnchor constraintLessThanOrEqualToAnchor:p.contentView.trailingAnchor constant:-16],
-            [grid.bottomAnchor constraintEqualToAnchor:p.contentView.bottomAnchor constant:-16],
+            [left.topAnchor constraintEqualToAnchor:p.contentView.topAnchor constant:16],
+            [left.leadingAnchor constraintEqualToAnchor:p.contentView.leadingAnchor constant:16],
+            [between.topAnchor constraintEqualToAnchor:left.topAnchor],
+            [between.bottomAnchor constraintEqualToAnchor:reset.topAnchor constant:-12],
+            [between.leadingAnchor constraintEqualToAnchor:left.trailingAnchor constant:18],
+            [between.widthAnchor constraintEqualToConstant:1],
+            [right.topAnchor constraintEqualToAnchor:left.topAnchor],
+            [right.leadingAnchor constraintEqualToAnchor:between.trailingAnchor constant:18],
+            [right.trailingAnchor constraintLessThanOrEqualToAnchor:p.contentView.trailingAnchor constant:-16],
+            [reset.topAnchor constraintGreaterThanOrEqualToAnchor:left.bottomAnchor constant:14],
+            [reset.topAnchor constraintGreaterThanOrEqualToAnchor:right.bottomAnchor constant:14],
+            [reset.trailingAnchor constraintEqualToAnchor:p.contentView.trailingAnchor constant:-16],
+            [reset.bottomAnchor constraintEqualToAnchor:p.contentView.bottomAnchor constant:-16],
         ]];
         mw.styleWindow = p;
         NSRect frame = mw.window.frame;
@@ -1278,7 +1350,8 @@ void refresh() {
                                                  {{"qsos", plural(located, "QSO")}, {"n", std::to_string(mw.data.unusedLatLon)}})
                                            : trf("{qsos} with an exact place (Contacts).", {{"qsos", plural(located, "QSO")}});
         mw.chosen.clear();
-        setStatus(idleStatus());
+        mw.chosenHit = ADIFMapHit();
+        showContact(ADIFMapHit(), idleStatus());  // nothing chosen in the new data: the title and slots go too
         showSituation();
         mw.useSpot.hidden = YES;
         applyParkPlaces();  // home may have changed
@@ -2423,6 +2496,32 @@ void fillViewList() {
     std::string from;
     bool chosenPlace = listFromPlace(&lat, &lon, &from);
     std::vector<ADIFViewRow> rows = kind == kListParks ? parkRows(lat, lon) : kind == kListSpots ? spotRows(lat, lon) : qsoRows(kind, lat, lon);
+    // Narrowed by the search (a call, reference, name... in any column shown, or the list's own
+    // key columns) and the distance limit (in the units chosen).
+    bool miles = mw.listUnits.selectedSegment == 0;
+    for (NSMenuItem *item in mw.listWithin.itemArray)
+        if (item.tag > 0) item.title = TF(miles ? @"Within {n} mi" : @"Within {n} km", @{@"n" : @(item.tag)});
+    double limitKm = mw.listWithin.selectedTag * (miles ? 1.609344 : 1.0);
+    std::string query = ADIFStd([[mw.listSearch.stringValue stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet] lowercaseString]);
+    size_t found = rows.size();
+    if (limitKm > 0 || !query.empty()) {
+        std::set<std::string> searched = {"call", "ref", "name", "park", "country", "grid"};
+        for (const auto &c : shownColumns(kind)) searched.insert(c.first);
+        std::vector<ADIFViewRow> kept;
+        for (const ADIFViewRow &r : rows) {
+            if (limitKm > 0 && (r.km < 0 || r.km > limitKm)) continue;
+            bool match = query.empty();
+            for (const std::string &id : searched) {
+                if (match) break;
+                if (!listColumn(kind, id)) continue;
+                std::string t = cellText(kind, r, id);
+                for (char &c : t) c = (char)tolower((unsigned char)c);
+                match = t.find(query) != std::string::npos;
+            }
+            if (match) kept.push_back(r);
+        }
+        rows.swap(kept);
+    }
     // Sorted by the column chosen (its values worked out once), ties in the order they came.
     std::pair<std::string, bool> sort = listSort(kind);
     const std::string sortId = sort.first;
@@ -2485,6 +2584,10 @@ void fillViewList() {
                                                     : trf("No grid for your station (Settings, Your Station); from the map's centre ({grid}).", {{"grid", from}});
     else hint = trf("Distances from {grid}. Click a row to choose it on the map; double-click to zoom to it. Click a column's title to sort by it.",
                     {{"grid", from}});
+    if (rows.size() < found)  // the search or the distance limit left some out: say how many
+        hint = trp("{n} of {total} matches the search and distance.", "{n} of {total} match the search and distance.", (long long)rows.size(),
+                   {{"total", std::to_string(found)}}) +
+               " " + hint;
     mw.listHint.stringValue = ADIFString(hint);
 }
 
@@ -2643,6 +2746,17 @@ void openRow(const ADIFViewRow &r) {
     mw.choosingFromList = true;
     [mw.view selectHit:r.hit];
     mw.choosingFromList = false;
+}
+
+// The control groups shown or not (Controls, in the toolbar): hidden, the map takes their room.
+void showControls(bool on) {
+    saveFlag("mapControls", on);
+    mw.controlsToggle.state = on ? NSControlStateValueOn : NSControlStateValueOff;
+    mw.controlsView.hidden = !on;
+    mw.controlsGone.active = !on;
+    mw.controlsGap.constant = on ? 10 : 0;
+    mw.underGap.constant = on ? 8 : 6;
+    if (mw.styleWindow && !on) [mw.styleWindow orderOut:nil];  // its button stays in the toolbar; nothing else depends on it
 }
 
 // The panel shown or not: the map takes the room.
@@ -3021,14 +3135,42 @@ void cmdMap() {
             NSMenu *columnsMenu = mw.listColumnsMenu.menu;
             mw.listRows.fillMenu = ^(NSMenu *menu) { fillColumnsMenu(menu, menu == columnsMenu); };
         }
+        mw.listSearch = [[NSSearchField alloc] initWithFrame:NSZeroRect];
+        mw.listSearch.placeholderString = T(@"Search: a call, reference, name...");
+        mw.listSearch.toolTip = T(@"Keep the rows with this in any column shown (or in the call, reference, name, park, country or grid)");
+        mw.listSearch.identifier = @"map.list.search";
+        mw.listSearch.controlSize = NSControlSizeSmall;
+        mw.listSearch.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        [mw.listSearch setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+        ADIFOnAction(mw.listSearch, ^{
+            mw.listPage[mw.listKind.selectedSegment] = 0;
+            fillViewList();
+        });
+        mw.listWithin = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+        [mw.listWithin addItemWithTitle:T(@"Any distance")];
+        for (int n : {10, 25, 50, 100, 250, 500, 1000}) [mw.listWithin.menu addItemWithTitle:@"" action:nil keyEquivalent:@""].tag = n;
+        if (![mw.listWithin selectItemWithTag:std::atoi(setting("mapListWithin").c_str())]) [mw.listWithin selectItemAtIndex:0];
+        mw.listWithin.controlSize = NSControlSizeSmall;
+        mw.listWithin.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        mw.listWithin.toolTip = T(@"Keep the rows within this distance of where the list measures from (Nearest to)");
+        mw.listWithin.identifier = @"map.list.within";
+        for (NSMenuItem *item in mw.listWithin.itemArray)  // titled now; again by the list, as the units change
+            if (item.tag > 0) item.title = TF(setting("mapListUnits") == "mi" ? @"Within {n} mi" : @"Within {n} km", @{@"n" : @(item.tag)});
+        ADIFOnAction(mw.listWithin, ^{
+            setSetting("mapListWithin", std::to_string(mw.listWithin.selectedTag));
+            for (size_t &page : mw.listPage) page = 0;
+            fillViewList();
+        });
         NSStackView *listFromRow = [NSStackView stackViewWithViews:@[ ADIFLabel(@"Nearest to:"), mw.listFrom, mw.listGrid ]];
+        NSStackView *listSearchRow = [NSStackView stackViewWithViews:@[ mw.listSearch, mw.listWithin ]];
+        listSearchRow.spacing = 6;
         listFromRow.spacing = 6;
         NSStackView *listFooter = [[NSStackView alloc] initWithFrame:NSZeroRect];
         listFooter.spacing = 4;
         for (NSView *v in @[ mw.listPrev, mw.listPageLabel, mw.listNext ]) [listFooter addView:v inGravity:NSStackViewGravityLeading];
         [listFooter addView:mw.listPageSize inGravity:NSStackViewGravityTrailing];
         [listFooter addView:mw.listColumnsMenu inGravity:NSStackViewGravityTrailing];
-        for (NSView *v in @[ mw.listKind, mw.listTitle, mw.listUnits, listFromRow, listScroll, listFooter, mw.listHint ]) {
+        for (NSView *v in @[ mw.listKind, mw.listTitle, mw.listUnits, listFromRow, listSearchRow, listScroll, listFooter, mw.listHint ]) {
             v.translatesAutoresizingMaskIntoConstraints = NO;
             [mw.listPanel addSubview:v];
         }
@@ -3044,7 +3186,10 @@ void cmdMap() {
             [listFromRow.topAnchor constraintEqualToAnchor:mw.listTitle.bottomAnchor constant:8],
             [listFromRow.leadingAnchor constraintEqualToAnchor:mw.listPanel.leadingAnchor constant:8],
             [listFromRow.trailingAnchor constraintLessThanOrEqualToAnchor:mw.listPanel.trailingAnchor],
-            [listScroll.topAnchor constraintEqualToAnchor:listFromRow.bottomAnchor constant:8],
+            [listSearchRow.topAnchor constraintEqualToAnchor:listFromRow.bottomAnchor constant:6],
+            [listSearchRow.leadingAnchor constraintEqualToAnchor:mw.listPanel.leadingAnchor constant:8],
+            [listSearchRow.trailingAnchor constraintEqualToAnchor:mw.listPanel.trailingAnchor],
+            [listScroll.topAnchor constraintEqualToAnchor:listSearchRow.bottomAnchor constant:6],
             [listScroll.leadingAnchor constraintEqualToAnchor:mw.listPanel.leadingAnchor constant:8],
             [listScroll.trailingAnchor constraintEqualToAnchor:mw.listPanel.trailingAnchor],
             [listFooter.topAnchor constraintEqualToAnchor:listScroll.bottomAnchor constant:6],
@@ -3075,8 +3220,17 @@ void cmdMap() {
         NSStackView *zoomCluster = cluster(@[ ADIFLabel(@"Zoom:"), out, mw.zoomLabel, in, fit, world ]);
         [zoomCluster setCustomSpacing:4 afterView:out];
         [zoomCluster setCustomSpacing:4 afterView:mw.zoomLabel];
+        // Controls: the groups under the toolbar shown or hidden, for the map's room.
+        mw.controlsToggle = [NSButton buttonWithTitle:T(@"Controls") target:nil action:nil];
+        [mw.controlsToggle setButtonType:NSButtonTypePushOnPushOff];
+        mw.controlsToggle.image = [NSImage imageWithSystemSymbolName:@"slider.horizontal.3" accessibilityDescription:nil];
+        mw.controlsToggle.imagePosition = NSImageLeading;
+        mw.controlsToggle.toolTip = T(@"Show or hide the controls under the toolbar (layers, markers, filters, spots); hidden, the map takes their room "
+                                      @"and every choice stays as it is");
+        mw.controlsToggle.identifier = @"map.controls.toggle";
+        ADIFOnAction(mw.controlsToggle, ^{ showControls(mw.controlsToggle.state == NSControlStateValueOn); });
         for (NSView *v in @[ cluster(@[ mw.target ]), zoomCluster, cluster(@[ mw.region, mw.projection ]), cluster(@[ styleButton, save ]),
-                             cluster(@[ mw.listToggle ]) ])
+                             cluster(@[ mw.controlsToggle, mw.listToggle ]) ])
             [toolbar addSubview:v];
         auto group = [](NSString *caption, NSString *ident, NSArray<NSView *> *rows) {
             NSTextField *title = [NSTextField labelWithString:T(caption).localizedUppercaseString];
@@ -3178,7 +3332,11 @@ void cmdMap() {
         [spotActions addView:mw.useSpot inGravity:NSStackViewGravityLeading];
         spotActions.detachesHiddenViews = YES;
         mw.useSpot.controlSize = NSControlSizeSmall;
-        NSView *contactPanel = panel(N(@"Contact"), @"map.contact", column(@[ mw.status, mw.slots, spotActions ]), nil);
+        mw.contactTitle = [NSTextField labelWithString:@""];
+        mw.contactTitle.identifier = @"map.contact.title";
+        mw.contactTitle.font = [NSFont systemFontOfSize:NSFont.systemFontSize + 1 weight:NSFontWeightSemibold];
+        mw.contactTitle.lineBreakMode = NSLineBreakByTruncatingTail;
+        NSView *contactPanel = panel(N(@"Contact"), @"map.contact", column(@[ mw.contactTitle, mw.status, mw.slots, spotActions ]), nil);
         NSView *situationPanel = panel(N(@"Situation"), @"map.situationPanel", column(@[ mw.situation, mw.today, mw.wanted, mw.air ]), nil);
         mw.splitKeeper = [[ADIFSplitKeeper alloc] init];
         auto split = [](NSString *ident, BOOL vertical, NSArray<NSView *> *views) {
@@ -3214,10 +3372,10 @@ void cmdMap() {
             [toolbar.topAnchor constraintEqualToAnchor:root.topAnchor constant:10],
             [toolbar.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
             [toolbar.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-m],
-            [controls.topAnchor constraintEqualToAnchor:toolbar.bottomAnchor constant:10],
+            mw.controlsGap = [controls.topAnchor constraintEqualToAnchor:toolbar.bottomAnchor constant:10],
             [controls.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
             [controls.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-m],
-            [underControls.topAnchor constraintEqualToAnchor:controls.bottomAnchor constant:8],
+            mw.underGap = [underControls.topAnchor constraintEqualToAnchor:controls.bottomAnchor constant:8],
             [underControls.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
             [underControls.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
             [mw.outerSplit.topAnchor constraintEqualToAnchor:underControls.bottomAnchor constant:6],
@@ -3228,6 +3386,9 @@ void cmdMap() {
             [mw.view.heightAnchor constraintGreaterThanOrEqualToConstant:240],
             [mw.statusSplit.heightAnchor constraintGreaterThanOrEqualToConstant:70],
         ]];
+        mw.controlsView = controls;
+        mw.controlsGone = [controls.heightAnchor constraintEqualToConstant:0];
+        showControls(flag("mapControls", true));
         showListPanel(flag("mapList", true));
         [mw.window center];
         // New spots redraw the layer; closing the window stops the feeds.

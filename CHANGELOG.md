@@ -48,6 +48,14 @@ Versions before 0.8.0 were development builds and were not published.
   worked, grey not yet) and your QSOs with the call. Situation: the log, today's QSOs by
   mode and band, the spots you most want now as links (a new DXCC, band, mode or park), the
   busiest bands, and the sun at your station (when it rises or sets, the grey line).
+- **Map → Controls** (in the toolbar) hides the control groups so the map takes their room.
+- **Map → Style Options → Reference layers** (strong, subtle, faint): the grid, the
+  overlays' lines and names and the distance rings drawn more lightly, subtle at first, so
+  the log's markers stand out. **Spotlight what's chosen** dims the rest of the map round
+  what you click. What you click gets a ring in the accent colour. Style Options is now in
+  two columns.
+- **Map → List: Search and Within**: keep the rows with a call, reference, name... in them,
+  and within a distance; the contact panel's subject in bold over its description.
 - **Map → Spots: POTA activators** are POTA's badge (the tree in the band's colour, with the
   spot's ring round it) instead of the plain spot marker, on the map, in the legend, and as
   a tree in the list of spots.

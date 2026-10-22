@@ -529,7 +529,9 @@ The window is laid out to give the map the room:
 
 - **Across the top**, a toolbar: the log's name; zoom (**−**, **+**, **Fit Log**, **World**),
   **Region** and the projection; **Style Options…** and **Export PNG…**; and at the right,
-  **List**, which shows or hides the list beside the map.
+  **Controls**, which shows or hides the control groups under the toolbar (hidden, the map
+  takes their room, and every choice stays as it is), and **List**, which shows or hides the
+  list beside the map.
 - **Under it**, the controls in groups side by side, with a line between them:
   **Layers** (grid squares, countries, US states, US counties, CQ zones, ITU zones, POTA,
   IOTA, cities, spots, each with **Show**, **Overlay** and **Labels**), **Markers**
@@ -920,6 +922,10 @@ divider between them to make it wider or narrower. Choose what it lists at its t
 The lists in view show each row's distance and bearing (degrees from true north, a beam
 heading), nearest first at first.
 
+- **Search** (over the table) keeps the rows with what you type in any column shown, or in
+  the call, reference, name, park, country or grid: a call, `US-2`, `state park`. Beside it,
+  **Within** keeps the rows within 10 to 1,000 km (or miles) of where the list measures from.
+  The note under the list says how many of how many are shown.
 - **Columns**: right-click a column's title, or use **Columns** under the list, to show or
   hide columns. QSOs can show the record number, call, date, UTC, band, mode, grid,
   confirmation, country, state, county, CQ and ITU zones, park, distance and bearing; parks
@@ -948,7 +954,7 @@ and page size are remembered.
 The bottom of the window is in two halves.
 
 **Contact** says what is under the pointer, or what you clicked: a square, a contact, a
-park, a spot, an area. For a station (a spot, a contact, a DXCC entity's dot) a second line
+park, a spot, an area, its name or call in bold first. For a station (a spot, a contact, a DXCC entity's dot) a second line
 gives its **DXCC entity in your log**: each band from 160m to 6m (and any other you worked
 it on) green when confirmed, orange when only worked, grey when not yet; the same for CW,
 phone and data; and your QSOs with the call ("1A0KM not in this log"). It answers, at a
@@ -1029,9 +1035,15 @@ your own use; if you pass them on, the licence goes with them.
   under the pointer always shows its lines in its band's colour); what the spot labels show
   under each call: **Mode**, **Frequency**, **Time since spotted** and **Signal report**;
   and **Fade older spots**.
-- **On the map**: the **Legend**; **Distance rings** from your grid, 2,500 km apart for the
-  whole world, closer as you zoom in, with bearings every 30° when the globe is centred on
-  home; **Day and night**; **Grey line**; and **Sun at** now or at the selected QSO's time.
+- **On the map**: **Reference layers** (strong, subtle or faint: how strongly the grid, the
+  overlays' lines and names and the distance rings show, so your QSOs, parks and spots stand
+  out from them; subtle at first); **Spotlight what's chosen** (while something is clicked,
+  the rest of the map dims, the chosen marker, square, area, outline or box left clear; what
+  you click gets a ring in your Mac's accent colour either way); the **Legend**; **Distance
+  rings** from your grid, 2,500 km apart for the whole world, closer as you zoom in, with
+  bearings every 30° when the globe is centred on home; **Day and night**; **Grey line**; and
+  **Sun at** now or at the selected QSO's time. Style Options is in two columns: colours,
+  markers, worked areas and lines on the left; spots, POTA parks and the map on the right.
 
 **Day and night** shades the side of the Earth where the sun is down, deeper as it goes
 further down (to astronomical twilight, 18° below the horizon, where it is 65% black), draws the line between day

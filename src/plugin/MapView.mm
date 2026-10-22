@@ -1006,6 +1006,8 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 
 - (void)drawMap {
     MapDrawCtx d;
+    static const CGFloat kReference[] = {1.0, 0.6, 0.35};  // strong, subtle, faint
+    d.ref = kReference[std::clamp(_style.reference, 0, 2)];
     [self drawBase:d];
     [self drawOsm:d];  // Map Detail, where downloaded
     [self drawGridLines:d];
@@ -1034,6 +1036,8 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     [self drawSpots:d];
     [self drawMine:d];
     [self drawSelection:d];
+    if (_style.spotlight) [self drawSpotlight:d];
+    [self drawSelectionHalo];
     CGContextRestoreGState(d.ctx);
     if (_style.legend) [self drawLegend];
     if (!_info.empty()) [self drawInfoBox];

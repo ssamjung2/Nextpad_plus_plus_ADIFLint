@@ -80,6 +80,10 @@ struct ADIFMapStyle {
     // POTA: a park with a downloaded outline big enough to see shows the outline (and its label)
     // without its badge.
     bool parkOutlineOnly = false;
+    // How strongly the reference layers show (the grid, the overlays' lines and names, the
+    // distance rings): 0 strong, 1 subtle, 2 faint; and the rest dimmed round what is chosen.
+    int reference = 1;
+    bool spotlight = false;
     // Squares: Show the worked squares, Overlay the Maidenhead grid, Labels its names. Countries:
     // Show each worked DXCC entity's land. POTA and IOTA need their lists (downloaded in Settings).
     std::array<LayerState, kLayerCount> layer;
@@ -216,6 +220,7 @@ struct MapDrawCtx {
     std::vector<std::pair<NSString *, NSRect>> countyNames;
     NSDictionary *countyAttrs = nil;
     std::vector<NSRect> taken;  // city names and dots
+    CGFloat ref = 1;            // the reference layers' strength (Style Options), times their alphas
 };
 
 // The map, in one of four projections. Scroll or pinch to zoom (a trackpad's two-finger
@@ -408,6 +413,10 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 - (void)drawParkBadgeAt:(NSPoint)c radius:(double)r color:(NSColor *)tree worked:(BOOL)worked activated:(BOOL)activated lit:(BOOL)lit;
 - (void)placeParks;
 - (void)drawParkBadges:(BOOL)worked;
+- (bool)selectionAt:(NSPoint *)p radius:(double *)r;  // where the chosen thing's marker is, and its size
+- (NSBezierPath *)selectionShape;                      // the chosen thing's own shape (a square, an area...), else nil
+- (void)drawSelectionHalo;
+- (void)drawSpotlight:(MapDrawCtx &)d;
 - (void)drawParkOutlines;
 - (size_t)parkOutlineAt:(double)lon lat:(double)lat;  // the park (index in ADIFPotaParks) whose drawn outline holds the point, or npos
 - (void)drawParkLabelsIn:(NSRect)b;

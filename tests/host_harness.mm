@@ -416,6 +416,7 @@ static NSPopUpButton *findPopup(NSView *v) {
 // A visible label containing `text`, or nil.
 static NSString *labelContaining(NSView *v, NSString *text) {
     if (v.hidden || [v isKindOfClass:NSTableView.class]) return nil;  // a table's cells aren't labels
+    if ([v.identifier isEqualToString:@"map.contact.title"]) return nil;  // the Map's contact title repeats its description's subject
     if ([v isKindOfClass:NSTextField.class] && [((NSTextField *)v).stringValue containsString:text]) return ((NSTextField *)v).stringValue;
     for (NSView *s in v.subviews)
         if (NSString *found = labelContaining(s, text)) return found;
@@ -619,7 +620,7 @@ static int overlaps(NSView *root) {
     for (NSUInteger i = 0; i < controls.count; ++i)
         for (NSUInteger j = i + 1; j < controls.count; ++j) {
             NSView *a = controls[i], *b = controls[j];
-            if (a.hidden || b.hidden || [a isDescendantOf:b] || [b isDescendantOf:a]) continue;
+            if (a.isHiddenOrHasHiddenAncestor || b.isHiddenOrHasHiddenAncestor || [a isDescendantOf:b] || [b isDescendantOf:a]) continue;
             // Overlay scroll bars are drawn over their content by design.
             if ([a isKindOfClass:NSScroller.class] || [b isKindOfClass:NSScroller.class]) continue;
             if (!a.window || a.superview.hidden || b.superview.hidden) continue;
@@ -4398,11 +4399,42 @@ int main(int argc, char **argv) {
                 units.selectedSegment = 0;
                 [units sendAction:units.action to:units.target];
                 CHECK([cell(rowsTable, 1, @"distance") isEqualToString:@"26 mi"], "in miles: %s", cell(rowsTable, 1, @"distance").UTF8String);
+                // The search and the distance limit narrow the list (and say so); cleared, every park again.
+                NSSearchField *search = (NSSearchField *)viewWithIdentifier(mapw.contentView, @"map.list.search");
+                NSPopUpButton *within = (NSPopUpButton *)viewWithIdentifier(mapw.contentView, @"map.list.within");
+                search.stringValue = @"north";
+                [search sendAction:search.action to:search.target];
+                CHECK(column(@"ref") == "US-2001" && [hint.stringValue hasPrefix:@"1 of 4 matches the search and distance."],
+                      "the search keeps the parks it finds: %s (%s)", column(@"ref").c_str(), hint.stringValue.UTF8String);
+                search.stringValue = @"";
+                [search sendAction:search.action to:search.target];
+                [within selectItemWithTag:50];  // in miles now: 50 mi, about 80 km
+                [within sendAction:within.action to:within.target];
+                std::string near50mi = column(@"ref");
+                units.selectedSegment = 1;
+                [units sendAction:units.action to:units.target];
+                CHECK(near50mi == "US-1234 US-2001 US-2002 US-2006" && column(@"ref") == "US-1234 US-2001" && [within.titleOfSelectedItem isEqualToString:@"Within 50 km"],
+                      "the distance limit, in the units chosen: within 50 mi %s; within 50 km %s", near50mi.c_str(), column(@"ref").c_str());
+                [within selectItemAtIndex:0];
+                [within sendAction:within.action to:within.target];
+                units.selectedSegment = 0;
                 units.selectedSegment = 1;
                 [units sendAction:units.action to:units.target];
                 [rowsTable selectRowIndexes:[NSIndexSet indexSetWithIndex:1] byExtendingSelection:NO];
-                CHECK([mapStatusText() hasPrefix:@"POTA US-2001 Test Park North (US-NJ): not worked."], "a row chosen: the park chosen on the map: %s",
-                      mapStatusText().UTF8String);
+                CHECK([mapStatusText() hasPrefix:@"POTA US-2001 Test Park North (US-NJ): not worked."] &&
+                          [((NSTextField *)viewWithIdentifier(mapw.contentView, @"map.contact.title")).stringValue isEqualToString:@"US-2001  Test Park North"],
+                      "a row chosen: the park chosen on the map, titled in the contact panel: %s", mapStatusText().UTF8String);
+                // Its halo, and Style Options' spotlight: away from the park the map dims.
+                NSPoint farAway = pointFor(-75.8, 40.1);  // in FN20, a worked square, its colour away from the park
+                NSColor *unlit = colourAt(mapImage(), farAway);
+                CHECK(styleSet(@"spotlight", true), "Style Options: Spotlight what's chosen");
+                NSColor *dimmed = colourAt(mapImage(), farAway);
+                double faded = std::fabs(dimmed.redComponent - unlit.redComponent) + std::fabs(dimmed.greenComponent - unlit.greenComponent) +
+                               std::fabs(dimmed.blueComponent - unlit.blueComponent);
+                CHECK(faded > 0.2, "the spotlight fades the rest of the map toward its background (%.2f apart)", faded);
+                snapshot(mapw, "map-spotlight");
+                styleSet(@"spotlight", false);
+                [stylePanel() orderOut:nil];
                 [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, pointFor(-74.40, 40.70), 1)];
                 [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, pointFor(-74.40, 40.70), 1)];
                 CHECK(rowsTable.selectedRow == 0, "a park clicked on the map: its row chosen (%ld)", (long)rowsTable.selectedRow);
@@ -4521,6 +4553,8 @@ int main(int argc, char **argv) {
                 {
                     NSPoint parkAt = pointFor(-74.60, 41.05);
                     NSPoint onDisc = NSMakePoint(parkAt.x + 0.5 * 9, parkAt.y + 0.5 * 9);  // on the disc, off the tree and the ring
+                    [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, pointFor(-74.70, 40.75), 1)];  // a square chosen: no halo near the park
+                    [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, pointFor(-74.70, 40.75), 1)];
                     [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-74.70, 40.75), 0)];  // the pointer away: no hover ring
                     auto pale = [&]() {
                         NSColor *c = colourAt(mapImage(), onDisc);
@@ -4595,6 +4629,33 @@ int main(int argc, char **argv) {
                   "Other programs: IOTA starts hidden and can be shown; the common programs are listed");
             [mapw.contentView layoutSubtreeIfNeeded];
             CHECK(overlaps(mapw.contentView) == 0, "the map's controls do not overlap (%d)", overlaps(mapw.contentView));
+            {  // Controls hides the groups under the toolbar, and the map takes their room; shown again, as they were
+                NSButton *controlsToggle = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.controls.toggle");
+                NSView *groups = viewWithIdentifier(mapw.contentView, @"map.controls");
+                CGFloat tall = mapView.frame.size.height;
+                [controlsToggle performClick:nil];
+                [mapw.contentView layoutSubtreeIfNeeded];
+                CGFloat taller = mapView.frame.size.height;
+                CHECK(controlsToggle.state == NSControlStateValueOff && groups.hidden && taller > tall + 80 && overlaps(mapw.contentView) == 0,
+                      "Controls hides the groups: the map %.0f high, was %.0f", taller, tall);
+                snapshot(mapw, "map-controls-hidden");
+                [controlsToggle performClick:nil];
+                [mapw.contentView layoutSubtreeIfNeeded];
+                CHECK(!groups.hidden && std::fabs(mapView.frame.size.height - tall) < 2, "and shows them again");
+                // Reference layers: faint and strong draw the grid and the overlays differently.
+                [findButton(mapw.contentView, @"World") performClick:nil];
+                setBox(mapBox(@"overlay", @"grid"), true);
+                CHECK(stylePick(@"reference", @"Faint"), "Style Options: Reference layers Faint");
+                NSData *faint = [mapImage() TIFFRepresentation];
+                stylePick(@"reference", @"Strong");
+                NSData *strong = [mapImage() TIFFRepresentation];
+                CHECK(faint.length && ![faint isEqualToData:strong], "faint and strong reference layers differ");
+                stylePick(@"reference", @"Subtle");
+                [stylePanel() orderOut:nil];
+                CHECK(NSHeight(stylePanel().frame) <= 900, "Style Options in two columns fits a 900-high screen (%.0f)", NSHeight(stylePanel().frame));
+                snapshot(stylePanel(), "map-style");
+                [stylePanel() orderOut:nil];
+            }
             {  // at its narrowest the toolbar and the groups wrap; nothing overlaps or runs off the window
                 NSRect was = mapw.frame;
                 [mapw setFrame:NSMakeRect(was.origin.x, was.origin.y, 960, was.size.height) display:YES];

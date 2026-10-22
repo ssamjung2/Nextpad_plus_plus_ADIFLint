@@ -296,7 +296,7 @@ using namespace mapkit;
             [grid appendBezierPath:[self viewPath:line close:NO wraps:NO]];
         }
         grid.lineWidth = 0.6;
-        [[NSColor colorWithCalibratedWhite:ink alpha:0.18] setStroke];
+        [[NSColor colorWithCalibratedWhite:ink alpha:0.18 * d.ref] setStroke];
         [grid stroke];
         if (squareW >= 12) {
             NSBezierPath *fineGrid = [NSBezierPath bezierPath];
@@ -311,7 +311,7 @@ using namespace mapkit;
                 [fineGrid appendBezierPath:[self viewPath:line close:NO wraps:NO]];
             }
             fineGrid.lineWidth = 0.4;
-            [[NSColor colorWithCalibratedWhite:ink alpha:0.08] setStroke];
+            [[NSColor colorWithCalibratedWhite:ink alpha:0.08 * d.ref] setStroke];
             [fineGrid stroke];
         }
     }
@@ -381,11 +381,11 @@ using namespace mapkit;
         for (const adif::OverlayArea &a : oc.areas) [lines appendBezierPath:[self outlineOf:a]];
         lines.lineWidth = os.width;
         lines.lineJoinStyle = NSLineJoinStyleRound;
-        [os.color setStroke];
+        [[os.color colorWithAlphaComponent:os.color.alphaComponent * d.ref] setStroke];
         [lines stroke];
         if (!os.names) continue;
         NSDictionary *attrs = @{NSFontAttributeName : [NSFont systemFontOfSize:os.labelSize weight:NSFontWeightSemibold],
-                                NSForegroundColorAttributeName : [os.color colorWithAlphaComponent:0.95]};
+                                NSForegroundColorAttributeName : [os.color colorWithAlphaComponent:0.95 * std::max(d.ref, (CGFloat)0.55)]};
         for (size_t i = 0; i < oc.areas.size(); ++i) {
             const adif::OverlayArea &a = oc.areas[i];
             NSPoint p = [self viewPointForLon:a.labelLon lat:a.labelLat];
@@ -650,7 +650,7 @@ using namespace mapkit;
                     NSPoint top = [self viewPointForLon:lon lat:lat + 5], bottom = [self viewPointForLon:lon lat:lat - 5];
                     double tall = std::hypot(top.x - bottom.x, top.y - bottom.y);  // fields near Equal Earth's poles get thin
                     if (!NSPointInRect(p, NSInsetRect(b, -40, -20)) || w < 30 || tall < 16) continue;
-                    [self drawLabel:[NSString stringWithFormat:@"%c%c", 'A' + fx, 'A' + fy] at:p size:std::min(16.0, w / 6) alpha:0.35];
+                    [self drawLabel:[NSString stringWithFormat:@"%c%c", 'A' + fx, 'A' + fy] at:p size:std::min(16.0, w / 6) alpha:0.35 * std::max(d.ref, (CGFloat)0.5)];
                 }
         if (squareW >= 36)
             for (double lon = std::floor(west / 2) * 2; lon < east; lon += 2)
@@ -658,7 +658,7 @@ using namespace mapkit;
                     std::string sq = adif::squareAt(lon + 1, lat + 0.5);
                     NSPoint p = [self viewPointForLon:lon + 1 lat:lat + 0.5];
                     if (sq.empty() || !NSPointInRect(p, NSInsetRect(b, -30, -15))) continue;
-                    [self drawLabel:@(sq.c_str()) at:p size:std::min(13.0, squareW / 6) alpha:0.32];
+                    [self drawLabel:@(sq.c_str()) at:p size:std::min(13.0, squareW / 6) alpha:0.32 * std::max(d.ref, (CGFloat)0.5)];
                 }
     }
 }
@@ -686,12 +686,12 @@ using namespace mapkit;
             if (!_pr.forward(lo, la, &x, &y) || (globe && std::hypot(x, y) > 180 / M_PI - 30 / ppu)) continue;  // behind, or cut by the rim
             NSPoint p = [self planeToView:x y:y];
             if (NSPointInRect(p, b))
-                [self drawLabel:[NSString stringWithFormat:T(@"%.0f km"), km] at:NSMakePoint(p.x + 30, p.y + 7) size:10 alpha:0.55];
+                [self drawLabel:[NSString stringWithFormat:T(@"%.0f km"), km] at:NSMakePoint(p.x + 30, p.y + 7) size:10 alpha:0.55 * std::max(d.ref, (CGFloat)0.6)];
         }
         CGFloat dash[] = {4, 3};
         [rings setLineDash:dash count:2 phase:0];
         rings.lineWidth = 0.8;
-        [[NSColor colorWithCalibratedWhite:ink alpha:0.35] setStroke];
+        [[NSColor colorWithCalibratedWhite:ink alpha:0.35 * d.ref] setStroke];
         [rings stroke];
         if (globe && [self atHome]) {  // great circles through the centre are straight lines on the globe
             NSBezierPath *spokes = [NSBezierPath bezierPath];
@@ -813,6 +813,125 @@ using namespace mapkit;
         [[NSColor colorWithCalibratedWhite:ink alpha:h == &_selected ? 0.95 : 0.6] setStroke];
         [box stroke];
     }
+}
+
+// ── What is chosen: its halo, and the spotlight on it ──
+
+- (bool)selectionAt:(NSPoint *)p radius:(double *)r {
+    const ADIFMapHit &h = _selected;
+    double lat = 0, lon = 0;
+    switch (h.kind) {
+        case ADIFMapHit::Spot:
+            if (h.index >= _spots.size()) return false;
+            lat = _spots[h.index].lat, lon = _spots[h.index].lon, *r = [self spotRadius:_spots[h.index]];
+            break;
+        case ADIFMapHit::Spotter:
+            if (h.index >= _spotters.size()) return false;
+            lat = _spotters[h.index].lat, lon = _spotters[h.index].lon, *r = [self spotterRadius:true];
+            break;
+        case ADIFMapHit::Pota: {
+            const adif::PotaParks &list = ADIFPotaParks();
+            if (h.index >= list.size() || !list.parks()[h.index].placed) return false;
+            lat = list.parks()[h.index].lat, lon = list.parks()[h.index].lon, *r = 9 * _style.marker;
+            for (const ADIFParkSpot &sp : _potaSpots)
+                if (sp.park == h.index) {
+                    if (sp.outlined) return false;  // its outline is the marker
+                    *r = sp.dot ? 3 : [self parkBadgeRadius:sp];
+                }
+            break;
+        }
+        case ADIFMapHit::Contact: {
+            if (h.index >= _contacts.size()) return false;
+            lat = _contacts[h.index].lat, lon = _contacts[h.index].lon, *r = kPin * _style.marker + 2;
+            *p = [self viewPointForLon:lon lat:lat];
+            if (_style.contact == 0) p->y += 2.2 * kPin * _style.marker;  // a pin: round its head
+            return NSPointInRect(*p, NSInsetRect(self.bounds, -20, -20));
+        }
+        case ADIFMapHit::Dxcc:
+            if (h.index >= _entities.size() || (h.index < _entityDot.size() && !_entityDot[h.index])) return false;  // its land shows it
+            lat = _entities[h.index].lat, lon = _entities[h.index].lon, *r = [self dotRadius:_entities[h.index].qsos.size()];
+            break;
+        case ADIFMapHit::Park:
+            if (h.index >= _data.parks.size() || !adif::gridToLatLon(_data.parks[h.index].grid, &lat, &lon)) return false;
+            *r = 6 * _style.marker;
+            break;
+        default: return false;
+    }
+    *p = [self viewPointForLon:lon lat:lat];
+    return NSPointInRect(*p, NSInsetRect(self.bounds, -20, -20));
+}
+
+- (NSBezierPath *)selectionShape {
+    const ADIFMapHit &h = _selected;
+    switch (h.kind) {
+        case ADIFMapHit::Square:
+        case ADIFMapHit::Empty: return h.square.empty() ? nil : [self squarePath:h.square];
+        case ADIFMapHit::Area: {
+            const adif::AreaIndex &index = adif::areaIndex(layerOverlay(h.layer));
+            return h.index < index.size() ? [self outlineOf:index.area(h.index)] : nil;
+        }
+        case ADIFMapHit::Iota: {
+            const std::vector<adif::IotaGroup> &groups = ADIFIotaGroups();
+            if (h.index >= groups.size()) return nil;
+            NSBezierPath *box = [NSBezierPath bezierPath];
+            for (const std::array<double, 4> &piece : adif::iotaBoxes(groups[h.index])) [box appendBezierPath:[self iotaBoxPath:piece]];
+            return box;
+        }
+        case ADIFMapHit::Pota: {
+            const adif::PotaParks &list = ADIFPotaParks();
+            if (h.index >= list.size()) return nil;
+            const adif::ParkOutline *o = parkoutlines::find(list.parks()[h.index].ref);
+            if (!o) return nil;
+            NSPoint a = [self viewPointForLon:o->west lat:o->south], c = [self viewPointForLon:o->east lat:o->north];
+            if (std::max(std::fabs(c.x - a.x), std::fabs(c.y - a.y)) < 24) return nil;  // too small: its badge is the place
+            NSBezierPath *path = [NSBezierPath bezierPath];
+            for (const adif::OutlineRing &ring : o->rings) [path appendBezierPath:[self viewPath:ring close:YES wraps:NO]];
+            return path;
+        }
+        default: return nil;
+    }
+}
+
+// A ring in the system's accent colour, softly glowing, round the chosen marker: what is chosen
+// stands out from everything else on the map.
+- (void)drawSelectionHalo {
+    NSPoint p;
+    double r = 0;
+    if (![self selectionAt:&p radius:&r]) return;
+    NSColor *accent = [NSColor.controlAccentColor colorUsingColorSpace:NSColorSpace.sRGBColorSpace] ?: NSColor.systemBlueColor;
+    [NSGraphicsContext saveGraphicsState];
+    NSShadow *glow = [[NSShadow alloc] init];
+    glow.shadowColor = [accent colorWithAlphaComponent:0.9];
+    glow.shadowBlurRadius = 6;
+    glow.shadowOffset = NSZeroSize;
+    [glow set];
+    double ring = r + 5;
+    NSBezierPath *halo = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(p.x - ring, p.y - ring, 2 * ring, 2 * ring)];
+    halo.lineWidth = 2.5;
+    [accent setStroke];
+    [halo stroke];
+    [NSGraphicsContext restoreGraphicsState];
+}
+
+// Style Options' spotlight: with something chosen, the rest of the map dimmed, the chosen thing
+// (and a little round it, or its own square, area, outline or box) left clear.
+- (void)drawSpotlight:(MapDrawCtx &)d {
+    NSBezierPath *hole = [self selectionShape];
+    NSPoint p;
+    double r = 0;
+    if (!hole && [self selectionAt:&p radius:&r]) {
+        double clear = r + 16;
+        hole = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(p.x - clear, p.y - clear, 2 * clear, 2 * clear)];
+    }
+    if (!hole || hole.isEmpty) return;
+    NSBezierPath *veil = [NSBezierPath bezierPathWithRect:d.b];
+    [veil appendBezierPath:hole];
+    veil.windingRule = NSWindingRuleEvenOdd;
+    [[rgb(d.pal->background) colorWithAlphaComponent:0.62] setFill];
+    [veil fill];
+    hole.lineWidth = 1.5;
+    [[NSColor colorWithCalibratedWhite:d.ink alpha:0.7] setStroke];
+    [hole stroke];
 }
 
 // ── POTA ──
