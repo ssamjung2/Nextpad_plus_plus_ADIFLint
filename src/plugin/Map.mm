@@ -18,6 +18,7 @@
 #include "adif_palette.h"
 #include "adif_projection.h"
 #include "adif_spec.h"
+#include "adif_sun.h"
 #include "adif_world.h"
 
 #include <algorithm>
@@ -135,7 +136,9 @@ static NSAttributedString *treeMark(NSColor *color) {
 // The Map's control groups: laid out left to right at their own sizes, a new line when the next
 // doesn't fit, with a thin line between neighbours and between lines; as tall as its lines.
 @interface ADIFFlowView : NSView
-@property(nonatomic) CGFloat gap;  // between neighbours; the line runs down its middle
+@property(nonatomic) CGFloat gap;          // between neighbours; the line runs down its middle
+@property(nonatomic) BOOL trailingLast;    // the last one at the right end of its line
+@property(nonatomic) BOOL centred;         // each centred in its line's height (else at its top)
 @end
 
 @implementation ADIFFlowView {
@@ -153,10 +156,15 @@ static NSAttributedString *treeMark(NSColor *color) {
     CGFloat width = self.bounds.size.width, x = 0, y = 0, lineHeight = 0;
     std::vector<NSRect> rules;
     std::vector<CGFloat> lineStarts;  // the x of each line's vertical rules, to size them when the line ends
+    std::vector<NSView *> lineViews;
     auto endLine = [&]() {
         for (CGFloat rx : lineStarts) rules.push_back(NSMakeRect(rx, y, 1, lineHeight));
+        if (_centred)
+            for (NSView *lv : lineViews) [lv setFrameOrigin:NSMakePoint(lv.frame.origin.x, std::round(y + (lineHeight - lv.frame.size.height) / 2))];
         lineStarts.clear();
+        lineViews.clear();
     };
+    NSView *last = self.subviews.lastObject;
     for (NSView *v in self.subviews) {
         if (v.hidden) continue;
         NSSize size = v.fittingSize;
@@ -166,8 +174,10 @@ static NSAttributedString *treeMark(NSColor *color) {
             rules.push_back(NSMakeRect(0, y - _gap / 2, width, 1));
             x = 0, lineHeight = 0;
         }
+        if (_trailingLast && v == last && x > 0) x = std::max(x, width - size.width);  // pushed to the right, its rule with it
         if (x > 0) lineStarts.push_back(std::round(x - _gap / 2));
         v.frame = NSMakeRect(x, y, size.width, size.height);
+        lineViews.push_back(v);
         x += size.width + _gap;
         lineHeight = std::max(lineHeight, size.height);
     }
@@ -247,6 +257,10 @@ struct {
     NSPopUpButton *band = nil, *mode = nil, *dates = nil, *confirmed = nil;
     NSTextField *target = nil, *status = nil, *zoomLabel = nil;
     NSTextField *situation = nil;  // the status bar's right side: the log and the spots, for the operator
+    NSTextField *slots = nil;      // the contact's DXCC entity's band slots, under its description
+    NSTextField *today = nil, *air = nil, *wantedLabel = nil;
+    NSStackView *wanted = nil;     // the spots most wanted, as links
+    ADIFMapHit chosenHit;          // what was clicked last (the contact panel shows it when the pointer is on nothing)
     NSSplitView *mainSplit = nil, *outerSplit = nil, *statusSplit = nil;  // map | list; map and list | status bar; contact | situation
     ADIFSplitKeeper *splitKeeper = nil;
     bool splitsRestored = false;
@@ -429,9 +443,79 @@ std::string idleStatus() {
               "pinch to zoom, drag to move (on the globe, to turn it); the legend shows the colours.");
 }
 
-// The situation panel: the log, as the map shows it.
-void showSituation() {
-    if (mw.situation) mw.situation.stringValue = ADIFString(mw.summary);
+void showSituation();
+std::string entityName(int dxcc, const std::string &call);
+
+// The contact panel's second line: the band slots of a DXCC entity (green confirmed, orange
+// worked, grey not yet), its mode groups the same way, and your QSOs with the call.
+void showSlots(int dxcc, const std::string &entity, const std::string &call) {
+    if (!mw.slots) return;
+    mw.slots.hidden = dxcc <= 0;
+    if (dxcc <= 0) {
+        mw.slots.stringValue = @"";
+        return;
+    }
+    const MapPalette &pal = adif::mapPalette(mw.view.style.palette);
+    const adif::WorkedIndex &w = mw.view.worked;
+    NSFont *font = [NSFont monospacedDigitSystemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightRegular];
+    NSFont *bold = [NSFont monospacedDigitSystemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightBold];
+    NSMutableAttributedString *out = [[NSMutableAttributedString alloc] init];
+    auto add = [&](const std::string &text, NSColor *colour, NSFont *f) {
+        [out appendAttributedString:[[NSAttributedString alloc] initWithString:ADIFString(text)
+                                                                    attributes:@{NSFontAttributeName : f, NSForegroundColorAttributeName : colour}]];
+    };
+    auto colourOf = [&](adif::SlotState st) {
+        return st == adif::SlotState::Confirmed ? rgb(pal.confirmed) : st == adif::SlotState::Worked ? rgb(pal.worked) : NSColor.tertiaryLabelColor;
+    };
+    add(entity + ":  ", NSColor.secondaryLabelColor, [NSFont systemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightSemibold]);
+    for (const auto &[band, st] : adif::bandSlots(w, dxcc)) {
+        std::string b = band.size() > 1 && band.back() == 'm' && isdigit((unsigned char)band[band.size() - 2]) ? band.substr(0, band.size() - 1) : band;
+        add(b + " ", colourOf(st), st == adif::SlotState::None ? font : bold);
+    }
+    auto entityIt = w.entities.find(dxcc);
+    static const char *const kModes[] = {"CW", N_("Phone"), N_("Data")};
+    add("  ", NSColor.labelColor, font);
+    for (int m = 0; m < 3; ++m) {
+        adif::SlotState st = entityIt == w.entities.end()                  ? adif::SlotState::None
+                             : entityIt->second.confirmedModes.count(m) ? adif::SlotState::Confirmed
+                             : entityIt->second.modes.count(m)          ? adif::SlotState::Worked
+                                                                        : adif::SlotState::None;
+        add(tr(kModes[m]) + " ", colourOf(st), st == adif::SlotState::None ? font : bold);
+    }
+    if (!call.empty()) {
+        auto c = w.calls.find(adif::lookupCall(call));
+        std::string worked = c == w.calls.end() ? trf("{call} not in this log", {{"call", call}})
+                                                : trp("{call}: {n} QSO", "{call}: {n} QSOs", (long long)c->second.qsos, {{"call", call}}) +
+                                                      (c->second.confirmed ? ", " + tr("confirmed") : "");
+        add("  \u00B7  " + worked, NSColor.secondaryLabelColor, [NSFont systemFontOfSize:NSFont.smallSystemFontSize]);
+    }
+    mw.slots.attributedStringValue = out;
+}
+
+// The contact panel for what's under the pointer, or chosen, or nothing: its description, and
+// for a station (a spot, a contact, a DXCC entity) its entity's band slots.
+void showContact(const ADIFMapHit &h, const std::string &text) {
+    setStatus(text);
+    int dxcc = 0;
+    std::string entity, call;
+    const adif::CountryTable &countries = ADIFCountries();
+    auto place = [&](const std::string &c, int fieldDxcc) {
+        adif::CountryInfo info;
+        call = c;
+        if (fieldDxcc > 0) dxcc = fieldDxcc;
+        else if (!countries.empty() && countries.lookup(c, &info)) dxcc = info.dxcc;
+        entity = entityName(dxcc, c);
+    };
+    if (h.kind == ADIFMapHit::Spot && h.index < mw.view.spots.size()) {
+        const ADIFMapSpot &ms = mw.view.spots[h.index];
+        if (!ms.spot.heardMe) dxcc = ms.status.dxcc, entity = ms.status.entity, call = ms.spot.activator;
+    } else if (h.kind == ADIFMapHit::Contact && h.index < mw.view.contacts.size() && !mw.view.contacts[h.index].qsos.empty()) {
+        const adif::MapQso &q = mw.data.qsos[mw.view.contacts[h.index].qsos[0]];
+        place(q.call, q.dxcc);
+    } else if (h.kind == ADIFMapHit::Dxcc && h.index < mw.dxcc.size()) {
+        dxcc = mw.dxcc[h.index].dxcc, entity = mw.dxcc[h.index].name;
+    }
+    showSlots(dxcc, entity, call);
 }
 
 std::string callsOf(const std::vector<size_t> &qsos) {
@@ -762,7 +846,8 @@ void selected(const ADIFMapHit &h) {
     mw.useSpot.hidden = h.kind != ADIFMapHit::Spot;
     [mw.view setInfo:h.kind == ADIFMapHit::Spot || h.kind == ADIFMapHit::Spotter ? spotInfo(h) : std::vector<ADIFInfoRow>{}];
     mw.chosen = h.kind == ADIFMapHit::None ? "" : describe(h) + (qsos.empty() ? "" : " " + tr("Double-click a QSO to go to it in the log."));
-    setStatus(mw.chosen.empty() ? idleStatus() : mw.chosen);
+    mw.chosenHit = h;
+    showContact(h, mw.chosen.empty() ? idleStatus() : mw.chosen);
     showListRow(h);
 }
 
@@ -794,6 +879,7 @@ void applyProjection() {
     [mw.view setProjector:pr home:home ? ADIFString(mw.home) : @"" lat:lat lon:lon];
     [mw.projection itemAtIndex:3].title = home ? [NSString stringWithFormat:T(@"Globe from %@"), ADIFString(mw.home)] : T(@"Globe");
     [mw.projection selectItemAtIndex:p];
+    [mw.projection invalidateIntrinsicContentSize];  // as wide as its widest item, renamed or not
 }
 
 void queueViewList();
@@ -1633,6 +1719,7 @@ void refreshSpots() {
     }
     [mw.view setSpots:marks now:now maxAge:f.maxAge];
     queueViewList();
+    showSituation();
     mw.refreshSpotsButton.enabled = show;
     // The information box follows the chosen spot or spotter (its age, who else heard it), or goes with it.
     ADIFMapHit chosen = mw.view.selectedHit;
@@ -2401,6 +2488,117 @@ void fillViewList() {
     mw.listHint.stringValue = ADIFString(hint);
 }
 
+// The situation panel: the log as the map shows it; today's QSOs; the spots you most want now (a
+// link each); the busiest bands; the sun at your station.
+void showSituation() {
+    if (!mw.situation) return;
+    mw.situation.stringValue = ADIFString(mw.summary);
+    std::string today = utcNow("%Y%m%d");
+    adif::LogGlance g = adif::logGlance(mw.data.qsos, mw.view.worked, today);
+    std::string line;
+    if (!g.today) line = tr("Today (UTC): no QSOs yet.");
+    else {
+        std::string bands;
+        for (const std::string &b : g.todayBands) bands += (bands.empty() ? "" : ", ") + b;
+        std::string time = g.lastTime.size() >= 4 ? g.lastTime.substr(0, 2) + ":" + g.lastTime.substr(2, 2) : g.lastTime;
+        line = trp("Today (UTC): {n} QSO (CW {cw}, phone {phone}, data {data}) on {bands}; the last at {time}, {call}.",
+                   "Today (UTC): {n} QSOs (CW {cw}, phone {phone}, data {data}) on {bands}; the last at {time}, {call}.", (long long)g.today,
+                   {{"cw", std::to_string(g.todayModes[0])}, {"phone", std::to_string(g.todayModes[1])}, {"data", std::to_string(g.todayModes[2])},
+                    {"bands", bands}, {"time", time}, {"call", g.lastCall}});
+    }
+    if (g.states) line += " " + trp("{n} US state worked.", "{n} US states worked.", (long long)g.states);
+    mw.today.stringValue = ADIFString(line);
+    // The spots most wanted: a new DXCC first, then a new band, mode or park; the newest first.
+    for (NSView *v in [mw.wanted.arrangedSubviews copy])
+        if (v != mw.wantedLabel) [mw.wanted removeView:v];
+    const std::vector<ADIFMapSpot> &spots = mw.view.spots;
+    std::vector<size_t> wanted;
+    for (size_t k = 0; k < spots.size(); ++k)
+        if (!spots[k].spot.heardMe && adif::spotWanted(spots[k].status)) wanted.push_back(k);
+    std::stable_sort(wanted.begin(), wanted.end(), [&](size_t a, size_t b) {
+        int pa = adif::spotPriority(spots[a].status), pb = adif::spotPriority(spots[b].status);
+        return pa != pb ? pa < pb : spots[a].spot.epoch > spots[b].spot.epoch;
+    });
+    if (!mw.view.style[kLayerSpots].show) mw.wantedLabel.stringValue = T(@"Spots: tick the Spots layer's Show for who is on the air, and which you need.");
+    else if (wanted.empty())
+        mw.wantedLabel.stringValue = TP(@"Wanted now: none of the {n} station spotted.", @"Wanted now: none of the {n} stations spotted.", (long long)spots.size());
+    else mw.wantedLabel.stringValue = T(@"Wanted now:");
+    for (size_t i = 0; i < wanted.size() && i < 6; ++i) {
+        const ADIFMapSpot &ms = spots[wanted[i]];
+        std::string need = ms.status.need == adif::SpotNeed::NewDxcc || ms.status.need == adif::SpotNeed::NewBand || ms.status.need == adif::SpotNeed::NewMode
+                               ? adif::spotNeedText(ms.status.need)
+                               : tr("new park");
+        std::string activator = ms.spot.activator, band = ms.spot.band;
+        NSButton *b = [NSButton buttonWithTitle:@"" target:nil action:nil];
+        b.bordered = NO;
+        NSMutableAttributedString *t = [[NSMutableAttributedString alloc]
+            initWithString:ADIFString(activator)
+                attributes:@{NSFontAttributeName : [NSFont systemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightSemibold],
+                             NSForegroundColorAttributeName : NSColor.linkColor}];
+        [t appendAttributedString:[[NSAttributedString alloc] initWithString:ADIFString(" " + band + " " + need)
+                                                                  attributes:@{NSFontAttributeName : [NSFont systemFontOfSize:NSFont.smallSystemFontSize],
+                                                                               NSForegroundColorAttributeName : [mw.view spotColor:ms]}]];
+        b.attributedTitle = t;
+        b.identifier = [NSString stringWithFormat:@"map.wanted.%zu", i];
+        b.toolTip = ADIFString(spotNeedLine(ms.status, band));
+        ADIFOnAction(b, ^{  // the spot (found again: the list may have changed), chosen on the map
+            const std::vector<ADIFMapSpot> &now = mw.view.spots;
+            for (size_t k = 0; k < now.size(); ++k)
+                if (now[k].spot.activator == activator && now[k].spot.band == band) {
+                    ADIFMapHit h;
+                    h.kind = ADIFMapHit::Spot, h.index = k, h.square = adif::squareAt(now[k].lon, now[k].lat);
+                    mw.choosingFromList = true;
+                    [mw.view selectHit:h];
+                    mw.choosingFromList = false;
+                    return;
+                }
+        });
+        [mw.wanted addArrangedSubview:b];
+    }
+    if (wanted.size() > 6) {
+        NSTextField *more = [NSTextField labelWithString:TF(@"and {n} more", @{@"n" : @(wanted.size() - 6)})];
+        more.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        more.textColor = NSColor.secondaryLabelColor;
+        [mw.wanted addArrangedSubview:more];
+    }
+    // The busiest bands (stations spotted on each), and the sun where you are.
+    std::string air;
+    if (mw.view.style[kLayerSpots].show && !spots.empty()) {
+        std::map<std::string, std::set<std::string>> byBand;
+        for (const ADIFMapSpot &ms : spots)
+            if (!ms.spot.band.empty()) byBand[ms.spot.band].insert(ms.spot.activator);
+        std::vector<std::pair<std::string, size_t>> busy;
+        for (const auto &kv : byBand) busy.emplace_back(kv.first, kv.second.size());
+        std::stable_sort(busy.begin(), busy.end(), [](const auto &a, const auto &b) { return a.second > b.second; });
+        std::string list;
+        for (size_t i = 0; i < busy.size() && i < 6; ++i) list += (list.empty() ? "" : ", ") + busy[i].first + " " + std::to_string(busy[i].second);
+        air = trf("On the air: {bands} (stations spotted).", {{"bands", list}});
+    }
+    double lat, lon;
+    if (!mw.home.empty() && adif::gridToLatLon(mw.home, &lat, &lon)) {
+        double now = (double)time(nullptr), at = 0;
+        bool rising = false;
+        double up = adif::solarElevation(adif::sunAt(now), lat, lon);
+        std::string next;
+        if (adif::nextSunCrossing(now, lat, lon, 0, &at, &rising)) {
+            time_t t = (time_t)at;
+            struct tm tm{};
+            gmtime_r(&t, &tm);
+            char hm[16];
+            strftime(hm, sizeof hm, "%H:%M", &tm);
+            next = rising ? trf("rises at {time} UTC", {{"time", hm}}) : trf("sets at {time} UTC", {{"time", hm}});
+        }
+        char deg[16];
+        snprintf(deg, sizeof deg, "%.0f", std::fabs(up));
+        std::string sun = up >= 0 ? trf("Sun at {grid}: up {deg}\u00B0", {{"grid", mw.home}, {"deg", deg}})
+                                  : trf("Sun at {grid}: down {deg}\u00B0", {{"grid", mw.home}, {"deg", deg}});
+        if (!next.empty()) sun += ", " + next;
+        if (up > -6 && up < 0.8) sun += " " + tr("(the grey line is here)");
+        air += (air.empty() ? "" : "  ") + sun + ".";
+    }
+    mw.air.stringValue = ADIFString(air);
+}
+
 void queueViewList() {
     if (mw.listQueued || !mw.listPanel || mw.listPanel.hidden) return;
     mw.listQueued = true;
@@ -2764,9 +2962,10 @@ void cmdMap() {
         mw.listHint.maximumNumberOfLines = 4;
         mw.listHint.identifier = @"map.list.hint";
         mw.view = [[ADIFMapView alloc] initWithFrame:NSZeroRect];
-        mw.view.onHover = ^(const ADIFMapHit &h) {
+        mw.view.onHover = ^(const ADIFMapHit &h) {  // what's under the pointer, else what was chosen, else how to use the map
             std::string d = describe(h);
-            setStatus(!d.empty() ? d : !mw.chosen.empty() ? mw.chosen : idleStatus());
+            if (!d.empty()) showContact(h, d);
+            else showContact(mw.chosen.empty() ? ADIFMapHit() : mw.chosenHit, !mw.chosen.empty() ? mw.chosen : idleStatus());
         };
         mw.view.onSelect = ^(const ADIFMapHit &h) { selected(h); };
         mw.view.onViewChanged = ^{
@@ -2860,24 +3059,25 @@ void cmdMap() {
 
         // ── The controls: a toolbar across the top, then the groups (Layers, Markers, Filters,
         // Spots) side by side, as many to a line as fit, with lines between them ──
-        auto rule = []() {
-            NSBox *b = [[NSBox alloc] initWithFrame:NSMakeRect(0, 0, 1, 18)];
-            b.boxType = NSBoxSeparator;
-            [b.widthAnchor constraintEqualToConstant:1].active = YES;
-            [b.heightAnchor constraintEqualToConstant:18].active = YES;
-            return b;
-        };
         mw.target.font = [NSFont systemFontOfSize:NSFont.systemFontSize weight:NSFontWeightSemibold];
         mw.target.lineBreakMode = NSLineBreakByTruncatingMiddle;
         [mw.target setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
-        NSStackView *toolbar = [[NSStackView alloc] initWithFrame:NSZeroRect];
-        toolbar.spacing = 8;
+        auto cluster = [](NSArray<NSView *> *views) {
+            NSStackView *c = [NSStackView stackViewWithViews:views];
+            c.spacing = 8;
+            return c;
+        };
+        ADIFFlowView *toolbar = [[ADIFFlowView alloc] initWithFrame:NSZeroRect];  // wraps, like the groups, in a narrow window
+        toolbar.gap = 17;
+        toolbar.trailingLast = YES;
+        toolbar.centred = YES;
         toolbar.identifier = @"map.toolbar";
-        for (NSView *v in @[ mw.target, rule(), ADIFLabel(@"Zoom:"), out, mw.zoomLabel, in, fit, world, rule(), mw.region, mw.projection, rule(), styleButton, save ])
-            [toolbar addView:v inGravity:NSStackViewGravityLeading];
-        [toolbar addView:mw.listToggle inGravity:NSStackViewGravityTrailing];
-        [toolbar setCustomSpacing:4 afterView:out];
-        [toolbar setCustomSpacing:4 afterView:mw.zoomLabel];
+        NSStackView *zoomCluster = cluster(@[ ADIFLabel(@"Zoom:"), out, mw.zoomLabel, in, fit, world ]);
+        [zoomCluster setCustomSpacing:4 afterView:out];
+        [zoomCluster setCustomSpacing:4 afterView:mw.zoomLabel];
+        for (NSView *v in @[ cluster(@[ mw.target ]), zoomCluster, cluster(@[ mw.region, mw.projection ]), cluster(@[ styleButton, save ]),
+                             cluster(@[ mw.listToggle ]) ])
+            [toolbar addSubview:v];
         auto group = [](NSString *caption, NSString *ident, NSArray<NSView *> *rows) {
             NSTextField *title = [NSTextField labelWithString:T(caption).localizedUppercaseString];
             title.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize - 1 weight:NSFontWeightSemibold];
@@ -2944,12 +3144,42 @@ void cmdMap() {
             [content setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationVertical];
             return p;
         };
-        mw.situation = [NSTextField wrappingLabelWithString:@""];
-        mw.situation.identifier = @"map.situation";
-        mw.situation.maximumNumberOfLines = 5;
-        mw.situation.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
-        NSView *contactPanel = panel(N(@"Contact"), @"map.contact", mw.status, mw.useSpot);
-        NSView *situationPanel = panel(N(@"Situation"), @"map.situationPanel", mw.situation, nil);
+        auto small = [](NSString *ident, NSInteger lines) {
+            NSTextField *f = [NSTextField wrappingLabelWithString:@""];
+            f.identifier = ident;
+            f.maximumNumberOfLines = lines;
+            f.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+            return f;
+        };
+        auto column = [](NSArray<NSView *> *views) {  // views one under another, each as wide as the column
+            NSStackView *c = [NSStackView stackViewWithViews:views];
+            c.orientation = NSUserInterfaceLayoutOrientationVertical;
+            c.alignment = NSLayoutAttributeLeading;
+            c.spacing = 3;
+            for (NSView *v in views) [v.widthAnchor constraintEqualToAnchor:c.widthAnchor].active = YES;
+            return c;
+        };
+        mw.slots = [NSTextField labelWithString:@""];
+        mw.slots.identifier = @"map.contact.slots";
+        mw.slots.lineBreakMode = NSLineBreakByTruncatingTail;
+        mw.slots.toolTip = T(@"This station's DXCC entity in your log: its bands and modes, green confirmed, orange worked, grey not yet; and "
+                             @"your QSOs with the call");
+        mw.situation = small(@"map.situation", 3);
+        mw.today = small(@"map.today", 2);
+        mw.air = small(@"map.air", 2);
+        mw.wantedLabel = [NSTextField labelWithString:@""];
+        mw.wantedLabel.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        mw.wanted = [NSStackView stackViewWithViews:@[ mw.wantedLabel ]];
+        mw.wanted.spacing = 6;
+        mw.wanted.identifier = @"map.wanted";
+        [mw.wanted setClippingResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+        mw.wanted.detachesHiddenViews = YES;
+        NSStackView *spotActions = [[NSStackView alloc] initWithFrame:NSZeroRect];  // Use in New QSO, under a spot's description
+        [spotActions addView:mw.useSpot inGravity:NSStackViewGravityLeading];
+        spotActions.detachesHiddenViews = YES;
+        mw.useSpot.controlSize = NSControlSizeSmall;
+        NSView *contactPanel = panel(N(@"Contact"), @"map.contact", column(@[ mw.status, mw.slots, spotActions ]), nil);
+        NSView *situationPanel = panel(N(@"Situation"), @"map.situationPanel", column(@[ mw.situation, mw.today, mw.wanted, mw.air ]), nil);
         mw.splitKeeper = [[ADIFSplitKeeper alloc] init];
         auto split = [](NSString *ident, BOOL vertical, NSArray<NSView *> *views) {
             NSSplitView *sv = [[NSSplitView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600)];
@@ -3035,13 +3265,14 @@ void cmdMap() {
                                                                 mw.view.needsDisplay = YES;
                                                             // Spots age: their filter, fading and labels follow.
                                                             if (mw.window.visible && st[kLayerSpots].show) refreshSpots();
+                                                            else if (mw.window.visible) showSituation();  // the sun moves on
                                                         }];
     refresh();
     [mw.window makeKeyAndOrderFront:nil];
     if (!mw.splitsRestored) {  // the dividers where they were left: the list's width, the status bar's height and split
         [mw.window layoutIfNeeded];
         CGFloat statusHeight = std::clamp((CGFloat)std::atof(setting("mapStatusHeight").c_str()), (CGFloat)0, (CGFloat)400);
-        if (statusHeight < 70) statusHeight = 100;
+        if (statusHeight < 70) statusHeight = 132;
         [mw.outerSplit setPosition:mw.outerSplit.bounds.size.height - statusHeight - mw.outerSplit.dividerThickness ofDividerAtIndex:0];
         int share = std::atoi(setting("mapContactShare").c_str());
         [mw.statusSplit setPosition:mw.statusSplit.bounds.size.width * (share >= 20 && share <= 80 ? share : 50) / 100.0 ofDividerAtIndex:0];

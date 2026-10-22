@@ -32,6 +32,22 @@ Versions before 0.8.0 were development builds and were not published.
   choose (US states, Canadian provinces, other countries' regions) and, in a US state, the
   counties you choose; at first, your station's location, for a map of your own state
   without the clutter of the rest. **Everywhere** shows them all.
+- **Map: a new layout.** A toolbar across the top (zoom, region, projection, Style Options,
+  Export PNG, List), then the controls in captioned groups side by side (Layers, Markers,
+  Filters, Spots) with lines between them, wrapping in a narrow window; the map gets the
+  room. Dividers between the map and the list and above the status bar can be dragged, and
+  are remembered.
+- **Map → List: Selected, pages, sorting, columns.** The QSO table under the map moved into
+  the list as **Selected** (the QSOs of what you click). Every list (Selected, Contacts,
+  Parks, Spots) has pages (25 to 500 rows a page), sorts by any column, and chooses its
+  columns (right-click a title, or Columns): country, state, county, zones, park and record
+  for QSOs; location, how worked and outline for parks; band, time, program, reference, park,
+  spotter, source, signal report, grid, country, comment and **For this log** for spots.
+- **Map → status bar: Contact and Situation.** Contact: what's under the pointer or chosen,
+  and for a station its DXCC entity's bands and modes in your log (green confirmed, orange
+  worked, grey not yet) and your QSOs with the call. Situation: the log, today's QSOs by
+  mode and band, the spots you most want now as links (a new DXCC, band, mode or park), the
+  busiest bands, and the sun at your station (when it rises or sets, the grey line).
 - **Map → Spots: POTA activators** are POTA's badge (the tree in the band's colour, with the
   spot's ring round it) instead of the plain spot marker, on the map, in the legend, and as
   a tree in the list of spots.
@@ -81,7 +97,7 @@ Versions before 0.8.0 were development builds and were not published.
 
 ### Changed
 
-- **Map**: **Spots…** moved from the Filters row to the Markers row.
+- **Map**: **Spots…** moved from the Filters row to the Spots group.
 - **Map → Day and night**: the night side is darker (up to 65% black, from 50%).
 - **PSKReporter** (Settings → Spots → Reports) asks for your callsign on either side, so the
   stations your station heard show too when your program uploads what it hears (WSJT-X:
@@ -94,6 +110,10 @@ Versions before 0.8.0 were development builds and were not published.
 - **Spots**: showing the layer again, or saving Settings → Spots, no longer asks Spothole
   again before its 2 minutes are up; what each source said last stays shown.
 - Spot ages, the Spots age filter and fading follow the clock each minute while the Map shows.
+
+### Fixed
+
+- **Map → Colour by** now colours the spots too; they were always in their band's colour.
 
 ## [1.3.0] - 2026-10-19
 

@@ -4595,6 +4595,19 @@ int main(int argc, char **argv) {
                   "Other programs: IOTA starts hidden and can be shown; the common programs are listed");
             [mapw.contentView layoutSubtreeIfNeeded];
             CHECK(overlaps(mapw.contentView) == 0, "the map's controls do not overlap (%d)", overlaps(mapw.contentView));
+            {  // at its narrowest the toolbar and the groups wrap; nothing overlaps or runs off the window
+                NSRect was = mapw.frame;
+                [mapw setFrame:NSMakeRect(was.origin.x, was.origin.y, 960, was.size.height) display:YES];
+                [mapw.contentView layoutSubtreeIfNeeded];
+                NSView *toggle = viewWithIdentifier(mapw.contentView, @"map.list.toggle");
+                NSRect inWindow = [toggle convertRect:toggle.bounds toView:nil];
+                CHECK(overlaps(mapw.contentView) == 0 && NSMaxX(inWindow) <= NSWidth(mapw.contentView.bounds) + 0.5,
+                      "a narrow Map window: the controls wrap, nothing overlaps (%d), List within it (%.0f of %.0f)", overlaps(mapw.contentView),
+                      NSMaxX(inWindow), NSWidth(mapw.contentView.bounds));
+                snapshot(mapw, "map-narrow");
+                [mapw setFrame:was display:YES];
+                [mapw.contentView layoutSubtreeIfNeeded];
+            }
             // Back to the defaults for any later run with this config.
             [style(@"reset") performClick:nil];
             CHECK([((NSPopUpButton *)style(@"palette")).titleOfSelectedItem isEqualToString:@"Standard"] &&
@@ -4940,6 +4953,25 @@ int main(int argc, char **argv) {
                     std::string smInfo = ((NSString *)[mapView performSelector:@selector(infoText)]).UTF8String;
                     CHECK(smInfo.find("For this log: new band for Sov Mil Order of Malta (40m)") != std::string::npos,
                           "the spot says what it means for the log: %s", smInfo.c_str());
+                    // The status bar: the contact (the station's DXCC entity's bands and modes, and your QSOs with the call), and
+                    // the situation (today, the spots most wanted as links, the bands on the air, the sun at home).
+                    [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(12.43, 41.9), 0)];
+                    NSTextField *slots = (NSTextField *)viewWithIdentifier(mapw.contentView, @"map.contact.slots");
+                    CHECK(!slots.hidden && [slots.stringValue hasPrefix:@"Sov Mil Order of Malta:"] && [slots.stringValue containsString:@" 20 "] &&
+                              [slots.stringValue containsString:@"1A0KM not in this log"],
+                          "the contact: the spotted station's entity, its bands and modes, the call not in the log (%s)", slots.stringValue.UTF8String);
+                    NSButton *wantedLink = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.wanted.0");
+                    NSString *air = ((NSTextField *)viewWithIdentifier(mapw.contentView, @"map.air")).stringValue;
+                    NSString *today = ((NSTextField *)viewWithIdentifier(mapw.contentView, @"map.today")).stringValue;
+                    CHECK(wantedLink && [wantedLink.attributedTitle.string isEqualToString:@"1A0KM 40m new band"] && [air containsString:@"On the air: "] &&
+                              [air containsString:@"Sun at EN52WA: "] && [today hasPrefix:@"Today (UTC): "],
+                          "the situation: %s; %s; %s", wantedLink.attributedTitle.string.UTF8String, today.UTF8String, air.UTF8String);
+                    [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, berlin, 1)];
+                    [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, berlin, 1)];
+                    [wantedLink performClick:nil];
+                    std::string chosenInfo = ((NSString *)[mapView performSelector:@selector(infoText)]).UTF8String;
+                    CHECK(chosenInfo.find("1A0KM\n") == 0, "a wanted spot's link chooses it on the map: %s", chosenInfo.c_str());
+                    snapshot(mapw, "map-status");
                     [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, berlin, 1)];  // DL1ABC again, for Use in New QSO below
                     [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, berlin, 1)];
                     kind.selectedSegment = 2;

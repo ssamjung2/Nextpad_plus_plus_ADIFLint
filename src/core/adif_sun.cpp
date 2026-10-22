@@ -58,4 +58,23 @@ std::vector<std::pair<double, double>> sunCircle(const SunPosition &sun, double 
     return out;
 }
 
+bool nextSunCrossing(double from, double lat, double lon, double elevation, double *at, bool *rising) {
+    auto above = [&](double t) { return solarElevation(sunAt(t), lat, lon) - elevation; };
+    double prev = above(from);
+    for (double t = from + 300; t <= from + 86400 + 300; t += 300) {  // five-minute steps, then halve to the second
+        double now = above(t);
+        if ((prev < 0) != (now < 0)) {
+            double lo = t - 300, hi = t;
+            while (hi - lo > 1) {
+                double mid = (lo + hi) / 2;
+                ((above(mid) < 0) == (prev < 0) ? lo : hi) = mid;
+            }
+            *at = hi, *rising = prev < 0;
+            return true;
+        }
+        prev = now;
+    }
+    return false;
+}
+
 }  // namespace adif

@@ -57,5 +57,24 @@ SpotStatus spotStatus(const WorkedIndex &w, const Spot &s, const CountryTable *c
 std::string spotNeedText(SpotNeed n);
 // Wanted: a new DXCC, band or mode, or a new park.
 bool spotWanted(const SpotStatus &st);
+// How wanted, for ordering: 0 a new DXCC, 1 a new band, 2 a new mode, 3 a new park, 4 not.
+int spotPriority(const SpotStatus &st);
+
+// A DXCC entity's band slots, for the bands most worked (160m to 6m, and any other band worked):
+// each band, and whether it is confirmed, worked or not yet.
+enum class SlotState { None, Worked, Confirmed };
+std::vector<std::pair<std::string, SlotState>> bandSlots(const WorkedIndex &w, int dxcc);
+
+// The log at a glance, for the Map's status bar: its QSOs, DXCC entities (and how many
+// confirmed), US states and 4-character squares; and today's (UTC day "YYYYMMDD") QSOs, by mode
+// group and band, and the last of them.
+struct LogGlance {
+    size_t qsos = 0, dxcc = 0, dxccConfirmed = 0, states = 0, grids = 0;
+    size_t today = 0;
+    size_t todayModes[3] = {0, 0, 0};  // CW, phone, data
+    std::vector<std::string> todayBands;  // in band order
+    std::string lastCall, lastTime;       // the last QSO today (latest TIME_ON)
+};
+LogGlance logGlance(const std::vector<MapQso> &qsos, const WorkedIndex &w, const std::string &today);
 
 }  // namespace adif

@@ -3354,6 +3354,13 @@ static void testRegionsAndSun() {
     std::vector<std::pair<double, double>> civil = sunCircle(june, -6, 30);
     for (const auto &p : civil) onEdge = onEdge && std::fabs(solarElevation(june, p.second, p.first) + 6) < 0.01;
     CHECK(onEdge, "the terminator and civil twilight circles");
+    double at = 0;
+    bool rising = true;
+    bool set = nextSunCrossing(1782043200, 43.07, -89.40, 0, &at, &rising);
+    CHECK(set && !rising && at > 1782043200 + 13 * 3600 && at < 1782043200 + 14 * 3600 && std::fabs(solarElevation(sunAt(at), 43.07, -89.40)) < 0.02,
+          "Madison on 21 June 2026: the sun next sets (without refraction) about 01:3x UTC (%.0f s after noon UTC)", at - 1782043200);
+    CHECK(nextSunCrossing(at + 60, 43.07, -89.40, 0, &at, &rising) && rising, "then it rises");
+    CHECK(!nextSunCrossing(1782043200, 85, 0, 0, &at, &rising), "near the pole in June it doesn't set");
 }
 
 // PMTiles v3 (protomaps/PMTiles spec/v3/spec.md, read 2026-10-18) and the Map's extracts.
@@ -3710,6 +3717,28 @@ static void testSpotsCore() {
         park.program = "POTA", park.refs = {"US-1234"};
         Spot newPark = park;
         newPark.refs = {"US-9999"};
+        Spot dlPark = spot("DL1ABC", "20m", "CW");  // a slot confirmed, from a park not hunted
+        dlPark.program = "POTA", dlPark.refs = {"US-9999"};
+        CHECK(spotPriority(spotStatus(w, spot("JA1XYZ", "20m", "CW"), &ct)) == 0 && spotPriority(spotStatus(w, spot("DL9AAA", "17m", "CW"), &ct)) == 1 &&
+                  spotPriority(spotStatus(w, dlPark, &ct)) == 3 &&
+                  spotPriority(spotStatus(w, spot("DL1ABC", "20m", "CW"), &ct)) == 4,
+              "the most wanted first: a new DXCC, a new band, a new park, then the rest");
+        std::vector<std::pair<std::string, SlotState>> slots = bandSlots(w, 230);
+        auto slot = [&](const char *b) {
+            for (const auto &s : slots)
+                if (s.first == b) return s.second;
+            return SlotState::None;
+        };
+        CHECK(slots.size() == 11 && slots.front().first == "160m" && slots.back().first == "6m" && slot("20m") == SlotState::Confirmed &&
+                  slot("40m") == SlotState::Worked && slot("15m") == SlotState::None && bandSlots(w, 339).size() == 11,
+              "Germany's band slots: 20m confirmed, 40m worked, the rest not yet (%zu)", slots.size());
+        std::vector<MapQso> day = log;
+        day[1].date8 = "20261021", day[1].time = "1405", day[2].date8 = "20261021", day[2].time = "1532";
+        day[2].areas.state = "WI";
+        LogGlance g = logGlance(day, w, "20261021");
+        CHECK(g.qsos == 3 && g.dxcc == 1 && g.dxccConfirmed == 1 && g.states == 1 && g.today == 2 && g.todayModes[1] == 1 && g.todayModes[2] == 1 &&
+                  g.todayBands == std::vector<std::string>({"40m"}) && g.lastCall == "dl1abc/p" && g.lastTime == "1532",
+              "the log at a glance: today's QSOs by mode and band, the last of them (%zu today)", g.today);
         CHECK(!spotStatus(w, park, &ct).newPark && spotStatus(w, newPark, &ct).newPark && spotWanted(spotStatus(w, newPark, &ct)) &&
                   !spotWanted(spotStatus(w, spot("DL1ABC", "20m", "CW"), &ct)) && spotWanted(spotStatus(w, spot("JA1XYZ", "20m", "CW"), &ct)),
               "a park not hunted is wanted; a slot already worked isn't");

@@ -22,5 +22,8 @@ double solarElevation(const SunPosition &sun, double lat, double lon);
 // The places where the sun is `elevation` degrees up (0: the terminator; -6: the end of civil
 // twilight), as (lon, lat) every `stepDeg` degrees round the circle.
 std::vector<std::pair<double, double>> sunCircle(const SunPosition &sun, double elevation, double stepDeg = 2);
+// The next time after `from` (within a day) the sun crosses `elevation` degrees at a place, to
+// the second, and whether it is rising then; false when it doesn't (polar day or night).
+bool nextSunCrossing(double from, double lat, double lon, double elevation, double *at, bool *rising);
 
 }  // namespace adif

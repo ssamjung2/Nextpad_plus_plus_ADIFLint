@@ -126,8 +126,13 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
   placeholders), other programs' references, **lines to contacts** in their contacts'
   colours, and **distance rings**.
 - **Filters** by band, mode, date and confirmation, and **More Filters** by place.
-- A **list beside the map** of the POTA parks, contacts or spots in view, nearest first to
-  your station, the map's centre or a grid square, with distance and bearing.
+- A **list beside the map** of the QSOs you click, or the POTA parks, contacts or spots in
+  view, with distance and bearing, pages, sorting and the columns you choose; and a
+  **status bar** with the station under the pointer (its DXCC entity's bands and modes in
+  your log) and the situation (today's QSOs, the spots you need now, the busiest bands,
+  the sun at your station).
+- **Spots coloured by what they mean for your log**: a new DXCC, a new band or mode,
+  worked or confirmed.
 - **Spots**: the stations spotted now, from Spothole, a DX cluster (telnet, logged in with
   your callsign) and PSKReporter (who heard you and what you heard, or what's heard around
   your grid square), in their band's colours and
