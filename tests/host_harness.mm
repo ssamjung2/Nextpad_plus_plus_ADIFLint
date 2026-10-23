@@ -398,6 +398,12 @@ static NSWindow *windowTitled(NSString *title) {
     return nil;
 }
 
+static NSWindow *windowIdentified(NSString *ident) {
+    for (NSWindow *w in NSApp.windows)
+        if ([w.identifier isEqualToString:ident]) return w;
+    return nil;
+}
+
 // The popup offering `item` (a window can have several).
 static NSPopUpButton *findPopupWith(NSView *v, NSString *item) {
     if ([v isKindOfClass:NSPopUpButton.class] && [(NSPopUpButton *)v itemWithTitle:item]) return (NSPopUpButton *)v;
@@ -629,8 +635,9 @@ static int overlaps(NSView *root) {
             if (NSWidth(NSIntersectionRect(ra, rb)) > 1 && NSHeight(NSIntersectionRect(ra, rb)) > 1) {
                 ++n;
                 if (getenv("ADIFLINT_DEBUG_OVERLAPS"))
-                    std::printf("  overlap: %s %s / %s %s\n", NSStringFromClass([a class]).UTF8String, NSStringFromRect(ra).UTF8String,
-                                NSStringFromClass([b class]).UTF8String, NSStringFromRect(rb).UTF8String);
+                    std::printf("  overlap: %s %s %s / %s %s %s\n", NSStringFromClass([a class]).UTF8String, NSStringFromRect(ra).UTF8String,
+                                ([a isKindOfClass:NSButton.class] ? ((NSButton *)a).title : a.identifier).UTF8String, NSStringFromClass([b class]).UTF8String,
+                                NSStringFromRect(rb).UTF8String, ([b isKindOfClass:NSButton.class] ? ((NSButton *)b).title : b.identifier).UTF8String);
             }
         }
     return n;
@@ -3730,7 +3737,25 @@ int main(int argc, char **argv) {
             notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
             pump(0.3);
             run("Map (Grids, DXCC, Parks)...");
-            NSWindow *mapw = windowTitled(@"Map");
+            NSWindow *mapw = windowIdentified(@"map.window");
+            // The cards on the map: the bar's switches show any of them.
+            NSSegmentedControl *panels = (NSSegmentedControl *)viewWithIdentifier(mapw.contentView, @"map.panels");
+            auto setPanels = [&](int on) {
+                for (int i = 0; i < 4; ++i) [panels setSelected:(on >> i) & 1 forSegment:i];
+                [panels sendAction:panels.action to:panels.target];
+                for (int i = 0; i < 3; ++i) {  // laid out, and any crowded card closed
+                    [mapw.contentView layoutSubtreeIfNeeded];
+                    pump(0.05);
+                }
+            };
+            auto shown = [&](NSString *ident) {
+                NSView *c = viewWithIdentifier(mapw.contentView, ident);
+                return c && !c.hidden;
+            };
+            auto inWindow = [&](NSString *ident) {
+                NSView *c = viewWithIdentifier(mapw.contentView, ident);
+                return c ? [c convertRect:c.bounds toView:nil] : NSZeroRect;
+            };
             // The layers' boxes: map.<show|overlay|labels>.<grid|countries|states|counties|cq|itu|pota|iota|cities>.
             auto mapBox = [&](NSString *kind, NSString *layer) {
                 return (NSButton *)viewWithIdentifier(mapw.contentView, [NSString stringWithFormat:@"map.%@.%@", kind, layer]);
@@ -3762,8 +3787,10 @@ int main(int argc, char **argv) {
             [bandPopup sendAction:bandPopup.action to:bandPopup.target];
             if (mapw) {
                 [mapw.contentView layoutSubtreeIfNeeded];
-                CHECK(overlaps(mapw.contentView) == 0, "Map does not overlap");
+                CHECK(shown(@"map.group.layers") && !shown(@"map.group.filters") && overlaps(mapw.contentView) == 0,
+                      "Map does not overlap; the Layers card open at first");
                 snapshot(mapw, "map");
+                setPanels(0);  // the map's own checks, with no cards over it
             }
 
             // Interacting: zoom, a click on a square lists its QSOs, a hover names a DXCC, the list goes to the record.
@@ -3837,7 +3864,7 @@ int main(int argc, char **argv) {
 
             // Contacts: a pin at K1AB's own place (its 6-character grid, FN31pr); a click on the
             // pin's head lists the QSO and says where the place came from.
-            NSButton *contactsBox = findButton(mapw.contentView, @"Contacts");
+            NSButton *contactsBox = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.contacts");
             CHECK(contactsBox && contactsBox.state == NSControlStateValueOff, "Contacts starts off");
             contactsBox.state = NSControlStateValueOn;
             [contactsBox sendAction:contactsBox.action to:contactsBox.target];
@@ -4050,8 +4077,8 @@ int main(int argc, char **argv) {
             };
             [findButton(mapw.contentView, @"+") performClick:nil];
             [findButton(mapw.contentView, @"+") performClick:nil];
-            press(NSDownArrowFunctionKey, 14);
-            press(NSLeftArrowFunctionKey, 12);
+            press(NSDownArrowFunctionKey, 20);
+            press(NSLeftArrowFunctionKey, 17);
             [findButton(mapw.contentView, @"−") performClick:nil];
             [findButton(mapw.contentView, @"−") performClick:nil];
             NSPoint homeNow = pointFor(-88.125, 42.0208);
@@ -4060,9 +4087,11 @@ int main(int argc, char **argv) {
             [findButton(mapw.contentView, @"World") performClick:nil];
             CHECK(homeAtMiddle(), "World comes home from the far side");
             // Region: the globe turns to face Africa and zooms to it; on a flat map, Europe fills the view.
-            auto regionMiddle = [&](double lon, double lat) {  // from the map's middle now (the status line can change its height)
+            auto regionMiddle = [&](double lon, double lat) {  // from the middle of what the floating controls leave clear (on the globe,
+                                                                  // the map's middle), now (the status line can change its height)
                 [mapw.contentView layoutSubtreeIfNeeded];
-                NSPoint p = pointFor(lon, lat), m = [mapView convertPoint:NSMakePoint(NSMidX(mapView.bounds), NSMidY(mapView.bounds)) toView:nil];
+                NSRect clear = ((NSValue *)[mapView valueForKey:@"clearRect"]).rectValue;
+                NSPoint p = pointFor(lon, lat), m = [mapView convertPoint:NSMakePoint(NSMidX(clear), NSMidY(clear)) toView:nil];
                 return std::hypot(p.x - m.x, p.y - m.y);
             };
             CHECK(menuAction(regionMenu, @"Africa") && regionMiddle(16.5, 1) < 3 && std::atof(zoomShown().c_str()) > 1.2,
@@ -4071,16 +4100,18 @@ int main(int argc, char **argv) {
             // Overlays: CQ and ITU zones on the globe, then US states on a flat map.
             NSButton *cqBox = mapBox(@"overlay", @"cq"), *ituBox = mapBox(@"overlay", @"itu"), *statesBox = mapBox(@"overlay", @"states");
             CHECK(cqBox && ituBox && statesBox && cqBox.state == NSControlStateValueOff, "the overlay boxes, off at first");
-            // A column per layer: its Show, Overlay and Labels boxes one above the other; a Labels box
-            // works while its layer shows. Cities has no Show.
+            // A row per layer: its Show, Overlay and Labels boxes side by side, under their titles; a
+            // Labels box works while its layer shows. Cities has no Show.
             NSButton *gridShow = mapBox(@"show", @"grid"), *gridBox = mapBox(@"overlay", @"grid");
             NSButton *gridLabels = mapBox(@"labels", @"grid"), *cqLabels = mapBox(@"labels", @"cq"), *cqShow = mapBox(@"show", @"cq");
             CHECK(gridShow && gridBox && gridLabels && cqLabels && cqShow && gridBox != gridLabels && gridLabels.enabled && !cqLabels.enabled &&
                       cqLabels.state == NSControlStateValueOn && !mapBox(@"show", @"cities") && mapBox(@"overlay", @"cities") &&
                       !findButton(mapw.contentView, @"Maidenhead grid") && !findButton(mapw.contentView, @"Worked squares") &&
-                      std::fabs(NSMidX(gridBox.frame) - NSMidX(gridLabels.frame)) < 1 && std::fabs(NSMidX(gridShow.frame) - NSMidX(gridBox.frame)) < 1 &&
-                      std::fabs(NSMidX(cqBox.frame) - NSMidX(cqLabels.frame)) < 1 && NSMinY(gridShow.frame) > NSMinY(gridBox.frame),
-                  "the layers: a column each with Show over Overlay over Labels; Labels off while its layer is");
+                      std::fabs(NSMidY(gridBox.frame) - NSMidY(gridLabels.frame)) < 1 && std::fabs(NSMidY(gridShow.frame) - NSMidY(gridBox.frame)) < 1 &&
+                      NSMaxX(gridShow.frame) < NSMinX(gridBox.frame) && NSMaxX(gridBox.frame) < NSMinX(gridLabels.frame) &&
+                      std::fabs(NSMidX(cqBox.frame) - NSMidX(gridBox.frame)) < 1 && std::fabs(NSMidX(cqLabels.frame) - NSMidX(gridLabels.frame)) < 1 &&
+                      std::fabs(NSMidY(cqShow.frame) - NSMidY(gridShow.frame)) > 10,
+                  "the layers: a row each with Show, Overlay and Labels side by side; Labels off while its layer is");
             for (NSButton *bx in @[ cqBox, ituBox ]) {
                 bx.state = NSControlStateValueOn;
                 [bx sendAction:bx.action to:bx.target];
@@ -4091,7 +4122,7 @@ int main(int argc, char **argv) {
             [findButton(mapw.contentView, @"World") performClick:nil];
             pick(colour, @"Colour by band");
             {  // the colour-blind safe palette by band, with contacts
-                NSButton *cb = findButton(mapw.contentView, @"Contacts");
+                NSButton *cb = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.contacts");
                 cb.state = NSControlStateValueOn;
                 [cb sendAction:cb.action to:cb.target];
                 CHECK(stylePick(@"palette", @"Colour-blind safe"), "the colour-blind safe palette");
@@ -4192,6 +4223,8 @@ int main(int argc, char **argv) {
             CHECK([labelContaining(mapw.contentView, @"grid square") hasPrefix:@"4 grid squares"] && [moreFilters.title isEqualToString:@"More Filters..."],
                   "Clear shows every QSO again");
             [filtersView.window orderOut:nil];
+            CHECK(shown(@"map.group.filters"), "More Filters... opened the Filters card it is on");
+            setPanels(0);
 
             // US counties and cities, down to city level (the 1:10m detail): Madison, Wisconsin.
             NSButton *countiesBox = mapBox(@"overlay", @"counties"), *citiesBox = mapBox(@"overlay", @"cities");
@@ -4347,6 +4380,7 @@ int main(int argc, char **argv) {
                 CHECK([placesButton.title isEqualToString:@"everywhere\u2026"] && [locations.objectValue count] == 0 && [counties.objectValue count] == 0,
                       "Everywhere: every park again (%s)", placesButton.title.UTF8String);
                 [anyWindowView(@"map.parkplaces").window orderOut:nil];
+                setPanels(0);
             }
             [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-74.60, 41.05), 0)];
             CHECK([labelContaining(mapw.contentView, @"US-2001") hasPrefix:@"POTA US-2001 Test Park North (US-NJ): not worked."],
@@ -4629,19 +4663,49 @@ int main(int argc, char **argv) {
                   "Other programs: IOTA starts hidden and can be shown; the common programs are listed");
             [mapw.contentView layoutSubtreeIfNeeded];
             CHECK(overlaps(mapw.contentView) == 0, "the map's controls do not overlap (%d)", overlaps(mapw.contentView));
-            {  // Controls hides the groups under the toolbar, and the map takes their room; shown again, as they were
-                NSButton *controlsToggle = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.controls.toggle");
-                NSView *groups = viewWithIdentifier(mapw.contentView, @"map.controls");
-                CGFloat tall = mapView.frame.size.height;
-                [controlsToggle performClick:nil];
-                [mapw.contentView layoutSubtreeIfNeeded];
-                CGFloat taller = mapView.frame.size.height;
-                CHECK(controlsToggle.state == NSControlStateValueOff && groups.hidden && taller > tall + 80 && overlaps(mapw.contentView) == 0,
-                      "Controls hides the groups: the map %.0f high, was %.0f", taller, tall);
-                snapshot(mapw, "map-controls-hidden");
-                [controlsToggle performClick:nil];
-                [mapw.contentView layoutSubtreeIfNeeded];
-                CHECK(!groups.hidden && std::fabs(mapView.frame.size.height - tall) < 2, "and shows them again");
+            {  // Four cards: two columns, clear of the legend; a click on a card stays on it, beside them it
+               // reaches the map; the pointer on a card has nothing of the map under it
+                setPanels(15);
+                NSRect legend = [mapView convertRect:((NSValue *)[mapView valueForKey:@"legendFrame"]).rectValue toView:nil];
+                bool clearOfLegend = !NSIsEmptyRect(legend);
+                for (NSString *ident in @[ @"map.group.layers", @"map.group.contacts", @"map.group.filters", @"map.group.spots" ])
+                    if (NSIntersectsRect(inWindow(ident), legend)) clearOfLegend = false;
+                NSRect layersCard = inWindow(@"map.group.layers"), spotsCard = inWindow(@"map.group.spots");
+                CHECK(shown(@"map.group.layers") && shown(@"map.group.contacts") && shown(@"map.group.filters") && shown(@"map.group.spots") &&
+                          clearOfLegend && NSMinX(spotsCard) > NSMaxX(layersCard) && overlaps(mapw.contentView) == 0,
+                      "the four cards: in two columns, clear of the legend, nothing overlapping (%d)", overlaps(mapw.contentView));
+                snapshot(mapw, "map-cards");
+                NSView *top = mapw.contentView;
+                auto hitAt = [&](NSPoint p) { return [top hitTest:[top.superview convertPoint:p fromView:nil]]; };
+                NSView *onCard = hitAt(NSMakePoint(NSMidX(layersCard), NSMidY(layersCard)));
+                NSView *beside = hitAt(NSMakePoint(NSMaxX(spotsCard) + 20, NSMidY(spotsCard)));
+                CHECK([onCard isDescendantOf:viewWithIdentifier(mapw.contentView, @"map.group.layers")] && beside == mapView,
+                      "a click on a card stays on it; beside the cards it reaches the map");
+                setPanels(1);
+                layersCard = inWindow(@"map.group.layers");
+                [findButton(mapw.contentView, @"World") performClick:nil];
+                [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(12.43, 41.90), 0)];
+                bool named = labelContaining(mapw.contentView, @"(DXCC 246)").length > 0;
+                [mapView mouseMoved:mouse(NSEventTypeMouseMoved, NSMakePoint(NSMidX(layersCard), NSMidY(layersCard)), 0)];
+                CHECK(named && !labelContaining(mapw.contentView, @"(DXCC 246)").length, "the pointer on a card: nothing of the map under it");
+                // Fit Log keeps the log clear of the bar and the cards: FN31 (K1AB) beside the Layers card.
+                [findButton(mapw.contentView, @"Fit Log") performClick:nil];
+                NSPoint fn31At = pointFor(-73, 41.5);
+                CHECK(!NSPointInRect(fn31At, layersCard) && !NSPointInRect(fn31At, inWindow(@"map.bar")) &&
+                          [[mapView valueForKey:@"clearInsets"] edgeInsetsValue].left > NSWidth(layersCard),
+                      "Fit Log fits the log beside the Layers card");
+                // A filter on: the bar says how many, card closed or not.
+                setPanels(0);
+                NSPopUpButton *bands = findPopupWith(mapw.contentView, @"All bands");
+                [bands selectItemWithTitle:@"15m"];
+                [bands sendAction:bands.action to:bands.target];
+                CHECK(!shown(@"map.group.layers") && !shown(@"map.group.filters") && [[panels labelForSegment:2] isEqualToString:@"Filters (1)"] &&
+                          [[mapView valueForKey:@"clearInsets"] edgeInsetsValue].left == 0,
+                      "no cards, the map clear; one filter on: %s", [panels labelForSegment:2].UTF8String);
+                [bands selectItemAtIndex:0];
+                [bands sendAction:bands.action to:bands.target];
+                CHECK([[panels labelForSegment:2] isEqualToString:@"Filters"], "and none: Filters");
+                setPanels(0);
                 // Reference layers: faint and strong draw the grid and the overlays differently.
                 [findButton(mapw.contentView, @"World") performClick:nil];
                 setBox(mapBox(@"overlay", @"grid"), true);
@@ -4656,18 +4720,36 @@ int main(int argc, char **argv) {
                 snapshot(stylePanel(), "map-style");
                 [stylePanel() orderOut:nil];
             }
-            {  // at its narrowest the toolbar and the groups wrap; nothing overlaps or runs off the window
+            {  // At its smallest the bar wraps and the four cards fit in two columns; with the map narrowed to its
+               // least, the cards opened first close for the others. Nothing overlaps or runs off the window.
                 NSRect was = mapw.frame;
-                [mapw setFrame:NSMakeRect(was.origin.x, was.origin.y, 960, was.size.height) display:YES];
-                [mapw.contentView layoutSubtreeIfNeeded];
-                NSView *toggle = viewWithIdentifier(mapw.contentView, @"map.list.toggle");
-                NSRect inWindow = [toggle convertRect:toggle.bounds toView:nil];
-                CHECK(overlaps(mapw.contentView) == 0 && NSMaxX(inWindow) <= NSWidth(mapw.contentView.bounds) + 0.5,
-                      "a narrow Map window: the controls wrap, nothing overlaps (%d), List within it (%.0f of %.0f)", overlaps(mapw.contentView),
-                      NSMaxX(inWindow), NSWidth(mapw.contentView.bounds));
+                [mapw setFrame:NSMakeRect(was.origin.x, was.origin.y, 960, 640 + NSHeight(mapw.frame) - NSHeight(mapw.contentView.frame)) display:YES];
+                setPanels(15);
+                auto cardsEnd = [&]() {
+                    CGFloat right = 0;
+                    for (NSString *ident in @[ @"map.group.layers", @"map.group.contacts", @"map.group.filters", @"map.group.spots" ])
+                        if (shown(ident)) right = std::max(right, NSMaxX(inWindow(ident)));
+                    return right;
+                };
+                NSRect toggle = inWindow(@"map.list.toggle");
+                CHECK(overlaps(mapw.contentView) == 0 && NSMaxX(toggle) <= NSWidth(mapw.contentView.bounds) + 0.5 && shown(@"map.group.layers") &&
+                          shown(@"map.group.spots") && cardsEnd() <= NSMinX(inWindow(@"map.nav")),
+                      "the smallest Map window: the bar wraps, the four cards fit, nothing overlaps (%d), List within it (%.0f of %.0f)",
+                      overlaps(mapw.contentView), NSMaxX(toggle), NSWidth(mapw.contentView.bounds));
                 snapshot(mapw, "map-narrow");
+                NSSplitView *mainSplit = (NSSplitView *)viewWithIdentifier(mapw.contentView, @"map.main.split");
+                CGFloat mapWidth = mapView.frame.size.width;
+                [mainSplit setPosition:0 ofDividerAtIndex:0];  // the map at its narrowest
+                setPanels(15);
+                CHECK(std::fabs(mapView.frame.size.width - 420) < 1 && !shown(@"map.group.layers") && !shown(@"map.group.contacts") &&
+                          shown(@"map.group.filters") && shown(@"map.group.spots") && overlaps(mapw.contentView) == 0 &&
+                          cardsEnd() <= NSMinX(inWindow(@"map.nav")),
+                      "the map at its narrowest (%.0f): Layers and Contacts close for Filters and Spots, nothing overlaps (%d)", mapView.frame.size.width,
+                      overlaps(mapw.contentView));
+                snapshot(mapw, "map-crowded");
+                [mainSplit setPosition:mapWidth ofDividerAtIndex:0];
                 [mapw setFrame:was display:YES];
-                [mapw.contentView layoutSubtreeIfNeeded];
+                setPanels(0);
             }
             // Back to the defaults for any later run with this config.
             [style(@"reset") performClick:nil];
@@ -5294,13 +5376,18 @@ int main(int argc, char **argv) {
                 notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
                 pump(0.3);
                 run("Map (Grids, DXCC, Parks)...");
+                setPanels(0);  // the map itself; the cards have their own picture
+                if (NSTextField *spotsOf = (NSTextField *)viewWithIdentifier(mapw.contentView, @"map.spots.onlyCall")) {  // the tests' station
+                    spotsOf.stringValue = @"";
+                    [spotsOf sendAction:spotsOf.action to:spotsOf.target];
+                }
                 auto box = [&](NSString *title, bool on) {
                     // The layer boxes by what the controls were once called; the rest by title.
                     NSDictionary *ids = @{@"Worked squares" : @"show.grid", @"DXCC" : @"show.countries", @"Parks" : @"show.pota",
                                           @"Worked states" : @"show.states",
                                           @"Grid squares" : @"overlay.grid", @"Countries" : @"overlay.countries", @"US states" : @"overlay.states",
                                           @"CQ zones" : @"overlay.cq", @"ITU zones" : @"overlay.itu", @"US counties" : @"overlay.counties",
-                                          @"Cities" : @"overlay.cities"};
+                                          @"Cities" : @"overlay.cities", @"Contacts" : @"contacts"};
                     NSButton *b = ids[title] ? (NSButton *)viewWithIdentifier(mapw.contentView, [@"map." stringByAppendingString:ids[title]])
                                              : findButton(mapw.contentView, title);
                     if (!b || (b.state == NSControlStateValueOn) == on) return;
@@ -5331,6 +5418,10 @@ int main(int argc, char **argv) {
                 pick(proj, @"Equirectangular");
                 menuAction(regionMenu, @"North America");
                 snapshot(mapw, "docs-map-states");
+                setPanels(15);  // the four cards; the region fitted beside them
+                menuAction(regionMenu, @"North America");
+                snapshot(mapw, "docs-map-cards");
+                setPanels(0);
                 box(@"Worked states", false), box(@"US states", false), box(@"DXCC", true);
                 [findButton(mapw.contentView, @"World") performClick:nil];
                 snapshot(mapw, "docs-map-dxcc");

@@ -32,11 +32,17 @@ Versions before 0.8.0 were development builds and were not published.
   choose (US states, Canadian provinces, other countries' regions) and, in a US state, the
   counties you choose; at first, your station's location, for a map of your own state
   without the clutter of the rest. **Everywhere** shows them all.
-- **Map: a new layout.** A toolbar across the top (zoom, region, projection, Style Options,
-  Export PNG, List), then the controls in captioned groups side by side (Layers, Markers,
-  Filters, Spots) with lines between them, wrapping in a narrow window; the map gets the
-  room. Dividers between the map and the list and above the status bar can be dragged, and
-  are remembered.
+- **Map: a new layout.** The map fills the window from edge to edge, its controls floating
+  on it, see-through, in the map's own light or dark. A bar across its top opens four cards
+  (**Layers**, **Contacts**, **Filters**, **Spots**; any at once, and the bar counts the
+  filters on), with **Colour by**, the projection, **Region**, and buttons for Style
+  Options, Export PNG and the list. The cards stack down the left, a column beside when
+  they would reach the legend; when they no longer fit, the one opened longest ago closes.
+  Layers is a row per layer in sections (Areas, Programs, Places) under Show, Overlay and
+  Labels; the Spots layer's boxes are in the Spots card. The zoom buttons (+, −, Fit Log,
+  World) float at the top right. Fit Log, Region and the zoom buttons keep to the part of
+  the map the controls leave clear. The window's title names the log. Dividers between the
+  map and the list and above the status bar can be dragged, and are remembered.
 - **Map → List: Selected, pages, sorting, columns.** The QSO table under the map moved into
   the list as **Selected** (the QSOs of what you click). Every list (Selected, Contacts,
   Parks, Spots) has pages (25 to 500 rows a page), sorts by any column, and chooses its
@@ -48,7 +54,6 @@ Versions before 0.8.0 were development builds and were not published.
   worked, grey not yet) and your QSOs with the call. Situation: the log, today's QSOs by
   mode and band, the spots you most want now as links (a new DXCC, band, mode or park), the
   busiest bands, and the sun at your station (when it rises or sets, the grey line).
-- **Map → Controls** (in the toolbar) hides the control groups so the map takes their room.
 - **Map → Style Options → Reference layers** (strong, subtle, faint): the grid, the
   overlays' lines and names and the distance rings drawn more lightly, subtle at first, so
   the log's markers stand out. **Spotlight what's chosen** dims the rest of the map round
@@ -90,10 +95,10 @@ Versions before 0.8.0 were development builds and were not published.
   spotter, every station it heard), with reports and ages.
 - **Settings → Spots → PSKReporter → Callsign**: the callsign to ask about (Your Station's
   when empty).
-- **Map → Spots row → Only spots of**: only one station's spots (yours when the callsign is
+- **Map → Spots → Only spots of**: only one station's spots (yours when the callsign is
   empty), each with every station that heard it, as on PSKReporter's map; PSKReporter is
-  asked about that callsign while it is ticked. The Spots row, under Markers, now holds
-  Spots… and the refresh arrow too.
+  asked about that callsign while it is ticked. The Spots card holds Sources and Filters…
+  (formerly Spots…) and the refresh arrow too.
 - **Spot This QSO**: after Log QSO in New QSO, an offer to spot the station you worked on
   the DX cluster (a `dx` command, comment editable, the node's answer shown) and, while
   activating for POTA, to open pota.app to spot yourself. Sent only on Send; never your own

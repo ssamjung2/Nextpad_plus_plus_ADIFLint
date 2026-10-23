@@ -274,6 +274,8 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
     adif::WorkedIndex _worked;              // what the log has worked, for the spots
     long long _spotsNow;             // when the spots were given, for their age
     long long _spotMaxAge;           // the Spots filter's age (fading); 0 any
+    NSEdgeInsets _clearInsets;       // the edges the window's floating controls cover
+    NSRect _legendFrame;             // where the legend was drawn last; empty: none
 }
 @property(nonatomic) BOOL showContacts;
 @property(nonatomic) std::set<std::string> hiddenPrograms;
@@ -283,9 +285,14 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 @property(nonatomic, copy) void (^onHover)(const ADIFMapHit &hit);
 @property(nonatomic, copy) void (^onSelect)(const ADIFMapHit &hit);
 @property(nonatomic, copy) void (^onViewChanged)(void);
+// The edges of the view the window's own controls float over (its bar, cards and zoom buttons):
+// Fit Log, a region and a place are fitted inside the rest.
+@property(nonatomic) NSEdgeInsets clearInsets;
+@property(nonatomic, readonly) NSRect legendFrame;      // the legend's box, bottom left; empty when it is off
+@property(nonatomic, copy) void (^onLegendMoved)(void);  // the legend's box changed (after it was drawn)
 - (void)setData:(const adif::MapData &)data entities:(const std::vector<ADIFMapEntity> &)entities;
 - (void)setProjector:(const adif::Projector &)projector home:(NSString *)homeGrid lat:(double)lat lon:(double)lon;
-- (void)zoomBy:(double)factor;  // about the middle
+- (void)zoomBy:(double)factor;  // about the middle of what is clear
 - (void)showWorld;
 - (void)fitLog;                 // zoom to what the log shows
 - (void)showWest:(double)w south:(double)s east:(double)e north:(double)n;  // a region
@@ -358,6 +365,8 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 - (BOOL)programShown:(const adif::MapPark &)pk;
 - (BOOL)parkPinned:(const adif::MapPark &)pk;
 - (void)drawLabel:(NSString *)text at:(NSPoint)p size:(CGFloat)size alpha:(CGFloat)alpha;
+- (NSRect)clearRect;
+- (void)legendAt:(NSRect)box;
 - (void)drawLegend;
 - (void)drawInfoBox;
 - (ADIFMapHit)hitAt:(NSPoint)p;

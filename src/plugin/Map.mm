@@ -196,6 +196,100 @@ static NSAttributedString *treeMark(NSColor *color) {
 }
 @end
 
+// A panel floating on the map (its bar, the cards under it, the zoom buttons): translucent and
+// rounded, with a hairline edge, light or dark as the map is so that its controls read against
+// it. Clicks, scrolls and pinches on it stay on it, off the map.
+@interface ADIFMapPanel : NSView
+@end
+
+@implementation ADIFMapPanel
+- (instancetype)initWithFrame:(NSRect)frame {
+    if ((self = [super initWithFrame:frame])) {
+        NSShadow *shadow = [[NSShadow alloc] init];
+        shadow.shadowColor = [NSColor colorWithCalibratedWhite:0 alpha:0.28];
+        shadow.shadowBlurRadius = 6;
+        shadow.shadowOffset = NSMakeSize(0, -1);
+        self.shadow = shadow;
+    }
+    return self;
+}
+- (void)drawRect:(NSRect)dirty {
+    NSBezierPath *p = [NSBezierPath bezierPathWithRoundedRect:NSInsetRect(self.bounds, 0.5, 0.5) xRadius:9 yRadius:9];
+    [[NSColor.windowBackgroundColor colorWithAlphaComponent:0.8] setFill];
+    [p fill];
+    [NSColor.separatorColor setStroke];
+    [p stroke];
+}
+- (BOOL)acceptsFirstMouse:(NSEvent *)event {
+    return YES;
+}
+- (BOOL)mouseDownCanMoveWindow {
+    return NO;
+}
+- (void)mouseDown:(NSEvent *)event {
+}
+- (void)rightMouseDown:(NSEvent *)event {
+}
+- (void)scrollWheel:(NSEvent *)event {
+}
+- (void)magnifyWithEvent:(NSEvent *)event {
+}
+@end
+
+// The cards under the map's bar, top down along its left edge, a column as wide as its widest
+// card; a new column beside it when the next card would reach down to the legend (and there is
+// room beside it). Crowded: a card runs off the bottom or the side. Between and beside the
+// cards, clicks reach the map.
+@interface ADIFCardStack : NSView
+@property(nonatomic) CGFloat keepClear;           // at the bottom, for the legend
+@property(nonatomic, readonly) CGFloat usedWidth;  // the cards' columns, together
+@property(nonatomic, readonly) BOOL crowded;
+@property(nonatomic, copy) void (^onLayout)(void);
+@end
+
+@implementation ADIFCardStack
+- (BOOL)isFlipped {
+    return YES;
+}
+- (void)layout {
+    [super layout];
+    const CGFloat gap = 8, width = self.bounds.size.width, height = self.bounds.size.height;
+    const CGFloat room = std::max(height - _keepClear, (CGFloat)120);
+    std::vector<std::vector<NSView *>> columns(1);
+    std::vector<CGFloat> widths(1, 0);
+    CGFloat x = 0, y = 0;
+    BOOL crowded = NO;
+    for (NSView *v in self.subviews) {
+        if (v.hidden) continue;
+        NSSize size = v.fittingSize;
+        if (y > 0 && y + size.height > room && x + widths.back() + gap + size.width <= width)
+            x += widths.back() + gap, columns.emplace_back(), widths.push_back(0), y = 0;
+        columns.back().push_back(v);
+        widths.back() = std::max(widths.back(), size.width);
+        y += size.height;
+        crowded |= y > height || x + size.width > width;
+        y += gap;
+    }
+    _crowded = crowded && width > 100 && height > 100;  // not before the window is laid out
+    x = 0;
+    for (size_t c = 0; c < columns.size(); ++c) {
+        y = 0;
+        for (NSView *v : columns[c]) {
+            CGFloat h = v.fittingSize.height;
+            v.frame = NSMakeRect(x, y, widths[c], h);
+            y += h + gap;
+        }
+        if (widths[c] > 0) x += widths[c] + gap;
+    }
+    _usedWidth = x > 0 ? x - gap : 0;
+    if (self.onLayout) self.onLayout();
+}
+- (NSView *)hitTest:(NSPoint)p {
+    NSView *v = [super hitTest:p];
+    return v == self ? nil : v;
+}
+@end
+
 // Keeps the Map's split views sensible (the map never squeezed out, the list and the status bar
 // within reach of a drag) and remembers where their dividers were left.
 @interface ADIFSplitKeeper : NSObject <NSSplitViewDelegate>
@@ -204,7 +298,7 @@ static NSAttributedString *treeMark(NSColor *color) {
 
 @implementation ADIFSplitKeeper
 - (CGFloat)splitView:(NSSplitView *)s constrainMinCoordinate:(CGFloat)proposed ofSubviewAt:(NSInteger)i {
-    return std::max(proposed, (CGFloat)(s.vertical ? 360 : 260));  // the map (or the contact panel) keeps this much
+    return std::max(proposed, (CGFloat)(s.vertical ? 420 : 260));  // the map (its widest card beside its zoom buttons), or the contact panel
 }
 - (CGFloat)splitView:(NSSplitView *)s constrainMaxCoordinate:(CGFloat)proposed ofSubviewAt:(NSInteger)i {
     CGFloat whole = s.vertical ? s.bounds.size.width : s.bounds.size.height;
@@ -255,7 +349,7 @@ struct {
     NSPanel *styleWindow = nil;  // Style Options
     NSTimer *sunTimer = nil;     // day and night, while it shows now
     NSPopUpButton *band = nil, *mode = nil, *dates = nil, *confirmed = nil;
-    NSTextField *target = nil, *status = nil, *zoomLabel = nil;
+    NSTextField *status = nil, *zoomLabel = nil;
     NSTextField *situation = nil;  // the status bar's right side: the log and the spots, for the operator
     NSTextField *slots = nil;      // the contact's DXCC entity's band slots, under its description
     NSTextField *contactTitle = nil;  // what the contact panel is about, in bold, over its description
@@ -265,10 +359,14 @@ struct {
     NSSplitView *mainSplit = nil, *outerSplit = nil, *statusSplit = nil;  // map | list; map and list | status bar; contact | situation
     ADIFSplitKeeper *splitKeeper = nil;
     bool splitsRestored = false;
-    // The control groups under the toolbar, which Controls shows or hides.
-    NSView *controlsView = nil;
-    NSButton *controlsToggle = nil;
-    NSLayoutConstraint *controlsGap = nil, *controlsGone = nil, *underGap = nil;
+    // The controls floating on the map: its bar (whose first control shows the cards), the cards
+    // (Layers, Contacts, Filters, Spots) and the zoom buttons.
+    NSSegmentedControl *panels = nil;
+    NSView *cards[4] = {};
+    std::vector<int> panelOrder;  // the cards shown, in the order they were opened
+    ADIFCardStack *cardStack = nil;
+    NSView *bar = nil, *nav = nil;
+    ADIFFlowView *toolbar = nil;
     // More Filters: places.
     NSButton *moreFilters = nil, *clearFilters = nil;
     NSPopover *filterPopover = nil;
@@ -316,6 +414,8 @@ struct {
 } mw;
 
 // Saved choices, in ADIFLint.ini.
+void revealPanel(int panel);
+
 bool flag(const char *key, bool fallback) {
     std::string v = setting(key);
     return v.empty() ? fallback : v == "1";
@@ -933,8 +1033,16 @@ void queueViewList();
 void applyParkPlaces();
 void showContact(const ADIFMapHit &h, const std::string &text);
 
+// The floating controls in the map's own light or dark.
+void updatePanelLook() {
+    NSAppearance *look = [NSAppearance appearanceNamed:paletteAt(mw.view.style.palette).dark ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua];
+    for (NSView *v in mw.cardStack.subviews) v.appearance = look;
+    mw.bar.appearance = mw.nav.appearance = look;
+}
+
 void applyStyle() {
     mw.view.style = savedStyle();
+    updatePanelLook();
     mw.view.hiddenPrograms = hiddenPrograms();
     queueViewList();
 }
@@ -1243,7 +1351,7 @@ void refresh() {
         const adif::LintResult &r = lint(h);
         std::string_view text = adifhost::text(h);
         mw.buffer = buffer();
-        mw.target.stringValue = TF(T(@"Log: {name}"), @{@"name" : ADIFString(documentName())});
+        mw.window.title = TF(@"Map — {name}", @{@"name" : ADIFString(documentName())});
         // The bands, modes and years in the log, for the filters.
         std::set<std::string> bands, modes, years;
         std::map<std::string, size_t> qsosPerBand;
@@ -1471,8 +1579,14 @@ size_t placeKinds(const adif::MapFilter &f) {
 void updateFilterButton() {
     size_t n = placeKinds(savedPlaceFilter());
     mw.moreFilters.title = n ? [NSString stringWithFormat:T(@"More Filters (%zu)..."), n] : T(@"More Filters...");
-    mw.clearFilters.enabled = n > 0 || mw.band.indexOfSelectedItem > 0 || mw.mode.indexOfSelectedItem > 0 || mw.dates.indexOfSelectedItem > 0 ||
-                              mw.confirmed.indexOfSelectedItem > 0;
+    // How many filters are on, on the bar too: the QSOs shown are not all of them, card open or not.
+    size_t on = n + (mw.band.indexOfSelectedItem > 0) + (mw.mode.indexOfSelectedItem > 0) + (mw.dates.indexOfSelectedItem > 0) +
+                (mw.confirmed.indexOfSelectedItem > 0);
+    mw.clearFilters.enabled = on > 0;
+    if (mw.panels) {
+        [mw.panels setLabel:on ? TF(@"Filters ({n})", @{@"n" : @(on)}) : T(@"Filters") forSegment:2];
+        mw.toolbar.needsLayout = YES;
+    }
 }
 
 std::vector<std::string> tokens(NSTokenField *t) {
@@ -1682,7 +1796,8 @@ void showMoreFilters() {
         mw.filterPopover.behavior = NSPopoverBehaviorTransient;
     }
     fillPlaceControls();
-    [mw.filterPopover showRelativeToRect:mw.moreFilters.bounds ofView:mw.moreFilters preferredEdge:NSRectEdgeMaxY];
+    revealPanel(2);  // beside its card, open
+    [mw.filterPopover showRelativeToRect:mw.moreFilters.bounds ofView:mw.moreFilters preferredEdge:NSRectEdgeMaxX];
 }
 
 // ── Spots ──
@@ -1885,7 +2000,8 @@ void showSpotsPopover() {
         mw.spotsPopover.behavior = NSPopoverBehaviorTransient;
     }
     fillSpotsPopover();
-    [mw.spotsPopover showRelativeToRect:mw.spotsButton.bounds ofView:mw.spotsButton preferredEdge:NSRectEdgeMaxY];
+    revealPanel(3);  // beside its card, open
+    [mw.spotsPopover showRelativeToRect:mw.spotsButton.bounds ofView:mw.spotsButton preferredEdge:NSRectEdgeMaxX];
 }
 
 // A Labels box works while its layer shows (outlined, or its worked areas).
@@ -2082,7 +2198,8 @@ void showParkPlaces() {
         mw.parkPlacesPopover.behavior = NSPopoverBehaviorTransient;
     }
     fillParkPlaces();
-    [mw.parkPlacesPopover showRelativeToRect:mw.parkPlacesButton.bounds ofView:mw.parkPlacesButton preferredEdge:NSRectEdgeMaxY];
+    revealPanel(2);  // beside its card, open
+    [mw.parkPlacesPopover showRelativeToRect:mw.parkPlacesButton.bounds ofView:mw.parkPlacesButton preferredEdge:NSRectEdgeMaxX];
 }
 
 // ── The list beside the map: the QSOs chosen; the contacts, parks or spots in view ──
@@ -2748,15 +2865,40 @@ void openRow(const ADIFViewRow &r) {
     mw.choosingFromList = false;
 }
 
-// The control groups shown or not (Controls, in the toolbar): hidden, the map takes their room.
-void showControls(bool on) {
-    saveFlag("mapControls", on);
-    mw.controlsToggle.state = on ? NSControlStateValueOn : NSControlStateValueOff;
-    mw.controlsView.hidden = !on;
-    mw.controlsGone.active = !on;
-    mw.controlsGap.constant = on ? 10 : 0;
-    mw.underGap.constant = on ? 8 : 6;
-    if (mw.styleWindow && !on) [mw.styleWindow orderOut:nil];  // its button stays in the toolbar; nothing else depends on it
+// The cards the bar's first control has on, shown; the rest hidden, the map clear there.
+void showPanels() {
+    int on = 0;
+    for (int i = 0; i < 4; ++i) {
+        bool shown = [mw.panels isSelectedForSegment:i];
+        mw.cards[i].hidden = !shown;
+        on |= shown << i;
+        auto at = std::find(mw.panelOrder.begin(), mw.panelOrder.end(), i);
+        if (shown && at == mw.panelOrder.end()) mw.panelOrder.push_back(i);
+        if (!shown && at != mw.panelOrder.end()) mw.panelOrder.erase(at);
+    }
+    setSetting("mapPanels", std::to_string(on));
+    mw.cardStack.needsLayout = YES;
+}
+
+void revealPanel(int panel) {
+    if (!mw.panels || [mw.panels isSelectedForSegment:panel]) return;
+    [mw.panels setSelected:YES forSegment:panel];
+    showPanels();
+    [mw.window layoutIfNeeded];
+}
+
+// What Fit Log, a region and a place keep clear of: the bar, the cards and the zoom buttons.
+// Cards that no longer fit on the map: the one opened longest ago closes, until they do.
+void updateClear() {
+    CGFloat cards = mw.cardStack.usedWidth;
+    mw.view.clearInsets = NSEdgeInsetsMake(NSHeight(mw.bar.frame) + 16, cards > 0 ? cards + 16 : 0, 0, NSWidth(mw.nav.frame) + 16);
+    if (!mw.cardStack.crowded || mw.panelOrder.size() < 2) return;
+    int oldest = mw.panelOrder.front();
+    dispatch_async(dispatch_get_main_queue(), ^{  // not within the layout
+        if (!mw.cardStack.crowded || mw.panelOrder.size() < 2 || mw.panelOrder.front() != oldest) return;
+        [mw.panels setSelected:NO forSegment:oldest];
+        showPanels();
+    });
 }
 
 // The panel shown or not: the map takes the room.
@@ -2797,18 +2939,15 @@ void cmdMap() {
                                                  backing:NSBackingStoreBuffered
                                                    defer:NO];
         mw.window.title = T(@"Map");
+        mw.window.identifier = @"map.window";  // its title names the log
         ADIFNightTrack(mw.window);
         mw.window.releasedWhenClosed = NO;
         mw.window.hidesOnDeactivate = NO;
         mw.window.contentMinSize = NSMakeSize(960, 640);
         NSView *root = mw.window.contentView;
-        mw.target = ADIFLabel(@"");
-        // The layers: a column each, with its Show, Overlay and Labels boxes.
+        // The layers: a row each, in sections (areas, programs, places), with its Show, Overlay and
+        // Labels boxes under their titles. The Spots layer's boxes go in the Spots card.
         ADIFMapStyle saved = savedStyle();
-        NSMutableArray *header = [NSMutableArray arrayWithObject:[NSGridCell emptyContentView]];
-        NSMutableArray *showRow = [NSMutableArray arrayWithObject:ADIFLabel(@"Show:")];
-        NSMutableArray *overlayRow = [NSMutableArray arrayWithObject:ADIFLabel(@"Overlay:")];
-        NSMutableArray *labelsRow = [NSMutableArray arrayWithObject:ADIFLabel(@"Labels:")];
         auto box = [](bool on, NSString *kind, const LayerUi &l, NSString *tip, NSString *spoken) {
             NSButton *b = ADIFCheckbox(@"", on);
             b.identifier = [NSString stringWithFormat:@"map.%@.%@", kind, l.ident];
@@ -2816,23 +2955,46 @@ void cmdMap() {
             b.accessibilityLabel = [NSString stringWithFormat:T(spoken), T(l.title)];
             return b;
         };
+        auto heading = [](NSString *text, NSFontWeight weight) {  // a column's or a section's title
+            NSTextField *t = ADIFLabel(text);
+            t.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize weight:weight];
+            t.textColor = NSColor.secondaryLabelColor;
+            return t;
+        };
+        NSMutableArray *layerRows = [NSMutableArray arrayWithObject:@[
+            heading(N(@"Areas"), NSFontWeightSemibold), heading(N(@"Show"), NSFontWeightMedium), heading(N(@"Overlay"), NSFontWeightMedium),
+            heading(N(@"Labels"), NSFontWeightMedium)
+        ]];
+        std::vector<NSInteger> sections;
         for (const LayerUi &l : kLayerUi) {
-            NSTextField *title = ADIFLabel(l.title);
-            title.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightMedium];
-            [header addObject:title];
             mw.show[l.id] = l.showKey ? box(saved[l.id].show, @"show", l, l.showTip, l.id == kLayerSpots ? N(@"Show %@") : N(@"Show worked %@")) : nil;
             mw.overlay[l.id] = box(saved[l.id].overlay, @"overlay", l, l.overlayTip, N(@"Overlay %@"));
             mw.labels[l.id] = box(saved[l.id].labels, @"labels", l, l.labelsTip, N(@"Labels for %@"));
-            [showRow addObject:mw.show[l.id] ?: [NSGridCell emptyContentView]];
-            [overlayRow addObject:mw.overlay[l.id]];
-            [labelsRow addObject:mw.labels[l.id]];
+            if (l.id == kLayerSpots) continue;
+            if (l.id == kLayerPota || l.id == kLayerCities) {
+                sections.push_back((NSInteger)layerRows.count);
+                [layerRows addObject:@[
+                    heading(l.id == kLayerPota ? N(@"Programs") : N(@"Places"), NSFontWeightSemibold), [NSGridCell emptyContentView],
+                    [NSGridCell emptyContentView], [NSGridCell emptyContentView]
+                ]];
+            }
+            [layerRows addObject:@[ ADIFLabel(l.title), mw.show[l.id] ?: [NSGridCell emptyContentView], mw.overlay[l.id], mw.labels[l.id] ]];
         }
-        NSGridView *layers = [NSGridView gridViewWithViews:@[ header, showRow, overlayRow, labelsRow ]];
-        layers.rowSpacing = 4;
-        layers.columnSpacing = 8;
+        NSGridView *layers = [NSGridView gridViewWithViews:layerRows];
+        layers.rowSpacing = 3;
+        layers.columnSpacing = 12;
         for (NSInteger c = 1; c < layers.numberOfColumns; ++c) [layers columnAtIndex:c].xPlacement = NSGridCellPlacementCenter;
-        for (NSInteger r = 1; r < layers.numberOfRows; ++r) [layers rowAtIndex:r].yPlacement = NSGridCellPlacementCenter;
+        for (NSInteger r = 0; r < layers.numberOfRows; ++r) [layers rowAtIndex:r].yPlacement = NSGridCellPlacementCenter;
+        [layers rowAtIndex:0].bottomPadding = 2;
+        for (NSInteger r : sections) {
+            [layers mergeCellsInHorizontalRange:NSMakeRange(0, 4) verticalRange:NSMakeRange(r, 1)];
+            [layers rowAtIndex:r].topPadding = 7;
+            [layers rowAtIndex:r].bottomPadding = 2;
+        }
         layers.identifier = @"map.layers";
+        mw.show[kLayerSpots].title = T(@"Show");
+        mw.overlay[kLayerSpots].title = T(@"Spotter lines");
+        mw.labels[kLayerSpots].title = T(@"Labels");
         labelsFollow();
         for (const LayerUi &l : kLayerUi) {
             MapLayerId id = l.id;
@@ -2841,7 +3003,8 @@ void cmdMap() {
             ADIFOnAction(mw.labels[id], ^{ layerChanged(id, 2); });
         }
         // Markers, and how to colour them.
-        mw.contacts = ADIFCheckbox(@"Contacts", flag("mapContacts", false));
+        mw.contacts = ADIFCheckbox(@"Markers", flag("mapContacts", false));
+        mw.contacts.identifier = @"map.contacts";
         mw.contacts.toolTip = T(@"A marker at each contact's own place: its LAT and LON, else a GRIDSQUARE of 6 or 8 characters (a 4-character "
                               @"square is 100 km or more across: Show grid squares shows those). Style Options chooses pins, dots or crosshairs");
         mw.lines = ADIFCheckbox(@"Lines to contacts", flag("mapPaths", false));
@@ -2853,6 +3016,7 @@ void cmdMap() {
         mw.colorBy = ADIFPopup(@[ @"Colour by confirmation", @"Colour by band", @"Colour by mode", @"Colour by QSO count",
                                   @"Colour by year first worked" ]);
         [mw.colorBy selectItemAtIndex:number("mapColorBy", 0, 4)];
+        mw.colorBy.toolTip = T(@"How the map colours what you worked (squares, countries, areas, parks), the contacts and the spots");
         // Filters: which QSOs.
         mw.band = ADIFPopup(@[ @"All bands" ]);
         mw.mode = ADIFPopup(@[ @"All modes" ]);
@@ -2904,13 +3068,13 @@ void cmdMap() {
             applyProjection();
         });
         mw.zoomLabel = ADIFLabel(@"1.0×");
-        [mw.zoomLabel.widthAnchor constraintEqualToConstant:52].active = YES;  // up to "16384×" (Map Detail)
+        [mw.zoomLabel.widthAnchor constraintEqualToConstant:42].active = YES;  // up to "16384×" (Map Detail)
         NSButton *out = smallButton(@"−", @"Zoom out (−)", ^{ [mw.view zoomBy:1 / 1.5]; });
         NSButton *in = smallButton(@"+", @"Zoom in (+, or double-click the map)", ^{ [mw.view zoomBy:1.5]; });
         NSButton *fit = smallButton(@"Fit Log", @"Zoom to the log's QSOs", ^{ [mw.view fitLog]; });
         NSButton *world = smallButton(@"World", @"The whole world (0)", ^{ [mw.view showWorld]; });
         NSButton *save = smallButton(@"Export PNG...", @"Save the map as it is shown now, with its legend", ^{ exportPng(); });
-        mw.spotsButton = smallButton(@"Spots...", @"The spots the Spots layer shows: how new, from which sources, which program; and what the "
+        mw.spotsButton = smallButton(@"Sources and Filters...", @"The spots the Spots layer shows: how new, from which sources, which program; and what the "
                                                   @"sources are doing", ^{ showSpotsPopover(); });
         mw.spotsButton.identifier = @"map.spots.open";
         // Refresh: the feeds asked again now, within their limits; what each did goes to the status line.
@@ -2973,7 +3137,7 @@ void cmdMap() {
         mw.listToggle = [NSButton buttonWithTitle:T(@"List") target:nil action:nil];
         [mw.listToggle setButtonType:NSButtonTypePushOnPushOff];
         mw.listToggle.image = [NSImage imageWithSystemSymbolName:@"sidebar.right" accessibilityDescription:nil];
-        mw.listToggle.imagePosition = NSImageLeading;
+        mw.listToggle.imagePosition = NSImageOnly;  // the title stays, for VoiceOver
         mw.listToggle.toolTip = T(@"The list beside the map: the QSOs of what you click, or the contacts, POTA parks or spots in view, with "
                                   @"their distance and bearing from your station, the map's centre or a grid square");
         mw.listToggle.identifier = @"map.list.toggle";
@@ -3082,6 +3246,11 @@ void cmdMap() {
             else showContact(mw.chosen.empty() ? ADIFMapHit() : mw.chosenHit, !mw.chosen.empty() ? mw.chosen : idleStatus());
         };
         mw.view.onSelect = ^(const ADIFMapHit &h) { selected(h); };
+        mw.view.onLegendMoved = ^{
+            NSRect legend = mw.view.legendFrame;
+            mw.cardStack.keepClear = NSIsEmptyRect(legend) ? 0 : NSMaxY(legend);
+            mw.cardStack.needsLayout = YES;
+        };
         mw.view.onViewChanged = ^{
             updateZoomLabel();
             queueViewList();
@@ -3175,100 +3344,201 @@ void cmdMap() {
             [mw.listPanel addSubview:v];
         }
         [NSLayoutConstraint activateConstraints:@[
-            [mw.listKind.topAnchor constraintEqualToAnchor:mw.listPanel.topAnchor],
+            [mw.listKind.topAnchor constraintEqualToAnchor:mw.listPanel.topAnchor constant:10],
             [mw.listKind.leadingAnchor constraintEqualToAnchor:mw.listPanel.leadingAnchor constant:8],
-            [mw.listKind.trailingAnchor constraintLessThanOrEqualToAnchor:mw.listPanel.trailingAnchor],
+            [mw.listKind.trailingAnchor constraintLessThanOrEqualToAnchor:mw.listPanel.trailingAnchor constant:-10],
             [mw.listTitle.topAnchor constraintEqualToAnchor:mw.listKind.bottomAnchor constant:10],
             [mw.listTitle.leadingAnchor constraintEqualToAnchor:mw.listPanel.leadingAnchor constant:8],
             [mw.listTitle.trailingAnchor constraintLessThanOrEqualToAnchor:mw.listUnits.leadingAnchor constant:-8],
             [mw.listUnits.centerYAnchor constraintEqualToAnchor:mw.listTitle.centerYAnchor],
-            [mw.listUnits.trailingAnchor constraintEqualToAnchor:mw.listPanel.trailingAnchor],
+            [mw.listUnits.trailingAnchor constraintEqualToAnchor:mw.listPanel.trailingAnchor constant:-10],
             [listFromRow.topAnchor constraintEqualToAnchor:mw.listTitle.bottomAnchor constant:8],
             [listFromRow.leadingAnchor constraintEqualToAnchor:mw.listPanel.leadingAnchor constant:8],
-            [listFromRow.trailingAnchor constraintLessThanOrEqualToAnchor:mw.listPanel.trailingAnchor],
+            [listFromRow.trailingAnchor constraintLessThanOrEqualToAnchor:mw.listPanel.trailingAnchor constant:-10],
             [listSearchRow.topAnchor constraintEqualToAnchor:listFromRow.bottomAnchor constant:6],
             [listSearchRow.leadingAnchor constraintEqualToAnchor:mw.listPanel.leadingAnchor constant:8],
-            [listSearchRow.trailingAnchor constraintEqualToAnchor:mw.listPanel.trailingAnchor],
+            [listSearchRow.trailingAnchor constraintEqualToAnchor:mw.listPanel.trailingAnchor constant:-10],
             [listScroll.topAnchor constraintEqualToAnchor:listSearchRow.bottomAnchor constant:6],
             [listScroll.leadingAnchor constraintEqualToAnchor:mw.listPanel.leadingAnchor constant:8],
-            [listScroll.trailingAnchor constraintEqualToAnchor:mw.listPanel.trailingAnchor],
+            [listScroll.trailingAnchor constraintEqualToAnchor:mw.listPanel.trailingAnchor constant:-10],
             [listFooter.topAnchor constraintEqualToAnchor:listScroll.bottomAnchor constant:6],
             [listFooter.leadingAnchor constraintEqualToAnchor:mw.listPanel.leadingAnchor constant:8],
-            [listFooter.trailingAnchor constraintEqualToAnchor:mw.listPanel.trailingAnchor],
+            [listFooter.trailingAnchor constraintEqualToAnchor:mw.listPanel.trailingAnchor constant:-10],
             [mw.listHint.topAnchor constraintEqualToAnchor:listFooter.bottomAnchor constant:6],
             [mw.listHint.leadingAnchor constraintEqualToAnchor:mw.listPanel.leadingAnchor constant:8],
-            [mw.listHint.trailingAnchor constraintEqualToAnchor:mw.listPanel.trailingAnchor],
-            [mw.listHint.bottomAnchor constraintEqualToAnchor:mw.listPanel.bottomAnchor],
+            [mw.listHint.trailingAnchor constraintEqualToAnchor:mw.listPanel.trailingAnchor constant:-10],
+            [mw.listHint.bottomAnchor constraintEqualToAnchor:mw.listPanel.bottomAnchor constant:-6],
             [mw.listHint.heightAnchor constraintGreaterThanOrEqualToConstant:28],
         ]];
 
-        // ── The controls: a toolbar across the top, then the groups (Layers, Markers, Filters,
-        // Spots) side by side, as many to a line as fit, with lines between them ──
-        mw.target.font = [NSFont systemFontOfSize:NSFont.systemFontSize weight:NSFontWeightSemibold];
-        mw.target.lineBreakMode = NSLineBreakByTruncatingMiddle;
-        [mw.target setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+        // ── The controls float on the map: a bar across its top (the cards' switches; how the map
+        // colours, projects and frames; Style Options, Export and the list), the cards under it
+        // down the left (Layers, Contacts, Filters, Spots) and the zoom buttons down the right ──
         auto cluster = [](NSArray<NSView *> *views) {
             NSStackView *c = [NSStackView stackViewWithViews:views];
             c.spacing = 8;
             return c;
-        };
-        ADIFFlowView *toolbar = [[ADIFFlowView alloc] initWithFrame:NSZeroRect];  // wraps, like the groups, in a narrow window
-        toolbar.gap = 17;
-        toolbar.trailingLast = YES;
-        toolbar.centred = YES;
-        toolbar.identifier = @"map.toolbar";
-        NSStackView *zoomCluster = cluster(@[ ADIFLabel(@"Zoom:"), out, mw.zoomLabel, in, fit, world ]);
-        [zoomCluster setCustomSpacing:4 afterView:out];
-        [zoomCluster setCustomSpacing:4 afterView:mw.zoomLabel];
-        // Controls: the groups under the toolbar shown or hidden, for the map's room.
-        mw.controlsToggle = [NSButton buttonWithTitle:T(@"Controls") target:nil action:nil];
-        [mw.controlsToggle setButtonType:NSButtonTypePushOnPushOff];
-        mw.controlsToggle.image = [NSImage imageWithSystemSymbolName:@"slider.horizontal.3" accessibilityDescription:nil];
-        mw.controlsToggle.imagePosition = NSImageLeading;
-        mw.controlsToggle.toolTip = T(@"Show or hide the controls under the toolbar (layers, markers, filters, spots); hidden, the map takes their room "
-                                      @"and every choice stays as it is");
-        mw.controlsToggle.identifier = @"map.controls.toggle";
-        ADIFOnAction(mw.controlsToggle, ^{ showControls(mw.controlsToggle.state == NSControlStateValueOn); });
-        for (NSView *v in @[ cluster(@[ mw.target ]), zoomCluster, cluster(@[ mw.region, mw.projection ]), cluster(@[ styleButton, save ]),
-                             cluster(@[ mw.controlsToggle, mw.listToggle ]) ])
-            [toolbar addSubview:v];
-        auto group = [](NSString *caption, NSString *ident, NSArray<NSView *> *rows) {
-            NSTextField *title = [NSTextField labelWithString:T(caption).localizedUppercaseString];
-            title.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize - 1 weight:NSFontWeightSemibold];
-            title.textColor = NSColor.secondaryLabelColor;
-            NSMutableArray *views = [NSMutableArray arrayWithObject:title];
-            [views addObjectsFromArray:rows];
-            NSStackView *g = [NSStackView stackViewWithViews:views];
-            g.orientation = NSUserInterfaceLayoutOrientationVertical;
-            g.alignment = NSLayoutAttributeLeading;
-            g.spacing = 6;
-            [g setCustomSpacing:5 afterView:title];
-            g.identifier = ident;
-            return g;
         };
         auto line = [](NSArray<NSView *> *views) {
             NSStackView *r = [NSStackView stackViewWithViews:views];
             r.spacing = 8;
             return r;
         };
+        auto rows = [](NSArray<NSView *> *views) {  // one under another, at their own widths
+            NSStackView *c = [NSStackView stackViewWithViews:views];
+            c.orientation = NSUserInterfaceLayoutOrientationVertical;
+            c.alignment = NSLayoutAttributeLeading;
+            c.spacing = 6;
+            return c;
+        };
+        auto iconOnly = [](NSButton *b, NSString *symbol) {  // the title stays, for VoiceOver (and the tests)
+            b.image = [NSImage imageWithSystemSymbolName:symbol accessibilityDescription:nil];
+            b.imagePosition = NSImageOnly;
+        };
+        // The cards' switches: any of them on at once.
+        mw.panels = [NSSegmentedControl segmentedControlWithLabels:@[ T(@"Layers"), T(@"Contacts"), T(@"Filters"), T(@"Spots") ]
+                                                      trackingMode:NSSegmentSwitchTrackingSelectAny
+                                                            target:nil
+                                                            action:nil];
+        {
+            NSString *const symbols[] = {@"square.3.stack.3d", @"person.2", @"line.3.horizontal.decrease.circle", @"antenna.radiowaves.left.and.right"};
+            NSString *const tips[] = {
+                N(@"Layers: what the map shows of your log (worked squares, countries, US states and counties, zones, POTA, IOTA), the outlines "
+                  @"over it and their labels"),
+                N(@"Contacts: a marker at each contact's own place, lines to them, your station, and other programs' references"),
+                N(@"Filters: which QSOs the map shows (band, mode, dates, confirmation, places), and which POTA parks you haven't worked"),
+                N(@"Spots: the stations spotted now, where the spots come from, and one station's spots")};
+            std::string was = setting("mapPanels");
+            int on = was.empty() ? (setting("mapControls") == "0" ? 0 : 1) : std::atoi(was.c_str());  // at first Layers (none if Controls hid all)
+            for (int i = 0; i < 4; ++i) {
+                [mw.panels setImage:[NSImage imageWithSystemSymbolName:symbols[i] accessibilityDescription:nil] forSegment:i];
+                [mw.panels setImageScaling:NSImageScaleProportionallyDown forSegment:i];
+                [mw.panels setToolTip:T(tips[i]) forSegment:i];
+                [mw.panels setSelected:(on >> i) & 1 forSegment:i];
+            }
+        }
+        mw.panels.identifier = @"map.panels";
+        ADIFOnAction(mw.panels, ^{ showPanels(); });
+        // The cards: a caption (with, for Filters, Clear beside it), then the controls.
+        auto card = [](NSString *caption, NSString *ident, NSView *body, NSView *corner) {
+            ADIFMapPanel *c = [[ADIFMapPanel alloc] initWithFrame:NSZeroRect];
+            c.identifier = ident;
+            NSTextField *head = [NSTextField labelWithString:T(caption).localizedUppercaseString];
+            head.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize - 1 weight:NSFontWeightSemibold];
+            head.textColor = NSColor.secondaryLabelColor;
+            for (NSView *v in corner ? @[ head, body, corner ] : @[ head, body ]) {
+                v.translatesAutoresizingMaskIntoConstraints = NO;
+                [c addSubview:v];
+            }
+            [NSLayoutConstraint activateConstraints:@[
+                [head.topAnchor constraintEqualToAnchor:c.topAnchor constant:corner ? 13 : 10],
+                [head.leadingAnchor constraintEqualToAnchor:c.leadingAnchor constant:12],
+                [head.trailingAnchor constraintLessThanOrEqualToAnchor:corner ? corner.leadingAnchor : c.trailingAnchor constant:-12],
+                [body.topAnchor constraintEqualToAnchor:head.bottomAnchor constant:corner ? 11 : 8],
+                [body.leadingAnchor constraintEqualToAnchor:c.leadingAnchor constant:12],
+                [body.trailingAnchor constraintLessThanOrEqualToAnchor:c.trailingAnchor constant:-12],
+                [body.bottomAnchor constraintEqualToAnchor:c.bottomAnchor constant:-12],
+            ]];
+            if (corner)
+                [NSLayoutConstraint activateConstraints:@[
+                    [corner.centerYAnchor constraintEqualToAnchor:head.centerYAnchor],
+                    [corner.trailingAnchor constraintEqualToAnchor:c.trailingAnchor constant:-10],
+                ]];
+            return c;
+        };
+        NSGridView *qsoFilters = [NSGridView gridViewWithViews:@[ @[ mw.band, mw.mode ], @[ mw.dates, mw.confirmed ] ]];
+        qsoFilters.rowSpacing = 6;
+        qsoFilters.columnSpacing = 8;
+        NSStackView *filterRows = rows(@[ qsoFilters, mw.moreFilters, line(@[ parksIn, mw.parkPlacesButton ]) ]);
+        [filterRows setCustomSpacing:12 afterView:mw.moreFilters];  // the parks' filter apart from the QSOs'
+        mw.clearFilters.controlSize = NSControlSizeSmall;
+        mw.clearFilters.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
         NSStackView *spotsLine = line(@[ mw.spotsButton, mw.refreshSpotsButton ]);
         [spotsLine setCustomSpacing:4 afterView:mw.spotsButton];
         NSStackView *onlyLine = line(@[ mw.spotsOnly, mw.spotsOnlyCall ]);
         [onlyLine setCustomSpacing:4 afterView:mw.spotsOnly];
-        ADIFFlowView *controls = [[ADIFFlowView alloc] initWithFrame:NSZeroRect];
-        controls.gap = 25;
-        controls.identifier = @"map.controls";
-        for (NSView *g in @[
-                 group(N(@"Layers"), @"map.group.layers", @[ layers ]),
-                 group(N(@"Markers"), @"map.group.markers", @[ line(@[ mw.contacts, mw.lines ]), line(@[ mw.mine, mw.programs ]), mw.colorBy ]),
-                 group(N(@"Filters"), @"map.group.filters",
-                       @[ line(@[ mw.band, mw.mode ]), line(@[ mw.dates, mw.confirmed ]), line(@[ mw.moreFilters, mw.clearFilters ]),
-                          line(@[ parksIn, mw.parkPlacesButton ]) ]),
-                 group(N(@"Spots"), @"map.group.spots", @[ spotsLine, onlyLine ]),
-             ])
-            [controls addSubview:g];
-        NSBox *underControls = [[NSBox alloc] initWithFrame:NSZeroRect];
-        underControls.boxType = NSBoxSeparator;
+        NSStackView *spotLayer = line(@[ mw.show[kLayerSpots], mw.overlay[kLayerSpots], mw.labels[kLayerSpots] ]);
+        spotLayer.spacing = 14;
+        mw.cards[0] = card(N(@"Layers"), @"map.group.layers", layers, nil);
+        mw.cards[1] = card(N(@"Contacts"), @"map.group.contacts", rows(@[ mw.contacts, mw.lines, mw.mine, mw.programs ]), nil);
+        mw.cards[2] = card(N(@"Filters"), @"map.group.filters", filterRows, mw.clearFilters);
+        mw.cards[3] = card(N(@"Spots"), @"map.group.spots", rows(@[ spotLayer, spotsLine, onlyLine ]), nil);
+        mw.cardStack = [[ADIFCardStack alloc] initWithFrame:NSZeroRect];
+        mw.cardStack.identifier = @"map.cards";
+        for (NSView *c : mw.cards) [mw.cardStack addSubview:c];
+        mw.cardStack.onLayout = ^{ updateClear(); };
+        // The bar.
+        iconOnly(styleButton, @"paintpalette");
+        iconOnly(save, @"square.and.arrow.up");
+        mw.toolbar = [[ADIFFlowView alloc] initWithFrame:NSZeroRect];  // wraps in a narrow window
+        mw.toolbar.gap = 17;
+        mw.toolbar.trailingLast = YES;
+        mw.toolbar.centred = YES;
+        mw.toolbar.identifier = @"map.toolbar";
+        for (NSView *v in @[ mw.panels, mw.colorBy, cluster(@[ mw.projection, mw.region ]), cluster(@[ styleButton, save, mw.listToggle ]) ])
+            [mw.toolbar addSubview:v];
+        for (NSControl *c in @[ mw.panels, mw.colorBy, mw.projection, mw.region, styleButton, save, mw.listToggle ]) {  // compact, on the map
+            c.controlSize = NSControlSizeSmall;
+            c.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        }
+        mw.bar = [[ADIFMapPanel alloc] initWithFrame:NSZeroRect];
+        mw.bar.identifier = @"map.bar";
+        mw.toolbar.translatesAutoresizingMaskIntoConstraints = NO;
+        [mw.bar addSubview:mw.toolbar];
+        // The zoom buttons, as on other maps: in, the zoom, out; then the log and the world.
+        auto mapButton = [&](NSButton *b, NSString *symbol, NSString *spoken) {
+            iconOnly(b, symbol);
+            b.bordered = NO;
+            b.accessibilityLabel = T(spoken);
+            [b.widthAnchor constraintEqualToConstant:30].active = YES;
+            [b.heightAnchor constraintEqualToConstant:22].active = YES;
+        };
+        mapButton(in, @"plus", N(@"Zoom In"));
+        mapButton(out, @"minus", N(@"Zoom Out"));
+        mapButton(fit, @"viewfinder", N(@"Fit Log"));
+        mapButton(world, @"globe", N(@"World"));
+        mw.zoomLabel.font = [NSFont monospacedDigitSystemFontOfSize:10 weight:NSFontWeightMedium];
+        mw.zoomLabel.alignment = NSTextAlignmentCenter;
+        mw.zoomLabel.textColor = NSColor.secondaryLabelColor;
+        NSBox *navRule = [[NSBox alloc] initWithFrame:NSZeroRect];
+        navRule.boxType = NSBoxSeparator;
+        [navRule.widthAnchor constraintEqualToConstant:24].active = YES;
+        NSStackView *navStack = rows(@[ in, mw.zoomLabel, out, navRule, fit, world ]);
+        navStack.alignment = NSLayoutAttributeCenterX;
+        navStack.spacing = 6;  // the buttons' frames reach 3 points past their faces
+        mw.nav = [[ADIFMapPanel alloc] initWithFrame:NSZeroRect];
+        mw.nav.identifier = @"map.nav";
+        navStack.translatesAutoresizingMaskIntoConstraints = NO;
+        [mw.nav addSubview:navStack];
+        NSView *mapHost = [[NSView alloc] initWithFrame:NSZeroRect];  // the map, the controls on it
+        mapHost.identifier = @"map.host";
+        for (NSView *v in @[ mw.view, mw.bar, mw.cardStack, mw.nav ]) {
+            v.translatesAutoresizingMaskIntoConstraints = NO;
+            [mapHost addSubview:v];
+        }
+        [NSLayoutConstraint activateConstraints:@[
+            [mw.toolbar.topAnchor constraintEqualToAnchor:mw.bar.topAnchor constant:6],
+            [mw.toolbar.bottomAnchor constraintEqualToAnchor:mw.bar.bottomAnchor constant:-6],
+            [mw.toolbar.leadingAnchor constraintEqualToAnchor:mw.bar.leadingAnchor constant:8],
+            [mw.toolbar.trailingAnchor constraintEqualToAnchor:mw.bar.trailingAnchor constant:-8],
+            [navStack.topAnchor constraintEqualToAnchor:mw.nav.topAnchor constant:5],
+            [navStack.bottomAnchor constraintEqualToAnchor:mw.nav.bottomAnchor constant:-5],
+            [navStack.leadingAnchor constraintEqualToAnchor:mw.nav.leadingAnchor constant:4],
+            [navStack.trailingAnchor constraintEqualToAnchor:mw.nav.trailingAnchor constant:-4],
+            [mw.view.topAnchor constraintEqualToAnchor:mapHost.topAnchor],
+            [mw.view.bottomAnchor constraintEqualToAnchor:mapHost.bottomAnchor],
+            [mw.view.leadingAnchor constraintEqualToAnchor:mapHost.leadingAnchor],
+            [mw.view.trailingAnchor constraintEqualToAnchor:mapHost.trailingAnchor],
+            [mw.bar.topAnchor constraintEqualToAnchor:mapHost.topAnchor constant:8],
+            [mw.bar.leadingAnchor constraintEqualToAnchor:mapHost.leadingAnchor constant:8],
+            [mw.bar.trailingAnchor constraintEqualToAnchor:mapHost.trailingAnchor constant:-8],
+            [mw.nav.topAnchor constraintEqualToAnchor:mw.bar.bottomAnchor constant:8],
+            [mw.nav.trailingAnchor constraintEqualToAnchor:mapHost.trailingAnchor constant:-8],
+            [mw.cardStack.topAnchor constraintEqualToAnchor:mw.bar.bottomAnchor constant:8],
+            [mw.cardStack.leadingAnchor constraintEqualToAnchor:mapHost.leadingAnchor constant:8],
+            [mw.cardStack.trailingAnchor constraintEqualToAnchor:mw.nav.leadingAnchor constant:-8],
+            [mw.cardStack.bottomAnchor constraintEqualToAnchor:mapHost.bottomAnchor constant:-8],
+        ]];
 
         // ── The body: the map and the list (a divider between them), over the status bar (the
         // contact on the left, the situation on the right) ──
@@ -3349,7 +3619,7 @@ void cmdMap() {
             sv.delegate = mw.splitKeeper;
             return sv;
         };
-        mw.mainSplit = split(@"map.main.split", YES, @[ mw.view, mw.listPanel ]);
+        mw.mainSplit = split(@"map.main.split", YES, @[ mapHost, mw.listPanel ]);
         [mw.mainSplit setHoldingPriority:NSLayoutPriorityDefaultLow - 10 forSubviewAtIndex:0];  // the map takes a window's growth
         [mw.mainSplit setHoldingPriority:NSLayoutPriorityDefaultLow + 10 forSubviewAtIndex:1];
         mw.statusSplit = split(@"map.status.split", YES, @[ contactPanel, situationPanel ]);
@@ -3363,32 +3633,19 @@ void cmdMap() {
             if (sv == mw.statusSplit && sv.bounds.size.width > 0)
                 setSetting("mapContactShare", std::to_string((int)std::lround(100 * contactPanel.frame.size.width / sv.bounds.size.width)));
         };
-        for (NSView *v in @[ toolbar, controls, underControls, mw.outerSplit ]) {
-            v.translatesAutoresizingMaskIntoConstraints = NO;
-            [root addSubview:v];
-        }
-        CGFloat m = 14;
+        // The map from edge to edge of the window, under its title.
+        mw.outerSplit.translatesAutoresizingMaskIntoConstraints = NO;
+        [root addSubview:mw.outerSplit];
         [NSLayoutConstraint activateConstraints:@[
-            [toolbar.topAnchor constraintEqualToAnchor:root.topAnchor constant:10],
-            [toolbar.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
-            [toolbar.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-m],
-            mw.controlsGap = [controls.topAnchor constraintEqualToAnchor:toolbar.bottomAnchor constant:10],
-            [controls.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
-            [controls.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-m],
-            mw.underGap = [underControls.topAnchor constraintEqualToAnchor:controls.bottomAnchor constant:8],
-            [underControls.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
-            [underControls.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
-            [mw.outerSplit.topAnchor constraintEqualToAnchor:underControls.bottomAnchor constant:6],
-            [mw.outerSplit.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
-            [mw.outerSplit.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-m],
-            [mw.outerSplit.bottomAnchor constraintEqualToAnchor:root.bottomAnchor constant:-8],
-            [mw.view.widthAnchor constraintGreaterThanOrEqualToConstant:360],
+            [mw.outerSplit.topAnchor constraintEqualToAnchor:root.topAnchor],
+            [mw.outerSplit.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
+            [mw.outerSplit.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
+            [mw.outerSplit.bottomAnchor constraintEqualToAnchor:root.bottomAnchor],
+            [mw.view.widthAnchor constraintGreaterThanOrEqualToConstant:420],
             [mw.view.heightAnchor constraintGreaterThanOrEqualToConstant:240],
             [mw.statusSplit.heightAnchor constraintGreaterThanOrEqualToConstant:70],
         ]];
-        mw.controlsView = controls;
-        mw.controlsGone = [controls.heightAnchor constraintEqualToConstant:0];
-        showControls(flag("mapControls", true));
+        showPanels();
         showListPanel(flag("mapList", true));
         [mw.window center];
         // New spots redraw the layer; closing the window stops the feeds.

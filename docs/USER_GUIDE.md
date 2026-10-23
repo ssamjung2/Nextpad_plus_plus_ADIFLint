@@ -525,31 +525,52 @@ world, 1:50m zoomed in, and 1:10m from 12× down to city level): land, lakes, ri
 largest at first, smaller ones as you zoom in), country borders, state and province lines
 from 2.5×, and towns' built-up areas at 1:10m. Every choice is remembered.
 
-The window is laid out to give the map the room:
+![The Map with its four cards open: Layers and Contacts down the left, Filters and Spots beside them, the bar across the top and the zoom buttons at the right](images/map-cards.png)
 
-- **Across the top**, a toolbar: the log's name; zoom (**−**, **+**, **Fit Log**, **World**),
-  **Region** and the projection; **Style Options…** and **Export PNG…**; and at the right,
-  **Controls**, which shows or hides the control groups under the toolbar (hidden, the map
-  takes their room, and every choice stays as it is), and **List**, which shows or hides the
-  list beside the map.
-- **Under it**, the controls in groups side by side, with a line between them:
-  **Layers** (grid squares, countries, US states, US counties, CQ zones, ITU zones, POTA,
-  IOTA, cities, spots, each with **Show**, **Overlay** and **Labels**), **Markers**
-  (contacts, lines, your station, other programs, and how to colour them), **Filters**
-  (which QSOs, and **POTA parks in**: which parks you haven't worked show) and **Spots**.
-  In a narrower window the groups, and the toolbar, take as many lines as they need.
-- **The map**, and beside it [the list](#the-list-the-qsos-chosen-and-whats-in-view): the
-  QSOs of what you click, or the contacts, parks or spots in view. Drag the divider between
-  them to give either more room.
+The map fills the window from edge to edge, and its controls float on it, see-through, in
+the map's own light or dark. The window's title names the log.
+
+- **The bar**, across the top of the map:
+  - **Layers**, **Contacts**, **Filters** and **Spots** each open a card under the bar (see
+    below); any of them can be open at once. With a filter on, the bar says how many
+    ("Filters (2)"), card open or not.
+  - **Colour by**: how the map colours what you worked, the contacts and the spots (see
+    [Colours](#colours)).
+  - The projection, and **Region** (zoom to a continent).
+  - At the right, three buttons: **Style Options** (the palette), **Export PNG** (the
+    arrow out of a box) and **List** (the sidebar), which shows or hides the list beside
+    the map.
+- **The cards**, down the left of the map, in the order of the bar:
+  - **Layers**: a row for each layer, in three sections (**Areas**: grid squares,
+    countries, US states, US counties, CQ zones, ITU zones; **Programs**: POTA, IOTA;
+    **Places**: cities), with its **Show**, **Overlay** and **Labels** boxes under their
+    titles (see [Layers](#layers-show-overlay-and-labels)).
+  - **Contacts**: their markers and lines, your station, and other programs (see
+    [Contacts](#contacts)).
+  - **Filters**: which QSOs show, and which POTA parks you haven't worked (see
+    [Filters](#filters)). **Clear**, in its corner, shows every QSO again.
+  - **Spots**: the Spots layer's boxes, where the spots come from, and one station's spots
+    (see [Spots on the map](#spots-on-the-map)).
+
+  Cards that would reach down to the legend start a column beside the others. When they no
+  longer fit on the map at all (a small window, or a wide list), the card opened longest
+  ago closes for the rest. Clicks between and beside the cards reach the map.
+- **The zoom buttons**, at the map's top right: **+**, the zoom, **−**, then **Fit Log**
+  (the frame) and **World** (the globe). See [Moving around](#moving-around).
+- **Beside the map**, [the list](#the-list-the-qsos-chosen-and-whats-in-view): the QSOs of
+  what you click, or the contacts, parks or spots in view. Drag the divider between them
+  to give either more room.
 - **The status bar** at the bottom, in two: [the contact and the situation](#the-status-bar-contact-and-situation).
   Drag the line above it to make it taller, and the one between its halves to share the
   width differently.
 
-Every choice, and where the dividers were left, is remembered.
+In a narrower window the bar takes as many lines as it needs. Every choice, the cards that
+are open, and where the dividers were left, are remembered.
 
 ### Layers: Show, Overlay and Labels
 
-Each layer has up to three boxes:
+Each layer in the **Layers** card has up to three boxes (the Spots layer's are in the
+**Spots** card):
 
 - **Show** marks what you worked on that layer: the worked grid squares, countries, states,
   counties and zones shaded in the map's colours, the POTA parks you worked badged, the IOTA
@@ -588,9 +609,11 @@ Where a QSO counts on each layer:
 
 **Style Options → Other areas** sets how strongly they are shaded.
 
-### Markers
+### Contacts
 
-- **Contacts**: a marker at each contact's own place (see
+The **Contacts** card:
+
+- **Markers**: a marker at each contact's own place (see
   [contacts and their places](#contacts-and-their-places)).
 - **Lines to contacts**: a great-circle line from your station to each contact, in the
   colour of the contact's marker (see [Style Options](#style-options-and-export)).
@@ -600,7 +623,8 @@ Where a QSO counts on each layer:
   QSO's GRIDSQUARE. Tick the ones to show (**Show All**, **Hide All**). IOTA starts hidden: a
   callbook such as QRZ.com fills it in for every island station.
 - **My station**: a star at each MY_GRIDSQUARE.
-- **Colour by** (see [Colours](#colours)).
+
+How they are coloured is the bar's **Colour by** (see [Colours](#colours)).
 
 POTA parks you hunted are triangles at the QSO's GRIDSQUARE while POTA's **Show** is on;
 with POTA's park list downloaded, they get a badge at the parks themselves instead (see
@@ -608,7 +632,7 @@ with POTA's park list downloaded, they get a badge at the parks themselves inste
 
 ### Filters
 
-The **Filters** row keeps only some QSOs: a band, a mode, a time (the last 30 days, the
+The **Filters** card keeps only some QSOs: a band, a mode, a time (the last 30 days, the
 last 12 months, this year, or a year in the log), and all, confirmed or not confirmed QSOs
 (confirmed: QSL_RCVD, LOTW_QSL_RCVD or EQSL_QSL_RCVD Y or V).
 
@@ -627,8 +651,11 @@ and every line that has values must match:
 - **Also limit the POTA parks you haven't worked**: the POTA overlay shows only the parks
   in these places.
 
-The button shows how many places are chosen ("More Filters (2)…"); **Clear** shows every
-QSO again.
+The button shows how many places are chosen ("More Filters (2)…"), and the bar's **Filters**
+how many filters are on in all; **Clear**, in the card's corner, shows every QSO again.
+
+**POTA parks in**, at the bottom of the card, is the parks' own filter (see
+[POTA parks in](#pota-parks-in-fewer-parks)).
 
 ### Spots on the map
 
@@ -644,7 +671,8 @@ The **Spots** layer marks the stations spotted now, live, beside your log:
   PSKReporter's receivers. With PSKReporter, your own signal is a spot at your grid and
   the stations that heard it (up to 100) are its triangles; a triangle at your grid means
   your own station reported hearing someone.
-- **Overlay** draws a line from each spotter to the station it heard, while Show is on.
+- **Spotter lines** (the layer's Overlay) draws a line from each spotter to the station it
+  heard, while Show is on.
   Without it, pointing at a spot (or clicking it) still draws its spotters' lines, and
   pointing at a spotter draws the lines to the stations it heard.
 - **Labels** writes each station's call beside it, where there's room, with its mode, how
@@ -661,9 +689,10 @@ spot (a cluster node's, or the locator a PSKReporter receiver gives). Otherwise 
 country data's place for its call, often the middle of the country. A spotter is placed the
 same way.
 
-The **Spots** row, under Markers, holds **Spots…**, the refresh arrow and **Only spots of**.
+The **Spots** card holds the layer's three boxes (**Show**, **Spotter lines**, **Labels**),
+**Sources and Filters…**, the refresh arrow and **Only spots of**.
 
-**Spots…** chooses which spots show:
+**Sources and Filters…** chooses which spots show:
 
 - **Newer than:** 10 minutes, 30 minutes (at first) or 1 hour.
 - **From:** Spothole, DX cluster and PSKReporter; the ones turned off in Settings are
@@ -682,7 +711,7 @@ station's spots, each with every station that heard it (up to 100): who is heari
 on PSKReporter's map. While it is ticked, PSKReporter is asked about that callsign. Typing a
 callsign ticks it.
 
-The round arrow beside **Spots…** refreshes them now, as far as each source allows:
+The round arrow beside **Sources and Filters…** refreshes them now, as far as each source allows:
 Spothole is asked again unless it was asked less than a minute ago, PSKReporter only once 5
 minutes have passed since it was last asked (it asks for no more), and a DX cluster waiting
 to reconnect connects at once; a connected cluster sends its spots as they come anyway. The
@@ -868,10 +897,13 @@ On the globe:
 ### Moving around
 
 - **Zoom** with a pinch, the mouse wheel, Option and a two-finger scroll, a double-click,
-  or the **+** and **−** buttons or keys, up to 1,024×, where a kilometre is some 30 points
-  across. **Fit Log** zooms to the log's QSOs, **World** (or the 0 key) shows the whole
-  world, and **Region** zooms to a continent (Africa, Antarctica, Asia, Europe, North
-  America, Oceania, South America; the globe turns to face it).
+  or the **+** and **−** buttons (at the map's top right) or keys, up to 1,024×, where a
+  kilometre is some 30 points across. **Fit Log** (the frame button) zooms to the log's
+  QSOs, **World** (the globe button, or the 0 key) shows the whole world, and **Region**,
+  in the bar, zooms to a continent (Africa, Antarctica, Asia, Europe, North America,
+  Oceania, South America; the globe turns to face it). Fit Log, Region and the zoom buttons
+  work on the part of the map the bar, the cards and the zoom buttons leave clear, so what
+  they show isn't hidden under them.
 - **Move** by dragging, a two-finger scroll on a trackpad, or the arrow keys (on the globe
   these turn it).
 - **Point** at a square, DXCC entity, contact, park or IOTA group to read what it is, its
@@ -882,7 +914,7 @@ On the globe:
 ### POTA parks in: fewer parks
 
 POTA has tens of thousands of parks, and a map of several states is crowded with them.
-**POTA parks in** (beside Spots…) chooses where the parks you haven't worked show, on the map
+**POTA parks in** (in the Filters card) chooses where the parks you haven't worked show, on the map
 and in the list beside it; the parks you worked always show. Its button names the places
 chosen ("US-IL…", "US-NJ, 1 county…", "everywhere…"); click it to change them:
 
@@ -904,7 +936,7 @@ US only, so elsewhere a location is the finest choice.
 
 ![The list beside the map: the parks the map shows around northern New Jersey, nearest first, with distance and bearing](images/map-parks.png)
 
-**List** (at the right of the toolbar) shows or hides the list beside the map; drag the
+**List** (the sidebar button at the right of the bar) shows or hides the list beside the map; drag the
 divider between them to make it wider or narrower. Choose what it lists at its top:
 
 - **Selected**: the QSOs of what you clicked on the map: a square, a contact, a DXCC
@@ -1017,7 +1049,7 @@ your own use; if you pass them on, the licence goes with them.
   contacts as pins, dots or crosshairs.
 - **Worked areas**: grid squares solid, see-through or as outlines; other areas (countries,
   states, counties, zones) shaded lightly, medium or strongly.
-- **Lines to contacts** (tick **Lines to contacts** under Markers first): a great-circle line
+- **Lines to contacts** (tick **Lines to contacts** in the Contacts card first): a great-circle line
   from your station (the QSO's MY_GRIDSQUARE, else home) to each contact (its LAT and LON,
   else its GRIDSQUARE at full precision, else its DXCC entity's centre), each pair once,
   in the colour of the marker at its end (the contact's pin, else its square, else its
@@ -1416,8 +1448,8 @@ Rules for every source:
 - **Map Detail:** OpenStreetMap streets and buildings for the regions you download (see
   [Map Detail](#map-detail-streets-and-buildings)).
 - **Spots:** where the Map's Spots layer gets its spots (see
-  [Spots on the map](#spots-on-the-map)); nothing is fetched until you tick Show under Spots
-  on the Map.
+  [Spots on the map](#spots-on-the-map)); nothing is fetched until you tick Show in the Map's
+  Spots card.
   - **Spothole** (ticked at first): spothole.app's spots every 2 minutes, from POTA, WWFF,
     GMA and other programs, and the DX clusters and Reverse Beacon Network it reads; SOTA
     left out. It never sends a login.

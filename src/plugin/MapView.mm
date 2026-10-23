@@ -685,7 +685,23 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 }
 
 - (void)zoomBy:(double)factor {
-    [self zoomBy:factor at:NSMakePoint(NSMidX(self.bounds), NSMidY(self.bounds))];
+    NSRect clear = [self clearRect];
+    [self zoomBy:factor at:NSMakePoint(NSMidX(clear), NSMidY(clear))];
+}
+
+// What the window's floating controls leave clear of the view (all of it, when they leave too
+// little): fitting fits inside it, and the zoom buttons zoom about its middle. On the globe,
+// always turned to face the view's middle, as much each side of that as the narrower side has.
+- (NSRect)clearRect {
+    NSRect b = self.bounds;
+    NSRect clear = NSMakeRect(NSMinX(b) + _clearInsets.left, NSMinY(b) + _clearInsets.bottom, NSWidth(b) - _clearInsets.left - _clearInsets.right,
+                              NSHeight(b) - _clearInsets.top - _clearInsets.bottom);
+    if ([self globe]) {
+        CGFloat halfW = std::min(NSMidX(b) - NSMinX(clear), NSMaxX(clear) - NSMidX(b));
+        CGFloat halfH = std::min(NSMidY(b) - NSMinY(clear), NSMaxY(clear) - NSMidY(b));
+        clear = NSMakeRect(NSMidX(b) - halfW, NSMidY(b) - halfH, 2 * halfW, 2 * halfH);
+    }
+    return NSWidth(clear) < NSWidth(b) / 2 || NSHeight(clear) < NSHeight(b) / 2 ? b : clear;
 }
 
 - (void)showWorld {
@@ -755,11 +771,12 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     double spanX = std::max(minSpan > 0 ? minSpan : 8.0, (east - west) * 1.15), spanY = std::max(minSpan > 0 ? minSpan : 4.0, (north - south) * 1.15);
     double minX, minY, maxX, maxY;
     _pr.bounds(&minX, &minY, &maxX, &maxY);
-    NSRect b = self.bounds;
+    NSRect b = self.bounds, clear = [self clearRect];
     double base = std::min(b.size.width / (maxX - minX), b.size.height / (maxY - minY));
-    _cx = (west + east) / 2, _cy = (south + north) / 2;
     double most = minSpan > 0 ? [self maxZoomHere] : kMaxZoom;  // a region: not into Map Detail; a place: where it is downloaded
-    _zoom = std::clamp(std::min(b.size.width / spanX, b.size.height / spanY) / base, 1.0, most);
+    _zoom = std::clamp(std::min(NSWidth(clear) / spanX, NSHeight(clear) / spanY) / base, 1.0, most);
+    double ppu = [self ppu];
+    _cx = (west + east) / 2 - (NSMidX(clear) - NSMidX(b)) / ppu, _cy = (south + north) / 2 - (NSMidY(clear) - NSMidY(b)) / ppu;
     [self viewChanged];
 }
 
@@ -1040,9 +1057,19 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     [self drawSelectionHalo];
     CGContextRestoreGState(d.ctx);
     if (_style.legend) [self drawLegend];
+    else [self legendAt:NSZeroRect];
     if (!_info.empty()) [self drawInfoBox];
     [self drawOsmCredit];
     CGContextRestoreGState(d.ctx);
+}
+
+// Where the legend is now, for the window's cards to keep clear of; told after the drawing.
+- (void)legendAt:(NSRect)box {
+    if (NSEqualRects(box, _legendFrame)) return;
+    _legendFrame = box;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (self.onLegendMoved) self.onLegendMoved();
+    });
 }
 
 // The key to the colours and markers, bottom left (in the PNG too).
@@ -1183,7 +1210,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         }
         if (_style[kLayerIota].overlay) rows.push_back({9, [tint colorWithAlphaComponent:0.75], tr("not worked")});
     }
-    if (rows.empty()) return;
+    if (rows.empty()) return [self legendAt:NSZeroRect];
 
     NSDictionary *text = @{NSFontAttributeName : [NSFont systemFontOfSize:11],
                            NSForegroundColorAttributeName : [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.9]};
@@ -1193,6 +1220,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     for (const Entry &e : rows)
         width = std::max(width, [ADIFString(e.text) sizeWithAttributes:e.kind == 7 ? head : text].width + (e.kind == 7 || e.kind == 8 ? 0 : 20));
     NSRect box = NSMakeRect(NSMinX(self.bounds) + 8, NSMinY(self.bounds) + 8, width + 16, rows.size() * lineH + 10);
+    [self legendAt:box];
     NSBezierPath *bg = [NSBezierPath bezierPathWithRoundedRect:box xRadius:6 yRadius:6];
     [[NSColor colorWithCalibratedWhite:pal.dark ? 0 : 1 alpha:0.62] setFill];
     [bg fill];
@@ -1352,6 +1380,13 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 }
 
 - (void)mouseMoved:(NSEvent *)event {
+    // Over one of the controls floating on the map, the map has nothing under the pointer.
+    NSView *top = self.window.contentView;
+    NSView *over = top.superview ? [top hitTest:[top.superview convertPoint:event.locationInWindow fromView:nil]] : self;
+    if (over && over != self && ![over isDescendantOf:self]) {
+        if (_hover.kind != ADIFMapHit::None) [self mouseExited:event];
+        return;
+    }
     ADIFMapHit h = [self hitAt:[self convertPoint:event.locationInWindow fromView:nil]];
     bool changed = h.kind != _hover.kind || h.index != _hover.index || h.square != _hover.square;
     _hover = h;
