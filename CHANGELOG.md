@@ -101,7 +101,7 @@ Versions before 0.8.0 were development builds and were not published.
   your station (QSOs, spots, and the parks you haven't worked when they follow the filters)
   and **Records**: without a grid square, possible duplicates, or with problems Check Log
   finds. Each shows as a tag in the toolbar.
-- **Map → Layers.** Each group (Worked areas, Programs, Places, Contacts, Sun) closes on its
+- **Map → Layers.** Each group (Worked areas, Programs, Places, Contacts, Sun and propagation) closes on its
   own with its triangle, remembered. **Other programs** is a row in Programs with a box for
   them all (off hides them, on brings back those you had shown); its name is the menu of
   which. A Labels box that can't work (its layer hidden) is faded, so it doesn't look merely
@@ -195,6 +195,18 @@ Versions before 0.8.0 were development builds and were not published.
 - **Map's toolbar: Save View…, Copy Map and Focus Map**, three buttons at its end: keep the view
   as a Quick View, copy the map to the clipboard as Export PNG would save it, and show the map
   alone (the sidebar, list and selected panel hidden; again to bring them back).
+
+- **Map: space weather** from NOAA SWPC (public domain), at the right of the header once turned
+  on in its popover: the solar flux and the K and A indices (orange or red during geomagnetic
+  storms), and in the popover the X-ray flare class, NOAA's R, S and G scales and the last day's
+  K. Every 15 minutes while the Map is open; never in Offline mode. Band conditions shows the
+  indices too.
+- **Map → Sun and propagation → Aurora**: NOAA SWPC's OVATION aurora forecast, shaded from green
+  to red.
+- **Map → Sun and propagation → NCDXF beacons**: the 18 NCDXF/IARU beacons, the ones sending now
+  ringed in their band's colour (the band filter's band, when it is one of theirs); a click tells
+  when one sends next on each band.
+- **Map → Spots → Heat map**: the spots shown as a heat map.
 
 ### Changed
 

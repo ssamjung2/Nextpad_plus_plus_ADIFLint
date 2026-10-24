@@ -1,4 +1,6 @@
 #import "MapView.h"
+#import "Solar.h"
+#include "adif_beacons.h"
 
 #import "L10n.h"
 
@@ -155,6 +157,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     if ((self = [super initWithFrame:frame])) {
         _style.layer[kLayerSquares].show = _style.layer[kLayerCountries].show = _style.layer[kLayerPota].show = true;
         _zoom = 1;
+        _beaconBand = -1;
         _minYear = _maxYear = 0;
         _hasHome = false;
         _homeLat = _homeLon = 0;
@@ -1112,6 +1115,8 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     [self drawOverlays:d];
     [self drawIota:d];
     [self drawDayNight:d];  // over the land and areas, under the markers and labels
+    [self drawAurora:d];
+    [self drawSpotHeat:d];
     [self drawCities:d];
     [self drawLines:d];
     [self drawSpotLines:d];
@@ -1129,6 +1134,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     [self drawPrograms:d];
     [self drawParkBadges:YES];
     if (_style[kLayerPota].labels) [self drawParkLabelsIn:d.b];
+    [self drawBeacons:d];
     [self drawSpotters:d];
     [self drawSpots:d];
     [self drawMine:d];
@@ -1291,6 +1297,26 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         if (_style.dayNight) rows.push_back({0, [NSColor colorWithCalibratedWhite:pal.dark ? 0.3 : 0.45 alpha:1], tr("night (darker)")});
         if (_style.greyLine) rows.push_back({0, [NSColor colorWithCalibratedRed:1 green:0.70 blue:0.25 alpha:0.6], tr("grey line (twilight)")});
     }
+    if (_style.aurora) {
+        const adif::AuroraGrid &g = solar::aurora();
+        rows.push_back({7, nil, g.value.empty() ? tr("Aurora: not fetched yet") : trf("Aurora at {time} UTC (NOAA SWPC)", {{"time", g.forecast.size() >= 16 ? g.forecast.substr(11, 5) : g.forecast}})});
+        if (!g.value.empty()) {
+            rows.push_back({0, [NSColor colorWithCalibratedRed:0 green:1 blue:0.15 alpha:0.5], tr("aurora: some chance overhead")});
+            rows.push_back({0, [NSColor colorWithCalibratedRed:1 green:0.25 blue:0.15 alpha:0.7], tr("aurora: likely overhead")});
+        }
+    }
+    if (_style.spotHeat && _style[kLayerSpots].show && !_spots.empty())
+        rows.push_back({0, [NSColor colorWithCalibratedRed:1 green:0.55 blue:0 alpha:0.6], tr("spots: heat map (warmer where more)")});
+    if (_style.beacons) {
+        double now = [[NSDate date] timeIntervalSince1970];
+        rows.push_back({7, nil, tr("NCDXF beacons sending now")});
+        for (size_t band = 0; band < adif::kBeaconBands; ++band) {
+            if (self.beaconBand >= 0 && (size_t)self.beaconBand != band) continue;
+            char m[16];
+            snprintf(m, sizeof m, "%.3f", adif::kBeaconMHz[band]);
+            rows.push_back({16, [self bandColor:adif::kBeaconBandNames[band]], std::string(m) + ": " + adif::kBeacons[adif::beaconOn(band, now)].call});
+        }
+    }
     if ((_style[kLayerPota].show || _style[kLayerPota].overlay) && ADIFPotaParks().size()) {
         std::set<std::string> hunted, activated;  // by the list's reference (K-0001 is US-0001)
         for (const auto &[ref, w] : _potaWork) {
@@ -1416,6 +1442,13 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
                 case 3: m = [self marker:2 at:c size:5]; break;
                 case 4: m = [self marker:3 at:c size:6]; break;
                 case 6: m = [self contactMarkerAt:NSMakePoint(c.x, _style.contact == 0 ? c.y - 5 : c.y)]; break;
+                case 16:  // a beacon's mast
+                    m = [NSBezierPath bezierPath];
+                    [m moveToPoint:NSMakePoint(c.x, c.y + 5)];
+                    [m lineToPoint:NSMakePoint(c.x - 3.5, c.y - 5)];
+                    [m lineToPoint:NSMakePoint(c.x + 3.5, c.y - 5)];
+                    [m closePath];
+                    break;
                 case 9: {
                     m = [NSBezierPath bezierPathWithRect:NSMakeRect(c.x - 5, c.y - 5, 10, 10)];
                     CGFloat dash[] = {3, 2};
@@ -1459,6 +1492,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     if (h.square.empty()) return h;
     if (size_t k = [self spotAt:p]; k != (size_t)-1) return h.kind = ADIFMapHit::Spot, h.index = k, h;  // drawn on top
     if (size_t k = [self spotterAt:p]; k != (size_t)-1) return h.kind = ADIFMapHit::Spotter, h.index = k, h;
+    if (size_t k = [self beaconAt:p]; k != (size_t)-1) return h.kind = ADIFMapHit::Beacon, h.index = k, h;
     // POTA: the badges of parks you worked (drawn last, on top), the others', then the outlines.
     [self placeParks];
     {  // a worked park's badge first (they're on top), else the nearest other badge or dot within reach

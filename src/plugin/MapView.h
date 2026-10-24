@@ -37,10 +37,11 @@ struct ADIFMapEntity {
 
 // What the pointer is over, or what was clicked.
 struct ADIFMapHit {
-    enum Kind { None, Square, Dxcc, Park, Contact, Iota, Pota, Area, Spot, Spotter, Empty } kind = None;
+    enum Kind { None, Square, Dxcc, Park, Contact, Iota, Pota, Area, Spot, Spotter, Empty, Beacon } kind = None;
     std::string square;  // the 4-character square under the point (always set on the map)
     // Into squares, entities, parks, contacts, IOTA groups (ADIFIotaGroups), POTA's parks
-    // (ADIFPotaParks), (Area) the layer's areas (adif::areaIndex), spots, or spotters.
+    // (ADIFPotaParks), (Area) the layer's areas (adif::areaIndex), spots, spotters, or (Beacon)
+    // adif::kBeacons.
     size_t index = 0;
     int layer = 0;  // Area: the MapLayerId
 };
@@ -92,6 +93,8 @@ struct ADIFMapStyle {
     bool spotlight = false;
     int terrain = 0;  // the land's shaded relief (relief.jpg, Natural Earth): 0 off, 1 subtle, 2 strong
     bool flags = true;  // the DXCC entities' flags beside their names and calls (the list, the selected panel)
+    // Propagation: the OVATION aurora (solar::aurora), the NCDXF beacons, the spots shown as a heat map.
+    bool aurora = false, beacons = false, spotHeat = false;
     // Squares: Show the worked squares, Overlay the Maidenhead grid, Labels its names. Countries:
     // Show each worked DXCC entity's land. POTA and IOTA need their lists (downloaded in Settings).
     std::array<LayerState, kLayerCount> layer;
@@ -306,6 +309,8 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 @property(nonatomic, copy) void (^onStep)(int by);      // ] or [ with the map focused: the next or previous row of the list
 @property(nonatomic, copy) void (^onReturn)(void);      // Return with the map focused: act on what is chosen
 @property(nonatomic) std::vector<std::string> legendSpotBands;  // the spots' bands before the legend hid any, for its entries
+// The beacons' band picked out (adif::kBeaconMHz's index; -1 all five), from the band filter.
+@property(nonatomic) int beaconBand;
 - (void)setData:(const adif::MapData &)data entities:(const std::vector<ADIFMapEntity> &)entities;
 - (void)setProjector:(const adif::Projector &)projector home:(NSString *)homeGrid lat:(double)lat lon:(double)lon;
 - (void)zoomBy:(double)factor;  // about the middle of what is clear
@@ -418,6 +423,14 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 - (void)drawOsm:(MapDrawCtx &)d;
 - (void)drawOsmCredit;
 - (NSString *)creditLine;  // "" when nothing needs crediting
+@end
+
+// Propagation: the aurora, the spots' heat map, the NCDXF beacons (MapPropagation.mm).
+@interface ADIFMapView (Propagation)
+- (void)drawAurora:(MapDrawCtx &)d;
+- (void)drawSpotHeat:(MapDrawCtx &)d;
+- (void)drawBeacons:(MapDrawCtx &)d;
+- (size_t)beaconAt:(NSPoint)p;  // the beacon marker under a point, or (size_t)-1
 @end
 
 // The terrain (MapRelief.mm).

@@ -294,6 +294,7 @@ your Mac.
 | IOTA group list | `www.iota-world.org` | Settings → IOTA Groups → Download | Nothing but the request |
 | Protomaps build list | `build-metadata.protomaps.dev` | Settings → Map Detail → Check Size | Nothing but the request |
 | Protomaps build | `build.protomaps.com` | Settings → Map Detail: Check Size (the region's index), Download (its tiles) | The byte ranges asked for |
+| NOAA SWPC space weather | `services.swpc.noaa.gov` | Map → Space weather, once you tick Get space weather from NOAA SWPC, and Map → Aurora: every 15 minutes while the Map is open | Nothing but the request |
 
 - **Credentials** are stored only in your macOS Keychain ("ADIF Lint: …" items), never in
   a file, and a saved password is never shown again. HamQTH's sign-in, LoTW's report API
@@ -388,6 +389,9 @@ Nextpad++ and its plugins.
   licence ([`data/zones-license.txt`](data/zones-license.txt)); see
   [`data/SOURCE.md`](data/SOURCE.md). Colour by band uses
   [PSKReporter](https://pskreporter.info)'s band colours.
+- Space weather and the aurora forecast come from NOAA's Space Weather Prediction Center
+  (public domain), only when you turn them on; the NCDXF beacon schedule is from
+  [ncdxf.org](https://www.ncdxf.org/beacon/).
 - POTA's park list is not included: Settings downloads it from [pota.app](https://pota.app)
   when you ask. ADIF Lint is not affiliated with Parks on the Air, a registered service mark.
 - Map Detail is OpenStreetMap data, © OpenStreetMap contributors under the

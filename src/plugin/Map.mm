@@ -11,11 +11,13 @@
 #import "Network.h"
 #import "PotaParks.h"
 #import "PluginHost.h"
+#import "Solar.h"
 #import "Spots.h"
 #import "Uploads.h"
 #import "ToolWindow.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include "adif_detail.h"
+#include "adif_beacons.h"
 #include "adif_edit.h"
 #include "adif_flags.h"
 #include "adif_geo.h"
@@ -500,6 +502,11 @@ struct {
     NSStackView *chips = nil;             // the filters on that the toolbar doesn't show, each a tag that removes it
     NSButton *centerButton = nil;
     NSButton *greyLineBox = nil, *dayNightBox = nil;  // the sidebar's Sun boxes (Style Options has them too)
+    NSButton *auroraBox = nil, *beaconsBox = nil, *heatBox = nil;  // the sidebar's propagation layers
+    NSButton *solarTile = nil;     // the header's space weather (NOAA SWPC)
+    NSPopover *solarPopover = nil;
+    NSTimer *beaconTimer = nil;    // redraws as the beacons take turns
+    id solarObserver = nil;
     // The selected panel's parts: what kind of thing it is, a line under its name, its facts, and
     // for a spot why it's worth working.
     NSTextField *chosenBadge = nil, *chosenSubtitle = nil;
@@ -765,6 +772,9 @@ ADIFMapStyle savedStyle() {
     s.spotlight = flag("mapSpotlight", false);
     s.terrain = number("mapTerrain", 0, 2);
     s.flags = flag("mapFlags", true);
+    s.aurora = flag("mapAurora", false);
+    s.beacons = flag("mapBeacons", false);
+    s.spotHeat = flag("mapSpotHeat", false);
     return s;
 }
 
@@ -875,6 +885,7 @@ std::string contactTitle(const ADIFMapHit &h) {
             return t;
         }
         case ADIFMapHit::Spotter: return h.index < mw.view.spotters.size() ? mw.view.spotters[h.index].call : "";
+        case ADIFMapHit::Beacon: return h.index < adif::kBeaconCount ? adif::kBeacons[h.index].call : "";
         case ADIFMapHit::Pota: {
             const adif::PotaParks &list = ADIFPotaParks();
             return h.index < list.size() ? list.parks()[h.index].ref + "  " + list.parks()[h.index].name : "";
@@ -900,6 +911,19 @@ std::string homeDistance(double lat, double lon) {
     double hlat, hlon;
     if (mw.home.empty() || !adif::gridToLatLon(mw.home, &hlat, &hlon)) return "";
     return adif::distanceText(adif::greatCircleKm(hlat, hlon, lat, lon), setting("mapListUnits") == "mi");
+}
+
+// When a beacon sends next on a band: "now", or the time ("12:03:20 UTC").
+std::string beaconNext(size_t beacon, size_t band, double now) {
+    for (double t = std::floor(now / 10) * 10; t < now + 200; t += 10)
+        if (adif::beaconOn(band, t) == beacon) return t <= now ? tr("now") : utcAt((long long)t, "%H:%M:%S UTC");
+    return "";
+}
+
+std::string beaconMHz(size_t band) {
+    char m[16];
+    snprintf(m, sizeof m, "%.3f", adif::kBeaconMHz[band % adif::kBeaconBands]);
+    return m;
 }
 
 // The selected panel's badge, the line under the name, the facts (a label and a value a row), and
@@ -1115,6 +1139,19 @@ void showChosenFacts(const ADIFMapHit &h) {
             break;
         }
         case ADIFMapHit::Pota: kind = {N_("POTA park"), NSColor.systemGreenColor}; break;
+        case ADIFMapHit::Beacon: {
+            kind = {N_("NCDXF beacon"), NSColor.systemOrangeColor};
+            if (h.index >= adif::kBeaconCount) break;
+            const adif::Beacon &b = adif::kBeacons[h.index];
+            double lat = 0, lon = 0, now = [[NSDate date] timeIntervalSince1970];
+            subtitle = std::string(b.location) + "  \u00B7  " + b.grid;
+            if (adif::gridToLatLon(b.grid, &lat, &lon))
+                if (std::string d = homeDistance(lat, lon); !d.empty()) subtitle += "  \u00B7  " + d;
+            for (size_t band = 0; band < adif::kBeaconBands; ++band)
+                facts.push_back({@"dot.radiowaves.left.and.right", beaconMHz(band) + " MHz", beaconNext(h.index, band, now)});
+            facts.push_back({@"waveform", tr("Sends"), tr("its call in CW, then dashes at 100 W to 0.1 W")});
+            break;
+        }
         case ADIFMapHit::Park: kind = {N_("Reference"), NSColor.systemBrownColor}; break;
         case ADIFMapHit::Iota: kind = {N_("IOTA group"), NSColor.systemTealColor}; break;
         default: break;
@@ -1278,6 +1315,17 @@ std::string describe(const ADIFMapHit &h) {
         case ADIFMapHit::Square: {
             const adif::MapSquare &sq = mw.data.squares[h.index];
             return sq.grid + ": " + worked(sq.qsoIndex, sq.confirmed) + "." + where;
+        }
+        case ADIFMapHit::Beacon: {
+            if (h.index >= adif::kBeaconCount) break;
+            const adif::Beacon &b = adif::kBeacons[h.index];
+            double now = [[NSDate date] timeIntervalSince1970], lat = 0, lon = 0;
+            size_t sending = adif::beaconBand(h.index, now), band = mw.view.beaconBand >= 0 ? (size_t)mw.view.beaconBand : sending < adif::kBeaconBands ? sending : 0;
+            std::string when = beaconNext(h.index, band, now);
+            std::string text = trf("NCDXF beacon {call}, {place} ({grid})", {{"call", b.call}, {"place", b.location}, {"grid", b.grid}}) + ": " +
+                               (when == tr("now") ? trf("sending on {mhz} MHz now.", {{"mhz", beaconMHz(band)}})
+                                                  : trf("next on {mhz} MHz at {time}.", {{"mhz", beaconMHz(band)}, {"time", when}}));
+            return adif::gridToLatLon(b.grid, &lat, &lon) ? text + fromHome(lat, lon) : text;
         }
         case ADIFMapHit::Dxcc: {
             const ADIFMapEntity &e = mw.dxcc[h.index];
@@ -1619,12 +1667,171 @@ void updatePanelLook() {
     mw.nav.appearance = [NSAppearance appearanceNamed:paletteAt(mw.view.style.palette).dark ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua];
 }
 
+void updatePropagation();
+
 void applyStyle() {
     mw.view.style = savedStyle();
     mw.view.scaleInMiles = setting("mapListUnits") == "mi";
     updatePanelLook();
     mw.view.hiddenPrograms = hiddenPrograms();
     queueViewList();
+    updatePropagation();
+}
+
+// ── Propagation: space weather (NOAA SWPC) and the NCDXF beacons ──
+
+// "SFI 101 · K 2- · A 11", or "" before any.
+std::string solarSummary() {
+    const adif::SpaceWeather &w = solar::weather();
+    std::string out;
+    auto add = [&](const std::string &part) { out += (out.empty() ? "" : "  \u00B7  ") + part; };
+    if (w.sfi > 0) add("SFI " + std::to_string(std::lround(w.sfi)));
+    if (w.kp >= 0) add("K " + adif::kpText(w.kp));
+    if (w.ap >= 0) add("A " + std::to_string(w.ap));
+    return out;
+}
+
+void showSituation();
+void fillBandConditions();
+
+// The header's space weather: the indices, coloured by the NOAA geomagnetic storm scale; or the
+// offer to turn it on.
+void fillSolarTile() {
+    if (!mw.solarTile) return;
+    bool on = flag("mapSolar", false);
+    std::string sum = solarSummary();
+    const adif::SpaceWeather &w = solar::weather();
+    mw.solarTile.title = on && !sum.empty() ? ADIFString(sum) : T(@"Space weather");
+    mw.solarTile.contentTintColor = !on || sum.empty() ? NSColor.secondaryLabelColor
+                                    : w.g >= 3 ? NSColor.systemRedColor
+                                    : w.g >= 1 ? NSColor.systemOrangeColor
+                                               : NSColor.labelColor;
+    mw.solarTile.toolTip = ADIFString(on ? solar::status() + (w.g >= 0 ? "; " + trf("geomagnetic storms G{g} ({text})", {{"g", std::to_string(w.g)}, {"text", w.gText}}) : "") +
+                                               ". " + tr("Click for more")
+                                         : tr("Solar flux, the K and A indices, X-rays and the NOAA scales from NOAA SWPC: click to turn on"));
+}
+
+// "▁▂▃" for the last day's Kp, a bar each 3 hours.
+std::string kpBars(const adif::SpaceWeather &w) {
+    static const char *const kBars[] = {"\u2581", "\u2582", "\u2583", "\u2584", "\u2585", "\u2586", "\u2587", "\u2588"};
+    std::string out;
+    for (const auto &[at, kp] : w.kpRecent) out += kBars[std::clamp((int)std::lround(kp * 7 / 9), 0, 7)];
+    return out;
+}
+
+void showSolarPopover();
+
+// The popover's content, again as the data changes.
+NSView *solarPopoverView() {
+    const adif::SpaceWeather &w = solar::weather();
+    bool on = flag("mapSolar", false);
+    NSMutableArray<NSView *> *parts = [NSMutableArray array];
+    NSTextField *title = [NSTextField labelWithString:T(@"Space weather")];
+    title.font = [NSFont boldSystemFontOfSize:NSFont.systemFontSize];
+    [parts addObject:title];
+    NSButton *box = ADIFCheckbox(@"Get space weather from NOAA SWPC", on);
+    box.toolTip = T(@"Every 15 minutes while the Map is open, from services.swpc.noaa.gov; nothing in Offline mode");
+    box.identifier = @"map.solar.on";
+    __weak NSButton *weakBox = box;
+    ADIFOnAction(box, ^{
+        saveFlag("mapSolar", weakBox.state == NSControlStateValueOn);
+        updatePropagation();
+        fillSolarTile();
+        showSolarPopover();
+    });
+    [parts addObject:box];
+    if (on) {
+        auto day = [](const std::string &iso) {  // "2026-10-23T20:00:00" as "Oct 23, 20:00 UTC"
+            if (iso.size() < 16) return iso;
+            struct tm tm{};
+            tm.tm_year = std::atoi(iso.substr(0, 4).c_str()) - 1900, tm.tm_mon = std::atoi(iso.substr(5, 2).c_str()) - 1, tm.tm_mday = std::atoi(iso.substr(8, 2).c_str());
+            tm.tm_hour = std::atoi(iso.substr(11, 2).c_str()), tm.tm_min = std::atoi(iso.substr(14, 2).c_str());
+            return utcAt((long long)timegm(&tm), "%Y-%m-%d %H:%M UTC");
+        };
+        std::vector<std::pair<std::string, std::string>> rows;
+        rows.push_back({tr("Solar flux (10.7 cm)"), w.sfi > 0 ? std::to_string(std::lround(w.sfi)) + " sfu  (" + day(w.sfiTime) + ")" : ""});
+        rows.push_back({tr("Planetary K"), w.kp >= 0 ? adif::kpText(w.kp) + "  (" + day(w.kpTime) + ")" : ""});
+        if (!w.kpRecent.empty()) rows.push_back({tr("K, the last 24 hours"), kpBars(w)});
+        rows.push_back({tr("A index"), w.ap >= 0 ? std::to_string(w.ap) + "  (" + w.apDate + ")" : ""});
+        rows.push_back({tr("X-rays"), w.xray > 0 ? adif::flareClass(w.xray) + "  (" + day(w.xrayTime) + ")" : ""});
+        auto scale = [](const char *letter, int n, const std::string &text) { return n < 0 ? std::string() : letter + std::to_string(n) + " " + text; };
+        std::string scales = scale("R", w.r, w.rText);
+        for (const std::string &x : {scale("S", w.s, w.sText), scale("G", w.g, w.gText)})
+            if (!x.empty()) scales += (scales.empty() ? "" : "  \u00B7  ") + x;
+        rows.push_back({tr("NOAA scales"), scales});
+        NSGridView *grid = [NSGridView gridViewWithNumberOfColumns:2 rows:0];
+        grid.rowSpacing = 4;
+        grid.columnSpacing = 10;
+        grid.identifier = @"map.solar.facts";
+        for (const auto &[label, value] : rows) {
+            NSTextField *l = [NSTextField labelWithString:ADIFString(label)], *v = [NSTextField labelWithString:ADIFString(value.empty() ? tr("Unavailable") : value)];
+            l.textColor = NSColor.secondaryLabelColor;
+            v.font = [NSFont monospacedDigitSystemFontOfSize:NSFont.systemFontSize weight:NSFontWeightRegular];
+            [grid addRowWithViews:@[ l, v ]];
+        }
+        [grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
+        [parts addObject:grid];
+        NSTextField *status = [NSTextField wrappingLabelWithString:ADIFString(solar::status())];
+        status.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        status.textColor = NSColor.secondaryLabelColor;
+        status.identifier = @"map.solar.status";
+        [status.widthAnchor constraintLessThanOrEqualToConstant:340].active = YES;
+        [parts addObject:status];
+        NSButton *refreshButton = [NSButton buttonWithTitle:T(@"Refresh") target:nil action:nil];
+        ADIFOnAction(refreshButton, ^{
+            setStatus(solar::refreshNow());
+            showSolarPopover();
+        });
+        NSButton *source = [NSButton buttonWithTitle:T(@"NOAA SWPC (public domain)") target:nil action:nil];
+        source.bordered = NO;
+        source.contentTintColor = NSColor.linkColor;
+        source.toolTip = T(@"The Space Weather Prediction Center's site, in your browser");
+        ADIFOnAction(source, ^{ ADIFOpenURL(@"https://www.swpc.noaa.gov/"); });
+        NSStackView *buttons = [NSStackView stackViewWithViews:@[ refreshButton, source ]];
+        [parts addObject:buttons];
+    }
+    NSStackView *stack = [NSStackView stackViewWithViews:parts];
+    stack.orientation = NSUserInterfaceLayoutOrientationVertical;
+    stack.alignment = NSLayoutAttributeLeading;
+    stack.spacing = 8;
+    stack.edgeInsets = NSEdgeInsetsMake(12, 14, 12, 14);
+    return stack;
+}
+
+void showSolarPopover() {
+    if (!mw.solarTile) return;
+    if (!mw.solarPopover) {
+        mw.solarPopover = [[NSPopover alloc] init];
+        mw.solarPopover.behavior = NSPopoverBehaviorTransient;
+        mw.solarPopover.contentViewController = [[NSViewController alloc] init];
+    }
+    NSView *content = solarPopoverView();
+    mw.solarPopover.contentViewController.view = content;
+    mw.solarPopover.contentSize = content.fittingSize;
+    if (!mw.solarPopover.shown) [mw.solarPopover showRelativeToRect:mw.solarTile.bounds ofView:mw.solarTile preferredEdge:NSRectEdgeMaxY];
+}
+
+// What propagation wants while the Map is open: space weather (the tile's switch, the Aurora layer)
+// and the beacons' timer, which redraws them as they take turns.
+void updatePropagation() {
+    bool open = mw.window && mw.window.visible;
+    solar::setWanted(open && flag("mapSolar", false), open && flag("mapAurora", false));
+    if (open && flag("mapBeacons", false)) {
+        if (!mw.beaconTimer)
+            mw.beaconTimer = [NSTimer scheduledTimerWithTimeInterval:1
+                                                             repeats:YES
+                                                               block:^(NSTimer *) {
+                                                                   static long long slot = -1;
+                                                                   long long now = (long long)std::floor([[NSDate date] timeIntervalSince1970] / 10);
+                                                                   if (now == slot) return;
+                                                                   slot = now;
+                                                                   mw.view.needsDisplay = YES;
+                                                                   if (mw.view.selectedHit.kind == ADIFMapHit::Beacon) showChosenFacts(mw.view.selectedHit);
+                                                               }];
+    } else {
+        [mw.beaconTimer invalidate];
+        mw.beaconTimer = nil;
+    }
 }
 
 NSImage *swatch(NSColor *color, bool diamond) {
@@ -2010,6 +2217,9 @@ void refresh() {
         }
         adif::MapFilter f;
         f.band = mw.band.indexOfSelectedItem > 0 ? ADIFStd(mw.band.titleOfSelectedItem) : "";
+        mw.view.beaconBand = -1;  // the beacons picked out: the band filter's, when they send on it
+        for (size_t b = 0; b < adif::kBeaconBands; ++b)
+            if (strcasecmp(f.band.c_str(), adif::kBeaconBandNames[b]) == 0) mw.view.beaconBand = (int)b;
         f.mode = mw.mode.indexOfSelectedItem > 0 ? ADIFStd(mw.mode.titleOfSelectedItem) : "";
         f.confirmed = (int)std::clamp<NSInteger>(mw.confirmed.indexOfSelectedItem, 0, 6);
         std::string today = utcNow("%Y%m%d");
@@ -3135,7 +3345,9 @@ void fillBandConditions() {
                 (in->nearSnr ? ", " + trf("best {snr} dB", {{"snr", (in->bestNearSnr > 0 ? "+" : "") + std::to_string(in->bestNearSnr)}}) : "");
     else if (home) line += "; " + tr("none heard within 1,500 km of you yet");
     if (in->newest > 0) line += "; " + trf("newest {age}", {{"age", adif::spotAge(in->newest, (long long)time(nullptr))}});
-    mw.bandLine.stringValue = ADIFString(line + ".");
+    line += ".";
+    if (std::string sun = flag("mapSolar", false) ? solarSummary() : ""; !sun.empty()) line += " " + sun + " (NOAA SWPC).";
+    mw.bandLine.stringValue = ADIFString(line);
     // A row a band.
     NSGridView *g = [NSGridView gridViewWithNumberOfColumns:4 rows:0];
     g.rowSpacing = 2;
@@ -6442,10 +6654,23 @@ void cmdMap() {
         mw.findMenu.delegate = mw.listRows;
         mw.findField.menu = mw.findMenu;  // right-click: the results too
         ADIFOnAction(mw.findField, ^{ findTyped(); });
-        for (NSView *v in @[ mw.synced, mw.findField, mw.bell, logTable, styleButton, save, settings, help, mw.paneToggle[0], mw.paneToggle[1],
+        // Space weather: the indices from NOAA SWPC, once turned on in its popover.
+        mw.solarTile = [NSButton buttonWithTitle:@"" target:nil action:nil];
+        mw.solarTile.bordered = NO;
+        mw.solarTile.font = [NSFont monospacedDigitSystemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightMedium];
+        mw.solarTile.image = [NSImage imageWithSystemSymbolName:@"sun.max" accessibilityDescription:nil];
+        mw.solarTile.imagePosition = NSImageLeading;
+        mw.solarTile.identifier = @"map.solar";
+        mw.solarTile.accessibilityLabel = T(@"Space weather");
+        ADIFOnAction(mw.solarTile, ^{ showSolarPopover(); });
+        [mw.solarTile setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+        fillSolarTile();
+        for (NSView *v in @[ mw.solarTile, mw.synced, mw.findField, mw.bell, logTable, styleButton, save, settings, help, mw.paneToggle[0], mw.paneToggle[1],
                              mw.paneToggle[2] ])
             [header addView:v inGravity:NSStackViewGravityTrailing];
         [header setVisibilityPriority:NSStackViewVisibilityPriorityDetachOnlyIfNecessary forView:mw.synced];  // the first to go when narrow
+        [header setVisibilityPriority:NSStackViewVisibilityPriorityDetachOnlyIfNecessary - 1 forView:mw.solarTile];
+        [header setCustomSpacing:14 afterView:mw.solarTile];
         fillSynced();
         [header setCustomSpacing:14 afterView:mw.findField];
         [header setCustomSpacing:20 afterView:mw.bell];
@@ -6643,7 +6868,7 @@ void cmdMap() {
         fullWidth(mapRows, @[ mw.paletteBar, mw.colorBy, mw.projection, mw.region ]);
         // Filters (the QSOs' and spots' are in the toolbar): which parks you haven't worked show.
         NSStackView *filterRows = rows(@[ line(@[ parksIn, mw.parkPlacesButton ]) ], 6);
-        NSView *contactsHead = groupHead(@"contacts", N(@"Contacts")), *sunHead = groupHead(@"sun", N(@"Sun"));
+        NSView *contactsHead = groupHead(@"contacts", N(@"Contacts")), *sunHead = groupHead(@"sun", N(@"Sun and propagation"));
         // The sun: the grey line and day and night (Style Options says how, and when).
         auto sunBox = [](NSString *title, const char *setting, NSString *tip) {
             NSButton *b = ADIFCheckbox(title, flag(setting, false));
@@ -6664,15 +6889,39 @@ void cmdMap() {
         mw.greyLineBox.identifier = @"map.greyline";
         mw.dayNightBox = sunBox(@"Day and night", "mapDayNight", N(@"Night shaded on the map (Style Options: now or at the QSO chosen)"));
         mw.dayNightBox.identifier = @"map.daynight";
-        NSStackView *layerSection = rows(@[ layers, contactsHead, mw.contacts, mw.lines, mw.mine, sunHead, mw.greyLineBox, mw.dayNightBox ], 5);
+        auto layerBox = [](NSString *title, const char *setting, NSString *tip, NSString *ident) {
+            NSButton *b = ADIFCheckbox(title, flag(setting, false));
+            b.toolTip = T(tip);
+            b.identifier = ident;
+            std::string which = setting;
+            __weak NSButton *weak = b;
+            ADIFOnAction(b, ^{
+                saveFlag(which.c_str(), weak.state == NSControlStateValueOn);
+                applyStyle();
+            });
+            return b;
+        };
+        mw.auroraBox = layerBox(N(@"Aurora"), "mapAurora",
+                                N(@"The aurora now, from NOAA SWPC's OVATION forecast (30 to 90 minutes ahead; fetched every 15 minutes while it shows): "
+                                  @"green where there is a chance of seeing it overhead, red where it is likely"),
+                                @"map.aurora");
+        mw.beaconsBox = layerBox(N(@"NCDXF beacons"), "mapBeacons",
+                                 N(@"The 18 NCDXF/IARU beacons, taking turns on 14.100, 18.110, 21.150, 24.930 and 28.200 MHz: the ones sending now are "
+                                   @"ringed in their band's colour (only the band filter's band, when it is one of them)"),
+                                 @"map.beacons");
+        mw.heatBox = layerBox(N(@"Heat map"), "mapSpotHeat",
+                              N(@"The spots shown as a heat map: warmer where more stations are spotted now (the band, mode and Quick View apply)"),
+                              @"map.spotheat");
+        NSStackView *layerSection =
+            rows(@[ layers, contactsHead, mw.contacts, mw.lines, mw.mine, sunHead, mw.greyLineBox, mw.dayNightBox, mw.auroraBox, mw.beaconsBox ], 5);
         [layerSection setCustomSpacing:12 afterView:layers];
         [layerSection setCustomSpacing:12 afterView:mw.mine];
         mw.layerGroups[@"contacts"] = @[ mw.contacts, mw.lines, mw.mine ];
-        mw.layerGroups[@"sun"] = @[ mw.greyLineBox, mw.dayNightBox ];
+        mw.layerGroups[@"sun"] = @[ mw.greyLineBox, mw.dayNightBox, mw.auroraBox, mw.beaconsBox ];
         for (const std::string &n : splitSetting("mapLayerGroupsClosed", ','))
             if (mw.layerGroups[ADIFString(n)]) setLayerGroupOpen(ADIFString(n), false);
         NSArray<NSView *> *sectionViews = @[
-            section(@"views", N(@"Quick Views"), viewsBody), mw.spotsSection = section(@"spots", N(@"Spots"), rows(@[ spotLayer, spotsLine, onlyLine, mw.watchEdit ], 8)),
+            section(@"views", N(@"Quick Views"), viewsBody), mw.spotsSection = section(@"spots", N(@"Spots"), rows(@[ spotLayer, mw.heatBox, spotsLine, onlyLine, mw.watchEdit ], 8)),
             section(@"layers", N(@"Layers"), layerSection), section(@"map", N(@"Map"), mapRows), section(@"filters", N(@"Filters"), filterRows)
         ];
         mw.spotsSection.hidden = !live();
@@ -7115,7 +7364,21 @@ void cmdMap() {
         mw.closeObserver = [[NSNotificationCenter defaultCenter] addObserverForName:NSWindowWillCloseNotification
                                                                              object:mw.window
                                                                               queue:nil
-                                                                         usingBlock:^(NSNotification *) { spotfeeds::setWanted(false); }];
+                                                                         usingBlock:^(NSNotification *) {
+                                                                             spotfeeds::setWanted(false);
+                                                                             solar::setWanted(false, false);
+                                                                             [mw.beaconTimer invalidate];
+                                                                             mw.beaconTimer = nil;
+                                                                         }];
+        mw.solarObserver = [[NSNotificationCenter defaultCenter] addObserverForName:ADIFSolarChangedNotification
+                                                                             object:nil
+                                                                              queue:NSOperationQueue.mainQueue
+                                                                         usingBlock:^(NSNotification *) {
+                                                                             fillSolarTile();
+                                                                             fillBandConditions();
+                                                                             if (mw.solarPopover.shown) showSolarPopover();
+                                                                             mw.view.needsDisplay = YES;  // the aurora, its legend
+                                                                         }];
     }
     if (!mw.sunTimer)
         mw.sunTimer = [NSTimer scheduledTimerWithTimeInterval:60
@@ -7138,6 +7401,7 @@ void cmdMap() {
     }
     [mw.window makeFirstResponder:mw.view];
     refreshSpots();  // the feeds start once the window shows
+    updatePropagation();
 }
 
 void setSpotHandler(void (^handler)(const std::vector<std::pair<std::string, std::string>> &fields)) { mw.spotHandler = handler; }

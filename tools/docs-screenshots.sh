@@ -42,6 +42,7 @@ docs-map-colour-blind map-colour-blind
 docs-map-city map-city
 docs-map-day-night map-day-night
 docs-map-terrain map-terrain
+docs-map-propagation map-propagation
 map-pota map-parks
 map-status map-status
 docs-log-table log-table

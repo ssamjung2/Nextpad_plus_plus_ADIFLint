@@ -546,7 +546,8 @@ countries and parks you worked shaded and the grey line on.
 
 The window, from the top:
 
-- **The header**: **Operating Map**, your callsign, the log and its QSOs; at the right, when
+- **The header**: **Operating Map**, your callsign, the log and its QSOs; at the right,
+  **Space weather** (see [Space weather and propagation](#space-weather-and-propagation)), when
   you last downloaded confirmations (**QSL synced**, the latest of LoTW, QRZ.com and eQSL; a
   click opens QSL Sync), **Find** (a call, a grid
   square, a DXCC entity or a POTA park: Return chooses it on the map, or offers a menu when
@@ -583,13 +584,15 @@ The window, from the top:
     the list. **Save View…** under them keeps the layers, colours and filters as they are
     (and in Live which spots show) as a Quick View of your own in that workflow, after the
     others; right-click one of yours to remove it.
-  - **Spots** (Live): the Spots layer's boxes, **Sources and Filters…**, refresh,
+  - **Spots** (Live): the Spots layer's boxes, **Heat map** (see [Space weather and
+    propagation](#space-weather-and-propagation)), **Sources and Filters…**, refresh,
     **Only spots of** (see [Spots on the map](#spots-on-the-map)), and **Watch List…** (see
     [The watch list](#the-watch-list)).
   - **Layers**: a row for each layer (see [Layers](#layers-worked-all-and-labels)), then
-    **Contacts** (QSO markers, contact paths, your home station) and **Sun** (the grey
-    line, day and night). Each group (**Worked areas**, **Programs**, **Places**,
-    **Contacts**, **Sun**) closes on its own with its triangle.
+    **Contacts** (QSO markers, contact paths, your home station) and **Sun and propagation**
+    (the grey line, day and night, the aurora and the NCDXF beacons). Each group (**Worked
+    areas**, **Programs**, **Places**, **Contacts**, **Sun and propagation**) closes on its own
+    with its triangle.
   - **Map**: the palettes, a swatch each (one click; see [Colours](#colours)), **Colour by**,
     the projection, and **Region**.
   - **Filters**: **POTA parks in** (see [POTA parks in](#pota-parks-in-fewer-parks)).
@@ -1158,11 +1161,45 @@ chosen spot's, else the one most heard near you), such as "20m: 23 stations spot
 8); heard near you: 7 stations, by 4 spotters within 1,500 km, best +18 dB; newest 2 min",
 and a row for each band with its stations spotted, those heard within 1,500 km of you, and
 the best report they gave. Click a band's name to show only that band (the band filter);
-again for every band. Solar and geomagnetic data are not included yet.
+again for every band. With space weather on, the line ends with the solar flux and the K and A
+indices.
 
 **Recent spots** (in Live) are the five newest, with their frequency, band, mode and age
 (fainter after 15 minutes); click a call to choose its spot. **View all spots →** shows the
 list's Spots.
+
+### Space weather and propagation
+
+![The NCDXF beacons on the world map, the ones sending now ringed in their bands' colours, and space weather in the header (test data)](images/map-propagation.png)
+
+**Space weather**, at the right of the header, shows the solar flux, the planetary K index and
+the A index from NOAA's Space Weather Prediction Center (SWPC, public domain), such as "SFI 101
+· K 2- · A 11", orange during a minor or moderate geomagnetic storm (G1 or G2) and red from G3.
+Nothing is fetched until you click it and tick **Get space weather from NOAA SWPC**; from then
+on it asks every 15 minutes while the Map is open, and never in [Offline mode](#offline-mode).
+Its popover also has the X-ray flux as a flare class (B3.7), NOAA's scales now (radio
+blackouts R, solar radiation storms S, geomagnetic storms G), the K index of the last 24 hours
+as bars, when each was measured, **Refresh**, and a link to SWPC. The A index is the last whole
+day's (today's is still being counted). Band conditions shows the indices too.
+
+In the sidebar's **Sun and propagation**:
+
+- **Aurora** shades NOAA SWPC's OVATION aurora forecast (30 to 90 minutes ahead): faint green
+  where there is a small chance of seeing aurora overhead, through yellow, to red where it is
+  likely. SWPC gives no unit for its values; the map reads them as that chance in percent, from
+  5%. Ticking it fetches the forecast (about 900 KB) every 15 minutes while it shows.
+- **NCDXF beacons** marks the 18 beacons of the NCDXF/IARU International Beacon Project. They
+  take turns on 14.100, 18.110, 21.150, 24.930 and 28.200 MHz: each sends 10 seconds on a band
+  (its call in CW, then four dashes at 100 W, 10 W, 1 W and 0.1 W) and moves up a band, so each
+  band hears all 18 every 3 minutes, 4U1UN first on 14.100 MHz at the top of each 3 minutes. The
+  ones sending now are ringed in their band's colour with the frequency (only the band filter's
+  band when it is one of the five), and the legend lists them. Click a beacon for when it sends
+  next on each band, its place and its distance. The timing is computed, nothing is fetched;
+  some beacons can be off the air: see [ncdxf.org/beacon](https://www.ncdxf.org/beacon/) for
+  their status.
+
+**Heat map**, in the Spots section (Live), shows the spots the filters keep as warmth: where many
+stations are spotted now, the map is warmer, so a band's openings show at a glance.
 
 ### The watch list
 

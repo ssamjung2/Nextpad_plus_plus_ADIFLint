@@ -4227,6 +4227,61 @@ int main(int argc, char **argv) {
                 }
                 pick(proj, @"Equirectangular");
             }
+            {  // Propagation: space weather from NOAA SWPC (the fixtures), the aurora, the NCDXF beacons
+                [stylePanel() orderOut:nil];
+                NSButton *tile = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.solar");
+                auto inPopover = [&](NSString *ident) -> NSView * {
+                    for (NSWindow *w in NSApp.windows)
+                        if (NSView *v = viewWithIdentifier(w.contentView, ident)) return v;
+                    return nil;
+                };
+                bool offer = [tile.title isEqualToString:@"Space weather"];
+                [tile performClick:nil];
+                pump(0.2);
+                setBox((NSButton *)inPopover(@"map.solar.on"), true);
+                pump(0.6);
+                NSString *summary = tile.title;
+                NSView *facts = inPopover(@"map.solar.facts");
+                bool shown = facts && labelContaining(facts, @"B3.7") && labelContaining(facts, @"G1 minor") && labelContaining(facts, @"101 sfu") &&
+                             labelContaining(facts, @"11  (2026 10 23)");
+                CHECK(offer && [summary containsString:@"SFI 101"] && [summary containsString:@"K 2-"] && [summary containsString:@"A 11"] && shown &&
+                          [tile.contentTintColor isEqual:NSColor.systemOrangeColor],
+                      "space weather: offered (%d), then SFI, K and A in the header (%s), orange for G1; the popover's facts (%d)", offer,
+                      summary.UTF8String, shown);
+                snapshot(mapw, "map-solar");
+                setBox((NSButton *)inPopover(@"map.solar.on"), false);
+                for (NSWindow *w in [NSApp.windows copy])
+                    if (viewWithIdentifier(w.contentView, @"map.solar.on")) [w orderOut:nil];
+                CHECK([tile.title isEqualToString:@"Space weather"], "space weather off again: %s", tile.title.UTF8String);
+
+                [findButton(mapw.contentView, @"World") performClick:nil];
+                NSButton *auroraBox = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.aurora");
+                NSBitmapImageRep *before = mapImage();
+                setBox(auroraBox, true);
+                pump(0.6);
+                NSBitmapImageRep *after = mapImage();
+                double ring = colourGap(colourAt(before, pointFor(20, 66)), colourAt(after, pointFor(20, 66)));
+                double south = colourGap(colourAt(before, pointFor(20, 20)), colourAt(after, pointFor(20, 20)));
+                CHECK(ring > 0.05 && south < 0.002, "Aurora: the fixture's ring at 66 N shaded (%.3f), the Sahara not (%.4f)", ring, south);
+
+                NSButton *beaconsBox = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.beacons");
+                setBox(beaconsBox, true);
+                NSPoint un = pointFor(-73.958, 40.771);  // 4U1UN, FN30as
+                [mapView mouseMoved:mouse(NSEventTypeMouseMoved, un, 0)];
+                NSString *hover = labelContaining(mapw.contentView, @"NCDXF beacon");
+                [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, un, 1)];
+                [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, un, 1)];
+                NSString *badge = ((NSTextField *)viewWithIdentifier(mapw.contentView, @"map.chosen.kind")).stringValue;
+                NSString *named = ((NSTextField *)viewWithIdentifier(mapw.contentView, @"map.contact.title")).stringValue;
+                CHECK([hover hasPrefix:@"NCDXF beacon 4U1UN, United Nations, New York (FN30as): "] && [badge containsString:@"NCDXF BEACON"] &&
+                          [named hasSuffix:@"4U1UN"],
+                      "a click on a beacon: %s; %s, %s", hover.UTF8String, badge.UTF8String, named.UTF8String);
+                snapshot(mapw, "map-propagation");
+                NSEvent *esc = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:mapw.windowNumber
+                                                 context:nil characters:@"\x1b" charactersIgnoringModifiers:@"\x1b" isARepeat:NO keyCode:53];
+                [mapView keyDown:esc];
+                setBox(auroraBox, false), setBox(beaconsBox, false);
+            }
             pick(proj, @"Equirectangular");
             CHECK(menuAction(regionMenu, @"Europe") && regionMiddle(10, 53) < 3 && std::atof(zoomShown().c_str()) > 2,
                   "Region → Europe on a flat map (%.1f px off, %s)", regionMiddle(10, 53), zoomShown().c_str());
@@ -6300,6 +6355,28 @@ int main(int argc, char **argv) {
                 snapshot(mapw, "docs-map-day-night");
                 stylePick(@"sunTime", @"Now"), styleSet(@"dayNight", false), styleSet(@"greyLine", false);
                 box(@"Worked squares", false);
+                // Propagation: the beacons on the world map, space weather in the header (the fixtures' NOAA SWPC files).
+                {
+                    NSButton *beaconsBox = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.beacons");
+                    setBox(beaconsBox, true);
+                    [(NSButton *)viewWithIdentifier(mapw.contentView, @"map.solar") performClick:nil];
+                    pump(0.2);
+                    for (NSWindow *w in NSApp.windows)
+                        if (NSButton *on = (NSButton *)viewWithIdentifier(w.contentView, @"map.solar.on")) setBox(on, true);
+                    pump(0.6);
+                    for (NSWindow *w in [NSApp.windows copy])
+                        if (viewWithIdentifier(w.contentView, @"map.solar.on")) [w orderOut:nil];
+                    pick(proj, @"Equirectangular");
+                    [findButton(mapw.contentView, @"World") performClick:nil];
+                    snapshot(mapw, "docs-map-propagation");
+                    setBox(beaconsBox, false);
+                    [(NSButton *)viewWithIdentifier(mapw.contentView, @"map.solar") performClick:nil];
+                    pump(0.2);
+                    for (NSWindow *w in NSApp.windows)
+                        if (NSButton *on = (NSButton *)viewWithIdentifier(w.contentView, @"map.solar.on")) setBox(on, false);
+                    for (NSWindow *w in [NSApp.windows copy])
+                        if (viewWithIdentifier(w.contentView, @"map.solar.on")) [w orderOut:nil];
+                }
                 // Terrain over the Alps.
                 CHECK(stylePick(@"terrain", @"Strong"), "docs: terrain");
                 showBox(3, 42.5, 17, 49);

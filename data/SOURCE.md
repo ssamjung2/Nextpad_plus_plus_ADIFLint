@@ -56,6 +56,24 @@ written for this plugin on 2026-10-24 and checked against k0swe/dxcc-json (Apach
 7d0c8dd), Wavelog's `DxccFlag.php` (MIT, 5e9513e) and QLog's `dxcc.json` (4d41fc7), and against
 Unicode's `emoji-sequences.txt` 18.0: no data was copied from them.
 
+# Fetched on request: space weather
+
+The Map's space weather and aurora come from NOAA's Space Weather Prediction Center
+(https://services.swpc.noaa.gov, public domain per https://www.weather.gov/disclaimer):
+`products/summary/10cm-flux.json`, `products/noaa-planetary-k-index.json`,
+`text/daily-geomagnetic-indices.txt`, `json/goes/primary/xrays-6-hour.json`,
+`products/noaa-scales.json` and `json/ovation_aurora_latest.json`, in the formats served since
+SWPC's change of 31 March 2026 (SCN 26-21; read 2026-10-24). Only when you turn them on, every
+15 minutes at most. `tests/fixtures/lookup/swpc/` holds files in their layout for the tests;
+the values in them are examples and the aurora ring is made up.
+
+# NCDXF beacons
+
+`src/core/adif_beacons.cpp` holds the NCDXF/IARU beacons' calls, places and grids and their
+schedule, from https://www.ncdxf.org/beacon/ (index.html, beaconlocations.html and the schedule
+table in beaconschedule.html, read 2026-10-24). Nothing is fetched: NCDXF asks programs not to
+read its status file on each user's behalf.
+
 # Not included
 
 POTA's park list (`all_parks_ext.csv`, about 9.5 MB, rebuilt daily) has no published terms of
