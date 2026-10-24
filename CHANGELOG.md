@@ -9,6 +9,13 @@ Versions before 0.8.0 were development builds and were not published.
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-10-24
+
+### Changed
+
+- The user guide, README, CONTRIBUTING and every screenshot are brought up to date with 1.4.0's
+  Map (and the README's install section with the plugin store).
+
 ### Fixed
 
 - **Map Detail:** for a region larger than a town (a state or a country), the Map drew only
@@ -765,7 +772,8 @@ First public release.
 - **Fix Lengths**, as one undo step, and **Count Lengths in Characters**.
 - The `adiflint` command-line tool.
 
-[Unreleased]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.4.1...HEAD
+[1.4.1]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.1.0...v1.2.0
