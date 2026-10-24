@@ -459,9 +459,17 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 }
 
 - (std::pair<size_t, size_t>)workedCount:(int)layer {
+    return [self workedCount:layer accepting:7];
+}
+
+- (std::pair<size_t, size_t>)workedCount:(int)layer accepting:(int)accept {
     size_t worked = 0, confirmed = 0;
     auto anyConfirmed = [&](const std::vector<size_t> &qsos) {
-        return std::any_of(qsos.begin(), qsos.end(), [&](size_t i) { return i < _data.qsos.size() && _data.qsos[i].confirmed; });
+        return std::any_of(qsos.begin(), qsos.end(), [&](size_t i) {
+            if (i >= _data.qsos.size()) return false;
+            const adif::MapQso &q = _data.qsos[i];
+            return ((accept & 1) && q.byCard) || ((accept & 2) && q.byLotw) || ((accept & 4) && q.byEqsl);
+        });
     };
     if (layer == kLayerPota) {
         for (const auto &[ref, w] : _potaWork) {

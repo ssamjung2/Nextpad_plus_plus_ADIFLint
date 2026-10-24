@@ -3348,6 +3348,11 @@ static void testWorked() {
     MapFilter kf;
     std::string byService[7];
     for (int c = 0; c < 7; ++c) kf.confirmed = c, byService[c] = calls(kf);
+    {
+        std::vector<MapQso> qs = mapData(kinds, kr.model, MapFilter()).qsos;
+        CHECK(qs.size() == 5 && qs[0].byLotw && !qs[0].byCard && qs[1].byEqsl && !qs[1].byLotw && qs[2].byCard && !qs[3].confirmed,
+              "each QSO says which services confirmed it");
+    }
     CHECK(byService[1] == "K1ABC K1ABC DL1ABC" && byService[2] == "JA1XYZ W9AB" && byService[3] == "K1ABC" && byService[4] == "K1ABC" &&
               byService[5] == "DL1ABC" && byService[6] == "K1ABC DL1ABC JA1XYZ W9AB",
           "confirmed by any, none, LoTW, eQSL, card; not on LoTW (%s | %s)", byService[3].c_str(), byService[6].c_str());

@@ -90,6 +90,10 @@ Versions before 0.8.0 were development builds and were not published.
   right (Style Options: off, top right or bottom left), and a click on a spot's kind or band,
   the POTA activators, or another program hides or shows them. **Home**'s right-click menu
   sets the view as your Home view, or forgets it.
+- **Map → Awards** (History, in the selected panel): DXCC, WAS, WAZ and VUCC (6m, 2m) toward
+  their goals, counting the confirmations each sponsor accepts (rules read 2026-10-24); US
+  counties, continents, IOTA groups and POTA parks hunted as counts. Each QSO now says which
+  services confirmed it.
 - **Map → More Filters** in groups: Where, How far, Programs, Which records.
 - **Map → Filters.** The dates menu has **Custom Range…** (from one day to another, the
   range shown in the menu). The confirmation menu adds **Confirmed on LoTW**, **by eQSL**,

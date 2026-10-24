@@ -506,6 +506,7 @@ struct {
     NSView *recentHost = nil;        // Live's newest spots, a row each (made afresh)
     NSView *recentSection = nil;     // their caption and View all spots
     NSView *bandHost = nil, *bandSection = nil;  // Band conditions (Live): a table a band (made afresh), its line, its caption
+    NSView *awardsHost = nil, *awardsSection = nil;  // Awards (History): a row an award, made afresh
     NSTextField *bandLine = nil;
     NSView *whyBox = nil;
     NSStackView *whyList = nil;
@@ -589,6 +590,7 @@ struct {
 void revealSection(NSString *name);
 void fillRecentSpots();
 void fillBandConditions();
+void fillAwards();
 void switchWorkflow(int to);
 std::string grouped(size_t n);
 int workflow();
@@ -2910,6 +2912,122 @@ void refreshSpots() {
     fillSpotsPopover();
 }
 
+// History's Awards: how far the log (as the filters keep it) is toward the awards whose rules were
+// read from their sponsors (2026-10-24): a goal where the rules say one, counting the confirmations
+// they accept; else a count of what there is to work. A name shows its layer.
+void fillAwards() {
+    if (!mw.awardsHost) return;
+    for (NSView *v in [mw.awardsHost.subviews copy]) [v removeFromSuperview];
+    mw.awardsSection.hidden = live() || mw.data.qsos.empty();
+    if (mw.awardsSection.hidden) return;
+    const int kCardLotw = 1 | 2, kAny = 1 | 2 | 4;
+    auto byAccepted = [](const adif::MapQso &q, int accept) { return ((accept & 1) && q.byCard) || ((accept & 2) && q.byLotw) || ((accept & 4) && q.byEqsl); };
+    struct Award {
+        std::string name;
+        size_t have = 0, goal = 0, total = 0;  // goal 0: no award goal shown, only a count (of total, when known)
+        std::string tip;
+        int layer = -1;  // the Quick View its name shows
+    };
+    std::vector<Award> awards;
+    // ARRL DXCC: 100 current entities, by LoTW or paper card (eQSL not accepted); 340 current entities.
+    size_t dxcc = 0;
+    for (const ADIFMapEntity &e : mw.dxcc)
+        dxcc += std::any_of(e.qsos.begin(), e.qsos.end(), [&](size_t i) { return i < mw.data.qsos.size() && byAccepted(mw.data.qsos[i], kCardLotw); });
+    awards.push_back({"DXCC", dxcc, 100, 340,
+                      tr("ARRL DXCC: 100 current entities confirmed by LoTW or a QSL card (eQSL isn't accepted), of 340 (arrl.org/dxcc-rules, read "
+                         "2026-10-24)"),
+                      kLayerCountries});
+    // ARRL WAS: all 50 states, by LoTW or an original card.
+    awards.push_back({"WAS", [mw.view workedCount:kLayerStates accepting:kCardLotw].second, 50, 50,
+                      tr("ARRL Worked All States: all 50 states confirmed by LoTW or a QSL card; DC counts for Maryland, 60m doesn't count "
+                         "(arrl.org/was, read 2026-10-24)"),
+                      kLayerStates});
+    // WAZ: all 40 CQ zones (now managed by N4BAA).
+    awards.push_back({"WAZ", [mw.view workedCount:kLayerCq accepting:kAny].second, 40, 40,
+                      tr("Worked All Zones: all 40 CQ zones confirmed (managed by N4BAA since 2022; check its rules for the confirmations it "
+                         "accepts: n4baa.com, read 2026-10-24)"),
+                      kLayerCq});
+    // ARRL VUCC: 100 grid squares on 6m, and on 2m, by LoTW or card (a VHF and up award).
+    for (const char *band : {"6m", "2m"}) {
+        std::set<std::string> worked, confirmed;
+        for (const adif::MapQso &q : mw.data.qsos) {
+            if (strcasecmp(q.band.c_str(), band) != 0 || q.grid.size() < 4 || adif::isPlaceholderGrid(q.grid)) continue;
+            std::string g = q.grid.substr(0, 4);
+            for (char &c : g) c = (char)toupper((unsigned char)c);
+            worked.insert(g);
+            if (byAccepted(q, kCardLotw)) confirmed.insert(g);
+        }
+        if (worked.empty()) continue;  // only for a band in the log
+        awards.push_back({trf("VUCC {band}", {{"band", band}}), confirmed.size(), 100, 0,
+                          trf("ARRL VUCC on {band}: 100 grid squares confirmed by LoTW or a QSL card, from within 200 km (arrl.org/vucc, read "
+                              "2026-10-24)",
+                              {{"band", band}}),
+                          kLayerSquares});
+    }
+    // US counties: the MARAC USA-CA award (since 2024) counts worked counties, on its honor system.
+    awards.push_back({tr("US counties"), [mw.view workedCount:kLayerCounties].first, 0, 3077,
+                      tr("US counties worked, of 3,077; MARAC's USA-CA award (sponsor since November 2024) counts them on its honor system "
+                         "(marac.org, read 2026-10-24)"),
+                      kLayerCounties});
+    std::set<std::string> continents;
+    for (const adif::MapQso &q : mw.data.qsos)
+        if (q.confirmed && !q.areas.cont.empty() && q.areas.cont != "AN") continents.insert(q.areas.cont);
+    awards.push_back({tr("Continents"), continents.size(), 0, 6, tr("The continents (AF, AS, EU, NA, OC, SA) you have a confirmed QSO with"), -1});
+    if (!ADIFIotaGroups().empty())
+        awards.push_back({tr("IOTA groups"), [mw.view workedCount:kLayerIota].second, 0, ADIFIotaGroups().size(),
+                          tr("IOTA groups confirmed, of those in IOTA's list"), kLayerIota});
+    std::set<std::string> hunted;
+    for (const adif::MapQso &q : mw.data.qsos) hunted.insert(q.potaHunted.begin(), q.potaHunted.end());
+    if (!hunted.empty())
+        awards.push_back({tr("POTA parks hunted"), hunted.size(), 0, ADIFPotaParks().size(), tr("The POTA parks you have QSOs with (hunted)"), kLayerPota});
+    NSGridView *g = [NSGridView gridViewWithNumberOfColumns:3 rows:0];
+    g.rowSpacing = 4;
+    g.columnSpacing = 10;
+    g.identifier = @"map.awards";
+    for (const Award &a : awards) {
+        NSButton *name = [NSButton buttonWithTitle:ADIFString(a.name) target:nil action:nil];
+        name.bordered = NO;
+        name.alignment = NSTextAlignmentLeft;
+        name.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize + 1];
+        name.contentTintColor = a.layer >= 0 ? NSColor.linkColor : NSColor.labelColor;
+        name.toolTip = ADIFString(a.tip);
+        if (a.layer >= 0) {
+            int view = historyViewOf(a.layer);
+            ADIFOnAction(name, ^{ chooseQuickView(view); });
+        } else {
+            name.enabled = NO;
+        }
+        std::string count = grouped(a.have) + (a.goal ? " / " + grouped(a.goal) : a.total ? " " + trf("of {n}", {{"n", grouped(a.total)}}) : "");
+        NSTextField *n = [NSTextField labelWithString:ADIFString(count)];
+        n.font = [NSFont monospacedDigitSystemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightMedium];
+        n.alignment = NSTextAlignmentRight;
+        n.toolTip = name.toolTip;
+        NSProgressIndicator *bar = [[NSProgressIndicator alloc] initWithFrame:NSZeroRect];
+        bar.style = NSProgressIndicatorStyleBar;
+        bar.indeterminate = NO;
+        bar.controlSize = NSControlSizeSmall;
+        bar.minValue = 0;
+        bar.maxValue = (double)std::max<size_t>(1, a.goal ? a.goal : a.total);
+        bar.doubleValue = std::min<double>((double)a.have, bar.maxValue);
+        bar.toolTip = name.toolTip;
+        NSLayoutConstraint *wide = [bar.widthAnchor constraintEqualToConstant:70];  // narrower before the words are cut
+        wide.priority = NSLayoutPriorityDefaultLow;
+        wide.active = YES;
+        [bar.widthAnchor constraintGreaterThanOrEqualToConstant:24].active = YES;
+        for (NSView *v in @[ name, n ]) [v setContentCompressionResistancePriority:NSLayoutPriorityDefaultHigh + 1 forOrientation:NSLayoutConstraintOrientationHorizontal];
+        bar.hidden = !a.goal && !a.total;
+        [g addRowWithViews:@[ name, n, bar ]];
+    }
+    for (NSInteger r = 0; r < g.numberOfRows; ++r) [g rowAtIndex:r].yPlacement = NSGridCellPlacementCenter;
+    g.translatesAutoresizingMaskIntoConstraints = NO;
+    [mw.awardsHost addSubview:g];
+    [NSLayoutConstraint activateConstraints:@[
+        [g.topAnchor constraintEqualToAnchor:mw.awardsHost.topAnchor], [g.bottomAnchor constraintEqualToAnchor:mw.awardsHost.bottomAnchor],
+        [g.leadingAnchor constraintEqualToAnchor:mw.awardsHost.leadingAnchor],
+        [g.trailingAnchor constraintLessThanOrEqualToAnchor:mw.awardsHost.trailingAnchor]  // the bars give way first
+    ]];
+}
+
 // Live's Band conditions, from the spots (as the Spots filters keep them, on every band): a row a
 // band, its stations spotted and those heard within 1,500 km of you, with the best report; and a
 // line for the band in focus (the band filter's, else the chosen spot's, else the one most heard
@@ -4297,6 +4415,7 @@ void showSituation() {
         air += (air.empty() ? "" : "  ") + sun + ".";
     }
     mw.air.stringValue = ADIFString(air);
+    fillAwards();
 }
 
 void queueViewList() {
@@ -6685,11 +6804,34 @@ void cmdMap() {
             bandBody.hidden = !open;
             saveFlag("mapBandsClosed", !open);
         });
+        // History's Awards: closed with its triangle (remembered).
+        NSButton *awardsTriangle = [NSButton buttonWithTitle:@"" target:nil action:nil];
+        awardsTriangle.bezelStyle = NSBezelStyleDisclosure;
+        [awardsTriangle setButtonType:NSButtonTypePushOnPushOff];
+        awardsTriangle.identifier = @"map.awards.toggle";
+        awardsTriangle.accessibilityLabel = T(@"Awards");
+        mw.awardsHost = [[NSView alloc] initWithFrame:NSZeroRect];
+        NSStackView *awardsHead = [NSStackView stackViewWithViews:@[ awardsTriangle, caption(N(@"Awards")) ]];
+        awardsHead.spacing = 2;
+        NSStackView *awardsSection = rows(@[ awardsHead, mw.awardsHost ], 6);
+        [mw.awardsHost.widthAnchor constraintEqualToAnchor:awardsSection.widthAnchor].active = YES;
+        awardsSection.identifier = @"map.awards.section";
+        awardsSection.hidden = YES;
+        mw.awardsSection = awardsSection;
+        bool awardsOpen = !flag("mapAwardsClosed", false);
+        awardsTriangle.state = awardsOpen ? NSControlStateValueOn : NSControlStateValueOff;
+        mw.awardsHost.hidden = !awardsOpen;
+        __weak NSButton *weakAwards = awardsTriangle;
+        ADIFOnAction(awardsTriangle, ^{
+            bool open = weakAwards.state == NSControlStateValueOn;
+            mw.awardsHost.hidden = !open;
+            saveFlag("mapAwardsClosed", !open);
+        });
         NSStackView *selectedColumn = rows(@[ chosenHead, titleRow, mw.chosenSubtitle, mw.chosenFacts, mw.whyBox, detailsSection, mw.useSpot, actions, mw.status, mw.slots,
-                                              between, situationCaption, mw.statHost, mw.situation, mw.today, mw.wanted, mw.air, bandSection, recentSection ],
+                                              between, situationCaption, mw.statHost, mw.situation, mw.today, mw.wanted, mw.air, awardsSection, bandSection, recentSection ],
                                            6);
         selectedColumn.edgeInsets = NSEdgeInsetsMake(12, 12, 16, 12);
-        for (NSView *v in @[ chosenHead, titleRow, mw.chosenSubtitle, mw.chosenFacts, mw.whyBox, detailsSection, mw.useSpot, actions, mw.status, mw.slots, between, mw.statHost, bandSection,
+        for (NSView *v in @[ chosenHead, titleRow, mw.chosenSubtitle, mw.chosenFacts, mw.whyBox, detailsSection, mw.useSpot, actions, mw.status, mw.slots, between, mw.statHost, awardsSection, bandSection,
                              mw.situation, mw.today, mw.wanted, mw.air, recentSection ])
             [v.widthAnchor constraintEqualToAnchor:selectedColumn.widthAnchor constant:-24].active = YES;
         [selectedColumn setCustomSpacing:2 afterView:titleRow];

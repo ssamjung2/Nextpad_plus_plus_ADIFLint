@@ -4884,6 +4884,21 @@ int main(int argc, char **argv) {
                           "your own Quick View: saved (%ld rows), chosen again (%d), removed (%s)", (long)rowsNow, mine, removeTitle.UTF8String);
                     chooseView(0);
                 }
+                {  // Awards (History): DXCC and WAS toward their goals; a name shows its layer.
+                    NSView *awards = viewWithIdentifier(mapw.contentView, @"map.awards");
+                    NSMutableArray *labels = [NSMutableArray array];
+                    collect(awards, NSTextField.class, labels);
+                    NSMutableArray *texts = [NSMutableArray array];
+                    for (NSTextField *f in labels) [texts addObject:f.stringValue];
+                    NSString *all = [texts componentsJoinedByString:@"|"];
+                    NSButton *was = findButton(awards, @"WAS");
+                    [was performClick:nil];
+                    pump(0.2);
+                    CHECK(shown(@"map.awards.section") && [all containsString:@" / 100"] && [all containsString:@" / 50"] && [all containsString:@" / 40"] &&
+                              was && views.selectedRow == 4 && on(@"show", @"states"),
+                          "Awards: %s; WAS shows the US states (%ld)", all.UTF8String, (long)views.selectedRow);
+                    chooseView(0);
+                }
                 // The toolbar: what the map shows (the QSOs and their dates); a filter on, Clear can clear it; the
                 // continent menu and a place chosen in More Filters (a tag, which removes it when clicked).
                 NSPopUpButton *bands = findPopupWith(mapw.contentView, @"All bands");

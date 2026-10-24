@@ -97,6 +97,7 @@ struct MapQso {
     std::string myGrid;  // MY_GRIDSQUARE
     int modeGroup = 2;   // 0 CW, 1 phone, 2 data (from MODE, as modeGroup() in adif_enrich.h)
     bool confirmed = false;
+    bool byCard = false, byLotw = false, byEqsl = false;  // confirmed by each: QSL_RCVD, LOTW_QSL_RCVD, EQSL_QSL_RCVD (Y or V)
     // Where the other station was, when the record says closely: LAT and LON, else a
     // GRIDSQUARE of 6 or 8 characters (a 4-character square is 100 km or more across).
     // LAT and LON are left out when they are a placeholder (isPlaceholderPlace) or, with a

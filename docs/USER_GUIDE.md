@@ -1130,6 +1130,24 @@ The panel on the right shows what you clicked (pointing only describes it, in th
   **the sun at your station**: how high it is, when it next rises or sets, and when the grey
   line is over you.
 
+**Awards** (in History, closed with its triangle) shows how far the log, as the filters keep
+it, is toward awards whose rules were read from their sponsors on 2026-10-24 (point at a row
+for its rule and source):
+
+- **DXCC**: 100 current entities confirmed by LoTW or a QSL card (eQSL isn't accepted), of
+  340 (ARRL).
+- **WAS**: all 50 US states, by LoTW or a QSL card (ARRL).
+- **WAZ**: all 40 CQ zones confirmed (managed by N4BAA; its rules say which confirmations
+  count).
+- **VUCC 6m** and **VUCC 2m**, with QSOs on those bands: 100 grid squares, by LoTW or a QSL
+  card (ARRL).
+- Counts without a goal: **US counties** worked, of 3,077 (MARAC's USA-CA award counts worked
+  counties on its honor system); **Continents** with a confirmed QSO, of 6; **IOTA groups**
+  confirmed, with IOTA's list downloaded; **POTA parks hunted**.
+
+A name shows its layer in History. The sponsors' rules have more (dates, bands, where you
+operated from): check them before you apply.
+
 **Band conditions** (in Live, closed with its triangle) tells how the bands are doing, from
 the spots the Spots filters keep: a line for the band in focus (the band filter's, else the
 chosen spot's, else the one most heard near you), such as "20m: 23 stations spotted (EU 12, NA

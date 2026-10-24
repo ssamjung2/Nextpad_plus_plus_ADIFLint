@@ -343,6 +343,8 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 // How many areas of a layer the QSOs reached, and how many of them have a confirmed QSO: US
 // states, counties, CQ and ITU zones; POTA parks hunted or activated; IOTA groups.
 - (std::pair<size_t, size_t>)workedCount:(int)layer;
+// The same, confirmed only by the services in `accept` (1 card, 2 LoTW, 4 eQSL): an award's own.
+- (std::pair<size_t, size_t>)workedCount:(int)layer accepting:(int)accept;
 @end
 
 // What MapView.mm implements for the layers and the window.

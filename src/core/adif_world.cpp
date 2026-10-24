@@ -197,6 +197,7 @@ MapData mapData(std::string_view text, const DocModel &m, const MapFilter &filte
             q.myGrid = upper(trimmed(r.get("MY_GRIDSQUARE")));
             q.modeGroup = modeGroup(trimmed(r.get("MODE")));
             q.confirmed = confirmed;
+            q.byCard = yes(r.get("QSL_RCVD")), q.byLotw = lotw, q.byEqsl = yes(r.get("EQSL_QSL_RCVD"));
             q.iota = iotaRef(r.get("IOTA"));
             q.state = upper(trimmed(r.get("STATE")));
             q.cnty = trimmed(r.get("CNTY"));
