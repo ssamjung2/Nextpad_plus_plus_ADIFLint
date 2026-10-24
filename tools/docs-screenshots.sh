@@ -6,8 +6,8 @@
 #   tools/docs-screenshots.sh            (after cmake --build build)
 #
 # The Map Detail picture needs a region downloaded in Settings → Map Detail (OpenStreetMap
-# data, which isn't in the repository): give its file, and it shows downtown Madison from it:
-#   ADIFLINT_DOCS_MAPDETAIL=".../maps/Wisconsin z15 20261018.pmtiles" tools/docs-screenshots.sh
+# data, which isn't in the repository): give its file, and it shows downtown Springfield from it:
+#   ADIFLINT_DOCS_MAPDETAIL=".../maps/Illinois z15 20261020.pmtiles" tools/docs-screenshots.sh
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)

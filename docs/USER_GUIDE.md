@@ -34,9 +34,13 @@ is saved to disk until you save the file.
   [setting up the other programs](#setting-up-the-other-programs)
 - [Spots](#spots)
 - [Log Table, Summary and Worked Before](#log-table-summary-and-worked-before)
-- [Map](#map): [what it shows](#what-it-shows), [contacts and their places](#contacts-and-their-places),
+- [Map](#map): [layers](#layers-worked-all-and-labels), [filters](#filters),
+  [spots](#spots-on-the-map), [contacts and their places](#contacts-and-their-places),
   [overlays](#overlays), [colours](#colours), [projections and the globe](#projections-and-the-globe),
-  [moving around](#moving-around), [options and export](#options-and-export)
+  [moving around](#moving-around), [the list](#the-list-the-qsos-chosen-and-whats-in-view),
+  [the selected panel](#the-selected-panel-and-the-situation),
+  [space weather and propagation](#space-weather-and-propagation), [the watch list](#the-watch-list),
+  [Map Detail](#map-detail-streets-and-buildings), [Style Options and export](#style-options-and-export)
 - [Activations: POTA, WWFF and SOTA](#activations-pota-wwff-and-sota)
 - [Editing the whole log](#editing-the-whole-log): [Sort and Organize](#sort-and-organize)
 - [Importing and exporting](#importing-and-exporting)
@@ -761,7 +765,7 @@ country data's place for its call, often the middle of the country. A spotter is
 same way.
 
 The sidebar's **Spots** section (in Live) holds the layer's three boxes (**Show**, **Spotter lines**, **Labels**),
-**Sources and Filters…**, the refresh arrow and **Only spots of**.
+**Heat map**, **Sources and Filters…**, the refresh arrow, **Only spots of** and **Watch List…**.
 
 **Sources and Filters…** chooses which spots show:
 
@@ -799,8 +803,9 @@ heard 3 stations: JA1XYZ 20m, …"). Signal reports come from RBN skimmers and P
 Spothole has no field for them, so they are read from its spots' comments ("CW 20 dB 25
 WPM").
 
-A click on a spot or a spotter also opens an information box at the bottom right of the map
-with everything known about the station:
+With the selected panel hidden (the button at the right of the header), a click on a spot or
+a spotter opens an information box at the bottom right of the map instead, with everything
+known about the station:
 
 - **A spot:** frequency, band and mode; when it was spotted (UTC, and how long ago); the
   source (for Spothole, where it had it from: a cluster, the RBN, POTA…); the program, its
@@ -815,9 +820,11 @@ with everything known about the station:
 The box follows the spot as new spots come in, and goes when you click anywhere else.
 VoiceOver reads it as the map's value.
 
-ADIF Lint only asks for spots: it never sends any. It doesn't report to PSKReporter, post to
-a DX cluster or POTA, or upload what Monitor hears. PSKReporter's reports of your own
-station come from the programs you run that upload to it (WSJT-X and others).
+The Map only reads spots. ADIF Lint sends one only when you ask, through [Spot This
+QSO](#spotting-a-qso) after logging: a post on the DX cluster you're connected to, or POTA's
+spot page in your browser. It doesn't report to PSKReporter or upload what Monitor hears;
+PSKReporter's reports of your own station come from the programs you run that upload to it
+(WSJT-X and others).
 
 ### Contacts and their places
 
@@ -1060,8 +1067,8 @@ heading), nearest first at first.
 - **Search** (over the table) keeps the rows with what you type in any column shown, or in
   the call, reference, name, park, country or grid: a call, `US-2`, `state park`. Under the
   table, beside where the list measures from and mi or km, **Within** keeps the rows within
-  10 to 1,000 km (or miles) of it. In a narrow window the page size, Columns and Within (when
-  it is off) step aside, and Sort (a column's title sorts too).
+  10 to 1,000 km (or miles) of it. In a narrow window the page size, Columns, the words
+  "Nearest to:" and Within (when it is off) step aside, and Sort (a column's title sorts too).
   The note under the list says how many of how many are shown.
 - **Columns**: right-click a column's title, or use **Columns** under the list, to show or
   hide columns. QSOs can show the record number, call, date, UTC, band, mode, grid,
@@ -1096,15 +1103,18 @@ and page size are remembered.
 
 The panel on the right shows what you clicked (pointing only describes it, in the footer):
 
-- **Its name and kind**: a call and frequency, a park, a square, a DXCC entity, an area,
-  with a badge (**Live spot**, **QSO**, **DXCC entity**, **POTA park**…) and a line under
-  it (its entity, grid and distance, or its DXCC number and QSOs).
+- **Its name and kind**: a call and frequency, a park, a square, a DXCC entity, an area, a
+  beacon, with a badge (**Live spot**, **QSO**, **DXCC entity**, **POTA park**, **NCDXF
+  beacon**…) and a line under it (its entity, grid and distance, or its DXCC number and QSOs).
+  A station's call or an entity's name has its country's flag before it (Style Options →
+  Country flags).
 - **Its facts**, each with its symbol. For a spot: the frequency in MHz with its band, the
   mode, the signal (in dB, and who measured it: an RBN skimmer or PSKReporter), the spotter
   and how long ago (and how many others heard it), the DXCC entity, the grid, the program's
   reference and park, the source, continent, zones and distance. A fact the spot doesn't
   give says **Unavailable**. For a QSO: its date and time, band, mode, grid, entity,
-  whether it is confirmed, and its record.
+  whether it is confirmed, and its record. For a beacon:
+  when it next sends on each of its five frequencies.
 - **Why it's interesting**, for a spot: a new DXCC entity, a band or mode new for the
   entity, a park you haven't worked; whether the station uses LoTW (with the LoTW users list
   on, in Settings); how many of the stations that heard it are within 1,500 km of you; and
@@ -1224,7 +1234,7 @@ notifications.
 
 ### Map Detail: streets and buildings
 
-![Downtown Madison, Wisconsin, at street level: buildings, streets with their names, the Capitol square, the lakeshore](images/map-detail.png)
+![Downtown Springfield, Illinois, at street level: buildings, streets with their names and the State Capitol](images/map-detail.png)
 
 For the places you choose, the Map can show OpenStreetMap's detail when you zoom in:
 streets and roads with their names, buildings, parks and other land use, water, rail, and
@@ -1310,8 +1320,7 @@ place comes from NOAA's solar calculator equations (after Meeus), good to about 
 ![Day and night at a QSO's time: the night side shaded, the grey line in gold, and the sun overhead in the Gulf of Guinea](images/map-day-night.png)
 
 **Terrain** shades the land's mountains and valleys from Natural Earth's 1:50m shaded relief
-(public domain; lit from the north-west): slopes facing away from the light darker, those
-facing it lighter, flat ground left in the palette's colour, in every palette and
+(public domain): slopes facing away from the light darker, those facing it lighter, flat ground left in the palette's colour, in every palette and
 projection. It is about 5 km a pixel, so it fades out as you zoom in from 16× and is gone by
 48×, where Map Detail and the 1:10m coasts take over.
 
@@ -1689,7 +1698,7 @@ Rules for every source:
   [Map Detail](#map-detail-streets-and-buildings)).
 - **Spots:** where the Map's Spots layer gets its spots (see
   [Spots on the map](#spots-on-the-map)); nothing is fetched until you tick Show in the Map's
-  Spots card.
+  Spots section.
   - **Spothole** (ticked at first): spothole.app's spots every 2 minutes, from POTA, WWFF,
     GMA and other programs, and the DX clusters and Reverse Beacon Network it reads; SOTA
     left out. It never sends a login.
@@ -1742,10 +1751,10 @@ Where things are kept:
   (`~/Library/Application Support/Nextpad++/plugins/Config/`). Beside it: station profiles
   (`ADIFLint-profiles.adi`), the Monitor's queue (`ADIFLint-queue.adi`), a downloaded
   country file (`ADIFLint-cty.csv`), the LoTW user list (`ADIFLint-lotw-users.csv`), POTA's
-  park list (`ADIFLint-pota-parks.csv`), IOTA's group list (`ADIFLint-iota-groups.json`), and
-  the Map Detail regions (`maps/`). They survive plugin updates.
-- **The installed country file**, the Map's 1:10m detail (`map-detail.bin`) and the
-  language tables (`lang/`) beside the plugin, in
+  park list (`ADIFLint-pota-parks.csv`), IOTA's group list (`ADIFLint-iota-groups.json`), the
+  park outlines (`parks/`) and the Map Detail regions (`maps/`). They survive plugin updates.
+- **The installed country file**, the Map's 1:10m detail (`map-detail.bin`) and terrain
+  (`relief.jpg`), and the language tables (`lang/`) beside the plugin, in
   `~/Library/Application Support/Nextpad++/plugins/ADIFLint/`.
 
 All requests use HTTPS, except a DX cluster's telnet connection. The QRZ.com sign-in is sent as a POST, so the password isn't in
@@ -1759,12 +1768,15 @@ offline**) stops every network request ADIF Lint makes, for off-grid operating o
 nothing is sent:
 
 - callbook lookups (New QSO, Enrich) and sign-in tests;
-- the Spots window, and the Map's spots (Spothole, the DX cluster and PSKReporter);
+- the Spots window, and the Map's spots (Spothole, the DX cluster and PSKReporter), space
+  weather and aurora (NOAA SWPC);
+- Spot This QSO (it isn't offered);
 - uploads, TQSL included, and imports from LoTW, QRZ.com Logbook and eQSL;
 - the downloads in Settings (country data, LoTW users, POTA parks and their outlines, IOTA
   groups, Map Detail),
   and the weekly LoTW users refresh;
-- web pages ADIF Lint would open in your browser (About's links, pota.app's uploads page).
+- web pages ADIF Lint would open in your browser (About's links, pota.app's uploads and spot
+  pages, the Map's Help and NOAA SWPC links).
 
 Each says "Offline mode is on" instead. Everything that works on your Mac's own files goes
 on as usual: checking and editing logs, New QSO, the Map, the exports, and Monitor, which
@@ -1863,6 +1875,13 @@ The log tools work on one file and never change it.
   read, 2026-10-19). PSKReporter's reports were tested against the format its developer page
   documents (read 2026-10-19), and once live around a grid square (FN42, 1,523 reports read,
   2026-10-20).
+- Space weather and the aurora were tested against files in the layout NOAA SWPC serves
+  (read 2026-10-24), not against the live service. SWPC gives no unit for the aurora
+  forecast's values; the Map reads them as a chance in percent.
+- The NCDXF beacons' times are computed from NCDXF's schedule. A beacon that is off the air
+  still shows: see ncdxf.org for their status.
+- Award goals follow the sponsors' rules as read on 2026-10-24; WAZ's accepted
+  confirmations weren't confirmed, so its count takes any confirmation.
 - A spot that doesn't say where the station is goes at the country data's place for its
   call, so spots from a large country gather at its middle.
 - TQSL must have the Station Location set up. A certificate password saved in Settings is

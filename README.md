@@ -9,7 +9,8 @@
 radio. It checks [ADIF 3.1.7](https://www.adif.org/317/ADIF_317.htm) logs (`.adi`,
 `.adif`) as you type and repairs them, and it adds what you need around a log: logging
 contacts, POTA, WWFF and SOTA activations, spots, QSOs captured from WSJT-X and N1MM, an
-offline map, and QSL sync with LoTW, QRZ.com, Club Log and eQSL.
+operating map of your log and of who's on the air now, and QSL sync with LoTW, QRZ.com, Club
+Log and eQSL.
 
 ![The Map: a globe centred on your station, each contact at its own place with a line to it, coloured by band in PSKReporter's colours](docs/images/map-globe.png)
 
@@ -34,14 +35,15 @@ offline map, and QSL sync with LoTW, QRZ.com, Club Log and eQSL.
   PSKReporter's reception reports of your callsign or around your grid square.
 - **Captures QSOs from your other programs.** **Monitor** adds what WSJT-X, JTDX, JS8Call,
   N1MM Logger+, GridTracker and other loggers log, as they log it. It only listens.
-- **Maps your log, offline.** A globe or a flat map with the squares, countries, US states
-  and counties, CQ and ITU zones, POTA parks and IOTA groups you worked, contacts at their
-  exact place, lines to contacts arching over the globe, distance rings, day and night with
-  the grey line, and overlays for each layer and for cities; filter by place (continents,
-  countries, zones, states, counties, call areas, Census and ARRL divisions, POTA locations);
-  zoom in to city level, or to street level with OpenStreetMap detail for the regions you
-  download. Colour by band in PSKReporter's colours, mode, confirmation, count
-  or year, with a palette tested for colour blindness and a red one for night use.
+- **An operating map.** **History** maps what your log reached: the squares, countries, US
+  states and counties, CQ and ITU zones, POTA parks and IOTA groups you worked, with your
+  progress toward DXCC, WAS, WAZ and VUCC. **Live**, **DX Chase** and **POTA** show the
+  stations spotted now and which your log needs, with a watch list, Band conditions, space
+  weather from NOAA, the aurora and the NCDXF beacons. A globe or a flat map, offline, with
+  terrain, country flags and OpenStreetMap streets for the regions you download; filter by
+  band, mode, date, confirmation and place; colour by band in PSKReporter's colours, mode,
+  confirmation, count or year, with a palette tested for colour blindness and a red one for
+  night use.
 - **Keeps QSL services in sync.** Import your QSOs and confirmations from LoTW, QRZ.com
   Logbook and eQSL; upload to QRZ.com Logbook, LoTW (TQSL), Club Log and eQSL. Every window
   lists exactly what would be sent or changed, and nothing happens until you say so.
@@ -112,27 +114,36 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
   CSV**, **Export Cabrillo**, and **QSL labels** on Avery sheets.
 
 **The Map**
+- Four ways of working, each keeping its own layers, colours, list and Quick View:
+  **History** (the log), **Live** (the stations spotted now and which your log needs),
+  **DX Chase** (the DXCC entities and bands you need) and **POTA** (parks to hunt).
+  **Quick Views** show one layer or kind of spot at a time, and **Save View** keeps your own.
 - A **globe** you turn by dragging, or Equirectangular, Mercator or Equal Earth; zoom in
-  for detail, or jump to a continent with **Region**.
-- Layers, each with **Show** (what you worked), **Overlay** and **Labels**: **grid
-  squares**, **countries** (DXCC), **US states**, **US counties**, **CQ zones**, **ITU
-  zones**, **POTA** parks (a badge with a tree at each, as on POTA's map, or their outlines
-  where you download them: OpenStreetMap, pota-map.info, and USGS's PAD-US for US parks; only
-  your own state's or the places you choose, if you like) and **IOTA** groups, and
-  **cities**. A state,
-  county or zone counts
-  by the QSO's own field, else by where the QSO was.
+  for detail, or jump to a continent with **Region**; **Find** a call, grid, DXCC entity or
+  park.
+- Layers, each with **Worked** (what you worked), **All** (the whole layer) and **Labels**:
+  **grid squares**, **countries** (DXCC), **US states**, **US counties**, **CQ zones**,
+  **ITU zones**, **POTA** parks (a badge with a tree at each, as on POTA's map, or their
+  outlines where you download them: OpenStreetMap, pota-map.info, and USGS's PAD-US for US
+  parks; only your own state's or the places you choose, if you like) and **IOTA** groups,
+  and **cities**. A state, county or zone counts by the QSO's own field, else by where the
+  QSO was.
 - **Contacts** at their exact place (LAT/LON or a 6-character grid, ignoring QRZ.com's
   placeholders), other programs' references, **lines to contacts** in their contacts'
   colours, and **distance rings**.
-- **Filters** by band, mode, date and confirmation, and **More Filters** by place.
-- A **list beside the map** of the QSOs you click, or the POTA parks, contacts or spots in
-  view, with distance and bearing, pages, sorting and the columns you choose; and a
-  **status bar** with the station under the pointer (its DXCC entity's bands and modes in
-  your log) and the situation (today's QSOs, the spots you need now, the busiest bands,
-  the sun at your station).
+- **Filters** by band, mode, date, confirmation (by any service or one), DXCC need, spot age,
+  source and program, and **More Filters** by place, distance and kind of record; **Clear**
+  says how many are on.
+- A **list under the map** of the QSOs you click, the contacts, POTA parks or spots in view,
+  the newest QSOs, Check Log's problems, or your DXCC progress by band and mode, with
+  distance and bearing, search, pages, sorting and the columns you choose.
+- A **selected panel** with what you clicked (its facts, why a spot matters, New QSO,
+  Watch), and under it the situation (the log at a glance, the spots you need now, the sun
+  at your station), **Awards** (DXCC, WAS, WAZ, VUCC, counts of counties, continents, IOTA
+  groups and parks) and **Band conditions** (each band's spots near you).
 - **Spots coloured by what they mean for your log**: a new DXCC, a new band or mode,
-  worked or confirmed.
+  worked or confirmed, with ring shapes that say it without colour, and a **watch list** of
+  calls, references and entities that puts them first and counts them under a bell.
 - **Spots**: the stations spotted now, from Spothole, a DX cluster (telnet, logged in with
   your callsign) and PSKReporter (who heard you and what you heard, or what's heard around
   your grid square), in their band's colours and
@@ -140,12 +151,18 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
   mode, age and signal report; filtered by age, source and program as well as the Map's
   band, mode and places, and refreshed on request within each source's limits. Click one
   for who spotted it and whether it's in your log, then **Use in New QSO**.
+- **Propagation**: **space weather** from NOAA SWPC (solar flux, K and A, X-rays and the
+  NOAA scales, once you turn it on), the **aurora** forecast, the **NCDXF beacons** with the
+  ones sending now picked out, a **heat map** of the spots, **day and night** and the
+  **grey line**.
 - **Map Detail**: OpenStreetMap's streets, buildings and place names for a state, a country
   or the area in view, downloaded once from Protomaps' build and drawn offline.
 - **Style Options**: **Colour by** confirmation, band (PSKReporter's colours), mode, QSO
   count or year, with a legend; palettes include **Colour-blind safe** (tested under
-  simulated colour blindness), **Light** for printing and **Night (red)**; **day and night**
-  and the **grey line**. **Export PNG** saves what you see.
+  simulated colour blindness), **Light** for printing and **Night (red)**; **terrain**,
+  **country flags**, large map text and hatching for what isn't confirmed. **Export PNG**
+  saves what you see, **Copy Map** puts it on the clipboard, and **Focus Map** shows the map
+  alone.
 
 **Online services**
 - **Import** your QSOs and confirmations from LoTW, QRZ.com Logbook or eQSL, after you
@@ -174,18 +191,21 @@ Every window and option is described in the [user guide](docs/USER_GUIDE.md).
 
 ## Install
 
-**From a release.** Download `ADIFLintvX.Y.Z.zip` from
-[Releases](https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/releases/latest), unzip
-it, move the `ADIFLint` folder into `~/Library/Application Support/Nextpad++/plugins/`,
-and restart Nextpad++. The release is ad-hoc signed, not notarized. If Nextpad++ won't load
-it after a browser download, clear the download's quarantine flag:
+**From Plugins Admin.** ADIF Lint is in the Nextpad++ plugin store: **Plugins → Plugins
+Admin**. The store builds, signs and notarizes each version from this repository's source
+after its review, so a new version reaches it some time after its
+[release](https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/releases) here.
+
+**From a release zip.** Releases up to 1.2.0 have an `ADIFLintvX.Y.Z.zip`: unzip it, move
+the `ADIFLint` folder into `~/Library/Application Support/Nextpad++/plugins/`, and restart
+Nextpad++. Those zips are ad-hoc signed, not notarized; if Nextpad++ won't load one after a
+browser download, clear the download's quarantine flag:
 
 ```bash
 xattr -dr com.apple.quarantine ~/Library/Application\ Support/Nextpad++/plugins/ADIFLint
 ```
 
-**From Plugins Admin.** ADIF Lint has been submitted to the Nextpad++ plugin list. Once it
-is accepted, it will install from **Plugins → Plugins Admin**.
+Newer releases have no zip: install them from Plugins Admin, or build them from their tag.
 
 **From source.** With the Xcode command-line tools and CMake 3.20 or later:
 
@@ -243,7 +263,7 @@ tab); Settings suggests some.
 | Log Summary… | Counts by band, mode, day, entity and park; confirmations and uploads |
 | Activation Tracker (POTA, WWFF, SOTA)… | Activations counted by each program's rule |
 | Worked Before… | Search a folder of logs for a call |
-| Map (Grids, DXCC, Parks)… | The log on a world map: the squares, countries, US states and counties, CQ and ITU zones, POTA parks and IOTA groups worked, and other programs, coloured by confirmation, band, mode, count or year; contacts at their exact place; filters by band, mode, date and place; four projections, including a globe you turn by dragging; lines to contacts, distance rings, day and night and the grey line; PNG export |
+| Map (Grids, DXCC, Parks)… | The operating map: in History the squares, countries, US states and counties, CQ and ITU zones, POTA parks and IOTA groups worked, with awards progress; in Live, DX Chase and POTA the stations spotted now and which your log needs, with a watch list; filters by band, mode, date, confirmation and place; four projections, including a globe you turn by dragging; terrain, flags, space weather, the aurora, the NCDXF beacons, day and night and the grey line; PNG export |
 | Import… | From LoTW, QRZ.com Logbook or eQSL (your QSOs and confirmations), a CSV file, or WSJT-X's log |
 | Export… | Activation logs for POTA, WWFF or SOTA, CSV, a Cabrillo contest log, or QSL labels (PDF) |
 | QSL Sync (Upload, Confirmations)… | Each service at a glance; upload to QRZ.com Logbook, LoTW (TQSL), Club Log or eQSL (list what would be sent, upload when you say so, mark it uploaded) and download confirmations |
@@ -254,7 +274,7 @@ tab); Settings suggests some.
 | Check .adi Files While Typing | Problem marks as you type (on by default) |
 | Offline Mode | No network requests at all, for off-grid operating (off by default) |
 | Night Mode | Every ADIF Lint window red on black and the Map in its Night palette, to keep night vision (off by default) |
-| Settings… | Your station, editor options, offline mode, country data, and accounts for the online services |
+| Settings… | Your station, editor options, language, offline mode, keyboard shortcuts, country data, LoTW users, POTA parks and their outlines, IOTA groups, Map Detail, spot sources, and accounts for the online services |
 | About ADIF Lint… | Version, licence and links |
 
 Import…, Export… and Enrich… open the window you used last; the popup at its top switches to
@@ -394,6 +414,10 @@ Nextpad++ and its plugins.
   [ncdxf.org](https://www.ncdxf.org/beacon/).
 - POTA's park list is not included: Settings downloads it from [pota.app](https://pota.app)
   when you ask. ADIF Lint is not affiliated with Parks on the Air, a registered service mark.
+- Park outlines are not included either: Settings downloads them when you ask, from
+  OpenStreetMap through Overpass (© OpenStreetMap contributors, ODbL), pota-map.info (DK5UR's
+  compilation of government park data) and USGS's PAD-US (public domain); the Map credits
+  each. See [`data/SOURCE.md`](data/SOURCE.md).
 - Map Detail is OpenStreetMap data, © OpenStreetMap contributors under the
   [ODbL](https://www.openstreetmap.org/copyright), from [Protomaps](https://protomaps.com)'
   daily builds; it is not included, and Settings downloads the regions you choose.

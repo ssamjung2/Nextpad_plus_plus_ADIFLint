@@ -20,9 +20,11 @@ supported.
 - **Network requests** use HTTPS and go only to the service you chose, when you ask:
   Enrich, Import, Upload, Test Sign-In, a callbook lookup you turned on in New QSO, an open
   Spots window, the Map's Spots layer while its Show is ticked, the Map's space weather and
-  Aurora once you turn them on (NOAA SWPC), Settings → POTA Parks (the park
-  list, and Park Outlines from Overpass, pota-map.info and PAD-US), Settings → Country Data → Update, or the LoTW user list once you turn it on
-  (Update, then weekly). The README lists every address. The
+  Aurora once you turn them on (NOAA SWPC), Settings → POTA Parks (the park list, and Park
+  Outlines from Overpass, pota-map.info and PAD-US), Settings → IOTA Groups, Settings → Map
+  Detail (Protomaps' build), Settings → Country Data → Update, or the LoTW user list once
+  you turn it on (Update, then weekly). Offline Mode stops them all. The README lists every
+  address. The
   QRZ.com sign-in is sent as a POST; HamQTH's sign-in, LoTW's report API and eQSL's
   DownloadInBox take the login in the HTTPS address, as those services document it.
 - **A DX cluster** (Settings → Spots, off at first) is the one connection that isn't
