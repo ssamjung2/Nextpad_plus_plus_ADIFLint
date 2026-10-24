@@ -6,6 +6,7 @@
 
 #import "Country.h"
 #import "IotaGroups.h"
+#import "LotwUsers.h"
 #import "PotaParks.h"
 #import "PluginHost.h"
 #import "Spots.h"
@@ -236,74 +237,111 @@ static NSAttributedString *treeMark(NSColor *color) {
 }
 @end
 
-// The cards under the map's bar, top down along its left edge, a column as wide as its widest
-// card; a new column beside it when the next card would reach down to the legend (and there is
-// room beside it). Crowded: a card runs off the bottom or the side. Between and beside the
-// cards, clicks reach the map.
-@interface ADIFCardStack : NSView
-@property(nonatomic) CGFloat keepClear;           // at the bottom, for the legend
-@property(nonatomic, readonly) CGFloat usedWidth;  // the cards' columns, together
-@property(nonatomic, readonly) BOOL crowded;
-@property(nonatomic, copy) void (^onLayout)(void);
+// The Quick Views at the top of the Map's sidebar: a row each (a symbol, its name, how many of
+// it there are), one chosen at a time.
+struct ADIFQuickRow {
+    std::string title, count, tip;
+    NSString *symbol = nil;
+    unsigned colour = 0;  // 0: the secondary label colour
+};
+
+@interface ADIFQuickViews : NSObject <NSTableViewDataSource, NSTableViewDelegate>
+@property(nonatomic) std::vector<ADIFQuickRow> rows;
+@property(nonatomic, copy) void (^onChoose)(NSInteger row);
+@property(nonatomic) BOOL filling;  // the rows are being set: a selection then is not a choice
 @end
 
-@implementation ADIFCardStack
+@implementation ADIFQuickViews
+- (NSInteger)numberOfRowsInTableView:(NSTableView *)t {
+    return (NSInteger)_rows.size();
+}
+- (NSView *)tableView:(NSTableView *)t viewForTableColumn:(NSTableColumn *)column row:(NSInteger)row {
+    NSTableCellView *cell = [t makeViewWithIdentifier:@"quick" owner:self];
+    NSTextField *count = nil;
+    if (!cell) {
+        cell = [[NSTableCellView alloc] initWithFrame:NSZeroRect];
+        cell.identifier = @"quick";
+        NSImageView *icon = [[NSImageView alloc] initWithFrame:NSZeroRect];
+        icon.imageScaling = NSImageScaleProportionallyDown;
+        NSTextField *title = [NSTextField labelWithString:@""];
+        title.lineBreakMode = NSLineBreakByTruncatingTail;
+        [title setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+        count = [NSTextField labelWithString:@""];
+        count.identifier = @"count";
+        count.alignment = NSTextAlignmentRight;
+        count.font = [NSFont monospacedDigitSystemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightRegular];
+        count.textColor = NSColor.secondaryLabelColor;
+        [count setContentHuggingPriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
+        for (NSView *v in @[ icon, title, count ]) {
+            v.translatesAutoresizingMaskIntoConstraints = NO;
+            [cell addSubview:v];
+        }
+        cell.imageView = icon;
+        cell.textField = title;
+        [NSLayoutConstraint activateConstraints:@[
+            [icon.leadingAnchor constraintEqualToAnchor:cell.leadingAnchor constant:2],
+            [icon.centerYAnchor constraintEqualToAnchor:cell.centerYAnchor],
+            [icon.widthAnchor constraintEqualToConstant:16],
+            [icon.heightAnchor constraintEqualToConstant:16],
+            [title.leadingAnchor constraintEqualToAnchor:icon.trailingAnchor constant:7],
+            [title.centerYAnchor constraintEqualToAnchor:cell.centerYAnchor],
+            [title.trailingAnchor constraintLessThanOrEqualToAnchor:count.leadingAnchor constant:-6],
+            [count.trailingAnchor constraintEqualToAnchor:cell.trailingAnchor constant:-4],
+            [count.centerYAnchor constraintEqualToAnchor:cell.centerYAnchor],
+        ]];
+    }
+    for (NSView *v in cell.subviews)
+        if ([v.identifier isEqualToString:@"count"]) count = (NSTextField *)v;
+    if ((size_t)row >= _rows.size()) return cell;
+    const ADIFQuickRow &r = _rows[(size_t)row];
+    cell.imageView.image = r.symbol ? [NSImage imageWithSystemSymbolName:r.symbol accessibilityDescription:nil] : nil;
+    cell.imageView.contentTintColor = r.colour ? [NSColor colorWithSRGBRed:((r.colour >> 16) & 255) / 255.0
+                                                                     green:((r.colour >> 8) & 255) / 255.0
+                                                                      blue:(r.colour & 255) / 255.0
+                                                                     alpha:1]
+                                               : NSColor.secondaryLabelColor;
+    cell.textField.stringValue = ADIFString(r.title);
+    count.stringValue = ADIFString(r.count);
+    cell.toolTip = ADIFString(r.tip);
+    return cell;
+}
+- (void)tableViewSelectionDidChange:(NSNotification *)n {
+    NSTableView *t = n.object;
+    if (!_filling && self.onChoose && t.selectedRow >= 0) self.onChoose(t.selectedRow);
+}
+@end
+
+// A view whose content starts at its top: the Map's sidebars scroll down from there.
+@interface ADIFMapColumnView : NSView
+@end
+
+@implementation ADIFMapColumnView
 - (BOOL)isFlipped {
     return YES;
 }
-- (void)layout {
-    [super layout];
-    const CGFloat gap = 8, width = self.bounds.size.width, height = self.bounds.size.height;
-    const CGFloat room = std::max(height - _keepClear, (CGFloat)120);
-    std::vector<std::vector<NSView *>> columns(1);
-    std::vector<CGFloat> widths(1, 0);
-    CGFloat x = 0, y = 0;
-    BOOL crowded = NO;
-    for (NSView *v in self.subviews) {
-        if (v.hidden) continue;
-        NSSize size = v.fittingSize;
-        if (y > 0 && y + size.height > room && x + widths.back() + gap + size.width <= width)
-            x += widths.back() + gap, columns.emplace_back(), widths.push_back(0), y = 0;
-        columns.back().push_back(v);
-        widths.back() = std::max(widths.back(), size.width);
-        y += size.height;
-        crowded |= y > height || x + size.width > width;
-        y += gap;
-    }
-    _crowded = crowded && width > 100 && height > 100;  // not before the window is laid out
-    x = 0;
-    for (size_t c = 0; c < columns.size(); ++c) {
-        y = 0;
-        for (NSView *v : columns[c]) {
-            CGFloat h = v.fittingSize.height;
-            v.frame = NSMakeRect(x, y, widths[c], h);
-            y += h + gap;
-        }
-        if (widths[c] > 0) x += widths[c] + gap;
-    }
-    _usedWidth = x > 0 ? x - gap : 0;
-    if (self.onLayout) self.onLayout();
-}
-- (NSView *)hitTest:(NSPoint)p {
-    NSView *v = [super hitTest:p];
-    return v == self ? nil : v;
-}
 @end
 
-// Keeps the Map's split views sensible (the map never squeezed out, the list and the status bar
+// Keeps the Map's split views sensible (the map never squeezed out, the sidebars and the list
 // within reach of a drag) and remembers where their dividers were left.
 @interface ADIFSplitKeeper : NSObject <NSSplitViewDelegate>
+@property(nonatomic) CGFloat leastSidebar;  // as wide as its layers' grid and menus need, in the language shown
 @property(nonatomic, copy) void (^onMoved)(NSSplitView *split);
 @end
 
 @implementation ADIFSplitKeeper
+// The body: sidebar | map and list | selected (dividers 0 and 1); the middle: map over list.
 - (CGFloat)splitView:(NSSplitView *)s constrainMinCoordinate:(CGFloat)proposed ofSubviewAt:(NSInteger)i {
-    return std::max(proposed, (CGFloat)(s.vertical ? 420 : 260));  // the map (its widest card beside its zoom buttons), or the contact panel
+    if (!s.vertical) return std::max(proposed, (CGFloat)240);  // the map keeps this much height
+    if (i == 0) return std::max(proposed, std::max(self.leastSidebar, (CGFloat)280));  // the sidebar as wide as its layers' grid
+    NSView *left = s.arrangedSubviews.firstObject;
+    return std::max(proposed, (left.hidden ? 0 : NSMaxX(left.frame)) + 420);  // the map at least 420 wide
 }
 - (CGFloat)splitView:(NSSplitView *)s constrainMaxCoordinate:(CGFloat)proposed ofSubviewAt:(NSInteger)i {
     CGFloat whole = s.vertical ? s.bounds.size.width : s.bounds.size.height;
-    if ([s.identifier isEqualToString:@"map.status.split"]) return std::min(proposed, whole - 260);  // the situation panel keeps this much
-    return std::min(proposed, whole - (s.vertical ? 280 : 70));  // the list, or the status bar, keeps this much
+    if (!s.vertical) return std::min(proposed, whole - 110);  // the list keeps this much
+    if (i == 1) return std::min(proposed, whole - 240);       // the selected panel at least this wide
+    NSView *right = s.arrangedSubviews.lastObject;
+    return std::min({proposed, (CGFloat)380, (right.hidden ? whole : NSMinX(right.frame)) - 420});
 }
 - (BOOL)splitView:(NSSplitView *)s canCollapseSubview:(NSView *)v {
     return NO;
@@ -355,18 +393,36 @@ struct {
     NSTextField *contactTitle = nil;  // what the contact panel is about, in bold, over its description
     NSTextField *today = nil, *air = nil, *wantedLabel = nil;
     NSStackView *wanted = nil;     // the spots most wanted, as links
+    NSView *statHost = nil;        // the log at a glance (a table made afresh each time): a row a layer, worked and confirmed
     ADIFMapHit chosenHit;          // what was clicked last (the contact panel shows it when the pointer is on nothing)
-    NSSplitView *mainSplit = nil, *outerSplit = nil, *statusSplit = nil;  // map | list; map and list | status bar; contact | situation
+    NSSplitView *bodySplit = nil, *middleSplit = nil;  // sidebar | map and list | selected; the map over the list
     ADIFSplitKeeper *splitKeeper = nil;
     bool splitsRestored = false;
-    // The controls floating on the map: its bar (whose first control shows the cards), the cards
-    // (Layers, Contacts, Filters, Spots) and the zoom buttons.
-    NSSegmentedControl *panels = nil;
-    NSView *cards[4] = {};
-    std::vector<int> panelOrder;  // the cards shown, in the order they were opened
-    ADIFCardStack *cardStack = nil;
-    NSView *bar = nil, *nav = nil;
-    ADIFFlowView *toolbar = nil;
+    // The workflows (History: the log; Live: the spots), the sidebar with its Quick Views and
+    // sections, the selected panel, the zoom buttons on the map, and the footer.
+    NSSegmentedControl *workflow = nil;
+    NSView *sidebar = nil, *selectedPanel = nil, *nav = nil, *spotsSection = nil;
+    NSButton *paneToggle[3] = {};  // the sidebar, the list, the selected panel
+    NSMutableDictionary<NSString *, NSView *> *sections = nil;  // a section's body, by its name
+    NSMutableDictionary<NSString *, NSButton *> *sectionTriangles = nil;
+    NSMutableDictionary<NSString *, NSTextField *> *sectionTitles = nil;
+    NSTableView *quickTable = nil;
+    ADIFQuickViews *quickRows = nil;
+    NSLayoutConstraint *quickHeight = nil;
+    NSTextField *hover = nil, *liveLabel = nil, *summaryLabel = nil, *scopeLabel = nil;
+    NSPopUpButton *continentPopup = nil;  // the toolbar's continent (one of More Filters' continents)
+    NSStackView *chips = nil;             // the filters on that the toolbar doesn't show, each a tag that removes it
+    NSButton *centerButton = nil;
+    NSButton *greyLineBox = nil, *dayNightBox = nil;  // the sidebar's Sun boxes (Style Options has them too)
+    // The selected panel's parts: what kind of thing it is, a line under its name, its facts, and
+    // for a spot why it's worth working.
+    NSTextField *chosenBadge = nil, *chosenSubtitle = nil;
+    NSGridView *chosenFacts = nil;
+    NSView *whyBox = nil;
+    NSStackView *whyList = nil;
+    int spotLens = 0;          // Live's Quick View: which of the spots show
+    size_t lensCounts[7] = {};  // how many stations each of Live's views has
+    bool applyingView = false;  // a Quick View is setting the layers: not a change of the user's own
     // More Filters: places.
     NSButton *moreFilters = nil, *clearFilters = nil;
     NSPopover *filterPopover = nil;
@@ -386,7 +442,6 @@ struct {
     // The list beside the map: what it lists (the QSOs chosen; the contacts, parks or spots in
     // view), from where, sorted how, which page, and what places it.
     NSView *listPanel = nil;
-    NSButton *listToggle = nil;
     NSSegmentedControl *listKind = nil, *listUnits = nil;
     NSTextField *listTitle = nil, *listHint = nil, *listGrid = nil, *listPageLabel = nil;
     NSPopUpButton *listFrom = nil, *listPageSize = nil, *listColumnsMenu = nil, *listWithin = nil;
@@ -396,7 +451,7 @@ struct {
     ADIFViewList *listRows = nil;
     bool listQueued = false;
     int listColumnsFor = -1;          // the kind the table's columns are for
-    size_t listPage[4] = {};          // each kind's page
+    size_t listPage[5] = {};          // each kind's page
     bool choosingFromList = false;    // a row chose it: the list stays as it is
     // POTA parks in: the park filter's button and popover.
     NSButton *parkPlacesButton = nil;
@@ -414,7 +469,14 @@ struct {
 } mw;
 
 // Saved choices, in ADIFLint.ini.
-void revealPanel(int panel);
+void revealSection(NSString *name);
+void switchWorkflow(int to);
+std::string grouped(size_t n);
+int workflow();
+int quickView();
+void fillQuickViews();
+void showHover(const std::string &text);
+bool inLens(int lens, const adif::Spot &sp, const adif::SpotStatus &st);
 
 bool flag(const char *key, bool fallback) {
     std::string v = setting(key);
@@ -543,7 +605,17 @@ ADIFMapStyle savedStyle() {
     return s;
 }
 
-void setStatus(const std::string &text) { mw.status.stringValue = ADIFString(tr(text)); }  // a fixed text is translated
+void setStatus(const std::string &text) { mw.hover.stringValue = ADIFString(tr(text)); }  // in the footer; a fixed text is translated
+
+// A moment (Unix seconds) in UTC, as strftime writes it.
+std::string utcAt(long long epoch, const char *format) {
+    char out[40];
+    time_t t = (time_t)epoch;
+    struct tm tm;
+    gmtime_r(&t, &tm);
+    strftime(out, sizeof out, format, &tm);
+    return out;
+}
 
 // The contact panel with nothing under the pointer or chosen: how to use the map.
 std::string idleStatus() {
@@ -634,10 +706,132 @@ std::string contactTitle(const ADIFMapHit &h) {
     }
 }
 
+std::vector<ADIFInfoRow> spotInfo(const ADIFMapHit &h);
+
+// "1,234 km" (or miles, as the list measures) from your station to a place; "" without a home.
+std::string homeDistance(double lat, double lon) {
+    double hlat, hlon;
+    if (mw.home.empty() || !adif::gridToLatLon(mw.home, &hlat, &hlon)) return "";
+    return adif::distanceText(adif::greatCircleKm(hlat, hlon, lat, lon), setting("mapListUnits") == "mi");
+}
+
+// The selected panel's badge, the line under the name, the facts (a label and a value a row), and
+// for a spot the reasons to work it: what is chosen, at a glance; the description stays under them.
+void showChosenFacts(const ADIFMapHit &h) {
+    if (!mw.chosenBadge) return;
+    struct Kind {
+        const char *name;
+        NSColor *colour;
+    };
+    Kind kind = {"", NSColor.clearColor};
+    std::string subtitle;
+    std::vector<std::pair<std::string, std::string>> facts;
+    std::vector<std::pair<NSString *, std::string>> why;  // a symbol and a reason
+    switch (h.kind) {
+        case ADIFMapHit::Spot: {
+            if (h.index >= mw.view.spots.size()) break;
+            const ADIFMapSpot &ms = mw.view.spots[h.index];
+            const adif::Spot &sp = ms.spot;
+            const adif::SpotStatus &st = ms.status;
+            kind = {sp.heardMe ? N_("Your signal") : N_("Live spot"), NSColor.systemGreenColor};
+            std::string where = st.entity;
+            if (!sp.grid.empty()) where += (where.empty() ? "" : "  \u00B7  ") + sp.grid;
+            if (std::string d = homeDistance(ms.lat, ms.lon); !d.empty()) where += (where.empty() ? "" : "  \u00B7  ") + d;
+            subtitle = where;
+            for (const ADIFInfoRow &r : spotInfo(h))  // the spot's facts, as the map's information box has them
+                if (!r.heading && r.label != tr("In this log") && r.label != tr("For this log")) facts.push_back({r.label, r.value});
+            if (sp.heardMe) break;
+            switch (st.need) {
+                case adif::SpotNeed::NewDxcc: why.push_back({@"star.circle.fill", trf("New DXCC entity ({entity})", {{"entity", st.entity}})}); break;
+                case adif::SpotNeed::NewBand: why.push_back({@"plus.circle.fill", trf("Needed on {band}: {entity} not worked there", {{"band", sp.band}, {"entity", st.entity}})}); break;
+                case adif::SpotNeed::NewMode: why.push_back({@"plus.circle", trf("A new mode for {entity} on {band}", {{"band", sp.band}, {"entity", st.entity}})}); break;
+                case adif::SpotNeed::Worked: why.push_back({@"checkmark.circle", trf("{entity} worked on {band}, not confirmed", {{"band", sp.band}, {"entity", st.entity}})}); break;
+                case adif::SpotNeed::Confirmed: why.push_back({@"checkmark.circle.fill", trf("{entity} confirmed on {band}", {{"band", sp.band}, {"entity", st.entity}})}); break;
+                default: break;
+            }
+            if (st.newPark && !sp.reference.empty()) why.push_back({@"leaf.fill", trf("{program} {ref}: a park you haven't worked", {{"program", sp.program}, {"ref", sp.reference}})});
+            if (std::string lotw = ADIFLotwNote(sp.activator); !lotw.empty()) why.push_back({@"checkmark.seal", lotw});
+            double hlat, hlon;
+            if (!mw.home.empty() && adif::gridToLatLon(mw.home, &hlat, &hlon)) {
+                size_t near = 0;
+                for (const ADIFSpotHeard &by : ms.heard) near += adif::greatCircleKm(hlat, hlon, by.lat, by.lon) <= 1500;
+                if (near)
+                    why.push_back({@"dot.radiowaves.left.and.right",
+                                   trp("Heard by {n} station within 1,500 km of you", "Heard by {n} stations within 1,500 km of you", (long long)near)});
+            }
+            why.push_back({@"person.crop.circle", st.callQsos ? trp("{n} QSO with this call before", "{n} QSOs with this call before", (long long)st.callQsos)
+                                                            : tr("No QSOs with this call yet")});
+            break;
+        }
+        case ADIFMapHit::Spotter:
+            kind = {N_("Spotter"), NSColor.systemTealColor};
+            for (const ADIFInfoRow &r : spotInfo(h))
+                if (!r.heading) facts.push_back({r.label, r.value});
+            break;
+        case ADIFMapHit::Contact: kind = {N_("Contact"), NSColor.systemBlueColor}; break;
+        case ADIFMapHit::Square:
+        case ADIFMapHit::Empty:
+            if (!h.square.empty()) kind = {h.kind == ADIFMapHit::Square ? N_("Grid square") : N_("Grid square, not worked"), NSColor.systemIndigoColor};
+            break;
+        case ADIFMapHit::Dxcc:
+            kind = {N_("DXCC entity"), NSColor.systemPurpleColor};
+            if (h.index < mw.dxcc.size())
+                subtitle = trf("DXCC {n}", {{"n", std::to_string(mw.dxcc[h.index].dxcc)}}) + "  \u00B7  " + plural(mw.dxcc[h.index].qsos.size(), "QSO") +
+                           (mw.dxcc[h.index].confirmed ? "  \u00B7  " + tr("confirmed") : "");
+            break;
+        case ADIFMapHit::Area: {
+            static const char *const kAreaKinds[] = {N_("Grid square"), N_("DXCC entity"), N_("US state"), N_("US county"), N_("CQ zone"), N_("ITU zone")};
+            kind = {h.layer >= 0 && h.layer < 6 ? kAreaKinds[h.layer] : N_("Area"), NSColor.systemPurpleColor};
+            break;
+        }
+        case ADIFMapHit::Pota: kind = {N_("POTA park"), NSColor.systemGreenColor}; break;
+        case ADIFMapHit::Park: kind = {N_("Reference"), NSColor.systemBrownColor}; break;
+        case ADIFMapHit::Iota: kind = {N_("IOTA group"), NSColor.systemTealColor}; break;
+        default: break;
+    }
+    mw.chosenBadge.stringValue = [NSString stringWithFormat:@" %@ ", ADIFString(tr(kind.name)).localizedUppercaseString];
+    mw.chosenBadge.layer.backgroundColor = kind.colour.CGColor;
+    mw.chosenBadge.hidden = !*kind.name;
+    mw.chosenSubtitle.stringValue = ADIFString(subtitle);
+    mw.chosenSubtitle.hidden = subtitle.empty();
+    for (NSView *v in [mw.chosenFacts.subviews copy]) [v removeFromSuperview];  // a row removed keeps its views
+    while (mw.chosenFacts.numberOfRows > 0) [mw.chosenFacts removeRowAtIndex:0];
+    for (const auto &[label, value] : facts) {
+        NSTextField *l = [NSTextField labelWithString:ADIFString(label)], *v = [NSTextField labelWithString:ADIFString(value)];
+        l.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        l.textColor = NSColor.secondaryLabelColor;
+        v.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize + 1 weight:NSFontWeightMedium];
+        v.lineBreakMode = NSLineBreakByTruncatingTail;
+        v.toolTip = v.stringValue;
+        [v setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+        [mw.chosenFacts addRowWithViews:@[ l, v ]];
+    }
+    mw.chosenFacts.hidden = facts.empty();
+    for (NSView *v in [mw.whyList.arrangedSubviews copy]) {
+        [mw.whyList removeArrangedSubview:v];
+        [v removeFromSuperview];
+    }
+    for (const auto &[symbol, text] : why) {
+        NSImageView *icon = [NSImageView imageViewWithImage:[NSImage imageWithSystemSymbolName:symbol accessibilityDescription:nil] ?: [[NSImage alloc] init]];
+        icon.contentTintColor = [symbol hasPrefix:@"star"] ? NSColor.systemPinkColor : [symbol hasPrefix:@"plus"] ? NSColor.systemTealColor
+                                : [symbol hasPrefix:@"leaf"] ? NSColor.systemGreenColor : NSColor.secondaryLabelColor;
+        [icon.widthAnchor constraintEqualToConstant:16].active = YES;
+        NSTextField *t = [NSTextField wrappingLabelWithString:ADIFString(text)];
+        t.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize + 1];
+        NSStackView *row = [NSStackView stackViewWithViews:@[ icon, t ]];
+        row.spacing = 6;
+        row.alignment = NSLayoutAttributeFirstBaseline;
+        [mw.whyList addArrangedSubview:row];
+        [row.widthAnchor constraintEqualToAnchor:mw.whyList.widthAnchor].active = YES;
+    }
+    mw.whyBox.hidden = why.empty();
+}
+
 // The contact panel for what's under the pointer, or chosen, or nothing: its description, and
 // for a station (a spot, a contact, a DXCC entity) its entity's band slots.
 void showContact(const ADIFMapHit &h, const std::string &text) {
-    setStatus(text);
+    mw.status.stringValue = ADIFString(text);
+    showChosenFacts(h);
     int dxcc = 0;
     std::string entity, call;
     const adif::CountryTable &countries = ADIFCountries();
@@ -869,6 +1063,7 @@ std::string spotNeedLine(const adif::SpotStatus &st, const std::string &band) {
 }
 
 // The information box for a clicked spot or spotter: everything known about the station.
+std::vector<ADIFInfoRow> spotInfo(const ADIFMapHit &h);
 std::vector<ADIFInfoRow> spotInfo(const ADIFMapHit &h) {
     std::vector<ADIFInfoRow> rows;
     auto row = [&](const char *label, const std::string &value) {
@@ -991,6 +1186,8 @@ void selected(const ADIFMapHit &h) {
             if (p.reference == mw.data.parks[h.index].reference && p.program == mw.data.parks[h.index].program) qsos.push_back(p.qso);
     showList(qsos, h.kind);
     mw.useSpot.hidden = h.kind != ADIFMapHit::Spot;
+    mw.centerButton.enabled = h.kind != ADIFMapHit::None;
+    mw.centerButton.hidden = h.kind == ADIFMapHit::None;
     [mw.view setInfo:h.kind == ADIFMapHit::Spot || h.kind == ADIFMapHit::Spotter ? spotInfo(h) : std::vector<ADIFInfoRow>{}];
     mw.chosen = h.kind == ADIFMapHit::None ? "" : describe(h) + (qsos.empty() ? "" : " " + tr("Double-click a QSO to go to it in the log."));
     mw.chosenHit = h;
@@ -1033,15 +1230,14 @@ void queueViewList();
 void applyParkPlaces();
 void showContact(const ADIFMapHit &h, const std::string &text);
 
-// The floating controls in the map's own light or dark.
+// The zoom buttons on the map in the map's own light or dark.
 void updatePanelLook() {
-    NSAppearance *look = [NSAppearance appearanceNamed:paletteAt(mw.view.style.palette).dark ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua];
-    for (NSView *v in mw.cardStack.subviews) v.appearance = look;
-    mw.bar.appearance = mw.nav.appearance = look;
+    mw.nav.appearance = [NSAppearance appearanceNamed:paletteAt(mw.view.style.palette).dark ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua];
 }
 
 void applyStyle() {
     mw.view.style = savedStyle();
+    mw.view.scaleInMiles = setting("mapListUnits") == "mi";
     updatePanelLook();
     mw.view.hiddenPrograms = hiddenPrograms();
     queueViewList();
@@ -1149,8 +1345,10 @@ struct StyleChoice {
 NSArray<NSString *> *const kPaletteTitles = @[ N(@"Standard"), N(@"Colour-blind safe"), N(@"High contrast"), N(@"Light (for printing)"), N(@"Night (red)") ];
 
 void fillStyle() {
-    if (!mw.styleWindow) return;
     ADIFMapStyle s = savedStyle();
+    mw.greyLineBox.state = s.greyLine ? NSControlStateValueOn : NSControlStateValueOff;  // the sidebar's, as Style Options left them
+    mw.dayNightBox.state = s.dayNight ? NSControlStateValueOn : NSControlStateValueOff;
+    if (!mw.styleWindow) return;
     NSView *root = mw.styleWindow.contentView;
     for (NSString *ident in @[ @"map.style.line", @"map.style.width", @"map.style.strength", @"map.style.arcs" ])
         if (NSControl *c = (NSControl *)findView(root, ident)) c.enabled = s.paths;
@@ -1462,6 +1660,25 @@ void refresh() {
         showContact(ADIFMapHit(), idleStatus());  // nothing chosen in the new data: the title and slots go too
         showSituation();
         mw.useSpot.hidden = YES;
+        mw.centerButton.enabled = NO;
+        mw.centerButton.hidden = YES;
+        std::string call = setting("stationCall");
+        mw.summaryLabel.stringValue = ADIFString((call.empty() ? "" : call + "  \u00B7  ") + documentName() + "  \u00B7  " + plural(mw.data.qsos.size(), "QSO"));
+        if (workflow() == 0) {
+            // History: the QSOs the map shows, and the dates they span.
+            std::string first, last;
+            for (const adif::MapQso &q : mw.data.qsos)
+                if (q.date.size() == 8) {
+                    if (first.empty() || q.date < first) first = q.date;
+                    if (last.empty() || q.date > last) last = q.date;
+                }
+            auto day = [](const std::string &d) { return d.substr(0, 4) + "-" + d.substr(4, 2) + "-" + d.substr(6, 2); };
+            std::string scope = trp("{n} QSO on the map", "{n} QSOs on the map", (long long)mw.data.qsos.size());
+            if (!first.empty()) scope += "  \u00B7  " + (first == last ? day(first) : day(first) + " \u2013 " + day(last));
+            mw.scopeLabel.stringValue = ADIFString(scope);
+            mw.liveLabel.stringValue = ADIFString(tr("History") + "  \u00B7  " + documentName());
+        }
+        fillQuickViews();
         applyParkPlaces();  // home may have changed
         refreshSpots();  // the band, mode and place filters apply to spots too
     } catch (...) {
@@ -1576,17 +1793,106 @@ size_t placeKinds(const adif::MapFilter &f) {
            !f.potaLocations.empty();
 }
 
+const char *const kContinentNames[7] = {N_("Africa"), N_("Antarctica"), N_("Asia"), N_("Europe"), N_("North America"), N_("Oceania"), N_("South America")};
+
+// The toolbar's continent: All, one of them, or "2 continents" when More Filters chose more.
+void fillContinentPopup() {
+    NSPopUpButton *p = mw.continentPopup;
+    if (!p) return;
+    std::vector<std::string> chosen = splitSetting("mapFilterContinents", ',');
+    [p removeAllItems];
+    [p addItemWithTitle:T(@"All continents")];
+    for (int i = 0; i < 7; ++i) {
+        [p addItemWithTitle:ADIFString(tr(kContinentNames[i]))];
+        p.lastItem.representedObject = @(kContinents[i]);
+    }
+    if (chosen.size() > 1) {
+        [p addItemWithTitle:TF(@"{n} continents", @{@"n" : @(chosen.size())})];
+        [p selectItem:p.lastItem];
+    } else if (chosen.size() == 1) {
+        NSInteger at = [p indexOfItemWithRepresentedObject:ADIFString(chosen[0])];
+        [p selectItemAtIndex:at > 0 ? at : 0];
+    } else {
+        [p selectItemAtIndex:0];
+    }
+}
+
+void refresh();
+void refreshSpots();
+void fillPlaceControls();
+void chooseQuickView(NSInteger row);
+std::string entityName(int dxcc, const std::string &call);
+
+// The filters on that the toolbar doesn't show (More Filters' places; in Live, the dates and
+// confirmation, which the spots don't follow, and the Quick View), each a tag: click it to remove it.
+void fillFilterChips() {
+    if (!mw.chips) return;
+    for (NSView *v in [mw.chips.arrangedSubviews copy]) {
+        [mw.chips removeArrangedSubview:v];
+        [v removeFromSuperview];
+    }
+    auto chip = [&](const std::string &title, void (^clear)(void)) {
+        NSButton *b = [NSButton buttonWithTitle:ADIFString(title + "  \u2715") target:nil action:nil];
+        b.bezelStyle = NSBezelStyleInline;
+        b.controlSize = NSControlSizeSmall;
+        b.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        b.toolTip = T(@"Remove this filter");
+        b.accessibilityLabel = TF(@"Remove the filter {name}", @{@"name" : ADIFString(title)});
+        b.identifier = @"map.chip";
+        ADIFOnAction(b, clear);
+        [mw.chips addArrangedSubview:b];
+    };
+    auto list = [](const std::vector<std::string> &items) {
+        std::string out;
+        for (size_t i = 0; i < items.size() && i < 2; ++i) out += (out.empty() ? "" : ", ") + items[i];
+        if (items.size() > 2) out += ", +" + std::to_string(items.size() - 2);
+        return out;
+    };
+    struct Place {
+        const char *setting;
+        char sep;
+        const char *label;  // "" for none
+    };
+    static const Place kPlaces[] = {{"mapFilterDxcc", ';', N_("DXCC")},  {"mapFilterCq", ',', N_("CQ")},       {"mapFilterItu", ',', N_("ITU")},
+                                    {"mapFilterStates", ',', ""},       {"mapFilterCounties", ';', ""},       {"mapFilterRegions", ',', ""},
+                                    {"mapFilterPota", ',', N_("POTA")}};
+    for (const Place &pl : kPlaces) {
+        std::vector<std::string> items = splitSetting(pl.setting, pl.sep);
+        if (items.empty()) continue;
+        if (std::string(pl.setting) == "mapFilterDxcc")
+            for (std::string &d : items)
+                if (std::all_of(d.begin(), d.end(), [](char c) { return c >= '0' && c <= '9'; })) d = entityName(std::atoi(d.c_str()), "");
+        std::string which = pl.setting;
+        chip((*pl.label ? tr(pl.label) + " " : "") + list(items), ^{
+            setSetting(which.c_str(), "");
+            if (mw.filterPopover) fillPlaceControls();
+            refresh();
+        });
+    }
+    if (workflow() == 1) {
+        for (NSPopUpButton *p : {mw.dates, mw.confirmed})
+            if (p.indexOfSelectedItem > 0) {
+                NSPopUpButton *popup = p;
+                chip(ADIFStd(p.titleOfSelectedItem), ^{
+                    [popup selectItemAtIndex:0];
+                    refresh();
+                });
+            }
+        if (mw.spotLens > 0 && mw.quickRows && (size_t)mw.spotLens < mw.quickRows.rows.size())
+            chip(mw.quickRows.rows[(size_t)mw.spotLens].title, ^{ chooseQuickView(0); });
+    }
+    mw.chips.hidden = mw.chips.arrangedSubviews.count == 0;
+}
+
 void updateFilterButton() {
     size_t n = placeKinds(savedPlaceFilter());
     mw.moreFilters.title = n ? [NSString stringWithFormat:T(@"More Filters (%zu)..."), n] : T(@"More Filters...");
     // How many filters are on, on the bar too: the QSOs shown are not all of them, card open or not.
     size_t on = n + (mw.band.indexOfSelectedItem > 0) + (mw.mode.indexOfSelectedItem > 0) + (mw.dates.indexOfSelectedItem > 0) +
                 (mw.confirmed.indexOfSelectedItem > 0);
-    mw.clearFilters.enabled = on > 0;
-    if (mw.panels) {
-        [mw.panels setLabel:on ? TF(@"Filters ({n})", @{@"n" : @(on)}) : T(@"Filters") forSegment:2];
-        mw.toolbar.needsLayout = YES;
-    }
+    mw.clearFilters.enabled = on > 0 || (workflow() == 1 && mw.spotLens > 0);
+    fillContinentPopup();
+    fillFilterChips();
 }
 
 std::vector<std::string> tokens(NSTokenField *t) {
@@ -1796,8 +2102,7 @@ void showMoreFilters() {
         mw.filterPopover.behavior = NSPopoverBehaviorTransient;
     }
     fillPlaceControls();
-    revealPanel(2);  // beside its card, open
-    [mw.filterPopover showRelativeToRect:mw.moreFilters.bounds ofView:mw.moreFilters preferredEdge:NSRectEdgeMaxX];
+    [mw.filterPopover showRelativeToRect:mw.moreFilters.bounds ofView:mw.moreFilters preferredEdge:NSRectEdgeMaxY];
 }
 
 // ── Spots ──
@@ -1905,6 +2210,34 @@ void refreshSpots() {
             marks.push_back(std::move(m));
         }
     }
+    // Live's Quick Views: how many stations each has, and only the chosen one's kept.
+    for (size_t &n : mw.lensCounts) n = 0;
+    if (show) {
+        const adif::CountryTable *countries = &ADIFCountries();
+        std::vector<ADIFMapSpot> kept;
+        for (ADIFMapSpot &m : marks) {
+            adif::SpotStatus st = adif::spotStatus(mw.view.worked, m.spot, countries);
+            for (int v = 0; v < 7; ++v) mw.lensCounts[v] += inLens(v, m.spot, st);
+            if (inLens(mw.spotLens, m.spot, st)) kept.push_back(std::move(m));
+        }
+        marks = std::move(kept);
+    }
+    long long newest = 0;
+    for (const ADIFMapSpot &m : marks) newest = std::max(newest, m.spot.epoch);
+    if (workflow() == 1) {
+        std::string live = show ? trp("{n} station on the map", "{n} stations on the map", (long long)marks.size()) : tr("Spots off");
+        if (show && newest > 0) {
+            char hhmm[8];
+            time_t t = (time_t)newest;
+            strftime(hhmm, sizeof hhmm, "%H:%M", gmtime(&t));
+            live += "  \u00B7  " + trf("newest {time} UTC", {{"time", hhmm}});
+        }
+        mw.scopeLabel.stringValue = ADIFString(live);
+        mw.liveLabel.stringValue = ADIFString(show ? tr("Live data") + (newest > 0 ? "  \u00B7  " + utcAt(newest, "%Y-%m-%d %H:%M UTC") : "") : tr("Live: spots off"));
+        mw.liveLabel.textColor = !show ? NSColor.secondaryLabelColor : newest > 0 && now - newest < 900 ? NSColor.systemGreenColor : NSColor.systemOrangeColor;
+        fillQuickViews();
+        fillFilterChips();
+    }
     [mw.view setSpots:marks now:now maxAge:f.maxAge];
     queueViewList();
     showSituation();
@@ -2000,7 +2333,7 @@ void showSpotsPopover() {
         mw.spotsPopover.behavior = NSPopoverBehaviorTransient;
     }
     fillSpotsPopover();
-    revealPanel(3);  // beside its card, open
+    revealSection(@"spots");  // beside its section, open
     [mw.spotsPopover showRelativeToRect:mw.spotsButton.bounds ofView:mw.spotsButton preferredEdge:NSRectEdgeMaxX];
 }
 
@@ -2030,6 +2363,10 @@ void layerChanged(MapLayerId id, int which) {
     if (on && id == kLayerIota && ADIFIotaGroups().empty()) setStatus("IOTA: download IOTA's group list first, in Settings (IOTA Groups).");
     if (on && id == kLayerPota && !ADIFPotaParks().size())
         setStatus("POTA: download POTA's park list first, in Settings (POTA Parks). Until then, the parks you hunted show at the QSO's grid.");
+    if (!mw.applyingView && workflow() == 0 && quickView() != -1) {  // History's layers as you set them: no Quick View
+        setSetting("mapQuickView", "-1");
+        fillQuickViews();
+    }
 }
 
 // ── POTA parks in: the park filter ──
@@ -2198,13 +2535,16 @@ void showParkPlaces() {
         mw.parkPlacesPopover.behavior = NSPopoverBehaviorTransient;
     }
     fillParkPlaces();
-    revealPanel(2);  // beside its card, open
+    revealSection(@"filters");  // beside its section, open
     [mw.parkPlacesPopover showRelativeToRect:mw.parkPlacesButton.bounds ofView:mw.parkPlacesButton preferredEdge:NSRectEdgeMaxX];
 }
 
 // ── The list beside the map: the QSOs chosen; the contacts, parks or spots in view ──
 
-enum ListKind { kListSelected, kListContacts, kListParks, kListSpots };
+enum ListKind { kListSelected, kListContacts, kListParks, kListSpots, kListRecent };
+const int kListKinds = 5;
+
+bool qsoList(int kind) { return kind == kListSelected || kind == kListContacts || kind == kListRecent; }  // a QSO a row
 
 // A column the list can show: its id, title, width, style (0 text, 1 digits, 2 digits on the
 // right), whether it shows at first, and whether it sorts as a number.
@@ -2238,17 +2578,26 @@ const std::vector<ListColumn> &listColumns(int kind) {
         {"distance", N_("Distance"), 64, 2, true, true},  {"bearing", N_("Bearing"), 54, 2, true, true},
     };
     static const std::vector<ListColumn> kSpots = {
-        {"call", N_("Call"), 76, 0, true, false},          {"khz", "kHz", 60, 2, true, true},             {"band", N_("Band"), 42, 1, false, false},
-        {"mode", N_("Mode"), 46, 0, true, false},          {"need", N_("For this log"), 90, 0, true, false}, {"age", N_("Age"), 52, 2, true, true},
-        {"time", "UTC", 44, 1, false, false},              {"program", N_("Program"), 60, 0, false, false}, {"ref", N_("Reference"), 76, 0, false, false},
-        {"park", N_("Park"), 140, 0, false, false},        {"spotter", N_("Spotter"), 76, 0, false, false}, {"source", N_("Source"), 80, 0, false, false},
-        {"snr", "SNR", 44, 2, false, true},                {"grid", N_("Grid"), 62, 0, false, false},     {"country", N_("Country"), 120, 0, false, false},
-        {"comment", N_("Comment"), 160, 0, false, false},  {"distance", N_("Distance"), 64, 2, true, true}, {"bearing", N_("Bearing"), 54, 2, false, true},
+        {"call", N_("Call"), 76, 0, true, false},          {"country", N_("Country"), 120, 0, true, false}, {"grid", N_("Grid"), 62, 0, true, false},
+        {"distance", N_("Distance"), 70, 2, true, true},   {"khz", "kHz", 60, 2, true, true},             {"band", N_("Band"), 42, 1, true, false},
+        {"mode", N_("Mode"), 46, 0, true, false},          {"spotter", N_("Spotter"), 76, 0, true, false}, {"age", N_("Age"), 52, 2, true, true},
+        {"need", N_("Why it matters"), 150, 0, true, true}, {"time", "UTC", 44, 1, false, false},        {"program", N_("Program"), 60, 0, false, false},
+        {"ref", N_("Reference"), 76, 0, false, false},     {"park", N_("Park"), 140, 0, false, false},    {"source", N_("Source"), 80, 0, false, false},
+        {"snr", "SNR", 44, 2, false, true},                {"comment", N_("Comment"), 160, 0, false, false}, {"bearing", N_("Bearing"), 54, 2, false, true},
     };
+    static const std::vector<ListColumn> kRecent = [] {
+        std::vector<ListColumn> c = kSelected;
+        for (ListColumn &col : c) {
+            std::string id = col.id;
+            col.on = id == "call" || id == "date" || id == "time" || id == "band" || id == "mode" || id == "grid" || id == "country" || id == "confirmed";
+        }
+        return c;
+    }();
     switch (kind) {
         case kListSelected: return kSelected;
         case kListContacts: return kContacts;
         case kListParks: return kParks;
+        case kListRecent: return kRecent;
         default: return kSpots;
     }
 }
@@ -2284,7 +2633,10 @@ std::pair<std::string, bool> listSort(int kind) {
     std::string v = setting(listKey("mapListSort", kind).c_str());
     bool ascending = v.empty() || v[0] != '-';
     std::string id = ascending ? v : v.substr(1);
-    if (!listColumn(kind, id)) id = kind == kListSelected ? "record" : "distance", ascending = true;
+    if (!listColumn(kind, id)) {  // the QSOs chosen in the log's order, the newest first, the best spots first, else the nearest
+        id = kind == kListSelected ? "record" : kind == kListRecent ? "date" : kind == kListSpots ? "need" : "distance";
+        ascending = kind != kListRecent;
+    }
     return {id, ascending};
 }
 
@@ -2399,6 +2751,8 @@ std::vector<ADIFViewRow> qsoRows(int kind, double lat, double lon) {
     for (size_t s = 0; s < mw.data.squares.size(); ++s) squareOf[mw.data.squares[s].grid] = s;
     std::vector<size_t> qsos;
     if (kind == kListSelected) qsos = mw.listed;
+    else if (kind == kListRecent)
+        for (size_t i = 0; i < mw.data.qsos.size(); ++i) qsos.push_back(i);
     else
         for (size_t i = 0; i < mw.data.qsos.size(); ++i) {
             double a, o;
@@ -2414,14 +2768,14 @@ std::vector<ADIFViewRow> qsoRows(int kind, double lat, double lon) {
             r.km = adif::greatCircleKm(lat, lon, r.lat, r.lon), r.bearing = adif::initialBearing(lat, lon, r.lat, r.lon);
         std::string grid4 = q.grid.substr(0, std::min<size_t>(4, q.grid.size()));
         for (char &c : grid4) c = (char)toupper((unsigned char)c);
-        if (kind == kListContacts) {
+        if (kind == kListContacts || kind == kListRecent) {  // the row chooses its contact, else its square
             if (auto c = contactOf.find(i); q.located && c != contactOf.end() && mw.view.showContacts) {
                 r.hit.kind = ADIFMapHit::Contact, r.hit.index = c->second, r.hit.square = adif::squareAt(r.lon, r.lat);
                 r.span = 0.02;
             } else if (auto sq = squareOf.find(grid4); sq != squareOf.end()) {
                 r.hit.kind = ADIFMapHit::Square, r.hit.index = sq->second, r.hit.square = grid4;
                 r.span = q.grid.size() >= 6 ? 0.05 : 0.6;
-            } else {
+            } else if (kind == kListContacts) {
                 continue;
             }
         }
@@ -2494,7 +2848,7 @@ std::string cellText(int kind, const ADIFViewRow &r, const std::string &id) {
         snprintf(deg, sizeof deg, "%.0f°", std::fmod(std::round(r.bearing) + 360, 360));
         return deg;
     }
-    if (kind == kListSelected || kind == kListContacts) {
+    if (qsoList(kind)) {
         if (r.item >= mw.data.qsos.size()) return "";
         const adif::MapQso &q = mw.data.qsos[r.item];
         if (id == "record") return std::to_string(q.record);
@@ -2580,7 +2934,9 @@ double cellNumber(int kind, const ADIFViewRow &r, const std::string &id) {
         if (id == "age") return sp.epoch > 0 ? (double)((long long)time(nullptr) - sp.epoch) : 1e12;
         if (id == "snr") return sp.hasSnr ? sp.snr : -1e12;
     }
-    if ((kind == kListSelected || kind == kListContacts) && r.item < mw.data.qsos.size()) {
+    if (id == "need" && kind == kListSpots && r.item < mw.view.spots.size())  // the most wanted first
+        return mw.view.spots[r.item].spot.heardMe ? 9 : adif::spotPriority(mw.view.spots[r.item].status);
+    if (qsoList(kind) && r.item < mw.data.qsos.size()) {
         const adif::MapQso &q = mw.data.qsos[r.item];
         if (id == "record") return q.record;
         if (id == "cq") return q.areas.cq;
@@ -2590,7 +2946,7 @@ double cellNumber(int kind, const ADIFViewRow &r, const std::string &id) {
 }
 
 std::string sortText(int kind, const ADIFViewRow &r, const std::string &id) {
-    if ((kind == kListSelected || kind == kListContacts) && id == "date" && r.item < mw.data.qsos.size())
+    if (qsoList(kind) && id == "date" && r.item < mw.data.qsos.size())
         return mw.data.qsos[r.item].date8 + mw.data.qsos[r.item].time;
     std::string t = cellText(kind, r, id);
     for (char &c : t) c = (char)tolower((unsigned char)c);
@@ -2603,7 +2959,7 @@ void showListRow(const ADIFMapHit &h);
 void fillViewList() {
     mw.listQueued = false;
     if (!mw.listPanel || mw.listPanel.hidden) return;
-    int kind = (int)std::clamp<NSInteger>(mw.listKind.selectedSegment, 0, 3);
+    int kind = (int)std::clamp<NSInteger>(mw.listKind.selectedSegment, 0, kListKinds - 1);
     setListColumns(kind);
     std::string home = mw.home.empty() ? tr("no grid set") : mw.home;
     [mw.listFrom itemAtIndex:0].title = TF(@"Your station ({grid})", @{@"grid" : ADIFString(home)});
@@ -2680,11 +3036,20 @@ void fillViewList() {
         case kListSelected: mw.listTitle.stringValue = TF(@"Selected ({n})", counts); break;
         case kListContacts: mw.listTitle.stringValue = TF(@"Contacts in View ({n})", counts); break;
         case kListParks: mw.listTitle.stringValue = TF(@"Parks in View ({n})", counts); break;
+        case kListRecent: mw.listTitle.stringValue = TF(@"Recent QSOs ({n})", counts); break;
         default: mw.listTitle.stringValue = TF(@"Spots in View ({n})", counts); break;
     }
+    // Each tab says how many it has: the QSOs chosen, the contacts, parks and spots in view, the log.
+    size_t tabCounts[kListKinds] = {mw.listed.size(), 0, 0, mw.view.spots.size(), mw.data.qsos.size()};
+    tabCounts[kListContacts] = kind == kListContacts ? found : qsoRows(kListContacts, lat, lon).size();
+    tabCounts[kListParks] = kind == kListParks ? found : parkRows(lat, lon).size();
+    NSString *const tabTitles[kListKinds] = {N(@"Selected ({n})"), N(@"Contacts ({n})"), N(@"Parks ({n})"), N(@"Spots ({n})"), N(@"Recent ({n})")};
+    for (int k = 0; k < kListKinds; ++k) [mw.listKind setLabel:TF(tabTitles[k], @{@"n" : @(tabCounts[k])}) forSegment:k];
     const ADIFMapStyle &st = mw.view.style;
     std::string hint;
-    if (kind == kListSelected)
+    if (kind == kListRecent) hint = tr("The log's QSOs (as the filters keep them), the newest first. Click one to find it on the map; double-click to go "
+                                       "to it in the log.");
+    else if (kind == kListSelected)
         hint = rows.empty() ? tr("Click a square, contact, park or area on the map for its QSOs.")
                             : tr("The QSOs of what you clicked on the map. Double-click one to go to it in the log.");
     else if (kind == kListParks && !ADIFPotaParks().size()) hint = tr("Download POTA's park list first: Settings, POTA Parks.");
@@ -2706,15 +3071,75 @@ void fillViewList() {
                    {{"total", std::to_string(found)}}) +
                " " + hint;
     mw.listHint.stringValue = ADIFString(hint);
+    mw.listHint.toolTip = mw.listHint.stringValue;
 }
 
 // The situation panel: the log as the map shows it; today's QSOs; the spots you most want now (a
 // link each); the busiest bands; the sun at your station.
 void showSituation() {
     if (!mw.situation) return;
-    mw.situation.stringValue = ADIFString(mw.summary);
+    mw.situation.stringValue = ADIFString(mw.summary);  // the whole of it, as the rows' tooltip
     std::string today = utcNow("%Y%m%d");
     adif::LogGlance g = adif::logGlance(mw.data.qsos, mw.view.worked, today);
+    // The log at a glance: a row a layer, how many you worked and confirmed; its name shows that
+    // layer in History. Then today's QSOs, and those the map can't place.
+    for (NSView *v in [mw.statHost.subviews copy]) [v removeFromSuperview];
+    NSGridView *stats = [NSGridView gridViewWithNumberOfColumns:3 rows:0];  // afresh: a row with merged cells can't be removed
+    stats.rowSpacing = 3;
+    stats.columnSpacing = 14;
+    stats.identifier = @"map.stats";
+    auto number = [](const std::string &text, bool head) {
+        NSTextField *f = [NSTextField labelWithString:ADIFString(text)];
+        f.font = head ? [NSFont systemFontOfSize:NSFont.smallSystemFontSize - 1 weight:NSFontWeightMedium]
+                      : [NSFont monospacedDigitSystemFontOfSize:NSFont.smallSystemFontSize + 1 weight:NSFontWeightMedium];
+        f.textColor = head ? NSColor.secondaryLabelColor : NSColor.labelColor;
+        f.alignment = NSTextAlignmentRight;
+        return f;
+    };
+    [stats addRowWithViews:@[ [NSGridCell emptyContentView], number(tr("Worked"), true), number(tr("Confirmed"), true) ]];
+    auto statRow = [&](const std::string &label, NSView *worked, NSView *confirmed, NSInteger view) {
+        NSButton *b = [NSButton buttonWithTitle:ADIFString(label) target:nil action:nil];
+        b.bordered = NO;
+        b.alignment = NSTextAlignmentLeft;
+        b.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize + 1];
+        b.contentTintColor = view >= 0 ? NSColor.linkColor : NSColor.secondaryLabelColor;
+        b.identifier = [NSString stringWithFormat:@"map.stat.%ld", (long)stats.numberOfRows - 1];
+        b.toolTip = view >= 0 ? T(@"Show this layer in History") : mw.situation.stringValue;
+        if (view >= 0) ADIFOnAction(b, ^{
+            if (workflow() != 0) switchWorkflow(0);
+            chooseQuickView(view);
+        });
+        else b.enabled = NO;
+        [stats addRowWithViews:@[ b, worked ?: [NSGridCell emptyContentView], confirmed ?: [NSGridCell emptyContentView] ]];
+    };
+    size_t squaresConfirmed = 0, dxccConfirmed = 0;
+    for (const adif::MapSquare &sq : mw.data.squares) squaresConfirmed += sq.confirmed;
+    for (const ADIFMapEntity &e : mw.dxcc) dxccConfirmed += e.confirmed;
+    std::pair<size_t, size_t> states = [mw.view workedCount:kLayerStates], parks = [mw.view workedCount:kLayerPota];
+    statRow(tr("Grid squares"), number(grouped(mw.data.squares.size()), false), number(grouped(squaresConfirmed), false), 1);
+    statRow(tr("DXCC entities"), number(grouped(mw.dxcc.size()), false), number(grouped(dxccConfirmed), false), 2);
+    statRow(tr("US states"), number(grouped(states.first), false), number(grouped(states.second), false), 3);
+    statRow(tr("POTA parks"), number(grouped(parks.first), false), number(grouped(parks.second), false), 7);
+    auto spanning = [&](const std::string &text) {  // across both columns
+        NSTextField *f = number(text, false);
+        f.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize + 1];
+        f.textColor = NSColor.secondaryLabelColor;
+        return f;
+    };
+    statRow(tr("Today"), spanning(g.today ? plural(g.today, "QSO") : tr("no QSOs yet")), nil, -1);
+    [stats mergeCellsInHorizontalRange:NSMakeRange(1, 2) verticalRange:NSMakeRange(stats.numberOfRows - 1, 1)];
+    if (mw.data.withoutGrid) {
+        statRow(tr("No grid"), spanning(plural(mw.data.withoutGrid, "QSO")), nil, -1);
+        [stats mergeCellsInHorizontalRange:NSMakeRange(1, 2) verticalRange:NSMakeRange(stats.numberOfRows - 1, 1)];
+    }
+    for (NSInteger r = 0; r < stats.numberOfRows; ++r) [stats rowAtIndex:r].yPlacement = NSGridCellPlacementCenter;
+    stats.translatesAutoresizingMaskIntoConstraints = NO;
+    [mw.statHost addSubview:stats];
+    [NSLayoutConstraint activateConstraints:@[
+        [stats.topAnchor constraintEqualToAnchor:mw.statHost.topAnchor], [stats.bottomAnchor constraintEqualToAnchor:mw.statHost.bottomAnchor],
+        [stats.leadingAnchor constraintEqualToAnchor:mw.statHost.leadingAnchor],
+        [stats.trailingAnchor constraintLessThanOrEqualToAnchor:mw.statHost.trailingAnchor]
+    ]];
     std::string line;
     if (!g.today) line = tr("Today (UTC): no QSOs yet.");
     else {
@@ -2739,7 +3164,9 @@ void showSituation() {
         int pa = adif::spotPriority(spots[a].status), pb = adif::spotPriority(spots[b].status);
         return pa != pb ? pa < pb : spots[a].spot.epoch > spots[b].spot.epoch;
     });
-    if (!mw.view.style[kLayerSpots].show) mw.wantedLabel.stringValue = T(@"Spots: tick the Spots layer's Show for who is on the air, and which you need.");
+    if (!mw.view.style[kLayerSpots].show)
+        mw.wantedLabel.stringValue = workflow() == 0 ? T(@"Spots: Live shows who is on the air now, and which of them you need.")
+                                                     : T(@"Spots: tick the Spots layer's Show for who is on the air, and which you need.");
     else if (wanted.empty())
         mw.wantedLabel.stringValue = TP(@"Wanted now: none of the {n} station spotted.", @"Wanted now: none of the {n} stations spotted.", (long long)spots.size());
     else mw.wantedLabel.stringValue = T(@"Wanted now:");
@@ -2852,7 +3279,7 @@ void showListRow(const ADIFMapHit &h) {
 // Double-click: a QSO chosen goes to its record; anything else fills the map (a park's outline
 // where downloaded, a square, else a little round it), chosen.
 void openRow(const ADIFViewRow &r) {
-    if (mw.listKind.selectedSegment == kListSelected) return goToQso(r.item);
+    if (mw.listKind.selectedSegment == kListSelected || mw.listKind.selectedSegment == kListRecent) return goToQso(r.item);
     double w, s, e, n;
     const adif::PotaParks &list = ADIFPotaParks();
     const adif::ParkOutline *o = r.hit.kind == ADIFMapHit::Pota && r.hit.index < list.size() ? parkoutlines::find(list.parks()[r.hit.index].ref) : nullptr;
@@ -2865,54 +3292,292 @@ void openRow(const ADIFViewRow &r) {
     mw.choosingFromList = false;
 }
 
-// The cards the bar's first control has on, shown; the rest hidden, the map clear there.
-void showPanels() {
-    int on = 0;
-    for (int i = 0; i < 4; ++i) {
-        bool shown = [mw.panels isSelectedForSegment:i];
-        mw.cards[i].hidden = !shown;
-        on |= shown << i;
-        auto at = std::find(mw.panelOrder.begin(), mw.panelOrder.end(), i);
-        if (shown && at == mw.panelOrder.end()) mw.panelOrder.push_back(i);
-        if (!shown && at != mw.panelOrder.end()) mw.panelOrder.erase(at);
+// ── The panes: the sidebar, the list under the map, the selected panel ──
+
+const char *const kPaneKeys[3] = {"mapSidebar", "mapList", "mapSelected"};
+
+// A pane at the size it was left, else its first size; the sidebar's and the selected panel's
+// together, so that neither squeezes the other. Not saved again as it moves.
+void restorePane(int pane) {
+    bool restored = mw.splitsRestored;
+    mw.splitsRestored = false;
+    if (pane == 1) {
+        CGFloat h = std::clamp((CGFloat)std::atof(setting("mapListHeight").c_str()), (CGFloat)0, (CGFloat)600);
+        [mw.middleSplit setPosition:mw.middleSplit.bounds.size.height - (h >= 110 ? h : 230) - mw.middleSplit.dividerThickness ofDividerAtIndex:0];
+    } else {
+        CGFloat side = std::clamp((CGFloat)std::atof(setting("mapSidebarWidth").c_str()), (CGFloat)0, (CGFloat)380);
+        CGFloat chosen = std::clamp((CGFloat)std::atof(setting("mapSelectedWidth").c_str()), (CGFloat)0, (CGFloat)480);
+        CGFloat whole = mw.bodySplit.bounds.size.width, divider = mw.bodySplit.dividerThickness;
+        for (int pass = 0; pass < 2; ++pass) {  // each divider set, then the right one again once the left one moved
+            if (!mw.selectedPanel.hidden) [mw.bodySplit setPosition:whole - (chosen >= 240 ? chosen : 300) - divider ofDividerAtIndex:1];
+            CGFloat least = std::max(mw.splitKeeper.leastSidebar, (CGFloat)280);
+            if (!mw.sidebar.hidden && pass == 0) [mw.bodySplit setPosition:side >= least ? side : std::max(least, (CGFloat)284) ofDividerAtIndex:0];
+        }
     }
-    setSetting("mapPanels", std::to_string(on));
-    mw.cardStack.needsLayout = YES;
+    mw.splitsRestored = restored;
 }
 
-void revealPanel(int panel) {
-    if (!mw.panels || [mw.panels isSelectedForSegment:panel]) return;
-    [mw.panels setSelected:YES forSegment:panel];
-    showPanels();
+// A pane shown or hidden (its button at the right of the header): hidden, the map takes its room.
+void showPane(int pane, bool on) {
+    saveFlag(kPaneKeys[pane], on);
+    mw.paneToggle[pane].state = on ? NSControlStateValueOn : NSControlStateValueOff;
+    NSView *v = pane == 0 ? mw.sidebar : pane == 1 ? mw.listPanel : mw.selectedPanel;
+    bool restored = mw.splitsRestored;
+    mw.splitsRestored = false;  // the dividers moving now aren't the user's: their sizes stay as they were left
+    v.hidden = !on;
+    if (pane == 2) mw.view.infoHidden = on;  // the selected panel has what the map's information box would
+    [pane == 1 ? mw.middleSplit : mw.bodySplit adjustSubviews];
+    mw.splitsRestored = restored;
+    if (on && restored) restorePane(pane);
+    if (pane == 1 && on) queueViewList();
+}
+
+// A section of the sidebar open or closed (its triangle); remembered.
+void setSectionOpen(NSString *name, bool open) {
+    NSView *body = mw.sections[name];
+    if (!body) return;
+    body.hidden = !open;
+    mw.sectionTriangles[name].state = open ? NSControlStateValueOn : NSControlStateValueOff;
+    std::set<std::string> closed;
+    for (const std::string &n : splitSetting("mapSectionsClosed", ',')) closed.insert(n);
+    if (open) closed.erase(ADIFStd(name));
+    else closed.insert(ADIFStd(name));
+    std::string v;
+    for (const std::string &n : closed) v += (v.empty() ? "" : ",") + n;
+    setSetting("mapSectionsClosed", v);
+}
+
+void switchWorkflow(int to);
+
+// A section's control asked for (its popover; or a test): the sidebar shown and the section open;
+// the Spots section is Live's.
+void revealSection(NSString *name) {
+    if ([name isEqualToString:@"spots"] && workflow() != 1) switchWorkflow(1);
+    if (mw.sidebar.hidden) showPane(0, true);
+    if (mw.sections[name].hidden) setSectionOpen(name, true);
     [mw.window layoutIfNeeded];
+    [mw.sections[name] scrollRectToVisible:mw.sections[name].bounds];  // its button in sight, for the popover
 }
 
-// What Fit Log, a region and a place keep clear of: the bar, the cards and the zoom buttons.
-// Cards that no longer fit on the map: the one opened longest ago closes, until they do.
-void updateClear() {
-    CGFloat cards = mw.cardStack.usedWidth;
-    mw.view.clearInsets = NSEdgeInsetsMake(NSHeight(mw.bar.frame) + 16, cards > 0 ? cards + 16 : 0, 0, NSWidth(mw.nav.frame) + 16);
-    if (!mw.cardStack.crowded || mw.panelOrder.size() < 2) return;
-    int oldest = mw.panelOrder.front();
-    dispatch_async(dispatch_get_main_queue(), ^{  // not within the layout
-        if (!mw.cardStack.crowded || mw.panelOrder.size() < 2 || mw.panelOrder.front() != oldest) return;
-        [mw.panels setSelected:NO forSegment:oldest];
-        showPanels();
-    });
+// ── The workflows: History (the log, what it reached on each layer) and Live (the spots, and
+// which of them to work) ──
+
+int workflow() { return number("mapWorkflow", 0, 1); }
+
+// The Quick View chosen; -1 when the layers were changed since (History).
+int quickView() {
+    std::string v = setting("mapQuickView");
+    return v.empty() ? 0 : std::clamp(std::atoi(v.c_str()), -1, 9);
 }
 
-// The panel shown or not: the map takes the room.
-void showListPanel(bool on) {
-    saveFlag("mapList", on);
-    mw.listToggle.state = on ? NSControlStateValueOn : NSControlStateValueOff;
-    mw.listPanel.hidden = !on;
-    [mw.mainSplit adjustSubviews];
-    if (on) {
-        CGFloat width = std::clamp((CGFloat)std::atof(setting("mapListWidth").c_str()), (CGFloat)280, (CGFloat)900);
-        if (width < 281) width = 470;
-        [mw.mainSplit setPosition:mw.mainSplit.bounds.size.width - width - mw.mainSplit.dividerThickness ofDividerAtIndex:0];
-        queueViewList();
+// What each workflow keeps for itself: its layers, contacts and lines, colours, list, Quick
+// View, and the sun's shading.
+std::vector<std::string> workflowKeys() {
+    std::vector<std::string> keys = {"mapContacts", "mapPaths", "mapMine", "mapColorBy", "mapListKind", "mapQuickView", "mapGreyLine", "mapDayNight"};
+    for (const LayerUi &l : kLayerUi) {
+        if (l.showKey) keys.push_back(l.showKey);
+        keys.push_back(l.overlayKey);
+        keys.push_back(l.labelsKey);
     }
+    return keys;
+}
+
+// Live, the first time: the spots, with their calls; the countries and parks you worked shaded;
+// the grey line; the list of spots.
+std::string liveDefault(const std::string &key) {
+    static const std::map<std::string, std::string> kLive = {
+        {"mapShowSpots", "1"},    {"mapSpotLines", "0"},  {"mapSpotLabels", "1"}, {"mapSquares", "0"},  {"mapGrid", "0"},       {"mapLabels", "0"},
+        {"mapDxcc", "1"},         {"mapCountries", "0"},  {"mapShowPota", "1"},   {"mapPota", "0"},     {"mapShowStates", "0"}, {"mapUsStates", "0"},
+        {"mapShowCounties", "0"}, {"mapCounties", "0"},   {"mapShowCq", "0"},     {"mapCqZones", "0"},  {"mapShowItu", "0"},    {"mapItuZones", "0"},
+        {"mapShowIota", "0"},     {"mapIota", "0"},       {"mapCities", "0"},     {"mapContacts", "0"}, {"mapPaths", "0"},      {"mapMine", "1"},
+        {"mapColorBy", "0"},      {"mapListKind", "3"},   {"mapQuickView", "0"},  {"mapGreyLine", "1"}, {"mapDayNight", "0"}};
+    auto it = kLive.find(key);
+    return it == kLive.end() ? "" : it->second;
+}
+
+void syncControls();
+
+// To the other workflow: this one's settings kept, the other's back (Live's first time, its own).
+void switchWorkflow(int to) {
+    int from = workflow();
+    if (to == from) return;
+    std::string fromKey = "mapWf" + std::to_string(from), toKey = "mapWf" + std::to_string(to);
+    for (const std::string &k : workflowKeys()) setSetting((fromKey + k).c_str(), setting(k.c_str()));
+    setSetting((fromKey + "Saved").c_str(), "1");
+    bool saved = setting((toKey + "Saved").c_str()) == "1";
+    for (const std::string &k : workflowKeys()) setSetting(k.c_str(), saved ? setting((toKey + k).c_str()) : to == 1 ? liveDefault(k) : "");
+    setSetting("mapWorkflow", std::to_string(to));
+    syncControls();
+}
+
+// The controls as the settings now say (a workflow or a Quick View set them), then the map.
+void syncControls() {
+    ADIFMapStyle saved = savedStyle();
+    auto state = [](bool on) { return on ? NSControlStateValueOn : NSControlStateValueOff; };
+    for (const LayerUi &l : kLayerUi) {
+        if (mw.show[l.id]) mw.show[l.id].state = state(saved[l.id].show);
+        mw.overlay[l.id].state = state(saved[l.id].overlay);
+        mw.labels[l.id].state = state(saved[l.id].labels);
+    }
+    labelsFollow();
+    mw.contacts.state = state(flag("mapContacts", false));
+    mw.lines.state = state(flag("mapPaths", false));
+    mw.mine.state = state(flag("mapMine", true));
+    [mw.colorBy selectItemAtIndex:number("mapColorBy", 0, 4)];
+    mw.listKind.selectedSegment = number("mapListKind", 0, kListKinds - 1);
+    int wf = workflow();
+    mw.workflow.selectedSegment = wf;
+    mw.spotsSection.hidden = wf != 1;
+    mw.dates.hidden = mw.confirmed.hidden = wf == 1;  // the spots don't follow them (a tag says when they're on)
+    mw.liveLabel.textColor = NSColor.secondaryLabelColor;
+    mw.spotLens = wf == 1 ? std::max(0, std::min(quickView(), 6)) : 0;
+    refresh();       // the data and the style, the Quick Views' counts
+    refreshSpots();  // the feeds start or stop with the Spots layer
+}
+
+// ── Quick Views ──
+
+// History's: the whole log, or one layer: what you worked on it, among all of it.
+struct HistoryView {
+    const char *title;
+    NSString *symbol;
+    int layer;  // -1 the whole log, -2 the contacts at their places
+    const char *tip;
+};
+const HistoryView kHistoryViews[] = {
+    {N_("All QSOs"), @"list.bullet", -1, N_("The log as it first shows: worked grid squares, DXCC entities and POTA parks")},
+    {N_("Grid squares"), @"square.grid.3x3", kLayerSquares, N_("The grid squares you worked, in the grid")},
+    {N_("DXCC entities"), @"globe", kLayerCountries, N_("The DXCC entities you worked, among every country")},
+    {N_("US states"), @"map", kLayerStates, N_("The US states you worked, among all 50")},
+    {N_("US counties"), @"map", kLayerCounties, N_("The US counties you worked, among them all")},
+    {N_("CQ zones"), @"circle.grid.cross", kLayerCq, N_("The CQ zones you worked, among all 40")},
+    {N_("ITU zones"), @"circle.grid.cross", kLayerItu, N_("The ITU zones you worked, among all 90")},
+    {N_("POTA parks"), @"leaf", kLayerPota, N_("The POTA parks you hunted and activated, among the others")},
+    {N_("IOTA groups"), @"drop", kLayerIota, N_("The IOTA groups you worked, among them all")},
+    {N_("Contacts"), @"mappin.and.ellipse", -2, N_("Each contact at its own place, with a line to it")},
+};
+
+// Live's: which of the spots show, by what they mean for the log.
+struct LiveView {
+    const char *title;
+    NSString *symbol;
+    const char *tip;
+};
+const LiveView kLiveViews[] = {
+    {N_("All spots"), @"antenna.radiowaves.left.and.right", N_("Every station spotted now, as the spots' own filters allow")},
+    {N_("New DXCC"), @"star.circle", N_("Stations in a DXCC entity you haven't worked")},
+    {N_("New band"), @"plus.circle", N_("Stations in an entity you worked, but not on this band")},
+    {N_("New mode"), @"plus.circle", N_("Stations in an entity you worked on this band, but not in this mode (CW, phone or data)")},
+    {N_("New POTA parks"), @"leaf", N_("POTA activators at parks you haven't worked")},
+    {N_("POTA activators"), @"leaf", N_("Every POTA activator spotted")},
+    {N_("Worked before"), @"checkmark.circle", N_("Stations whose entity you worked on this band and mode already")},
+};
+const size_t kLiveViewCount = sizeof kLiveViews / sizeof kLiveViews[0];
+
+// Whether a spotted station belongs in one of Live's views.
+bool inLens(int lens, const adif::Spot &sp, const adif::SpotStatus &st) {
+    switch (lens) {
+        case 1: return !sp.heardMe && st.need == adif::SpotNeed::NewDxcc;
+        case 2: return !sp.heardMe && st.need == adif::SpotNeed::NewBand;
+        case 3: return !sp.heardMe && st.need == adif::SpotNeed::NewMode;
+        case 4: return mapkit::potaSpot(sp) && st.newPark;
+        case 5: return mapkit::potaSpot(sp);
+        case 6: return !sp.heardMe && (st.need == adif::SpotNeed::Worked || st.need == adif::SpotNeed::Confirmed);
+        default: return true;
+    }
+}
+
+std::string grouped(size_t n) { return ADIFStd([NSNumberFormatter localizedStringFromNumber:@(n) numberStyle:NSNumberFormatterDecimalStyle]); }
+
+// The workflow's Quick Views, with their counts, the chosen one selected.
+void fillQuickViews() {
+    if (!mw.quickTable) return;
+    std::vector<ADIFQuickRow> rows;
+    const MapPalette &pal = paletteAt(mw.view.style.palette);
+    if (workflow() == 0) {
+        for (const HistoryView &v : kHistoryViews) {
+            ADIFQuickRow r;
+            r.title = tr(v.title), r.symbol = v.symbol;
+            size_t worked = 0, confirmed = 0;
+            if (v.layer == -1) {
+                worked = mw.data.qsos.size();
+                for (const adif::MapQso &q : mw.data.qsos) confirmed += q.confirmed;
+            } else if (v.layer == -2) {
+                worked = mw.view.contacts.size();
+            } else if (v.layer == kLayerSquares) {
+                worked = mw.data.squares.size();
+                for (const adif::MapSquare &sq : mw.data.squares) confirmed += sq.confirmed;
+            } else if (v.layer == kLayerCountries) {
+                worked = mw.dxcc.size();
+                for (const ADIFMapEntity &e : mw.dxcc) confirmed += e.confirmed;
+            } else {
+                std::pair<size_t, size_t> c = [mw.view workedCount:v.layer];
+                worked = c.first, confirmed = c.second;
+            }
+            r.count = grouped(worked);
+            r.tip = tr(v.tip) + (v.layer == -2 ? "" : "\n" + trf("{worked} worked, {confirmed} confirmed", {{"worked", grouped(worked)}, {"confirmed", grouped(confirmed)}}));
+            rows.push_back(r);
+        }
+    } else {
+        for (size_t i = 0; i < kLiveViewCount; ++i) {
+            ADIFQuickRow r;
+            r.title = tr(kLiveViews[i].title), r.symbol = kLiveViews[i].symbol, r.tip = tr(kLiveViews[i].tip);
+            r.count = mw.view.style[kLayerSpots].show ? grouped(mw.lensCounts[i]) : "";
+            r.colour = i == 1 ? pal.needDxcc : i == 2 || i == 3 ? pal.needBand : i == 4 || i == 5 ? pal.park : i == 6 ? pal.worked : 0;
+            rows.push_back(r);
+        }
+    }
+    mw.quickRows.filling = YES;
+    mw.quickRows.rows = rows;
+    [mw.quickTable reloadData];
+    int chosen = quickView();
+    if (chosen >= 0 && (size_t)chosen < rows.size()) [mw.quickTable selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)chosen] byExtendingSelection:NO];
+    else [mw.quickTable deselectAll:nil];
+    mw.quickHeight.constant = rows.size() * (mw.quickTable.rowHeight + mw.quickTable.intercellSpacing.height) + 12;  // and the list's own margins
+    mw.quickRows.filling = NO;
+}
+
+// A Quick View chosen. Live: only those spots. History: the layer's worked areas among all of it,
+// named, the other layers' worked shading off; All QSOs: squares, countries and parks as at first.
+void chooseQuickView(NSInteger row) {
+    setSetting("mapQuickView", std::to_string(row));
+    if (workflow() == 1) {
+        mw.spotLens = (int)std::min<NSInteger>(row, (NSInteger)kLiveViewCount - 1);
+        refreshSpots();
+        return;
+    }
+    if (row < 0 || (size_t)row >= sizeof kHistoryViews / sizeof kHistoryViews[0]) return;
+    const HistoryView &v = kHistoryViews[row];
+    for (const LayerUi &l : kLayerUi) {
+        if (l.id == kLayerSpots || l.id == kLayerCities) continue;
+        bool focus = v.layer == -1 ? l.id == kLayerSquares || l.id == kLayerCountries || l.id == kLayerPota : l.id == v.layer;
+        if (l.showKey) saveFlag(l.showKey, focus);
+        saveFlag(l.overlayKey, focus && v.layer >= 0 ? true : l.overlayOn);
+        if (focus) saveFlag(l.labelsKey, true);
+    }
+    saveFlag("mapContacts", v.layer == -2);
+    saveFlag("mapPaths", v.layer == -2);
+    mw.applyingView = true;
+    syncControls();
+    mw.applyingView = false;
+}
+
+// ── The footer: what is under the pointer, and the workflow's state ──
+
+void showHover(const std::string &text) {
+    mw.hover.stringValue = ADIFString(text);
+    mw.hover.toolTip = mw.hover.stringValue;
+}
+
+// The map centred on what was chosen, at the zoom it has.
+void centerChosen() {
+    ADIFMapHit h = mw.view.selectedHit;
+    double lat = 0, lon = 0;
+    std::string name;
+    if (h.kind == ADIFMapHit::Spot && h.index < mw.view.spots.size()) lat = mw.view.spots[h.index].lat, lon = mw.view.spots[h.index].lon;
+    else if (h.kind == ADIFMapHit::Spotter && h.index < mw.view.spotters.size()) lat = mw.view.spotters[h.index].lat, lon = mw.view.spotters[h.index].lon;
+    else [mw.view selectedPlace:&lat lon:&lon name:&name];
+    [mw.view centerOnLon:lon lat:lat];
 }
 
 NSButton *smallButton(NSString *title, NSString *tip, void (^action)(void)) {
@@ -2943,7 +3608,7 @@ void cmdMap() {
         ADIFNightTrack(mw.window);
         mw.window.releasedWhenClosed = NO;
         mw.window.hidesOnDeactivate = NO;
-        mw.window.contentMinSize = NSMakeSize(960, 640);
+        mw.window.contentMinSize = NSMakeSize(1100, 700);
         NSView *root = mw.window.contentView;
         // The layers: a row each, in sections (areas, programs, places), with its Show, Overlay and
         // Labels boxes under their titles. The Spots layer's boxes go in the Spots card.
@@ -2962,7 +3627,7 @@ void cmdMap() {
             return t;
         };
         NSMutableArray *layerRows = [NSMutableArray arrayWithObject:@[
-            heading(N(@"Areas"), NSFontWeightSemibold), heading(N(@"Show"), NSFontWeightMedium), heading(N(@"Overlay"), NSFontWeightMedium),
+            heading(N(@"Worked areas"), NSFontWeightSemibold), heading(N(@"Worked"), NSFontWeightMedium), heading(N(@"All"), NSFontWeightMedium),
             heading(N(@"Labels"), NSFontWeightMedium)
         ]];
         std::vector<NSInteger> sections;
@@ -3003,15 +3668,17 @@ void cmdMap() {
             ADIFOnAction(mw.labels[id], ^{ layerChanged(id, 2); });
         }
         // Markers, and how to colour them.
-        mw.contacts = ADIFCheckbox(@"Markers", flag("mapContacts", false));
+        mw.contacts = ADIFCheckbox(@"QSO markers", flag("mapContacts", false));
         mw.contacts.identifier = @"map.contacts";
         mw.contacts.toolTip = T(@"A marker at each contact's own place: its LAT and LON, else a GRIDSQUARE of 6 or 8 characters (a 4-character "
                               @"square is 100 km or more across: Show grid squares shows those). Style Options chooses pins, dots or crosshairs");
-        mw.lines = ADIFCheckbox(@"Lines to contacts", flag("mapPaths", false));
+        mw.lines = ADIFCheckbox(@"Contact paths", flag("mapPaths", false));
+        mw.lines.identifier = @"map.lines";
         mw.lines.toolTip = T(@"A great-circle line from your station to each contact, in its marker's colour; Style Options chooses their look");
         mw.programs = pullDown(@"Other programs", @"Other programs' references, a colour each: WWFF parks, SOTA summits, IOTA islands, GMA, "
                                                   @"bunkers, castles... (IOTA starts hidden: callbooks fill it in for every island station)");
-        mw.mine = ADIFCheckbox(@"My station", flag("mapMine", true));
+        mw.mine = ADIFCheckbox(@"Home station", flag("mapMine", true));
+        mw.mine.identifier = @"map.mine";
         mw.mine.toolTip = T(@"A star at each MY_GRIDSQUARE in the log");
         mw.colorBy = ADIFPopup(@[ @"Colour by confirmation", @"Colour by band", @"Colour by mode", @"Colour by QSO count",
                                   @"Colour by year first worked" ]);
@@ -3033,6 +3700,7 @@ void cmdMap() {
                                             ^{ showStyleOptions(); });
         styleButton.identifier = @"map.style.open";
         mw.region = pullDown(@"Region", @"Zoom to a continent (on the globe, turn to face it)");
+        mw.region.identifier = @"map.region";
         {
             // Continents as ADIF's CONT names them, each a box of longitude and latitude to show.
             struct Box {
@@ -3071,7 +3739,12 @@ void cmdMap() {
         [mw.zoomLabel.widthAnchor constraintEqualToConstant:42].active = YES;  // up to "16384×" (Map Detail)
         NSButton *out = smallButton(@"−", @"Zoom out (−)", ^{ [mw.view zoomBy:1 / 1.5]; });
         NSButton *in = smallButton(@"+", @"Zoom in (+, or double-click the map)", ^{ [mw.view zoomBy:1.5]; });
-        NSButton *fit = smallButton(@"Fit Log", @"Zoom to the log's QSOs", ^{ [mw.view fitLog]; });
+        NSButton *fit = smallButton(@"Fit Log", @"Zoom to the log's QSOs (in Live, to the spots shown)", ^{
+            if (workflow() == 1) [mw.view fitSpots];
+            else [mw.view fitLog];
+        });
+        NSButton *home = smallButton(@"Home", @"Your station in the middle of the map, at the zoom it has (Settings, Your Station's grid)",
+                                     ^{ [mw.view goHome]; });
         NSButton *world = smallButton(@"World", @"The whole world (0)", ^{ [mw.view showWorld]; });
         NSButton *save = smallButton(@"Export PNG...", @"Save the map as it is shown now, with its legend", ^{ exportPng(); });
         mw.spotsButton = smallButton(@"Sources and Filters...", @"The spots the Spots layer shows: how new, from which sources, which program; and what the "
@@ -3124,8 +3797,9 @@ void cmdMap() {
         mw.moreFilters = smallButton(@"More Filters...", @"Keep the QSOs in chosen places: continents, countries, zones, US states, counties and "
                                                           @"regions, POTA locations", ^{ showMoreFilters(); });
         mw.moreFilters.identifier = @"map.filter.more";
-        mw.clearFilters = smallButton(@"Clear", @"Show every QSO again: all bands, modes, dates and places", ^{
+        mw.clearFilters = smallButton(@"Clear", @"Show every QSO again: all bands, modes, dates and places (and in Live, every spot)", ^{
             for (NSPopUpButton *p in @[ mw.band, mw.mode, mw.dates, mw.confirmed ]) [p selectItemAtIndex:0];
+            if (workflow() == 1 && mw.spotLens > 0) chooseQuickView(0);
             for (const char *key : {"mapFilterContinents", "mapFilterDxcc", "mapFilterCq", "mapFilterItu", "mapFilterStates", "mapFilterCounties",
                                     "mapFilterRegions", "mapFilterPota"})
                 setSetting(key, "");
@@ -3133,24 +3807,16 @@ void cmdMap() {
             refresh();
         });
         mw.clearFilters.identifier = @"map.filter.clear";
-        // The list beside the map (its button shows or hides it): the parks, contacts or spots in view.
-        mw.listToggle = [NSButton buttonWithTitle:T(@"List") target:nil action:nil];
-        [mw.listToggle setButtonType:NSButtonTypePushOnPushOff];
-        mw.listToggle.image = [NSImage imageWithSystemSymbolName:@"sidebar.right" accessibilityDescription:nil];
-        mw.listToggle.imagePosition = NSImageOnly;  // the title stays, for VoiceOver
-        mw.listToggle.toolTip = T(@"The list beside the map: the QSOs of what you click, or the contacts, POTA parks or spots in view, with "
-                                  @"their distance and bearing from your station, the map's centre or a grid square");
-        mw.listToggle.identifier = @"map.list.toggle";
-        ADIFOnAction(mw.listToggle, ^{ showListPanel(mw.listToggle.state == NSControlStateValueOn); });
+        // The list under the map: the QSOs of what you click, or the contacts, parks or spots in view.
         mw.listPanel = [[NSView alloc] initWithFrame:NSZeroRect];
         mw.listPanel.identifier = @"map.list";
-        mw.listKind = [NSSegmentedControl segmentedControlWithLabels:@[ T(@"Selected"), T(@"Contacts"), T(@"Parks"), T(@"Spots") ]
+        mw.listKind = [NSSegmentedControl segmentedControlWithLabels:@[ T(@"Selected"), T(@"Contacts"), T(@"Parks"), T(@"Spots"), T(@"Recent") ]
                                                          trackingMode:NSSegmentSwitchTrackingSelectOne
                                                                target:nil
                                                                action:nil];
-        mw.listKind.selectedSegment = number("mapListKind", 0, 3);
-        mw.listKind.toolTip = T(@"What the list shows: the QSOs of what you clicked on the map, or the contacts (QSOs with a grid or a place), "
-                                @"the POTA parks or the spots in view");
+        mw.listKind.selectedSegment = number("mapListKind", 0, kListKinds - 1);
+        mw.listKind.toolTip = T(@"What the list shows: the QSOs of what you clicked on the map; the contacts (QSOs with a grid or a place), the POTA "
+                                @"parks or the spots in view; or the log's QSOs, the newest first");
         mw.listKind.identifier = @"map.list.kind";
         ADIFOnAction(mw.listKind, ^{
             setSetting("mapListKind", std::to_string(mw.listKind.selectedSegment));
@@ -3160,6 +3826,7 @@ void cmdMap() {
         mw.listTitle.font = [NSFont boldSystemFontOfSize:NSFont.systemFontSize];
         mw.listTitle.lineBreakMode = NSLineBreakByTruncatingTail;
         mw.listTitle.identifier = @"map.list.title";
+        mw.listTitle.hidden = YES;  // the tabs say what they list, and how many
         [mw.listTitle setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
         mw.listUnits = [NSSegmentedControl segmentedControlWithLabels:@[ @"mi", @"km" ] trackingMode:NSSegmentSwitchTrackingSelectOne target:nil
                                                                action:nil];
@@ -3169,6 +3836,8 @@ void cmdMap() {
         mw.listUnits.identifier = @"map.list.units";
         ADIFOnAction(mw.listUnits, ^{
             setSetting("mapListUnits", mw.listUnits.selectedSegment == 0 ? "mi" : "km");
+            mw.view.scaleInMiles = mw.listUnits.selectedSegment == 0;  // the map's distance scale too
+            mw.view.needsDisplay = YES;
             fillViewList();
         });
         mw.listFrom = ADIFPopup(@[ @"Your station", @"Map centre", @"Grid square:" ]);
@@ -3234,33 +3903,32 @@ void cmdMap() {
         listScroll.hasHorizontalScroller = YES;
         listScroll.autohidesScrollers = YES;
         listScroll.borderType = NSBezelBorder;
-        mw.listHint = [NSTextField wrappingLabelWithString:@""];
+        mw.listHint = [NSTextField labelWithString:@""];  // one line in the list's footer; all of it as its tooltip
         mw.listHint.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
         mw.listHint.textColor = NSColor.secondaryLabelColor;
-        mw.listHint.maximumNumberOfLines = 4;
+        mw.listHint.lineBreakMode = NSLineBreakByTruncatingTail;
+        [mw.listHint setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow - 1 forOrientation:NSLayoutConstraintOrientationHorizontal];
         mw.listHint.identifier = @"map.list.hint";
         mw.view = [[ADIFMapView alloc] initWithFrame:NSZeroRect];
-        mw.view.onHover = ^(const ADIFMapHit &h) {  // what's under the pointer, else what was chosen, else how to use the map
+        mw.view.onHover = ^(const ADIFMapHit &h) {  // what's under the pointer, in the footer; else how to use the map
             std::string d = describe(h);
-            if (!d.empty()) showContact(h, d);
-            else showContact(mw.chosen.empty() ? ADIFMapHit() : mw.chosenHit, !mw.chosen.empty() ? mw.chosen : idleStatus());
+            showHover(d.empty() ? idleStatus() : d);
         };
         mw.view.onSelect = ^(const ADIFMapHit &h) { selected(h); };
-        mw.view.onLegendMoved = ^{
-            NSRect legend = mw.view.legendFrame;
-            mw.cardStack.keepClear = NSIsEmptyRect(legend) ? 0 : NSMaxY(legend);
-            mw.cardStack.needsLayout = YES;
-        };
         mw.view.onViewChanged = ^{
             updateZoomLabel();
             queueViewList();
         };
         mw.status = [NSTextField wrappingLabelWithString:@""];
         mw.status.identifier = @"map.status";
-        mw.status.maximumNumberOfLines = 5;
+        mw.status.maximumNumberOfLines = 16;
         mw.status.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
-        mw.useSpot = smallButton(@"Use in New QSO", @"Fill New QSO with the spot chosen on the map: its call, frequency, band, mode and reference",
+        mw.useSpot = smallButton(@"New QSO", @"Fill New QSO with the spot chosen on the map: its call, frequency, band, mode and reference",
                                  ^{ useSelectedSpot(); });
+        mw.useSpot.image = [NSImage imageWithSystemSymbolName:@"plus.circle" accessibilityDescription:nil];
+        mw.useSpot.imagePosition = NSImageLeading;
+        mw.useSpot.bezelColor = NSColor.systemGreenColor;
+        mw.useSpot.keyEquivalent = @"";
         mw.useSpot.identifier = @"map.spots.use";
         mw.useSpot.hidden = YES;
         // The list's footer: the page (with the previous and next), how many a page, the columns.
@@ -3330,162 +3998,404 @@ void cmdMap() {
             for (size_t &page : mw.listPage) page = 0;
             fillViewList();
         });
-        NSStackView *listFromRow = [NSStackView stackViewWithViews:@[ ADIFLabel(@"Nearest to:"), mw.listFrom, mw.listGrid ]];
-        NSStackView *listSearchRow = [NSStackView stackViewWithViews:@[ mw.listSearch, mw.listWithin ]];
-        listSearchRow.spacing = 6;
-        listFromRow.spacing = 6;
+        // Across its top: what it lists and its title, then the search and the distance; under the
+        // table: the pages, where it measures from, the hint, how many a page and the columns.
+        NSStackView *listTop = [[NSStackView alloc] initWithFrame:NSZeroRect];
+        listTop.spacing = 8;
+        for (NSView *v in @[ mw.listKind, mw.listTitle ]) [listTop addView:v inGravity:NSStackViewGravityLeading];
+        for (NSView *v in @[ mw.listSearch, mw.listWithin ]) [listTop addView:v inGravity:NSStackViewGravityTrailing];
+        NSLayoutConstraint *searchWidth = [mw.listSearch.widthAnchor constraintEqualToConstant:220];
+        searchWidth.priority = NSLayoutPriorityDefaultLow + 1;
+        searchWidth.active = YES;
+        [mw.listSearch.widthAnchor constraintGreaterThanOrEqualToConstant:120].active = YES;
+        [mw.listWithin setContentCompressionResistancePriority:NSLayoutPriorityDefaultHigh + 1 forOrientation:NSLayoutConstraintOrientationHorizontal];
         NSStackView *listFooter = [[NSStackView alloc] initWithFrame:NSZeroRect];
-        listFooter.spacing = 4;
-        for (NSView *v in @[ mw.listPrev, mw.listPageLabel, mw.listNext ]) [listFooter addView:v inGravity:NSStackViewGravityLeading];
-        [listFooter addView:mw.listPageSize inGravity:NSStackViewGravityTrailing];
-        [listFooter addView:mw.listColumnsMenu inGravity:NSStackViewGravityTrailing];
-        for (NSView *v in @[ mw.listKind, mw.listTitle, mw.listUnits, listFromRow, listSearchRow, listScroll, listFooter, mw.listHint ]) {
+        listFooter.spacing = 6;
+        for (NSView *v in @[ mw.listPrev, mw.listPageLabel, mw.listNext, ADIFLabel(@"Nearest to:"), mw.listFrom, mw.listGrid, mw.listUnits, mw.listHint ])
+            [listFooter addView:v inGravity:NSStackViewGravityLeading];
+        [listFooter setCustomSpacing:14 afterView:mw.listNext];
+        // In a narrow window "Nearest to" gives way before the page size and the columns.
+        [mw.listFrom setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+        for (NSView *v in @[ mw.listPageSize, mw.listColumnsMenu ])
+            [v setContentCompressionResistancePriority:NSLayoutPriorityDefaultHigh + 1 forOrientation:NSLayoutConstraintOrientationHorizontal];
+        [listFooter setCustomSpacing:14 afterView:mw.listUnits];
+        for (NSView *v in @[ mw.listPageSize, mw.listColumnsMenu ]) [listFooter addView:v inGravity:NSStackViewGravityTrailing];
+        for (NSView *v in @[ listTop, listScroll, listFooter ]) {
             v.translatesAutoresizingMaskIntoConstraints = NO;
             [mw.listPanel addSubview:v];
         }
         [NSLayoutConstraint activateConstraints:@[
-            [mw.listKind.topAnchor constraintEqualToAnchor:mw.listPanel.topAnchor constant:10],
-            [mw.listKind.leadingAnchor constraintEqualToAnchor:mw.listPanel.leadingAnchor constant:8],
-            [mw.listKind.trailingAnchor constraintLessThanOrEqualToAnchor:mw.listPanel.trailingAnchor constant:-10],
-            [mw.listTitle.topAnchor constraintEqualToAnchor:mw.listKind.bottomAnchor constant:10],
-            [mw.listTitle.leadingAnchor constraintEqualToAnchor:mw.listPanel.leadingAnchor constant:8],
-            [mw.listTitle.trailingAnchor constraintLessThanOrEqualToAnchor:mw.listUnits.leadingAnchor constant:-8],
-            [mw.listUnits.centerYAnchor constraintEqualToAnchor:mw.listTitle.centerYAnchor],
-            [mw.listUnits.trailingAnchor constraintEqualToAnchor:mw.listPanel.trailingAnchor constant:-10],
-            [listFromRow.topAnchor constraintEqualToAnchor:mw.listTitle.bottomAnchor constant:8],
-            [listFromRow.leadingAnchor constraintEqualToAnchor:mw.listPanel.leadingAnchor constant:8],
-            [listFromRow.trailingAnchor constraintLessThanOrEqualToAnchor:mw.listPanel.trailingAnchor constant:-10],
-            [listSearchRow.topAnchor constraintEqualToAnchor:listFromRow.bottomAnchor constant:6],
-            [listSearchRow.leadingAnchor constraintEqualToAnchor:mw.listPanel.leadingAnchor constant:8],
-            [listSearchRow.trailingAnchor constraintEqualToAnchor:mw.listPanel.trailingAnchor constant:-10],
-            [listScroll.topAnchor constraintEqualToAnchor:listSearchRow.bottomAnchor constant:6],
-            [listScroll.leadingAnchor constraintEqualToAnchor:mw.listPanel.leadingAnchor constant:8],
+            [listTop.topAnchor constraintEqualToAnchor:mw.listPanel.topAnchor constant:8],
+            [listTop.leadingAnchor constraintEqualToAnchor:mw.listPanel.leadingAnchor constant:10],
+            [listTop.trailingAnchor constraintEqualToAnchor:mw.listPanel.trailingAnchor constant:-10],
+            [listScroll.topAnchor constraintEqualToAnchor:listTop.bottomAnchor constant:6],
+            [listScroll.leadingAnchor constraintEqualToAnchor:mw.listPanel.leadingAnchor constant:10],
             [listScroll.trailingAnchor constraintEqualToAnchor:mw.listPanel.trailingAnchor constant:-10],
             [listFooter.topAnchor constraintEqualToAnchor:listScroll.bottomAnchor constant:6],
-            [listFooter.leadingAnchor constraintEqualToAnchor:mw.listPanel.leadingAnchor constant:8],
+            [listFooter.leadingAnchor constraintEqualToAnchor:mw.listPanel.leadingAnchor constant:10],
             [listFooter.trailingAnchor constraintEqualToAnchor:mw.listPanel.trailingAnchor constant:-10],
-            [mw.listHint.topAnchor constraintEqualToAnchor:listFooter.bottomAnchor constant:6],
-            [mw.listHint.leadingAnchor constraintEqualToAnchor:mw.listPanel.leadingAnchor constant:8],
-            [mw.listHint.trailingAnchor constraintEqualToAnchor:mw.listPanel.trailingAnchor constant:-10],
-            [mw.listHint.bottomAnchor constraintEqualToAnchor:mw.listPanel.bottomAnchor constant:-6],
-            [mw.listHint.heightAnchor constraintGreaterThanOrEqualToConstant:28],
+            [listFooter.bottomAnchor constraintEqualToAnchor:mw.listPanel.bottomAnchor constant:-6],
         ]];
 
-        // ── The controls float on the map: a bar across its top (the cards' switches; how the map
-        // colours, projects and frames; Style Options, Export and the list), the cards under it
-        // down the left (Layers, Contacts, Filters, Spots) and the zoom buttons down the right ──
-        auto cluster = [](NSArray<NSView *> *views) {
-            NSStackView *c = [NSStackView stackViewWithViews:views];
-            c.spacing = 8;
-            return c;
-        };
+        // ── The window: a header (History or Live, the log, Style Options and Export, the panes'
+        // buttons); the sidebar (Quick Views, Spots, Layers, Map, Filters); the map over its list;
+        // the panel of what was chosen; a footer for what is under the pointer ──
         auto line = [](NSArray<NSView *> *views) {
             NSStackView *r = [NSStackView stackViewWithViews:views];
             r.spacing = 8;
             return r;
         };
-        auto rows = [](NSArray<NSView *> *views) {  // one under another, at their own widths
+        auto rows = [](NSArray<NSView *> *views, CGFloat spacing) {  // one under another, at their own widths
             NSStackView *c = [NSStackView stackViewWithViews:views];
             c.orientation = NSUserInterfaceLayoutOrientationVertical;
             c.alignment = NSLayoutAttributeLeading;
-            c.spacing = 6;
+            c.spacing = spacing;
             return c;
+        };
+        auto caption = [](NSString *text) {
+            NSTextField *t = [NSTextField labelWithString:T(text).localizedUppercaseString];
+            t.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize - 1 weight:NSFontWeightSemibold];
+            t.textColor = NSColor.secondaryLabelColor;
+            return t;
         };
         auto iconOnly = [](NSButton *b, NSString *symbol) {  // the title stays, for VoiceOver (and the tests)
             b.image = [NSImage imageWithSystemSymbolName:symbol accessibilityDescription:nil];
-            b.imagePosition = NSImageOnly;
+            if (b.image) b.imagePosition = NSImageOnly;
         };
-        // The cards' switches: any of them on at once.
-        mw.panels = [NSSegmentedControl segmentedControlWithLabels:@[ T(@"Layers"), T(@"Contacts"), T(@"Filters"), T(@"Spots") ]
-                                                      trackingMode:NSSegmentSwitchTrackingSelectAny
-                                                            target:nil
-                                                            action:nil];
-        {
-            NSString *const symbols[] = {@"square.3.stack.3d", @"person.2", @"line.3.horizontal.decrease.circle", @"antenna.radiowaves.left.and.right"};
-            NSString *const tips[] = {
-                N(@"Layers: what the map shows of your log (worked squares, countries, US states and counties, zones, POTA, IOTA), the outlines "
-                  @"over it and their labels"),
-                N(@"Contacts: a marker at each contact's own place, lines to them, your station, and other programs' references"),
-                N(@"Filters: which QSOs the map shows (band, mode, dates, confirmation, places), and which POTA parks you haven't worked"),
-                N(@"Spots: the stations spotted now, where the spots come from, and one station's spots")};
-            std::string was = setting("mapPanels");
-            int on = was.empty() ? (setting("mapControls") == "0" ? 0 : 1) : std::atoi(was.c_str());  // at first Layers (none if Controls hid all)
-            for (int i = 0; i < 4; ++i) {
-                [mw.panels setImage:[NSImage imageWithSystemSymbolName:symbols[i] accessibilityDescription:nil] forSegment:i];
-                [mw.panels setImageScaling:NSImageScaleProportionallyDown forSegment:i];
-                [mw.panels setToolTip:T(tips[i]) forSegment:i];
-                [mw.panels setSelected:(on >> i) & 1 forSegment:i];
-            }
+        // The workflows: History, the log; Live, the spots.
+        mw.workflow = [NSSegmentedControl segmentedControlWithLabels:@[ T(@"History"), T(@"Live") ]
+                                                         trackingMode:NSSegmentSwitchTrackingSelectOne
+                                                               target:nil
+                                                               action:nil];
+        [mw.workflow setImage:[NSImage imageWithSystemSymbolName:@"clock.arrow.circlepath" accessibilityDescription:nil] forSegment:0];
+        [mw.workflow setImage:[NSImage imageWithSystemSymbolName:@"antenna.radiowaves.left.and.right" accessibilityDescription:nil] forSegment:1];
+        [mw.workflow setToolTip:T(@"History: your log on the map, and what it reached on each layer (squares, countries, states, zones, parks), "
+                                  @"to look back and plan")
+                     forSegment:0];
+        [mw.workflow setToolTip:T(@"Live: the stations spotted now, and which of them your log needs (a new DXCC, band, mode or park)")
+                     forSegment:1];
+        mw.workflow.selectedSegment = workflow();
+        mw.workflow.identifier = @"map.workflow";
+        ADIFOnAction(mw.workflow, ^{ switchWorkflow((int)mw.workflow.selectedSegment); });
+        mw.summaryLabel = [NSTextField labelWithString:@""];
+        mw.summaryLabel.font = [NSFont systemFontOfSize:NSFont.systemFontSize weight:NSFontWeightSemibold];
+        mw.summaryLabel.lineBreakMode = NSLineBreakByTruncatingMiddle;
+        [mw.summaryLabel setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+        mw.summaryLabel.identifier = @"map.summary";
+        // The panes' buttons: the sidebar, the list, the selected panel.
+        NSString *const paneTitles[3] = {N(@"Sidebar"), N(@"List"), N(@"Selected")};
+        NSString *const paneSymbols[3] = {@"sidebar.left", @"rectangle.bottomthird.inset.fill", @"sidebar.right"};
+        NSString *const paneIds[3] = {@"map.sidebar.toggle", @"map.list.toggle", @"map.selected.toggle"};
+        NSString *const paneTips[3] = {
+            N(@"Show or hide the sidebar: the Quick Views, the spots, the layers, the map's colours and the filters"),
+            N(@"Show or hide the list under the map: the QSOs of what you click, or the contacts, POTA parks or spots in view, with their "
+              @"distance and bearing from your station, the map's centre or a grid square"),
+            N(@"Show or hide the panel of what you chose on the map (its QSOs, what it means for your log, New QSO), and the situation")};
+        for (int i = 0; i < 3; ++i) {
+            NSButton *b = [NSButton buttonWithTitle:T(paneTitles[i]) target:nil action:nil];
+            [b setButtonType:NSButtonTypePushOnPushOff];
+            iconOnly(b, paneSymbols[i]);
+            b.toolTip = T(paneTips[i]);
+            b.identifier = paneIds[i];
+            int pane = i;
+            ADIFOnAction(b, ^{ showPane(pane, mw.paneToggle[pane].state == NSControlStateValueOn); });
+            mw.paneToggle[i] = b;
         }
-        mw.panels.identifier = @"map.panels";
-        ADIFOnAction(mw.panels, ^{ showPanels(); });
-        // The cards: a caption (with, for Filters, Clear beside it), then the controls.
-        auto card = [](NSString *caption, NSString *ident, NSView *body, NSView *corner) {
-            ADIFMapPanel *c = [[ADIFMapPanel alloc] initWithFrame:NSZeroRect];
-            c.identifier = ident;
-            NSTextField *head = [NSTextField labelWithString:T(caption).localizedUppercaseString];
-            head.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize - 1 weight:NSFontWeightSemibold];
-            head.textColor = NSColor.secondaryLabelColor;
-            for (NSView *v in corner ? @[ head, body, corner ] : @[ head, body ]) {
-                v.translatesAutoresizingMaskIntoConstraints = NO;
-                [c addSubview:v];
-            }
-            [NSLayoutConstraint activateConstraints:@[
-                [head.topAnchor constraintEqualToAnchor:c.topAnchor constant:corner ? 13 : 10],
-                [head.leadingAnchor constraintEqualToAnchor:c.leadingAnchor constant:12],
-                [head.trailingAnchor constraintLessThanOrEqualToAnchor:corner ? corner.leadingAnchor : c.trailingAnchor constant:-12],
-                [body.topAnchor constraintEqualToAnchor:head.bottomAnchor constant:corner ? 11 : 8],
-                [body.leadingAnchor constraintEqualToAnchor:c.leadingAnchor constant:12],
-                [body.trailingAnchor constraintLessThanOrEqualToAnchor:c.trailingAnchor constant:-12],
-                [body.bottomAnchor constraintEqualToAnchor:c.bottomAnchor constant:-12],
-            ]];
-            if (corner)
-                [NSLayoutConstraint activateConstraints:@[
-                    [corner.centerYAnchor constraintEqualToAnchor:head.centerYAnchor],
-                    [corner.trailingAnchor constraintEqualToAnchor:c.trailingAnchor constant:-10],
-                ]];
+        iconOnly(styleButton, @"paintpalette");
+        iconOnly(save, @"square.and.arrow.up");
+        NSStackView *header = [[NSStackView alloc] initWithFrame:NSZeroRect];
+        header.spacing = 12;
+        header.edgeInsets = NSEdgeInsetsMake(8, 12, 8, 12);
+        header.identifier = @"map.header";
+        [header addView:mw.summaryLabel inGravity:NSStackViewGravityLeading];
+        for (NSView *v in @[ styleButton, save, mw.paneToggle[0], mw.paneToggle[1], mw.paneToggle[2] ]) [header addView:v inGravity:NSStackViewGravityTrailing];
+        [header setCustomSpacing:6 afterView:styleButton];
+        [header setCustomSpacing:20 afterView:save];
+        [header setCustomSpacing:4 afterView:mw.paneToggle[0]];
+        [header setCustomSpacing:4 afterView:mw.paneToggle[1]];
+
+        // The toolbar under the header: History or Live; what the map shows now (the QSOs and their
+        // dates, or the stations spotted); the filters, the ones it can't show as tags; Clear.
+        mw.scopeLabel = [NSTextField labelWithString:@""];
+        mw.scopeLabel.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightMedium];
+        mw.scopeLabel.identifier = @"map.scope";
+        mw.continentPopup = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+        mw.continentPopup.toolTip = T(@"Keep the QSOs and spots on one continent (More Filters can choose several)");
+        mw.continentPopup.identifier = @"map.filter.continent";
+        ADIFOnAction(mw.continentPopup, ^{
+            NSString *code = mw.continentPopup.selectedItem.representedObject;
+            if (mw.continentPopup.indexOfSelectedItem == 0) setSetting("mapFilterContinents", "");
+            else if (code) setSetting("mapFilterContinents", ADIFStd(code));
+            else return;  // "2 continents": as More Filters left them
+            if (mw.filterPopover) fillPlaceControls();
+            refresh();
+        });
+        mw.chips = [[NSStackView alloc] initWithFrame:NSZeroRect];
+        mw.chips.spacing = 4;
+        mw.chips.identifier = @"map.chips";
+        for (NSControl *c in @[ mw.band, mw.mode, mw.dates, mw.confirmed, mw.continentPopup, mw.moreFilters, mw.clearFilters ]) {
+            c.controlSize = NSControlSizeSmall;
+            c.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        }
+        auto cluster = [](NSArray<NSView *> *views) {
+            NSStackView *c = [NSStackView stackViewWithViews:views];
+            c.spacing = 6;
+            c.detachesHiddenViews = YES;
             return c;
         };
-        NSGridView *qsoFilters = [NSGridView gridViewWithViews:@[ @[ mw.band, mw.mode ], @[ mw.dates, mw.confirmed ] ]];
-        qsoFilters.rowSpacing = 6;
-        qsoFilters.columnSpacing = 8;
-        NSStackView *filterRows = rows(@[ qsoFilters, mw.moreFilters, line(@[ parksIn, mw.parkPlacesButton ]) ]);
-        [filterRows setCustomSpacing:12 afterView:mw.moreFilters];  // the parks' filter apart from the QSOs'
-        mw.clearFilters.controlSize = NSControlSizeSmall;
-        mw.clearFilters.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        ADIFFlowView *toolbar = [[ADIFFlowView alloc] initWithFrame:NSZeroRect];  // wraps in a narrow window
+        toolbar.gap = 15;
+        toolbar.centred = YES;
+        toolbar.identifier = @"map.toolbar";
+        for (NSView *v in @[ mw.workflow, mw.scopeLabel, cluster(@[ mw.band, mw.mode, mw.dates, mw.confirmed, mw.continentPopup, mw.moreFilters ]),
+                             cluster(@[ mw.chips, mw.clearFilters ]) ])
+            [toolbar addSubview:v];
+
+        // The sidebar: sections, each with a triangle to close it.
+        mw.sections = [NSMutableDictionary dictionary];
+        mw.sectionTriangles = [NSMutableDictionary dictionary];
+        mw.sectionTitles = [NSMutableDictionary dictionary];
+        std::set<std::string> closedSections;
+        for (const std::string &n : splitSetting("mapSectionsClosed", ',')) closedSections.insert(n);
+        auto section = [&](NSString *name, NSString *title, NSView *body) -> NSView * {
+            NSButton *triangle = [NSButton buttonWithTitle:@"" target:nil action:nil];
+            triangle.bezelStyle = NSBezelStyleDisclosure;
+            [triangle setButtonType:NSButtonTypePushOnPushOff];
+            triangle.identifier = [@"map.section." stringByAppendingString:name];
+            triangle.accessibilityLabel = T(title);
+            NSTextField *head = caption(title);
+            head.identifier = [NSString stringWithFormat:@"map.section.%@.title", name];
+            NSStackView *heading = [NSStackView stackViewWithViews:@[ triangle, head ]];
+            heading.spacing = 2;
+            NSStackView *sec = rows(@[ heading, body ], 8);
+            sec.identifier = [@"map.group." stringByAppendingString:name];
+            [body.widthAnchor constraintEqualToAnchor:sec.widthAnchor].active = YES;
+            mw.sections[name] = body, mw.sectionTriangles[name] = triangle, mw.sectionTitles[name] = head;
+            bool open = !closedSections.count(ADIFStd(name));
+            triangle.state = open ? NSControlStateValueOn : NSControlStateValueOff;
+            body.hidden = !open;
+            __weak NSButton *weak = triangle;
+            ADIFOnAction(triangle, ^{ setSectionOpen(name, weak.state == NSControlStateValueOn); });
+            return sec;
+        };
+        auto fullWidth = [](NSStackView *stack, NSArray<NSView *> *views) {  // these as wide as the stack
+            for (NSView *v in views) [v.widthAnchor constraintEqualToAnchor:stack.widthAnchor].active = YES;
+        };
+        // Quick Views: History's layers, Live's kinds of spots, with their counts.
+        mw.quickRows = [[ADIFQuickViews alloc] init];
+        mw.quickRows.onChoose = ^(NSInteger row) { chooseQuickView(row); };
+        mw.quickTable = [[NSTableView alloc] initWithFrame:NSZeroRect];
+        NSTableColumn *quickColumn = [[NSTableColumn alloc] initWithIdentifier:@"quick"];
+        quickColumn.resizingMask = NSTableColumnAutoresizingMask;
+        [mw.quickTable addTableColumn:quickColumn];
+        mw.quickTable.headerView = nil;
+        mw.quickTable.style = NSTableViewStyleSourceList;
+        mw.quickTable.columnAutoresizingStyle = NSTableViewLastColumnOnlyAutoresizingStyle;
+        mw.quickTable.rowHeight = 22;
+        mw.quickTable.intercellSpacing = NSMakeSize(0, 2);
+        mw.quickTable.backgroundColor = NSColor.clearColor;
+        mw.quickTable.dataSource = mw.quickRows;
+        mw.quickTable.delegate = mw.quickRows;
+        mw.quickTable.identifier = @"map.views";
+        mw.quickTable.accessibilityLabel = T(@"Quick Views");
+        NSScrollView *quickScroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
+        quickScroll.documentView = mw.quickTable;
+        quickScroll.drawsBackground = NO;
+        quickScroll.borderType = NSNoBorder;
+        quickScroll.hasVerticalScroller = NO;
+        mw.quickHeight = [quickScroll.heightAnchor constraintEqualToConstant:240];
+        mw.quickHeight.active = YES;
+        // Spots (Live's): the layer's boxes, their sources and filters, one station's spots.
         NSStackView *spotsLine = line(@[ mw.spotsButton, mw.refreshSpotsButton ]);
         [spotsLine setCustomSpacing:4 afterView:mw.spotsButton];
         NSStackView *onlyLine = line(@[ mw.spotsOnly, mw.spotsOnlyCall ]);
         [onlyLine setCustomSpacing:4 afterView:mw.spotsOnly];
         NSStackView *spotLayer = line(@[ mw.show[kLayerSpots], mw.overlay[kLayerSpots], mw.labels[kLayerSpots] ]);
-        spotLayer.spacing = 14;
-        mw.cards[0] = card(N(@"Layers"), @"map.group.layers", layers, nil);
-        mw.cards[1] = card(N(@"Contacts"), @"map.group.contacts", rows(@[ mw.contacts, mw.lines, mw.mine, mw.programs ]), nil);
-        mw.cards[2] = card(N(@"Filters"), @"map.group.filters", filterRows, mw.clearFilters);
-        mw.cards[3] = card(N(@"Spots"), @"map.group.spots", rows(@[ spotLayer, spotsLine, onlyLine ]), nil);
-        mw.cardStack = [[ADIFCardStack alloc] initWithFrame:NSZeroRect];
-        mw.cardStack.identifier = @"map.cards";
-        for (NSView *c : mw.cards) [mw.cardStack addSubview:c];
-        mw.cardStack.onLayout = ^{ updateClear(); };
-        // The bar.
-        iconOnly(styleButton, @"paintpalette");
-        iconOnly(save, @"square.and.arrow.up");
-        mw.toolbar = [[ADIFFlowView alloc] initWithFrame:NSZeroRect];  // wraps in a narrow window
-        mw.toolbar.gap = 17;
-        mw.toolbar.trailingLast = YES;
-        mw.toolbar.centred = YES;
-        mw.toolbar.identifier = @"map.toolbar";
-        for (NSView *v in @[ mw.panels, mw.colorBy, cluster(@[ mw.projection, mw.region ]), cluster(@[ styleButton, save, mw.listToggle ]) ])
-            [mw.toolbar addSubview:v];
-        for (NSControl *c in @[ mw.panels, mw.colorBy, mw.projection, mw.region, styleButton, save, mw.listToggle ]) {  // compact, on the map
-            c.controlSize = NSControlSizeSmall;
-            c.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
-        }
-        mw.bar = [[ADIFMapPanel alloc] initWithFrame:NSZeroRect];
-        mw.bar.identifier = @"map.bar";
-        mw.toolbar.translatesAutoresizingMaskIntoConstraints = NO;
-        [mw.bar addSubview:mw.toolbar];
-        // The zoom buttons, as on other maps: in, the zoom, out; then the log and the world.
+        spotLayer.spacing = 12;
+        // Map: its colours, projection and region.
+        NSStackView *mapRows = rows(@[ mw.colorBy, mw.projection, mw.region ], 6);
+        fullWidth(mapRows, @[ mw.colorBy, mw.projection, mw.region ]);
+        // Filters (the QSOs' and spots' are in the toolbar): which parks you haven't worked show.
+        NSStackView *filterRows = rows(@[ line(@[ parksIn, mw.parkPlacesButton ]) ], 6);
+        NSView *contactsHead = heading(N(@"Contacts"), NSFontWeightSemibold), *sunHead = heading(N(@"Sun"), NSFontWeightSemibold);
+        // The sun: the grey line and day and night (Style Options says how, and when).
+        auto sunBox = [](NSString *title, const char *setting, NSString *tip) {
+            NSButton *b = ADIFCheckbox(title, flag(setting, false));
+            b.toolTip = T(tip);
+            std::string which = setting;
+            __weak NSButton *weak = b;
+            ADIFOnAction(b, ^{
+                saveFlag(which.c_str(), weak.state == NSControlStateValueOn);
+                applyStyle();
+                if (mw.styleWindow)
+                    if (NSButton *other = (NSButton *)findView(mw.styleWindow.contentView, [@"map.style." stringByAppendingString:which == "mapGreyLine" ? @"greyLine" : @"dayNight"]))
+                        other.state = weak.state;
+                fillStyle();
+            });
+            return b;
+        };
+        mw.greyLineBox = sunBox(@"Grey line", "mapGreyLine", N(@"The band of dawn and dusk round the Earth, where low-band paths open (Style Options: when)"));
+        mw.greyLineBox.identifier = @"map.greyline";
+        mw.dayNightBox = sunBox(@"Day and night", "mapDayNight", N(@"Night shaded on the map (Style Options: now or at the QSO chosen)"));
+        mw.dayNightBox.identifier = @"map.daynight";
+        NSStackView *layerSection = rows(@[ layers, contactsHead, mw.contacts, mw.lines, mw.mine, mw.programs, sunHead, mw.greyLineBox, mw.dayNightBox ], 5);
+        [layerSection setCustomSpacing:12 afterView:layers];
+        [layerSection setCustomSpacing:12 afterView:mw.programs];
+        NSArray<NSView *> *sectionViews = @[
+            section(@"views", N(@"Quick Views"), quickScroll), mw.spotsSection = section(@"spots", N(@"Spots"), rows(@[ spotLayer, spotsLine, onlyLine ], 8)),
+            section(@"layers", N(@"Layers"), layerSection), section(@"map", N(@"Map"), mapRows), section(@"filters", N(@"Filters"), filterRows)
+        ];
+        mw.spotsSection.hidden = workflow() != 1;
+        NSStackView *sideColumn = rows(sectionViews, 18);
+        sideColumn.edgeInsets = NSEdgeInsetsMake(12, 12, 16, 12);
+        for (NSView *v in sectionViews) [v.widthAnchor constraintEqualToAnchor:sideColumn.widthAnchor constant:-24].active = YES;
+        // A view that scrolls, in the window's sidebar material; its content from the top.
+        auto scrolling = [](NSView *content, NSString *ident, BOOL sidebar) {
+            ADIFMapColumnView *doc = [[ADIFMapColumnView alloc] initWithFrame:NSZeroRect];
+            content.translatesAutoresizingMaskIntoConstraints = NO;
+            [doc addSubview:content];
+            NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
+            scroll.drawsBackground = NO;
+            scroll.borderType = NSNoBorder;
+            scroll.hasVerticalScroller = YES;
+            scroll.autohidesScrollers = YES;
+            scroll.documentView = doc;
+            doc.translatesAutoresizingMaskIntoConstraints = NO;
+            NSVisualEffectView *pane = [[NSVisualEffectView alloc] initWithFrame:NSMakeRect(0, 0, 280, 400)];
+            pane.material = sidebar ? NSVisualEffectMaterialSidebar : NSVisualEffectMaterialContentBackground;
+            pane.blendingMode = NSVisualEffectBlendingModeBehindWindow;
+            pane.identifier = ident;
+            scroll.translatesAutoresizingMaskIntoConstraints = NO;
+            [pane addSubview:scroll];
+            [NSLayoutConstraint activateConstraints:@[
+                [content.topAnchor constraintEqualToAnchor:doc.topAnchor],
+                [content.leadingAnchor constraintEqualToAnchor:doc.leadingAnchor],
+                [content.trailingAnchor constraintEqualToAnchor:doc.trailingAnchor],
+                [content.bottomAnchor constraintEqualToAnchor:doc.bottomAnchor],
+                [doc.topAnchor constraintEqualToAnchor:scroll.contentView.topAnchor],
+                [doc.leadingAnchor constraintEqualToAnchor:scroll.contentView.leadingAnchor],
+                [doc.widthAnchor constraintEqualToAnchor:scroll.contentView.widthAnchor],
+                [scroll.topAnchor constraintEqualToAnchor:pane.topAnchor],
+                [scroll.bottomAnchor constraintEqualToAnchor:pane.bottomAnchor],
+                [scroll.leadingAnchor constraintEqualToAnchor:pane.leadingAnchor],
+                [scroll.trailingAnchor constraintEqualToAnchor:pane.trailingAnchor],
+            ]];
+            return pane;
+        };
+        mw.sidebar = scrolling(sideColumn, @"map.sidebar", YES);
+
+        // The panel of what was chosen: its name, what it is, its entity's bands and modes, New QSO
+        // and Center; then the situation.
+        mw.slots = [NSTextField wrappingLabelWithString:@""];
+        mw.slots.identifier = @"map.contact.slots";
+        mw.slots.maximumNumberOfLines = 4;
+        mw.slots.toolTip = T(@"This station's DXCC entity in your log: its bands and modes, green confirmed, orange worked, grey not yet; and "
+                             @"your QSOs with the call");
+        auto small = [](NSString *ident, NSInteger lines) {
+            NSTextField *f = [NSTextField wrappingLabelWithString:@""];
+            f.identifier = ident;
+            f.maximumNumberOfLines = lines;
+            f.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+            return f;
+        };
+        mw.situation = small(@"map.situation", 8);
+        mw.situation.hidden = YES;  // the rows say it (and it is their tooltip)
+        mw.today = small(@"map.today", 4);
+        mw.today.hidden = YES;      // a row says it
+        mw.statHost = [[NSView alloc] initWithFrame:NSZeroRect];
+        mw.air = small(@"map.air", 4);
+        mw.wantedLabel = [NSTextField wrappingLabelWithString:@""];
+        mw.wantedLabel.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        mw.wanted = [NSStackView stackViewWithViews:@[ mw.wantedLabel ]];
+        mw.wanted.orientation = NSUserInterfaceLayoutOrientationVertical;
+        mw.wanted.alignment = NSLayoutAttributeLeading;
+        mw.wanted.spacing = 2;
+        mw.wanted.identifier = @"map.wanted";
+        mw.wanted.detachesHiddenViews = YES;
+        [mw.wantedLabel.widthAnchor constraintEqualToAnchor:mw.wanted.widthAnchor].active = YES;
+        mw.contactTitle = [NSTextField labelWithString:@""];
+        mw.contactTitle.identifier = @"map.contact.title";
+        mw.contactTitle.font = [NSFont systemFontOfSize:NSFont.systemFontSize + 3 weight:NSFontWeightSemibold];
+        mw.contactTitle.lineBreakMode = NSLineBreakByTruncatingTail;
+        mw.contactTitle.allowsDefaultTighteningForTruncation = YES;
+        mw.centerButton = smallButton(@"Center", @"Centre the map on what you chose, at the zoom it has", ^{ centerChosen(); });
+        mw.centerButton.image = [NSImage imageWithSystemSymbolName:@"scope" accessibilityDescription:nil];
+        mw.centerButton.imagePosition = NSImageLeading;
+        mw.centerButton.identifier = @"map.center";
+        mw.centerButton.enabled = NO;
+        mw.centerButton.hidden = YES;
+        NSStackView *actions = line(@[ mw.centerButton ]);
+        mw.useSpot.bordered = NO;  // green, the panel's one main action
+        mw.useSpot.wantsLayer = YES;
+        mw.useSpot.layer.backgroundColor = NSColor.systemGreenColor.CGColor;
+        mw.useSpot.layer.cornerRadius = 7;
+        mw.useSpot.contentTintColor = NSColor.whiteColor;
+        mw.useSpot.attributedTitle = [[NSAttributedString alloc]
+            initWithString:T(@"New QSO")
+                attributes:@{NSFontAttributeName : [NSFont systemFontOfSize:NSFont.systemFontSize + 1 weight:NSFontWeightSemibold],
+                             NSForegroundColorAttributeName : NSColor.whiteColor}];
+        [mw.useSpot.heightAnchor constraintEqualToConstant:32].active = YES;
+        // What kind of thing is chosen, beside its name; a line under it; its facts; why it's worth working.
+        mw.chosenBadge = [NSTextField labelWithString:@""];
+        mw.chosenBadge.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize - 1 weight:NSFontWeightBold];
+        mw.chosenBadge.textColor = NSColor.whiteColor;
+        mw.chosenBadge.wantsLayer = YES;
+        mw.chosenBadge.layer.cornerRadius = 4;
+        mw.chosenBadge.identifier = @"map.chosen.kind";
+        mw.chosenBadge.hidden = YES;
+        [mw.chosenBadge setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
+        NSStackView *titleRow = line(@[ mw.contactTitle, mw.chosenBadge ]);
+        titleRow.detachesHiddenViews = YES;
+        mw.chosenSubtitle = [NSTextField labelWithString:@""];
+        mw.chosenSubtitle.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize + 1];
+        mw.chosenSubtitle.textColor = NSColor.secondaryLabelColor;
+        mw.chosenSubtitle.lineBreakMode = NSLineBreakByTruncatingTail;
+        mw.chosenSubtitle.identifier = @"map.chosen.subtitle";
+        mw.chosenFacts = [NSGridView gridViewWithNumberOfColumns:2 rows:0];
+        mw.chosenFacts.rowSpacing = 5;
+        mw.chosenFacts.columnSpacing = 12;
+        mw.chosenFacts.identifier = @"map.chosen.facts";
+        mw.chosenFacts.hidden = YES;
+        mw.whyList = rows(@[], 5);
+        NSTextField *whyCaption = caption(N(@"Why it's interesting"));
+        NSStackView *whyStack = rows(@[ whyCaption, mw.whyList ], 6);
+        [mw.whyList.widthAnchor constraintEqualToAnchor:whyStack.widthAnchor].active = YES;
+        mw.whyBox = [[NSView alloc] initWithFrame:NSZeroRect];  // a hairline round the reasons
+        mw.whyBox.wantsLayer = YES;
+        mw.whyBox.layer.borderWidth = 1;
+        mw.whyBox.layer.cornerRadius = 6;
+        mw.whyBox.layer.borderColor = [NSColor.systemGreenColor colorWithAlphaComponent:0.55].CGColor;
+        mw.whyBox.identifier = @"map.chosen.why";
+        mw.whyBox.hidden = YES;
+        whyStack.translatesAutoresizingMaskIntoConstraints = NO;
+        [mw.whyBox addSubview:whyStack];
+        [NSLayoutConstraint activateConstraints:@[
+            [whyStack.topAnchor constraintEqualToAnchor:mw.whyBox.topAnchor constant:8],
+            [whyStack.bottomAnchor constraintEqualToAnchor:mw.whyBox.bottomAnchor constant:-8],
+            [whyStack.leadingAnchor constraintEqualToAnchor:mw.whyBox.leadingAnchor constant:10],
+            [whyStack.trailingAnchor constraintEqualToAnchor:mw.whyBox.trailingAnchor constant:-10],
+        ]];
+        mw.status.textColor = NSColor.secondaryLabelColor;  // the description, under the facts
+        NSBox *between = [[NSBox alloc] initWithFrame:NSZeroRect];
+        between.boxType = NSBoxSeparator;
+        NSTextField *chosenCaption = caption(N(@"Selected")), *situationCaption = caption(N(@"Situation"));
+        NSStackView *selectedColumn = rows(@[ chosenCaption, titleRow, mw.chosenSubtitle, mw.chosenFacts, mw.whyBox, mw.useSpot, actions, mw.status, mw.slots,
+                                              between, situationCaption, mw.statHost, mw.situation, mw.today, mw.wanted, mw.air ],
+                                           6);
+        selectedColumn.edgeInsets = NSEdgeInsetsMake(12, 12, 16, 12);
+        for (NSView *v in @[ titleRow, mw.chosenSubtitle, mw.chosenFacts, mw.whyBox, mw.useSpot, mw.status, mw.slots, between, mw.statHost, mw.situation,
+                             mw.today, mw.wanted, mw.air ])
+            [v.widthAnchor constraintEqualToAnchor:selectedColumn.widthAnchor constant:-24].active = YES;
+        [selectedColumn setCustomSpacing:2 afterView:titleRow];
+        [selectedColumn setCustomSpacing:10 afterView:mw.chosenSubtitle];
+        [selectedColumn setCustomSpacing:10 afterView:mw.chosenFacts];
+        [selectedColumn setCustomSpacing:10 afterView:mw.whyBox];
+        [selectedColumn setCustomSpacing:10 afterView:actions];
+        [selectedColumn setCustomSpacing:12 afterView:mw.slots];
+        [selectedColumn setCustomSpacing:12 afterView:between];
+        mw.selectedPanel = scrolling(selectedColumn, @"map.selected", NO);
+
+        // The zoom buttons on the map, as on other maps: in, the zoom, out; then the log and the world.
         auto mapButton = [&](NSButton *b, NSString *symbol, NSString *spoken) {
             iconOnly(b, symbol);
             b.bordered = NO;
@@ -3497,30 +4407,26 @@ void cmdMap() {
         mapButton(out, @"minus", N(@"Zoom Out"));
         mapButton(fit, @"viewfinder", N(@"Fit Log"));
         mapButton(world, @"globe", N(@"World"));
+        mapButton(home, @"house", N(@"Home"));
         mw.zoomLabel.font = [NSFont monospacedDigitSystemFontOfSize:10 weight:NSFontWeightMedium];
         mw.zoomLabel.alignment = NSTextAlignmentCenter;
         mw.zoomLabel.textColor = NSColor.secondaryLabelColor;
         NSBox *navRule = [[NSBox alloc] initWithFrame:NSZeroRect];
         navRule.boxType = NSBoxSeparator;
         [navRule.widthAnchor constraintEqualToConstant:24].active = YES;
-        NSStackView *navStack = rows(@[ in, mw.zoomLabel, out, navRule, fit, world ]);
+        NSStackView *navStack = rows(@[ in, mw.zoomLabel, out, navRule, home, fit, world ], 6);  // the buttons' frames reach 3 points past their faces
         navStack.alignment = NSLayoutAttributeCenterX;
-        navStack.spacing = 6;  // the buttons' frames reach 3 points past their faces
         mw.nav = [[ADIFMapPanel alloc] initWithFrame:NSZeroRect];
         mw.nav.identifier = @"map.nav";
         navStack.translatesAutoresizingMaskIntoConstraints = NO;
         [mw.nav addSubview:navStack];
-        NSView *mapHost = [[NSView alloc] initWithFrame:NSZeroRect];  // the map, the controls on it
+        NSView *mapHost = [[NSView alloc] initWithFrame:NSZeroRect];  // the map, the zoom buttons on it
         mapHost.identifier = @"map.host";
-        for (NSView *v in @[ mw.view, mw.bar, mw.cardStack, mw.nav ]) {
+        for (NSView *v in @[ mw.view, mw.nav ]) {
             v.translatesAutoresizingMaskIntoConstraints = NO;
             [mapHost addSubview:v];
         }
         [NSLayoutConstraint activateConstraints:@[
-            [mw.toolbar.topAnchor constraintEqualToAnchor:mw.bar.topAnchor constant:6],
-            [mw.toolbar.bottomAnchor constraintEqualToAnchor:mw.bar.bottomAnchor constant:-6],
-            [mw.toolbar.leadingAnchor constraintEqualToAnchor:mw.bar.leadingAnchor constant:8],
-            [mw.toolbar.trailingAnchor constraintEqualToAnchor:mw.bar.trailingAnchor constant:-8],
             [navStack.topAnchor constraintEqualToAnchor:mw.nav.topAnchor constant:5],
             [navStack.bottomAnchor constraintEqualToAnchor:mw.nav.bottomAnchor constant:-5],
             [navStack.leadingAnchor constraintEqualToAnchor:mw.nav.leadingAnchor constant:4],
@@ -3529,88 +4435,36 @@ void cmdMap() {
             [mw.view.bottomAnchor constraintEqualToAnchor:mapHost.bottomAnchor],
             [mw.view.leadingAnchor constraintEqualToAnchor:mapHost.leadingAnchor],
             [mw.view.trailingAnchor constraintEqualToAnchor:mapHost.trailingAnchor],
-            [mw.bar.topAnchor constraintEqualToAnchor:mapHost.topAnchor constant:8],
-            [mw.bar.leadingAnchor constraintEqualToAnchor:mapHost.leadingAnchor constant:8],
-            [mw.bar.trailingAnchor constraintEqualToAnchor:mapHost.trailingAnchor constant:-8],
-            [mw.nav.topAnchor constraintEqualToAnchor:mw.bar.bottomAnchor constant:8],
-            [mw.nav.trailingAnchor constraintEqualToAnchor:mapHost.trailingAnchor constant:-8],
-            [mw.cardStack.topAnchor constraintEqualToAnchor:mw.bar.bottomAnchor constant:8],
-            [mw.cardStack.leadingAnchor constraintEqualToAnchor:mapHost.leadingAnchor constant:8],
-            [mw.cardStack.trailingAnchor constraintEqualToAnchor:mw.nav.leadingAnchor constant:-8],
-            [mw.cardStack.bottomAnchor constraintEqualToAnchor:mapHost.bottomAnchor constant:-8],
+            [mw.nav.topAnchor constraintEqualToAnchor:mapHost.topAnchor constant:10],
+            [mw.nav.leadingAnchor constraintEqualToAnchor:mapHost.leadingAnchor constant:10],
         ]];
+        mw.view.clearInsets = NSEdgeInsetsMake(0, mw.nav.fittingSize.width + 20, 0, 0);  // Fit Log and the rest keep clear of the buttons
 
-        // ── The body: the map and the list (a divider between them), over the status bar (the
-        // contact on the left, the situation on the right) ──
-        auto panel = [](NSString *caption, NSString *ident, NSView *content, NSView *corner) {
-            NSView *p = [[NSView alloc] initWithFrame:NSZeroRect];
-            p.identifier = ident;
-            NSTextField *title = [NSTextField labelWithString:T(caption).localizedUppercaseString];
-            title.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize - 1 weight:NSFontWeightSemibold];
-            title.textColor = NSColor.secondaryLabelColor;
-            for (NSView *v in corner ? @[ title, content, corner ] : @[ title, content ]) {
-                v.translatesAutoresizingMaskIntoConstraints = NO;
-                [p addSubview:v];
-            }
-            [NSLayoutConstraint activateConstraints:@[
-                [title.topAnchor constraintEqualToAnchor:p.topAnchor constant:6],
-                [title.leadingAnchor constraintEqualToAnchor:p.leadingAnchor constant:8],
-                [content.topAnchor constraintEqualToAnchor:title.bottomAnchor constant:3],
-                [content.leadingAnchor constraintEqualToAnchor:p.leadingAnchor constant:8],
-                [content.trailingAnchor constraintEqualToAnchor:corner ? corner.leadingAnchor : p.trailingAnchor constant:-8],
-                [content.bottomAnchor constraintLessThanOrEqualToAnchor:p.bottomAnchor constant:-4],
-            ]];
-            if (corner)
-                [NSLayoutConstraint activateConstraints:@[
-                    [corner.topAnchor constraintEqualToAnchor:p.topAnchor constant:4],
-                    [corner.trailingAnchor constraintEqualToAnchor:p.trailingAnchor constant:-8],
-                ]];
-            [content setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationVertical];
-            return p;
-        };
-        auto small = [](NSString *ident, NSInteger lines) {
-            NSTextField *f = [NSTextField wrappingLabelWithString:@""];
-            f.identifier = ident;
-            f.maximumNumberOfLines = lines;
-            f.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
-            return f;
-        };
-        auto column = [](NSArray<NSView *> *views) {  // views one under another, each as wide as the column
-            NSStackView *c = [NSStackView stackViewWithViews:views];
-            c.orientation = NSUserInterfaceLayoutOrientationVertical;
-            c.alignment = NSLayoutAttributeLeading;
-            c.spacing = 3;
-            for (NSView *v in views) [v.widthAnchor constraintEqualToAnchor:c.widthAnchor].active = YES;
-            return c;
-        };
-        mw.slots = [NSTextField labelWithString:@""];
-        mw.slots.identifier = @"map.contact.slots";
-        mw.slots.lineBreakMode = NSLineBreakByTruncatingTail;
-        mw.slots.toolTip = T(@"This station's DXCC entity in your log: its bands and modes, green confirmed, orange worked, grey not yet; and "
-                             @"your QSOs with the call");
-        mw.situation = small(@"map.situation", 3);
-        mw.today = small(@"map.today", 2);
-        mw.air = small(@"map.air", 2);
-        mw.wantedLabel = [NSTextField labelWithString:@""];
-        mw.wantedLabel.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
-        mw.wanted = [NSStackView stackViewWithViews:@[ mw.wantedLabel ]];
-        mw.wanted.spacing = 6;
-        mw.wanted.identifier = @"map.wanted";
-        [mw.wanted setClippingResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
-        mw.wanted.detachesHiddenViews = YES;
-        NSStackView *spotActions = [[NSStackView alloc] initWithFrame:NSZeroRect];  // Use in New QSO, under a spot's description
-        [spotActions addView:mw.useSpot inGravity:NSStackViewGravityLeading];
-        spotActions.detachesHiddenViews = YES;
-        mw.useSpot.controlSize = NSControlSizeSmall;
-        mw.contactTitle = [NSTextField labelWithString:@""];
-        mw.contactTitle.identifier = @"map.contact.title";
-        mw.contactTitle.font = [NSFont systemFontOfSize:NSFont.systemFontSize + 1 weight:NSFontWeightSemibold];
-        mw.contactTitle.lineBreakMode = NSLineBreakByTruncatingTail;
-        NSView *contactPanel = panel(N(@"Contact"), @"map.contact", column(@[ mw.contactTitle, mw.status, mw.slots, spotActions ]), nil);
-        NSView *situationPanel = panel(N(@"Situation"), @"map.situationPanel", column(@[ mw.situation, mw.today, mw.wanted, mw.air ]), nil);
+        // The footer: the workflow's state, then what is under the pointer.
+        mw.liveLabel = [NSTextField labelWithString:@""];
+        mw.liveLabel.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightMedium];
+        mw.liveLabel.identifier = @"map.live";
+        mw.hover = [NSTextField labelWithString:@""];
+        mw.hover.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        mw.hover.textColor = NSColor.secondaryLabelColor;
+        mw.hover.lineBreakMode = NSLineBreakByTruncatingTail;
+        [mw.hover setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+        mw.hover.identifier = @"map.hover";
+        NSStackView *footer = line(@[ mw.liveLabel, mw.hover ]);
+        footer.spacing = 18;
+        footer.edgeInsets = NSEdgeInsetsMake(4, 12, 5, 12);
+        footer.identifier = @"map.footer";
+        showHover(idleStatus());
+
+        // The panes: the sidebar | the map over its list | the selected panel; dividers to drag.
         mw.splitKeeper = [[ADIFSplitKeeper alloc] init];
+        {  // the sidebar's least width: its layers' grid and its menus whole, in this language
+            CGFloat least = 280;
+            for (NSView *v in @[ layers, mw.colorBy, mw.projection, mw.region ]) least = std::max(least, std::ceil(v.fittingSize.width) + 24 + 16);
+            mw.splitKeeper.leastSidebar = least;
+        }
         auto split = [](NSString *ident, BOOL vertical, NSArray<NSView *> *views) {
-            NSSplitView *sv = [[NSSplitView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600)];
+            NSSplitView *sv = [[NSSplitView alloc] initWithFrame:NSMakeRect(0, 0, 1200, 700)];
             sv.identifier = ident;
             sv.vertical = vertical;
             sv.dividerStyle = NSSplitViewDividerStyleThin;
@@ -3619,34 +4473,57 @@ void cmdMap() {
             sv.delegate = mw.splitKeeper;
             return sv;
         };
-        mw.mainSplit = split(@"map.main.split", YES, @[ mapHost, mw.listPanel ]);
-        [mw.mainSplit setHoldingPriority:NSLayoutPriorityDefaultLow - 10 forSubviewAtIndex:0];  // the map takes a window's growth
-        [mw.mainSplit setHoldingPriority:NSLayoutPriorityDefaultLow + 10 forSubviewAtIndex:1];
-        mw.statusSplit = split(@"map.status.split", YES, @[ contactPanel, situationPanel ]);
-        mw.outerSplit = split(@"map.outer.split", NO, @[ mw.mainSplit, mw.statusSplit ]);
-        [mw.outerSplit setHoldingPriority:NSLayoutPriorityDefaultLow - 10 forSubviewAtIndex:0];
-        [mw.outerSplit setHoldingPriority:NSLayoutPriorityDefaultLow + 10 forSubviewAtIndex:1];
+        mw.middleSplit = split(@"map.middle.split", NO, @[ mapHost, mw.listPanel ]);
+        [mw.middleSplit setHoldingPriority:NSLayoutPriorityDefaultLow - 10 forSubviewAtIndex:0];  // the map takes a window's growth
+        [mw.middleSplit setHoldingPriority:NSLayoutPriorityDefaultLow + 10 forSubviewAtIndex:1];
+        mw.bodySplit = split(@"map.body.split", YES, @[ mw.sidebar, mw.middleSplit, mw.selectedPanel ]);
+        [mw.bodySplit setHoldingPriority:NSLayoutPriorityDefaultLow + 20 forSubviewAtIndex:0];
+        [mw.bodySplit setHoldingPriority:NSLayoutPriorityDefaultLow - 10 forSubviewAtIndex:1];
+        [mw.bodySplit setHoldingPriority:NSLayoutPriorityDefaultLow + 20 forSubviewAtIndex:2];
         mw.splitKeeper.onMoved = ^(NSSplitView *sv) {
             if (!mw.splitsRestored) return;
-            if (sv == mw.mainSplit && !mw.listPanel.hidden) setSetting("mapListWidth", std::to_string((int)mw.listPanel.frame.size.width));
-            if (sv == mw.outerSplit) setSetting("mapStatusHeight", std::to_string((int)mw.statusSplit.frame.size.height));
-            if (sv == mw.statusSplit && sv.bounds.size.width > 0)
-                setSetting("mapContactShare", std::to_string((int)std::lround(100 * contactPanel.frame.size.width / sv.bounds.size.width)));
+            if (sv == mw.bodySplit && !mw.sidebar.hidden) setSetting("mapSidebarWidth", std::to_string(std::lround(mw.sidebar.frame.size.width)));
+            if (sv == mw.bodySplit && !mw.selectedPanel.hidden) setSetting("mapSelectedWidth", std::to_string(std::lround(mw.selectedPanel.frame.size.width)));
+            if (sv == mw.middleSplit && !mw.listPanel.hidden) setSetting("mapListHeight", std::to_string(std::lround(mw.listPanel.frame.size.height)));
         };
-        // The map from edge to edge of the window, under its title.
-        mw.outerSplit.translatesAutoresizingMaskIntoConstraints = NO;
-        [root addSubview:mw.outerSplit];
+        NSBox *underHeader = [[NSBox alloc] initWithFrame:NSZeroRect], *overFooter = [[NSBox alloc] initWithFrame:NSZeroRect];
+        NSBox *underToolbar = [[NSBox alloc] initWithFrame:NSZeroRect];
+        underHeader.boxType = overFooter.boxType = underToolbar.boxType = NSBoxSeparator;
+        for (NSView *v in @[ header, underHeader, toolbar, underToolbar, mw.bodySplit, overFooter, footer ]) {
+            v.translatesAutoresizingMaskIntoConstraints = NO;
+            [root addSubview:v];
+        }
         [NSLayoutConstraint activateConstraints:@[
-            [mw.outerSplit.topAnchor constraintEqualToAnchor:root.topAnchor],
-            [mw.outerSplit.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
-            [mw.outerSplit.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
-            [mw.outerSplit.bottomAnchor constraintEqualToAnchor:root.bottomAnchor],
+            [header.topAnchor constraintEqualToAnchor:root.topAnchor],
+            [header.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
+            [header.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
+            [underHeader.topAnchor constraintEqualToAnchor:header.bottomAnchor],
+            [underHeader.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
+            [underHeader.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
+            [toolbar.topAnchor constraintEqualToAnchor:underHeader.bottomAnchor constant:6],
+            [toolbar.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:12],
+            [toolbar.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-12],
+            [underToolbar.topAnchor constraintEqualToAnchor:toolbar.bottomAnchor constant:6],
+            [underToolbar.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
+            [underToolbar.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
+            [mw.bodySplit.topAnchor constraintEqualToAnchor:underToolbar.bottomAnchor],
+            [mw.bodySplit.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
+            [mw.bodySplit.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
+            [overFooter.topAnchor constraintEqualToAnchor:mw.bodySplit.bottomAnchor],
+            [overFooter.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
+            [overFooter.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
+            [footer.topAnchor constraintEqualToAnchor:overFooter.bottomAnchor],
+            [footer.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
+            [footer.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
+            [footer.bottomAnchor constraintEqualToAnchor:root.bottomAnchor],
             [mw.view.widthAnchor constraintGreaterThanOrEqualToConstant:420],
             [mw.view.heightAnchor constraintGreaterThanOrEqualToConstant:240],
-            [mw.statusSplit.heightAnchor constraintGreaterThanOrEqualToConstant:70],
+            [mw.listPanel.heightAnchor constraintGreaterThanOrEqualToConstant:110],
+            [mw.sidebar.widthAnchor constraintGreaterThanOrEqualToConstant:mw.splitKeeper.leastSidebar],
+            [mw.selectedPanel.widthAnchor constraintGreaterThanOrEqualToConstant:240],
         ]];
-        showPanels();
-        showListPanel(flag("mapList", true));
+        for (int i = 0; i < 3; ++i) showPane(i, flag(kPaneKeys[i], true));
+        mw.spotLens = workflow() == 1 ? std::max(0, std::min(quickView(), 6)) : 0;
         [mw.window center];
         // New spots redraw the layer; closing the window stops the feeds.
         [[NSNotificationCenter defaultCenter] addObserverForName:ADIFParkOutlinesChangedNotification
@@ -3687,14 +4564,10 @@ void cmdMap() {
                                                         }];
     refresh();
     [mw.window makeKeyAndOrderFront:nil];
-    if (!mw.splitsRestored) {  // the dividers where they were left: the list's width, the status bar's height and split
+    if (!mw.splitsRestored) {  // the dividers where they were left: the sidebar's and the selected panel's widths, the list's height
         [mw.window layoutIfNeeded];
-        CGFloat statusHeight = std::clamp((CGFloat)std::atof(setting("mapStatusHeight").c_str()), (CGFloat)0, (CGFloat)400);
-        if (statusHeight < 70) statusHeight = 132;
-        [mw.outerSplit setPosition:mw.outerSplit.bounds.size.height - statusHeight - mw.outerSplit.dividerThickness ofDividerAtIndex:0];
-        int share = std::atoi(setting("mapContactShare").c_str());
-        [mw.statusSplit setPosition:mw.statusSplit.bounds.size.width * (share >= 20 && share <= 80 ? share : 50) / 100.0 ofDividerAtIndex:0];
-        showListPanel(!mw.listPanel.hidden);
+        for (int i = 0; i < 3; ++i)
+            if (flag(kPaneKeys[i], true)) restorePane(i);
         mw.splitsRestored = true;
     }
     [mw.window makeFirstResponder:mw.view];

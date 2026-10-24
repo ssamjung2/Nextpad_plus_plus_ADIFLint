@@ -295,6 +295,9 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 - (void)zoomBy:(double)factor;  // about the middle of what is clear
 - (void)showWorld;
 - (void)fitLog;                 // zoom to what the log shows
+- (void)fitSpots;               // zoom to the spots shown (and your station)
+- (void)goHome;                 // your station in the middle, at the zoom the map has
+@property(nonatomic) BOOL scaleInMiles;  // the distance scale's unit
 - (void)showWest:(double)w south:(double)s east:(double)e north:(double)n;  // a region
 - (NSPoint)viewPointForLon:(double)lon lat:(double)lat;
 - (const std::vector<ADIFMapContact> &)contacts;
@@ -314,12 +317,17 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 - (NSColor *)spotColor:(const ADIFMapSpot &)s;
 - (const std::vector<ADIFMapSpotter> &)spotters;
 - (void)setInfo:(const std::vector<ADIFInfoRow> &)rows;  // the information box ({} hides it)
+@property(nonatomic) BOOL infoHidden;  // the box not drawn (another panel shows it), its rows kept
 - (const std::vector<ADIFInfoRow> &)info;
 - (NSString *)infoText;  // the box as text, a line a row ("Band: 20m"): the view's accessibility value too
 - (ADIFMapHit)selectedHit;  // what was clicked last
 - (void)selectHit:(const ADIFMapHit &)hit;  // as if clicked
 // Zoom right in to a small place (a park, or its outline's box), as close as the map goes there.
 - (void)showPlaceWest:(double)w south:(double)s east:(double)e north:(double)n;
+- (void)centerOnLon:(double)lon lat:(double)lat;  // at the zoom it has (the globe turns to face it)
+// How many areas of a layer the QSOs reached, and how many of them have a confirmed QSO: US
+// states, counties, CQ and ITU zones; POTA parks hunted or activated; IOTA groups.
+- (std::pair<size_t, size_t>)workedCount:(int)layer;
 @end
 
 // What MapView.mm implements for the layers and the window.
@@ -367,6 +375,7 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 - (void)drawLabel:(NSString *)text at:(NSPoint)p size:(CGFloat)size alpha:(CGFloat)alpha;
 - (NSRect)clearRect;
 - (void)legendAt:(NSRect)box;
+- (void)drawScaleBar;
 - (void)drawLegend;
 - (void)drawInfoBox;
 - (ADIFMapHit)hitAt:(NSPoint)p;

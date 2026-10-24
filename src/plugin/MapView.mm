@@ -431,6 +431,37 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     [self fitPlaneWest:west south:south east:east north:north minSpan:0.06];
 }
 
+- (void)centerOnLon:(double)lon lat:(double)lat {
+    if ([self globe]) {
+        _pr = adif::Projector(adif::Projection::Globe, lat, lon);
+        return [self viewChanged];
+    }
+    double x, y;
+    if (!_pr.forward(lon, lat, &x, &y)) return;
+    NSRect b = self.bounds, clear = [self clearRect];
+    double ppu = [self ppu];
+    _cx = x - (NSMidX(clear) - NSMidX(b)) / ppu, _cy = y - (NSMidY(clear) - NSMidY(b)) / ppu;
+    [self viewChanged];
+}
+
+- (std::pair<size_t, size_t>)workedCount:(int)layer {
+    size_t worked = 0, confirmed = 0;
+    auto anyConfirmed = [&](const std::vector<size_t> &qsos) {
+        return std::any_of(qsos.begin(), qsos.end(), [&](size_t i) { return i < _data.qsos.size() && _data.qsos[i].confirmed; });
+    };
+    if (layer == kLayerPota) {
+        for (const auto &[ref, w] : _potaWork) {
+            ++worked;
+            confirmed += anyConfirmed(w.hunted) || anyConfirmed(w.activated);
+        }
+    } else if (layer == kLayerIota) {
+        for (const auto &[ref, qsos] : _iotaQsos) ++worked, confirmed += anyConfirmed(qsos);
+    } else if (layer >= 0 && layer < kLayerCount) {
+        for (const auto &[name, qsos] : _areaQsos[(size_t)layer]) ++worked, confirmed += anyConfirmed(qsos);
+    }
+    return {worked, confirmed};
+}
+
 - (void)setParkPlaces:(const adif::ParkPlaces &)places named:(const std::string &)name {
     _parkPlaces = places, _parkPlacesName = name;
     _parksPlacedFor = {};
@@ -558,7 +589,8 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     _pr.bounds(&minX, &minY, &maxX, &maxY);
     double halfW = self.bounds.size.width / 2 / ppu, halfH = self.bounds.size.height / 2 / ppu;
     _cx = halfW >= (maxX - minX) / 2 ? (minX + maxX) / 2 : std::clamp(_cx, minX + halfW, maxX - halfW);
-    _cy = halfH >= (maxY - minY) / 2 ? (minY + maxY) / 2 : std::clamp(_cy, minY + halfH, maxY - halfH);
+    // A map lower than the view sits at its top (the room left over at the bottom, by the legend).
+    _cy = halfH >= (maxY - minY) / 2 ? maxY - halfH : std::clamp(_cy, minY + halfH, maxY - halfH);
 }
 
 - (NSPoint)planeToView:(double)x y:(double)y {
@@ -730,6 +762,31 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         }
     if (west > east) return [self showWorld];
     [self fitPlaneWest:west south:south east:east north:north];
+}
+
+// The spots shown, and your station: zoomed to them (the log, without spots).
+- (void)fitSpots {
+    if (_spots.empty()) return [self fitLog];
+    _pr = _base;
+    double west = 1e9, east = -1e9, south = 1e9, north = -1e9;
+    auto add = [&](double lon, double lat) {
+        double x, y;
+        if (!_pr.forward(lon, lat, &x, &y)) return;
+        west = std::min(west, x), east = std::max(east, x), south = std::min(south, y), north = std::max(north, y);
+    };
+    for (const ADIFMapSpot &s : _spots) add(s.lon, s.lat);
+    if (_hasHome) add(_homeLon, _homeLat);
+    if (west > east) return [self showWorld];
+    [self fitPlaneWest:west south:south east:east north:north];
+}
+
+// Your station in the middle, at the zoom the map has (the globe turned back to face it).
+- (void)goHome {
+    if ([self globe]) {
+        _pr = _base;
+        return [self viewChanged];
+    }
+    if (_hasHome) [self centerOnLon:_homeLon lat:_homeLat];
 }
 
 - (void)fitLog {
@@ -1058,9 +1115,55 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     CGContextRestoreGState(d.ctx);
     if (_style.legend) [self drawLegend];
     else [self legendAt:NSZeroRect];
-    if (!_info.empty()) [self drawInfoBox];
+    if (!_info.empty() && !self.infoHidden) [self drawInfoBox];
+    [self drawScaleBar];
     [self drawOsmCredit];
     CGContextRestoreGState(d.ctx);
+}
+
+// A distance scale at the bottom left (beside the legend): four steps of a round distance, as
+// measured across the middle of the view, in kilometres or miles.
+- (void)drawScaleBar {
+    NSRect b = self.bounds;
+    NSPoint mid = NSMakePoint(NSMidX(b), NSMidY(b));
+    double lon1, lat1, lon2, lat2;
+    if (![self lonLatAt:NSMakePoint(mid.x - 50, mid.y) lon:&lon1 lat:&lat1] || ![self lonLatAt:NSMakePoint(mid.x + 50, mid.y) lon:&lon2 lat:&lat2]) return;
+    double perPoint = adif::greatCircleKm(lat1, lon1, lat2, lon2) / 100 / (self.scaleInMiles ? 1.609344 : 1.0);
+    if (!(perPoint > 0)) return;
+    double raw = perPoint * 40, power = std::pow(10.0, std::floor(std::log10(raw)));
+    double step = raw / power < 2 ? power : raw / power < 5 ? 2 * power : 5 * power;
+    CGFloat seg = step / perPoint, x0 = (NSIsEmptyRect(_legendFrame) ? NSMinX(b) + 12 : NSMaxX(_legendFrame) + 16), y0 = NSMinY(b) + 22;
+    if (x0 + 4 * seg + 40 > NSMaxX(b) - 8) return;  // no room
+    const MapPalette &pal = paletteAt(_style.palette);
+    NSColor *ink = [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.85];
+    NSShadow *halo = [[NSShadow alloc] init];
+    halo.shadowColor = [NSColor colorWithCalibratedWhite:pal.dark ? 0 : 1 alpha:0.9];
+    halo.shadowBlurRadius = 2;
+    halo.shadowOffset = NSZeroSize;
+    NSDictionary *font = @{NSFontAttributeName : [NSFont monospacedDigitSystemFontOfSize:9.5 weight:NSFontWeightRegular], NSForegroundColorAttributeName : ink,
+                           NSShadowAttributeName : halo};
+    NSBezierPath *bar = [NSBezierPath bezierPath];
+    [bar moveToPoint:NSMakePoint(x0, y0)];
+    [bar lineToPoint:NSMakePoint(x0 + 4 * seg, y0)];
+    for (int i = 0; i <= 4; ++i) {
+        [bar moveToPoint:NSMakePoint(x0 + i * seg, y0)];
+        [bar lineToPoint:NSMakePoint(x0 + i * seg, y0 + (i % 2 ? 3 : 5))];
+    }
+    [NSGraphicsContext saveGraphicsState];
+    [halo set];
+    [ink setStroke];
+    bar.lineWidth = 1;
+    [bar stroke];
+    [NSGraphicsContext restoreGraphicsState];
+    NSNumberFormatter *f = [[NSNumberFormatter alloc] init];
+    f.numberStyle = NSNumberFormatterDecimalStyle;
+    f.maximumFractionDigits = step < 1 ? 2 : 0;
+    for (int i = 0; i <= 4; i += 2) {
+        NSString *t = [f stringFromNumber:@(i * step)];
+        if (i == 4) t = [t stringByAppendingString:self.scaleInMiles ? @" mi" : @" km"];
+        NSSize size = [t sizeWithAttributes:font];
+        [t drawAtPoint:NSMakePoint(x0 + i * seg - (i ? size.width / 2 : 0), y0 - size.height - 2) withAttributes:font];
+    }
 }
 
 // Where the legend is now, for the window's cards to keep clear of; told after the drawing.
@@ -1380,10 +1483,11 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 }
 
 - (void)mouseMoved:(NSEvent *)event {
-    // Over one of the controls floating on the map, the map has nothing under the pointer.
+    // Over one of the controls floating on the map (beside it in its superview), the map has
+    // nothing under the pointer.
     NSView *top = self.window.contentView;
     NSView *over = top.superview ? [top hitTest:[top.superview convertPoint:event.locationInWindow fromView:nil]] : self;
-    if (over && over != self && ![over isDescendantOf:self]) {
+    if (over && over != self && ![over isDescendantOf:self] && self.superview && [over isDescendantOf:self.superview]) {
         if (_hover.kind != ADIFMapHit::None) [self mouseExited:event];
         return;
     }

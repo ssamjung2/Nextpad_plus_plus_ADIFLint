@@ -37,7 +37,7 @@ docs-map-globe map-globe
 docs-map-zones map-zones
 docs-map-europe map-europe
 docs-map-states map-states
-docs-map-cards map-cards
+docs-map-history map-history
 docs-map-colour-blind map-colour-blind
 docs-map-city map-city
 docs-map-day-night map-day-night

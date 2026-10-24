@@ -861,6 +861,7 @@ int main(int argc, char **argv) {
                 else if ([v isKindOfClass:NSTextField.class]) {
                     NSTextField *f = (NSTextField *)v;
                     if (!f.editable && !f.cell.wraps && f.maximumNumberOfLines <= 1) t = f.stringValue;
+                    if ([f.toolTip isEqualToString:t]) t = nil;  // cut short by design, all of it in its tooltip
                 }
                 CGFloat need = v.intrinsicContentSize.width;
                 if (t.length && need != NSViewNoIntrinsicMetric && need > NSWidth(v.frame) + 1)
@@ -3738,15 +3739,8 @@ int main(int argc, char **argv) {
             pump(0.3);
             run("Map (Grids, DXCC, Parks)...");
             NSWindow *mapw = windowIdentified(@"map.window");
-            // The cards on the map: the bar's switches show any of them.
-            NSSegmentedControl *panels = (NSSegmentedControl *)viewWithIdentifier(mapw.contentView, @"map.panels");
-            auto setPanels = [&](int on) {
-                for (int i = 0; i < 4; ++i) [panels setSelected:(on >> i) & 1 forSegment:i];
-                [panels sendAction:panels.action to:panels.target];
-                for (int i = 0; i < 3; ++i) {  // laid out, and any crowded card closed
-                    [mapw.contentView layoutSubtreeIfNeeded];
-                    pump(0.05);
-                }
+            auto mapSummary = [&]() -> NSString * {  // the log at a glance, as the selected panel's rows have it
+                return ((NSTextField *)viewWithIdentifier(mapw.contentView, @"map.situation")).stringValue;
             };
             auto shown = [&](NSString *ident) {
                 NSView *c = viewWithIdentifier(mapw.contentView, ident);
@@ -3764,7 +3758,7 @@ int main(int argc, char **argv) {
                 bx.state = on ? NSControlStateValueOn : NSControlStateValueOff;
                 [bx sendAction:bx.action to:bx.target];
             };
-            NSString *mapStatus = mapw ? labelContaining(mapw.contentView, @"grid square") : nil;
+            NSString *mapStatus = mapw ? mapSummary() : nil;
             CHECK(mapw.visible && [mapStatus hasPrefix:@"4 grid squares (1 confirmed"] && [mapStatus containsString:@"1 POTA park"] &&
                       [mapStatus containsString:@"1 other reference (WWFF, IOTA"] && findButton(mapw.contentView, @"Other programs").state == NSControlStateValueOff &&
                       [mapStatus containsString:@"1 DXCC (1 confirmed"] && [mapStatus containsString:@"1 QSO without GRIDSQUARE"] &&
@@ -3782,15 +3776,18 @@ int main(int argc, char **argv) {
             NSPopUpButton *bandPopup = findPopupWith(mapw.contentView, @"All bands");
             [bandPopup selectItemWithTitle:@"15m"];
             [bandPopup sendAction:bandPopup.action to:bandPopup.target];
-            CHECK([labelContaining(mapw.contentView, @"grid square") hasPrefix:@"1 grid square"], "the band filter");
+            CHECK([mapSummary() hasPrefix:@"1 grid square"], "the band filter");
             [bandPopup selectItemAtIndex:0];
             [bandPopup sendAction:bandPopup.action to:bandPopup.target];
             if (mapw) {
                 [mapw.contentView layoutSubtreeIfNeeded];
-                CHECK(shown(@"map.group.layers") && !shown(@"map.group.filters") && overlaps(mapw.contentView) == 0,
-                      "Map does not overlap; the Layers card open at first");
+                NSSegmentedControl *workflowSwitch = (NSSegmentedControl *)viewWithIdentifier(mapw.contentView, @"map.workflow");
+                CHECK(workflowSwitch.selectedSegment == 0 && shown(@"map.sidebar") && shown(@"map.list") && shown(@"map.selected") &&
+                          !shown(@"map.group.spots") && overlaps(mapw.contentView) == 0,
+                      "Map does not overlap (%d); History at first (%ld), with the sidebar (%d; no Spots section: %d), the list (%d) and the selected panel (%d)",
+                      overlaps(mapw.contentView), (long)workflowSwitch.selectedSegment, shown(@"map.sidebar"), !shown(@"map.group.spots"),
+                      shown(@"map.list"), shown(@"map.selected"));
                 snapshot(mapw, "map");
-                setPanels(0);  // the map's own checks, with no cards over it
             }
 
             // Interacting: zoom, a click on a square lists its QSOs, a hover names a DXCC, the list goes to the record.
@@ -3831,13 +3828,19 @@ int main(int argc, char **argv) {
             };
             [findButton(mapw.contentView, @"Fit Log") performClick:nil];
             CHECK(std::atof(zoomShown().c_str()) > 1.2, "Fit Log zooms to the QSOs: %s", zoomShown().c_str());
+            for (int i = 0; i < 2; ++i) {  // closer, clear of US-1234's badge in FN20 next door
+                NSPoint at = pointFor(-73, 41.5);
+                [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, at, 2)];
+                [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, at, 2)];
+            }
             NSPoint fn31 = pointFor(-73, 41.5);  // inside FN31, K1AB's square
             [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, fn31, 1)];
             [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, fn31, 1)];
             NSTableView *qsoList = (NSTableView *)viewWithIdentifier(mapw.contentView, @"map.list.table");
             CHECK(qsoList && [qsoList.dataSource numberOfRowsInTableView:qsoList] == 1 && [cell(qsoList, 0, @"call") isEqualToString:@"K1AB"] &&
                       [labelContaining(mapw.contentView, @"FN31:") hasPrefix:@"FN31: 1 QSO, confirmed (K1AB)"],
-                  "a click on FN31 lists its QSO: %s", labelContaining(mapw.contentView, @"FN31").UTF8String);
+                  "a click on FN31 lists its QSO: %s [%s] zoom %s", labelContaining(mapw.contentView, @"FN31").UTF8String,
+                  ((NSTextField *)viewWithIdentifier(mapw.contentView, @"map.status")).stringValue.UTF8String, zoomShown().c_str());
             H.pos = 0;
             [qsoList selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
             [NSApp sendAction:qsoList.doubleAction to:qsoList.target from:qsoList];
@@ -3892,9 +3895,9 @@ int main(int argc, char **argv) {
             NSPopUpButton *colour = findPopupWith(mapw.contentView, @"Colour by band");
             NSButton *styleOpen = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.style.open");
             NSPopUpButton *programsMenu = findPopupWith(mapw.contentView, @"Show All");
-            NSPopUpButton *regionMenu = findPopupWith(mapw.contentView, @"South America");
+            NSPopUpButton *regionMenu = (NSPopUpButton *)viewWithIdentifier(mapw.contentView, @"map.region");
             CHECK(proj && colour && [styleOpen.title isEqualToString:@"Style Options..."] && !findPopupWith(mapw.contentView, @"Legend") &&
-                      programsMenu && regionMenu && findButton(mapw.contentView, @"Lines to contacts") &&
+                      programsMenu && regionMenu && (NSButton *)viewWithIdentifier(mapw.contentView, @"map.lines") &&
                       [proj itemAtIndex:3].enabled &&
                       [[proj itemAtIndex:3].title isEqualToString:@"Globe from EN52WA"],
                   "projection, colour, Style and Other programs controls; the globe from the log's grid: %s",
@@ -3988,7 +3991,7 @@ int main(int argc, char **argv) {
             [findButton(mapw.contentView, @"World") performClick:nil];
             snapshot(mapw, "map-mercator");
             pick(proj, [proj itemAtIndex:3].title);
-            NSButton *linesBox = findButton(mapw.contentView, @"Lines to contacts");
+            NSButton *linesBox = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.lines");
             CHECK(!style(@"line").enabled && linesBox.state == NSControlStateValueOff && (setBox(linesBox, true), true) && style(@"line").enabled &&
                       stylePick(@"line", @"Dashed") && stylePick(@"width", @"Thick") && style(@"arcs").enabled &&
                       ((NSButton *)style(@"arcs")).state == NSControlStateValueOn,
@@ -4209,22 +4212,29 @@ int main(int argc, char **argv) {
             NSButton *eu = filtersView ? (NSButton *)viewWithIdentifier(filtersView, @"map.filter.continent.EU") : nil;
             CHECK(moreFilters && filtersView && eu, "More Filters opens its places");
             setBox(eu, true);
-            CHECK([labelContaining(mapw.contentView, @"grid square") hasPrefix:@"0 grid squares (0 confirmed), 1 DXCC (1 confirmed)"] &&
+            CHECK([mapSummary() hasPrefix:@"0 grid squares (0 confirmed), 1 DXCC (1 confirmed)"] &&
                       [moreFilters.title isEqualToString:@"More Filters (1)..."],
                   "a continent filter keeps Europe's QSOs (1A0C, the only call the test country file places): %s, %s",
-                  labelContaining(mapw.contentView, @"grid square").UTF8String, moreFilters.title.UTF8String);
+                  mapSummary().UTF8String, moreFilters.title.UTF8String);
             setBox(eu, false);
             NSTokenField *stateTokens = (NSTokenField *)viewWithIdentifier(filtersView, @"map.filter.states");
             stateTokens.objectValue = @[ @"CT" ];
             [stateTokens sendAction:stateTokens.action to:stateTokens.target];
-            CHECK([labelContaining(mapw.contentView, @"grid square") hasPrefix:@"1 grid square (1 confirmed"], "a state filter keeps Connecticut's QSO: %s",
-                  labelContaining(mapw.contentView, @"grid square").UTF8String);
+            CHECK([mapSummary() hasPrefix:@"1 grid square (1 confirmed"], "a state filter keeps Connecticut's QSO: %s",
+                  mapSummary().UTF8String);
+            {  // the state, which the toolbar doesn't show, is a tag there; clicked, it goes
+                NSView *chips = viewWithIdentifier(mapw.contentView, @"map.chips");
+                NSButton *tag = chips.subviews.count ? (NSButton *)chips.subviews.firstObject : nil;
+                CHECK(tag && [tag.title hasPrefix:@"CT"], "a state from More Filters: its tag in the toolbar (%s)", tag.title.UTF8String);
+                [tag performClick:nil];
+                CHECK([mapSummary() hasPrefix:@"4 grid squares"] && chips.subviews.count == 0,
+                      "the tag clicked: the state filter gone");
+            }
             [(NSButton *)viewWithIdentifier(mapw.contentView, @"map.filter.clear") performClick:nil];
-            CHECK([labelContaining(mapw.contentView, @"grid square") hasPrefix:@"4 grid squares"] && [moreFilters.title isEqualToString:@"More Filters..."],
+            CHECK([mapSummary() hasPrefix:@"4 grid squares"] && [moreFilters.title isEqualToString:@"More Filters..."],
                   "Clear shows every QSO again");
             [filtersView.window orderOut:nil];
-            CHECK(shown(@"map.group.filters"), "More Filters... opened the Filters card it is on");
-            setPanels(0);
+            CHECK(shown(@"map.group.filters"), "More Filters... opened the Filters section it is in");
 
             // US counties and cities, down to city level (the 1:10m detail): Madison, Wisconsin.
             NSButton *countiesBox = mapBox(@"overlay", @"counties"), *citiesBox = mapBox(@"overlay", @"cities");
@@ -4348,6 +4358,7 @@ int main(int argc, char **argv) {
             // POTA parks in: the parks you haven't worked show only in your station's location at first
             // (EN52wa: US-IL), so New Jersey's are hidden; then a location and one of its counties, then everywhere.
             NSString *(^mapStatusText)(void) = ^NSString * { return ((NSTextField *)viewWithIdentifier(mapw.contentView, @"map.status")).stringValue; };
+            NSString *(^hoverText)(void) = ^NSString * { return ((NSTextField *)viewWithIdentifier(mapw.contentView, @"map.hover")).stringValue; };
             auto anyWindowView = [&](NSString *ident) -> NSView * {
                 for (NSWindow *w in NSApp.windows)
                     if (NSView *v = viewWithIdentifier(w.contentView, ident)) return v;
@@ -4356,9 +4367,9 @@ int main(int argc, char **argv) {
             {
                 NSButton *placesButton = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.parkplaces.open");
                 [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-74.60, 41.05), 0)];
-                CHECK([placesButton.title isEqualToString:@"US-IL\u2026"] && ![mapStatusText() containsString:@"US-2001"],
+                CHECK([placesButton.title isEqualToString:@"US-IL\u2026"] && ![hoverText() containsString:@"US-2001"],
                       "POTA parks in: your station's location at first (%s); a New Jersey park not worked is hidden: %s", placesButton.title.UTF8String,
-                      mapStatusText().UTF8String);
+                      hoverText().UTF8String);
                 [placesButton performClick:nil];
                 pump(0.2);
                 NSTokenField *locations = (NSTokenField *)anyWindowView(@"map.parkplaces.locations");
@@ -4371,16 +4382,15 @@ int main(int argc, char **argv) {
                 counties.objectValue = @[ @"NJ,Sussex" ];
                 [counties sendAction:counties.action to:counties.target];
                 [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-74.60, 41.05), 0)];
-                NSString *inSussex = mapStatusText();
+                NSString *inSussex = hoverText();
                 [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-75.20, 40.45), 0)];
                 CHECK([placesButton.title isEqualToString:@"US-NJ, 1 county\u2026"] && [inSussex hasPrefix:@"POTA US-2001 Test Park North (US-NJ)"] &&
-                          ![mapStatusText() containsString:@"US-2002"],
+                          ![hoverText() containsString:@"US-2002"],
                       "US-NJ, Sussex County: its park shows, Pennsylvania's doesn't (%s; %s)", placesButton.title.UTF8String, inSussex.UTF8String);
                 [(NSButton *)anyWindowView(@"map.parkplaces.all") performClick:nil];
                 CHECK([placesButton.title isEqualToString:@"everywhere\u2026"] && [locations.objectValue count] == 0 && [counties.objectValue count] == 0,
                       "Everywhere: every park again (%s)", placesButton.title.UTF8String);
                 [anyWindowView(@"map.parkplaces").window orderOut:nil];
-                setPanels(0);
             }
             [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-74.60, 41.05), 0)];
             CHECK([labelContaining(mapw.contentView, @"US-2001") hasPrefix:@"POTA US-2001 Test Park North (US-NJ): not worked."],
@@ -4409,8 +4419,9 @@ int main(int argc, char **argv) {
                 NSTextField *hint = (NSTextField *)viewWithIdentifier(mapw.contentView, @"map.list.hint");
                 kind.selectedSegment = 2;  // Parks
                 [kind sendAction:kind.action to:kind.target];
-                CHECK(panel && !panel.hidden && toggle.state == NSControlStateValueOn && rowsTable && kind.segmentCount == 4 && from && grid && units,
-                      "the list beside the map shows: Selected, Contacts, Parks, Spots");
+                CHECK(panel && !panel.hidden && toggle.state == NSControlStateValueOn && rowsTable && kind.segmentCount == 5 && from && grid && units &&
+                          [[kind labelForSegment:4] hasPrefix:@"Recent ("],
+                      "the list under the map shows: Selected, Contacts, Parks, Spots, Recent (%s)", [kind labelForSegment:4].UTF8String);
                 showBox(-75.6, 40.2, -73.8, 41.5);
                 [from selectItemAtIndex:2];
                 [from sendAction:from.action to:from.target];
@@ -4502,11 +4513,11 @@ int main(int argc, char **argv) {
                       "a double-click zooms to the park (%s, was %.0f): %s; %s", zoomShown().c_str(), before, title.stringValue.UTF8String,
                       mapStatusText().UTF8String);
                 snapshot(mapw, "map-pota-park");
-                CGFloat narrow = mapView.frame.size.width;
+                CGFloat low = mapView.frame.size.height;
                 [toggle performClick:nil];
                 [mapw.contentView layoutSubtreeIfNeeded];
-                CHECK(panel.hidden && mapView.frame.size.width > narrow + 300, "List hides the panel and the map takes the room (%.0f to %.0f)", narrow,
-                      mapView.frame.size.width);
+                CHECK(panel.hidden && mapView.frame.size.height > low + 100, "List hides the list and the map takes the room (%.0f to %.0f)", low,
+                      mapView.frame.size.height);
                 [toggle performClick:nil];
                 [mapw.contentView layoutSubtreeIfNeeded];
                 CHECK(!panel.hidden && overlaps(mapw.contentView) == 0, "and shows it again; nothing overlaps (%d)", overlaps(mapw.contentView));
@@ -4572,12 +4583,11 @@ int main(int argc, char **argv) {
                 setenv("ADIFLINT_FAKE_LOOKUP_DIR", fixtures.c_str(), 1);
                 showBox(-75.6, 40.2, -73.8, 41.5);
                 [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-74.585, 41.072), 0)];  // in US-2001's area, away from its ring
-                CHECK([labelContaining(mapw.contentView, @"US-2001") hasSuffix:@"not worked. Outline: OSM."] ||
-                          [labelContaining(mapw.contentView, @"US-2001") containsString:@"not worked. Outline: OSM."],
-                      "inside a park's outline: the park, and where its outline is from (%s)", labelContaining(mapw.contentView, @"POTA").UTF8String);
+                CHECK([hoverText() hasPrefix:@"POTA US-2001"] && [hoverText() containsString:@"not worked. Outline: OSM."],
+                      "inside a park's outline: the park, and where its outline is from (%s)", hoverText().UTF8String);
                 [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-74.375, 40.684), 0)];  // in US-1234's matched outline
-                CHECK([labelContaining(mapw.contentView, @"US-1234") containsString:@"Outline: PAD-US, matched by name: Test Park Hunted."],
-                      "inside a matched outline: said so (%s)", labelContaining(mapw.contentView, @"POTA").UTF8String);
+                CHECK([hoverText() hasPrefix:@"POTA US-1234"] && [hoverText() containsString:@"Outline: PAD-US, matched by name: Test Park Hunted."],
+                      "inside a matched outline: said so (%s)", hoverText().UTF8String);
                 snapshot(mapw, "map-pota-outlines");
                 showBox(-74.72, 40.62, -74.28, 41.12);  // a region's fit stops at about 8 degrees: zoom in from there
                 for (int k = 0; k < 5; ++k) [findButton(mapw.contentView, @"+") performClick:nil];
@@ -4598,9 +4608,9 @@ int main(int argc, char **argv) {
                     CHECK(stylePick(@"parkOutlines", @"Outline only"), "Style Options: Parks with an outline: Outline only");
                     bool gone = !pale();
                     [mapView mouseMoved:mouse(NSEventTypeMouseMoved, parkAt, 0)];
-                    CHECK(badge && gone && [mapStatusText() hasPrefix:@"POTA US-2001 Test Park North (US-NJ): not worked."],
+                    CHECK(badge && gone && [hoverText() hasPrefix:@"POTA US-2001 Test Park North (US-NJ): not worked."],
                           "outline only: the badge gone (it was %s), the park found in its outline: %s", badge ? "there" : "missing",
-                          mapStatusText().UTF8String);
+                          hoverText().UTF8String);
                     snapshot(mapw, "map-pota-outline-only");
                     CHECK(stylePick(@"parkOutlines", @"Badge and outline"), "and back to a badge on the outline");
                     [stylePanel() orderOut:nil];
@@ -4663,49 +4673,84 @@ int main(int argc, char **argv) {
                   "Other programs: IOTA starts hidden and can be shown; the common programs are listed");
             [mapw.contentView layoutSubtreeIfNeeded];
             CHECK(overlaps(mapw.contentView) == 0, "the map's controls do not overlap (%d)", overlaps(mapw.contentView));
-            {  // Four cards: two columns, clear of the legend; a click on a card stays on it, beside them it
-               // reaches the map; the pointer on a card has nothing of the map under it
-                setPanels(15);
-                NSRect legend = [mapView convertRect:((NSValue *)[mapView valueForKey:@"legendFrame"]).rectValue toView:nil];
-                bool clearOfLegend = !NSIsEmptyRect(legend);
-                for (NSString *ident in @[ @"map.group.layers", @"map.group.contacts", @"map.group.filters", @"map.group.spots" ])
-                    if (NSIntersectsRect(inWindow(ident), legend)) clearOfLegend = false;
-                NSRect layersCard = inWindow(@"map.group.layers"), spotsCard = inWindow(@"map.group.spots");
-                CHECK(shown(@"map.group.layers") && shown(@"map.group.contacts") && shown(@"map.group.filters") && shown(@"map.group.spots") &&
-                          clearOfLegend && NSMinX(spotsCard) > NSMaxX(layersCard) && overlaps(mapw.contentView) == 0,
-                      "the four cards: in two columns, clear of the legend, nothing overlapping (%d)", overlaps(mapw.contentView));
-                snapshot(mapw, "map-cards");
-                NSView *top = mapw.contentView;
-                auto hitAt = [&](NSPoint p) { return [top hitTest:[top.superview convertPoint:p fromView:nil]]; };
-                NSView *onCard = hitAt(NSMakePoint(NSMidX(layersCard), NSMidY(layersCard)));
-                NSView *beside = hitAt(NSMakePoint(NSMaxX(spotsCard) + 20, NSMidY(spotsCard)));
-                CHECK([onCard isDescendantOf:viewWithIdentifier(mapw.contentView, @"map.group.layers")] && beside == mapView,
-                      "a click on a card stays on it; beside the cards it reaches the map");
-                setPanels(1);
-                layersCard = inWindow(@"map.group.layers");
-                [findButton(mapw.contentView, @"World") performClick:nil];
-                [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(12.43, 41.90), 0)];
-                bool named = labelContaining(mapw.contentView, @"(DXCC 246)").length > 0;
-                [mapView mouseMoved:mouse(NSEventTypeMouseMoved, NSMakePoint(NSMidX(layersCard), NSMidY(layersCard)), 0)];
-                CHECK(named && !labelContaining(mapw.contentView, @"(DXCC 246)").length, "the pointer on a card: nothing of the map under it");
-                // Fit Log keeps the log clear of the bar and the cards: FN31 (K1AB) beside the Layers card.
-                [findButton(mapw.contentView, @"Fit Log") performClick:nil];
-                NSPoint fn31At = pointFor(-73, 41.5);
-                CHECK(!NSPointInRect(fn31At, layersCard) && !NSPointInRect(fn31At, inWindow(@"map.bar")) &&
-                          [[mapView valueForKey:@"clearInsets"] edgeInsetsValue].left > NSWidth(layersCard),
-                      "Fit Log fits the log beside the Layers card");
-                // A filter on: the bar says how many, card closed or not.
-                setPanels(0);
+            {  // The panes: the sidebar, the list under the map and the selected panel, each hidden (the map
+               // takes the room) and shown again at its size
+                [mapw.contentView layoutSubtreeIfNeeded];
+                CGFloat wide = mapView.frame.size.width, tall = mapView.frame.size.height, sideWidth = inWindow(@"map.sidebar").size.width;
+                NSArray<NSButton *> *toggles = @[
+                    (NSButton *)viewWithIdentifier(mapw.contentView, @"map.sidebar.toggle"), (NSButton *)viewWithIdentifier(mapw.contentView, @"map.list.toggle"),
+                    (NSButton *)viewWithIdentifier(mapw.contentView, @"map.selected.toggle")
+                ];
+                for (NSButton *t in toggles) [t performClick:nil];
+                [mapw.contentView layoutSubtreeIfNeeded];
+                CHECK(toggles.count == 3 && !shown(@"map.sidebar") && !shown(@"map.list") && !shown(@"map.selected") && mapView.frame.size.width > wide + 400 &&
+                          mapView.frame.size.height > tall + 100 && overlaps(mapw.contentView) == 0,
+                      "the panes hidden: the map %.0f x %.0f, was %.0f x %.0f", mapView.frame.size.width, mapView.frame.size.height, wide, tall);
+                snapshot(mapw, "map-panes-hidden");
+                for (NSButton *t in toggles) [t performClick:nil];
+                [mapw.contentView layoutSubtreeIfNeeded];
+                CHECK(shown(@"map.sidebar") && shown(@"map.list") && shown(@"map.selected") && std::fabs(mapView.frame.size.width - wide) < 3 &&
+                          std::fabs(mapView.frame.size.height - tall) < 3 && std::fabs(inWindow(@"map.sidebar").size.width - sideWidth) < 3,
+                      "and shown again at their sizes (%.0f x %.0f, was %.0f x %.0f; sidebar %.0f, was %.0f)", mapView.frame.size.width, mapView.frame.size.height,
+                      wide, tall, inWindow(@"map.sidebar").size.width, sideWidth);
+                // History's Quick Views: the log, and what it reached on each layer; one chosen shows that layer's worked
+                // areas among all of it; a layer changed by hand leaves none chosen.
+                NSTableView *views = (NSTableView *)viewWithIdentifier(mapw.contentView, @"map.views");
+                auto viewCell = [&](NSInteger row) {
+                    return (NSTableCellView *)[views.delegate tableView:views viewForTableColumn:views.tableColumns.firstObject row:row];
+                };
+                auto viewCount = [&](NSInteger row) -> NSString * {
+                    for (NSView *v in viewCell(row).subviews)
+                        if ([v.identifier isEqualToString:@"count"]) return ((NSTextField *)v).stringValue;
+                    return @"";
+                };
+                auto chooseView = [&](NSInteger row) { [views selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)row] byExtendingSelection:NO]; };
+                auto on = [&](NSString *kind, NSString *layer) { return mapBox(kind, layer).state == NSControlStateValueOn; };
+                CHECK(views && [views.dataSource numberOfRowsInTableView:views] == 10 && [viewCell(0).textField.stringValue isEqualToString:@"All QSOs"] &&
+                          [viewCount(0) isEqualToString:@"5"] && [viewCell(1).textField.stringValue isEqualToString:@"Grid squares"] &&
+                          [viewCount(1) isEqualToString:@"4"] && [viewCell(3).textField.stringValue isEqualToString:@"US states"],
+                      "History's Quick Views: %s %s, %s %s", viewCell(0).textField.stringValue.UTF8String, viewCount(0).UTF8String,
+                      viewCell(1).textField.stringValue.UTF8String, viewCount(1).UTF8String);
+                chooseView(3);
+                CHECK(views.selectedRow == 3 && on(@"show", @"states") && on(@"overlay", @"states") && !on(@"show", @"grid") && !on(@"show", @"countries"),
+                      "US states chosen: the worked states among all of them, the squares and countries not shaded");
+                snapshot(mapw, "map-view-states");
+                setBox(mapBox(@"show", @"cq"), true);
+                CHECK(views.selectedRow == -1, "a layer changed by hand: no Quick View chosen");
+                chooseView(0);
+                CHECK(views.selectedRow == 0 && on(@"show", @"grid") && on(@"show", @"countries") && on(@"show", @"pota") && !on(@"show", @"states") &&
+                          !on(@"show", @"cq"),
+                      "All QSOs: squares, countries and parks again");
+                // The toolbar: what the map shows (the QSOs and their dates); a filter on, Clear can clear it; the
+                // continent menu and a place chosen in More Filters (a tag, which removes it when clicked).
                 NSPopUpButton *bands = findPopupWith(mapw.contentView, @"All bands");
+                NSButton *clearButton = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.filter.clear");
+                NSTextField *scope = (NSTextField *)viewWithIdentifier(mapw.contentView, @"map.scope");
+                CHECK([scope.stringValue hasPrefix:@"5 QSOs on the map"] && !clearButton.enabled, "the toolbar says what the map shows: %s", scope.stringValue.UTF8String);
                 [bands selectItemWithTitle:@"15m"];
                 [bands sendAction:bands.action to:bands.target];
-                CHECK(!shown(@"map.group.layers") && !shown(@"map.group.filters") && [[panels labelForSegment:2] isEqualToString:@"Filters (1)"] &&
-                          [[mapView valueForKey:@"clearInsets"] edgeInsetsValue].left == 0,
-                      "no cards, the map clear; one filter on: %s", [panels labelForSegment:2].UTF8String);
+                CHECK(clearButton.enabled && [scope.stringValue hasPrefix:@"1 QSO on the map"], "one filter on: Clear enabled, %s", scope.stringValue.UTF8String);
                 [bands selectItemAtIndex:0];
                 [bands sendAction:bands.action to:bands.target];
-                CHECK([[panels labelForSegment:2] isEqualToString:@"Filters"], "and none: Filters");
-                setPanels(0);
+                NSPopUpButton *continents = (NSPopUpButton *)viewWithIdentifier(mapw.contentView, @"map.filter.continent");
+                [continents selectItemWithTitle:@"Europe"];
+                [continents sendAction:continents.action to:continents.target];
+                CHECK([scope.stringValue hasPrefix:@"1 QSO on the map"] && clearButton.enabled, "the continent menu: Europe's QSO (%s)", scope.stringValue.UTF8String);
+                [continents selectItemAtIndex:0];
+                [continents sendAction:continents.action to:continents.target];
+                // Center: the map on what was chosen, at its zoom.
+                [findButton(mapw.contentView, @"World") performClick:nil];
+                [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, pointFor(12.43, 41.9), 1)];  // 1A's dot
+                [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, pointFor(12.43, 41.9), 1)];
+                for (int i = 0; i < 3; ++i) [findButton(mapw.contentView, @"+") performClick:nil];  // about the middle: the dot moves off it
+                std::string zoomBefore = zoomShown();
+                NSButton *center = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.center");
+                [center performClick:nil];
+                NSRect clear = ((NSValue *)[mapView valueForKey:@"clearRect"]).rectValue;
+                NSPoint middle = [mapView convertPoint:NSMakePoint(NSMidX(clear), NSMidY(clear)) toView:nil], dot = pointFor(12.43, 41.9);
+                CHECK(center.enabled && std::hypot(dot.x - middle.x, dot.y - middle.y) < 3 && zoomShown() == zoomBefore,
+                      "Center: 1A's dot in the middle of the map (%.1f px off), at the same zoom (%s, was %s)", std::hypot(dot.x - middle.x, dot.y - middle.y),
+                      zoomShown().c_str(), zoomBefore.c_str());
                 // Reference layers: faint and strong draw the grid and the overlays differently.
                 [findButton(mapw.contentView, @"World") performClick:nil];
                 setBox(mapBox(@"overlay", @"grid"), true);
@@ -4720,36 +4765,20 @@ int main(int argc, char **argv) {
                 snapshot(stylePanel(), "map-style");
                 [stylePanel() orderOut:nil];
             }
-            {  // At its smallest the bar wraps and the four cards fit in two columns; with the map narrowed to its
-               // least, the cards opened first close for the others. Nothing overlaps or runs off the window.
+            {  // At its smallest the header and the panes fit, the map keeps its room; nothing overlaps or runs off the window.
                 NSRect was = mapw.frame;
-                [mapw setFrame:NSMakeRect(was.origin.x, was.origin.y, 960, 640 + NSHeight(mapw.frame) - NSHeight(mapw.contentView.frame)) display:YES];
-                setPanels(15);
-                auto cardsEnd = [&]() {
-                    CGFloat right = 0;
-                    for (NSString *ident in @[ @"map.group.layers", @"map.group.contacts", @"map.group.filters", @"map.group.spots" ])
-                        if (shown(ident)) right = std::max(right, NSMaxX(inWindow(ident)));
-                    return right;
-                };
-                NSRect toggle = inWindow(@"map.list.toggle");
-                CHECK(overlaps(mapw.contentView) == 0 && NSMaxX(toggle) <= NSWidth(mapw.contentView.bounds) + 0.5 && shown(@"map.group.layers") &&
-                          shown(@"map.group.spots") && cardsEnd() <= NSMinX(inWindow(@"map.nav")),
-                      "the smallest Map window: the bar wraps, the four cards fit, nothing overlaps (%d), List within it (%.0f of %.0f)",
-                      overlaps(mapw.contentView), NSMaxX(toggle), NSWidth(mapw.contentView.bounds));
+                NSSize least = mapw.contentMinSize;
+                [mapw setFrame:NSMakeRect(was.origin.x, was.origin.y, least.width, least.height + NSHeight(mapw.frame) - NSHeight(mapw.contentView.frame))
+                       display:YES];
+                [mapw.contentView layoutSubtreeIfNeeded];
+                NSRect toggle = inWindow(@"map.selected.toggle");
+                CHECK(overlaps(mapw.contentView) == 0 && NSMaxX(toggle) <= NSWidth(mapw.contentView.bounds) + 0.5 && mapView.frame.size.width >= 419.5 &&
+                          shown(@"map.sidebar") && shown(@"map.selected"),
+                      "the smallest Map window: nothing overlaps (%d), the panes' buttons within it (%.0f of %.0f), the map %.0f wide",
+                      overlaps(mapw.contentView), NSMaxX(toggle), NSWidth(mapw.contentView.bounds), mapView.frame.size.width);
                 snapshot(mapw, "map-narrow");
-                NSSplitView *mainSplit = (NSSplitView *)viewWithIdentifier(mapw.contentView, @"map.main.split");
-                CGFloat mapWidth = mapView.frame.size.width;
-                [mainSplit setPosition:0 ofDividerAtIndex:0];  // the map at its narrowest
-                setPanels(15);
-                CHECK(std::fabs(mapView.frame.size.width - 420) < 1 && !shown(@"map.group.layers") && !shown(@"map.group.contacts") &&
-                          shown(@"map.group.filters") && shown(@"map.group.spots") && overlaps(mapw.contentView) == 0 &&
-                          cardsEnd() <= NSMinX(inWindow(@"map.nav")),
-                      "the map at its narrowest (%.0f): Layers and Contacts close for Filters and Spots, nothing overlaps (%d)", mapView.frame.size.width,
-                      overlaps(mapw.contentView));
-                snapshot(mapw, "map-crowded");
-                [mainSplit setPosition:mapWidth ofDividerAtIndex:0];
                 [mapw setFrame:was display:YES];
-                setPanels(0);
+                [mapw.contentView layoutSubtreeIfNeeded];
             }
             // Back to the defaults for any later run with this config.
             [style(@"reset") performClick:nil];
@@ -4972,9 +5001,16 @@ int main(int argc, char **argv) {
                 [setw orderOut:nil];
                 CHECK(requests().empty(), "nothing is fetched before the Spots layer shows");
 
-                // Show the layer: the three feeds start.
+                // Live: the spots layer shows (its first time, with the spots' list and the countries worked, no squares);
+                // the three feeds start.
                 [mapw makeKeyAndOrderFront:nil];
-                setBox(mapBox(@"show", @"spots"), true);
+                NSSegmentedControl *liveSwitch = (NSSegmentedControl *)viewWithIdentifier(mapw.contentView, @"map.workflow");
+                liveSwitch.selectedSegment = 1;
+                [liveSwitch sendAction:liveSwitch.action to:liveSwitch.target];
+                CHECK(mapBox(@"show", @"spots").state == NSControlStateValueOn && mapBox(@"show", @"grid").state == NSControlStateValueOff &&
+                          mapBox(@"show", @"countries").state == NSControlStateValueOn && shown(@"map.group.spots") &&
+                          ((NSSegmentedControl *)viewWithIdentifier(mapw.contentView, @"map.list.kind")).selectedSegment == 3,
+                      "Live, the first time: the spots and their list, the countries worked, no squares");
                 auto popoverView = [&](NSString *ident) -> NSView * {
                     for (NSWindow *w in NSApp.windows)
                         if (NSView *v = viewWithIdentifier(w.contentView, ident)) return v;
@@ -5349,6 +5385,45 @@ int main(int argc, char **argv) {
                 CHECK(count(req, "PSKREPORTER ") == 1 && count(req, "SPOTHOLE ") == 1,
                       "shown again: PSKReporter not asked again within five minutes, nor Spothole within two");
 
+                // Live's Quick Views: the spots by what they mean for the log. Each workflow is as it was left when
+                // you come back to it.
+                {
+                    NSSegmentedControl *wf = (NSSegmentedControl *)viewWithIdentifier(mapw.contentView, @"map.workflow");
+                    NSTableView *views = (NSTableView *)viewWithIdentifier(mapw.contentView, @"map.views");
+                    NSTableView *rowsTable = (NSTableView *)viewWithIdentifier(mapw.contentView, @"map.list.table");
+                    NSSegmentedControl *listKind = (NSSegmentedControl *)viewWithIdentifier(mapw.contentView, @"map.list.kind");
+                    auto toWorkflow = [&](NSInteger w) {
+                        wf.selectedSegment = w;
+                        [wf sendAction:wf.action to:wf.target];
+                        pump(0.3);
+                    };
+                    auto isOn = [&](NSString *kind, NSString *layer) { return mapBox(kind, layer).state == NSControlStateValueOn; };
+                    auto viewCount = [&](NSInteger row) -> NSString * {
+                        NSView *c = [views.delegate tableView:views viewForTableColumn:views.tableColumns.firstObject row:row];
+                        for (NSView *v in c.subviews)
+                            if ([v.identifier isEqualToString:@"count"]) return ((NSTextField *)v).stringValue;
+                        return @"";
+                    };
+                    listKind.selectedSegment = 3;  // the spots' list
+                    [listKind sendAction:listKind.action to:listKind.target];
+                    CHECK(wf.selectedSegment == 1 && [views.dataSource numberOfRowsInTableView:views] == 7 && [viewCount(2) isEqualToString:@"1"],
+                          "Live's Quick Views: New band %s", viewCount(2).UTF8String);
+                    [views selectRowIndexes:[NSIndexSet indexSetWithIndex:2] byExtendingSelection:NO];  // New band: 1A0KM (40m, new for the SMOM)
+                    pump(0.2);
+                    CHECK([rowsTable.dataSource numberOfRowsInTableView:rowsTable] == 1 && [cell(rowsTable, 0, @"call") isEqualToString:@"1A0KM"],
+                          "New band: only 1A0KM on the map and in the list (%ld)", (long)[rowsTable.dataSource numberOfRowsInTableView:rowsTable]);
+                    snapshot(mapw, "map-live");
+                    setBox(mapBox(@"labels", @"spots"), false);
+                    toWorkflow(0);
+                    CHECK(wf.selectedSegment == 0 && !shown(@"map.group.spots") && [views.dataSource numberOfRowsInTableView:views] == 10,
+                          "History: its own Quick Views, no Spots section");
+                    toWorkflow(1);
+                    CHECK(!isOn(@"labels", @"spots") && views.selectedRow == 2 && listKind.selectedSegment == 3 && shown(@"map.group.spots"),
+                          "Live again as it was left: spot labels off, New band chosen, the spots' list");
+                    setBox(mapBox(@"labels", @"spots"), true);
+                    [views selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
+                }
+
                 // Offline: the feeds stop and say why.
                 setBox(mapBox(@"show", @"spots"), false);
                 run("Offline Mode");
@@ -5376,7 +5451,11 @@ int main(int argc, char **argv) {
                 notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
                 pump(0.3);
                 run("Map (Grids, DXCC, Parks)...");
-                setPanels(0);  // the map itself; the cards have their own picture
+                if (NSSegmentedControl *wf = (NSSegmentedControl *)viewWithIdentifier(mapw.contentView, @"map.workflow")) {  // History: the log
+                    wf.selectedSegment = 0;
+                    [wf sendAction:wf.action to:wf.target];
+                }
+                [mapView mouseExited:(NSEvent *_Nonnull)nil];  // the footer's hint, not the tests' last message
                 if (NSTextField *spotsOf = (NSTextField *)viewWithIdentifier(mapw.contentView, @"map.spots.onlyCall")) {  // the tests' station
                     spotsOf.stringValue = @"";
                     [spotsOf sendAction:spotsOf.action to:spotsOf.target];
@@ -5387,7 +5466,7 @@ int main(int argc, char **argv) {
                                           @"Worked states" : @"show.states",
                                           @"Grid squares" : @"overlay.grid", @"Countries" : @"overlay.countries", @"US states" : @"overlay.states",
                                           @"CQ zones" : @"overlay.cq", @"ITU zones" : @"overlay.itu", @"US counties" : @"overlay.counties",
-                                          @"Cities" : @"overlay.cities", @"Contacts" : @"contacts"};
+                                          @"Cities" : @"overlay.cities", @"Contacts" : @"contacts", @"My station" : @"mine"};
                     NSButton *b = ids[title] ? (NSButton *)viewWithIdentifier(mapw.contentView, [@"map." stringByAppendingString:ids[title]])
                                              : findButton(mapw.contentView, title);
                     if (!b || (b.state == NSControlStateValueOn) == on) return;
@@ -5418,10 +5497,14 @@ int main(int argc, char **argv) {
                 pick(proj, @"Equirectangular");
                 menuAction(regionMenu, @"North America");
                 snapshot(mapw, "docs-map-states");
-                setPanels(15);  // the four cards; the region fitted beside them
-                menuAction(regionMenu, @"North America");
-                snapshot(mapw, "docs-map-cards");
-                setPanels(0);
+                {  // History's Quick View of US states, for the window's picture
+                    NSTableView *views = (NSTableView *)viewWithIdentifier(mapw.contentView, @"map.views");
+                    [views selectRowIndexes:[NSIndexSet indexSetWithIndex:3] byExtendingSelection:NO];
+                    menuAction(regionMenu, @"North America");
+                    snapshot(mapw, "docs-map-history");
+                    [views selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
+                    box(@"Worked states", true);
+                }
                 box(@"Worked states", false), box(@"US states", false), box(@"DXCC", true);
                 [findButton(mapw.contentView, @"World") performClick:nil];
                 snapshot(mapw, "docs-map-dxcc");
