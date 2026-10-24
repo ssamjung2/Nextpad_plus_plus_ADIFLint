@@ -3742,6 +3742,15 @@ static void testSpotsCore() {
         CHECK(!spotStatus(w, park, &ct).newPark && spotStatus(w, newPark, &ct).newPark && spotWanted(spotStatus(w, newPark, &ct)) &&
                   !spotWanted(spotStatus(w, spot("DL1ABC", "20m", "CW"), &ct)) && spotWanted(spotStatus(w, spot("JA1XYZ", "20m", "CW"), &ct)),
               "a park not hunted is wanted; a slot already worked isn't");
+        std::vector<std::string> watch = watchList(" k9abc, us-9999,\nFed. Rep. of Germany ,, K9ABC\r\n");
+        CHECK(watch == std::vector<std::string>({"K9ABC", "US-9999", "FED. REP. OF GERMANY"}) && watchListText(watch) == "K9ABC, US-9999, FED. REP. OF GERMANY" &&
+                  watchList("").empty() && watchList(" , \n").empty(),
+              "a watch list: trimmed, upper case, no repeats or empty ones (%zu)", watch.size());
+        Spot portable = spot("VE3/k9abc/P", "20m", "CW");
+        CHECK(watchedFor(watch, portable, "Canada") == "K9ABC" && watchedFor(watch, newPark, "") == "K9ABC" &&
+                  watchedFor({"US-9999"}, newPark, "") == "US-9999" && watchedFor(watch, spot("DL9AAA", "17m", "CW"), "Fed. Rep. of Germany") == "FED. REP. OF GERMANY" &&
+                  watchedFor(watch, spot("JA1XYZ", "20m", "CW"), "Japan").empty() && watchedFor({}, park, "").empty(),
+              "a spot is watched for its call (portable or not), a reference, else its entity");
     }
 
     SpotPlace p = stationPlace("DL1ABC", "JO62qm", &ct);

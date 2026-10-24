@@ -17,6 +17,12 @@ std::string lower(std::string s) {
     return s;
 }
 
+std::string upper(std::string s) {
+    for (char &c : s)
+        if (c >= 'a' && c <= 'z') c = (char)(c - 'a' + 'A');
+    return s;
+}
+
 int entityOf(int dxcc, const std::string &call, const CountryTable *countries) {
     if (dxcc > 0) return dxcc;
     CountryInfo info;
@@ -105,6 +111,39 @@ int spotPriority(const SpotStatus &st) {
         case SpotNeed::NewMode: return 2;
         default: return st.newPark ? 3 : 4;
     }
+}
+
+std::vector<std::string> watchList(std::string_view text) {
+    std::vector<std::string> list;
+    size_t i = 0;
+    while (i <= text.size()) {
+        size_t end = text.find_first_of(",\n\r", i);
+        if (end == std::string_view::npos) end = text.size();
+        std::string_view t = text.substr(i, end - i);
+        while (!t.empty() && (t.front() == ' ' || t.front() == '\t')) t.remove_prefix(1);
+        while (!t.empty() && (t.back() == ' ' || t.back() == '\t')) t.remove_suffix(1);
+        std::string w = upper(std::string(t));
+        if (!w.empty() && std::find(list.begin(), list.end(), w) == list.end()) list.push_back(w);
+        i = end + 1;
+    }
+    return list;
+}
+
+std::string watchListText(const std::vector<std::string> &list) {
+    std::string text;
+    for (const std::string &w : list) text += (text.empty() ? "" : ", ") + w;
+    return text;
+}
+
+std::string watchedFor(const std::vector<std::string> &list, const Spot &s, const std::string &entity) {
+    if (list.empty()) return "";
+    auto on = [&](const std::string &w) { return !w.empty() && std::find(list.begin(), list.end(), w) != list.end(); };
+    std::string call = upper(lookupCall(s.activator));
+    if (on(call)) return call;
+    if (on(upper(s.activator))) return upper(s.activator);
+    for (const std::string &r : s.refs)
+        if (on(upper(r))) return upper(r);
+    return on(upper(entity)) ? upper(entity) : "";
 }
 
 std::vector<std::pair<std::string, SlotState>> bandSlots(const WorkedIndex &w, int dxcc) {

@@ -4712,14 +4712,24 @@ int main(int argc, char **argv) {
                 };
                 auto chooseView = [&](NSInteger row) { [views selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)row] byExtendingSelection:NO]; };
                 auto on = [&](NSString *kind, NSString *layer) { return mapBox(kind, layer).state == NSControlStateValueOn; };
-                CHECK(views && [views.dataSource numberOfRowsInTableView:views] == 10 && [viewCell(0).textField.stringValue isEqualToString:@"All QSOs"] &&
-                          [viewCount(0) isEqualToString:@"5"] && [viewCell(1).textField.stringValue isEqualToString:@"Grid squares"] &&
-                          [viewCount(1) isEqualToString:@"4"] && [viewCell(3).textField.stringValue isEqualToString:@"US states"],
+                CHECK(views && [views.dataSource numberOfRowsInTableView:views] == 11 && [viewCell(0).textField.stringValue isEqualToString:@"All QSOs"] &&
+                          [viewCount(0) isEqualToString:@"5"] && [viewCell(1).textField.stringValue isEqualToString:@"Needs confirmation"] &&
+                          [viewCell(2).textField.stringValue isEqualToString:@"Grid squares"] && [viewCount(2) isEqualToString:@"4"] &&
+                          [viewCell(4).textField.stringValue isEqualToString:@"US states"],
                       "History's Quick Views: %s %s, %s %s", viewCell(0).textField.stringValue.UTF8String, viewCount(0).UTF8String,
-                      viewCell(1).textField.stringValue.UTF8String, viewCount(1).UTF8String);
-                chooseView(3);
-                CHECK(views.selectedRow == 3 && on(@"show", @"states") && on(@"overlay", @"states") && !on(@"show", @"grid") && !on(@"show", @"countries"),
-                      "US states chosen: the worked states among all of them, the squares and countries not shaded");
+                      viewCell(2).textField.stringValue.UTF8String, viewCount(2).UTF8String);
+                // Needs confirmation: the QSOs not confirmed (the Confirmed menu set for it), put back by another view.
+                NSPopUpButton *confirmedMenu = (NSPopUpButton *)viewWithIdentifier(mapw.contentView, @"map.filter.confirmed");
+                NSString *unconfirmed = viewCount(1);
+                chooseView(1);
+                CHECK(views.selectedRow == 1 && [confirmedMenu.titleOfSelectedItem isEqualToString:@"Not confirmed"] && unconfirmed.integerValue > 0 &&
+                          unconfirmed.integerValue < 5 && [viewCount(0) isEqualToString:unconfirmed] && on(@"show", @"grid") && on(@"show", @"countries"),
+                      "Needs confirmation: the %s QSOs not confirmed (All QSOs now %s), Confirmed: %s", unconfirmed.UTF8String, viewCount(0).UTF8String,
+                      confirmedMenu.titleOfSelectedItem.UTF8String);
+                chooseView(4);
+                CHECK(views.selectedRow == 4 && on(@"show", @"states") && on(@"overlay", @"states") && !on(@"show", @"grid") && !on(@"show", @"countries") &&
+                          [confirmedMenu.titleOfSelectedItem isEqualToString:@"All QSOs"] && [viewCount(0) isEqualToString:@"5"],
+                      "US states chosen: the worked states among all of them, the squares and countries not shaded; the Confirmed menu put back");
                 snapshot(mapw, "map-view-states");
                 setBox(mapBox(@"show", @"cq"), true);
                 CHECK(views.selectedRow == -1, "a layer changed by hand: no Quick View chosen");
@@ -5412,9 +5422,11 @@ int main(int argc, char **argv) {
                     };
                     listKind.selectedSegment = 3;  // the spots' list
                     [listKind sendAction:listKind.action to:listKind.target];
-                    CHECK(wf.selectedSegment == 1 && [views.dataSource numberOfRowsInTableView:views] == 7 && [viewCount(2) isEqualToString:@"1"],
-                          "Live's Quick Views: New band %s", viewCount(2).UTF8String);
-                    [views selectRowIndexes:[NSIndexSet indexSetWithIndex:2] byExtendingSelection:NO];  // New band: 1A0KM (40m, new for the SMOM)
+                    CHECK(wf.selectedSegment == 1 && [views.dataSource numberOfRowsInTableView:views] == 9 && [viewCount(3) isEqualToString:@"1"] &&
+                              viewCount(1).integerValue == viewCount(2).integerValue + 1 && [viewCount(7) isEqualToString:@"0"],
+                          "Live's Quick Views: Needed on its band %s (New DXCC %s), New band %s, My watch list %s", viewCount(1).UTF8String,
+                          viewCount(2).UTF8String, viewCount(3).UTF8String, viewCount(7).UTF8String);
+                    [views selectRowIndexes:[NSIndexSet indexSetWithIndex:3] byExtendingSelection:NO];  // New band: 1A0KM (40m, new for the SMOM)
                     pump(0.2);
                     CHECK([rowsTable.dataSource numberOfRowsInTableView:rowsTable] == 1 && [cell(rowsTable, 0, @"call") isEqualToString:@"1A0KM"] &&
                               [cell(rowsTable, 0, @"need") isEqualToString:@"New on 40m"],
@@ -5434,8 +5446,57 @@ int main(int argc, char **argv) {
                     [rowMenu.delegate menuNeedsUpdate:rowMenu];
                     NSMutableArray *menuTitles = [NSMutableArray array];
                     for (NSMenuItem *i in rowMenu.itemArray) [menuTitles addObject:i.title];
-                    CHECK([[menuTitles componentsJoinedByString:@","] isEqualToString:@"New QSO,Center,Zoom to It"], "a spot's own menu: %s",
+                    CHECK([[menuTitles componentsJoinedByString:@","] isEqualToString:@"New QSO,Center,Zoom to It,Watch 1A0KM"], "a spot's own menu: %s",
                           [menuTitles componentsJoinedByString:@","].UTF8String);
+                    // Watch: the station on your watch list; a star in the list, first among the spots, in My watch
+                    // list and under the bell, whose menu chooses it.
+                    NSButton *watch = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.watch");
+                    NSButton *bell = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.bell");
+                    CHECK(watch && !watch.hidden && [watch.title isEqualToString:@"Watch"] && bell && bell.title.length == 0, "Watch shown for the spot (%s)",
+                          watch.title.UTF8String);
+                    [watch performClick:nil];
+                    pump(0.2);
+                    CHECK([watch.title isEqualToString:@"Watching"] && [bell.title isEqualToString:@"1"] && [viewCount(7) isEqualToString:@"1"] &&
+                              [cell(rowsTable, 0, @"watch") isEqualToString:@"\u2605"] && [cell(rowsTable, 0, @"need") hasPrefix:@"Watched + New on 40m"] &&
+                              labelContaining(viewWithIdentifier(mapw.contentView, @"map.selected"), @"On your watch list (1A0KM)"),
+                          "watched: %s, bell %s, My watch list %s, %s", watch.title.UTF8String, bell.title.UTF8String, viewCount(7).UTF8String,
+                          cell(rowsTable, 0, @"need").UTF8String);
+                    NSMenu *bellMenu = bell.menu;  // also its right-click menu
+                    [bellMenu.delegate menuNeedsUpdate:bellMenu];
+                    NSInteger bellSpot = -1;
+                    for (NSInteger k = 0; k < bellMenu.numberOfItems; ++k)
+                        if ([[bellMenu itemAtIndex:k].title hasPrefix:@"1A0KM  7.010"]) bellSpot = k;
+                    CHECK(bellMenu.numberOfItems > 2 && [[bellMenu itemAtIndex:0].title isEqualToString:@"1 watched station spotted"] && bellSpot == 1 &&
+                              [[bellMenu itemAtIndex:bellMenu.numberOfItems - 1].title isEqualToString:@"Edit Watch List..."],
+                          "the bell's menu: %s, %s", [bellMenu itemAtIndex:0].title.UTF8String, bellMenu.numberOfItems > 1 ? [bellMenu itemAtIndex:1].title.UTF8String : "");
+                    [views selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];  // All spots: the watched one first, best opportunity
+                    pump(0.2);
+                    CHECK([cell(rowsTable, 0, @"call") isEqualToString:@"1A0KM"], "the watched station first among all the spots (%s)",
+                          cell(rowsTable, 0, @"call").UTF8String);
+                    [rowsTable deselectAll:nil];
+                    if (bellSpot >= 0) [bellMenu performActionForItemAtIndex:bellSpot];
+                    pump(0.2);
+                    CHECK(rowsTable.selectedRow == 0 && [cell(rowsTable, 0, @"call") isEqualToString:@"1A0KM"] && [watch.title isEqualToString:@"Watching"],
+                          "the bell's 1A0KM chooses its spot (row %ld)", (long)rowsTable.selectedRow);
+                    // The editor: the list as tokens; emptied, nothing is watched.
+                    [(NSButton *)viewWithIdentifier(mapw.contentView, @"map.watch.edit") performClick:nil];
+                    pump(0.2);
+                    NSTokenField *tokens = nil;
+                    for (NSWindow *w in NSApp.windows)
+                        if (!tokens) tokens = (NSTokenField *)viewWithIdentifier(w.contentView, @"map.watch.tokens");
+                    CHECK(tokens && [[(NSArray *)tokens.objectValue componentsJoinedByString:@","] isEqualToString:@"1A0KM"], "the watch list's editor: %s",
+                          [[(NSArray *)tokens.objectValue componentsJoinedByString:@","] UTF8String]);
+                    tokens.objectValue = @[];
+                    [tokens sendAction:tokens.action to:tokens.target];
+                    pump(0.2);
+                    CHECK([watch.title isEqualToString:@"Watch"] && bell.title.length == 0 && [viewCount(7) isEqualToString:@"0"],
+                          "emptied: nothing watched (%s, bell %s)", watch.title.UTF8String, bell.title.UTF8String);
+                    for (NSWindow *w in [NSApp.windows copy])
+                        if (viewWithIdentifier(w.contentView, @"map.watch.tokens")) [w orderOut:nil];
+                    [views selectRowIndexes:[NSIndexSet indexSetWithIndex:3] byExtendingSelection:NO];  // New band again, for the picture
+                    pump(0.2);
+                    [rowsTable selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
+                    [rowsTable.delegate tableViewSelectionDidChange:[NSNotification notificationWithName:NSTableViewSelectionDidChangeNotification object:rowsTable]];
                     snapshot(mapw, "map-live");
                     // All spots again: Sort by nearest puts K9TST (90 km) first; Recent spots: the newest, a link to each.
                     [views selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
@@ -5464,7 +5525,7 @@ int main(int argc, char **argv) {
                           "Recent spots: the newest (%s) chooses its spot (%s)", newest.attributedTitle.string.UTF8String, chosenNow.c_str());
                     setBox(mapBox(@"labels", @"spots"), false);
                     toWorkflow(0);
-                    CHECK(wf.selectedSegment == 0 && !shown(@"map.group.spots") && [views.dataSource numberOfRowsInTableView:views] == 10,
+                    CHECK(wf.selectedSegment == 0 && !shown(@"map.group.spots") && [views.dataSource numberOfRowsInTableView:views] == 11,
                           "History: its own Quick Views, no Spots section");
                     toWorkflow(1);
                     CHECK(!isOn(@"labels", @"spots") && views.selectedRow == 0 && listKind.selectedSegment == 3 && shown(@"map.group.spots"),
@@ -5548,8 +5609,14 @@ int main(int argc, char **argv) {
                 snapshot(mapw, "docs-map-states");
                 {  // History's Quick View of US states, for the window's picture
                     NSTableView *views = (NSTableView *)viewWithIdentifier(mapw.contentView, @"map.views");
-                    [views selectRowIndexes:[NSIndexSet indexSetWithIndex:3] byExtendingSelection:NO];
+                    [views selectRowIndexes:[NSIndexSet indexSetWithIndex:4] byExtendingSelection:NO];
                     menuAction(regionMenu, @"North America");
+                    NSScrollView *side = views.enclosingScrollView;  // the sidebar at its top: the Quick Views
+                    while (side && ![side.superview.identifier isEqualToString:@"map.sidebar"]) side = side.superview.enclosingScrollView;
+                    if (side) {
+                        [side.contentView scrollToPoint:NSZeroPoint];
+                        [side reflectScrolledClipView:side.contentView];
+                    }
                     snapshot(mapw, "docs-map-history");
                     [views selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
                     box(@"Worked states", true);

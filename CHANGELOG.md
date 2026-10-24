@@ -47,9 +47,17 @@ Versions before 0.8.0 were development builds and were not published.
   that shows each feed's state, and what is under the pointer). The header also has Log
   Table, Settings and Help. Dividers can be dragged, panes hidden, and all is remembered.
 - **Map → Quick Views.** History's: the whole log and each layer with how many you worked
-  (and confirmed); choosing one shows that layer's worked areas among all of it. Live's:
-  **All spots**, **New DXCC**, **New band**, **New mode**, **New POTA parks**, **POTA
-  activators** and **Worked before**, each with its count; choosing one shows only those.
+  (and confirmed); choosing one shows that layer's worked areas among all of it; **Needs
+  confirmation** keeps the QSOs not confirmed by card, LoTW or eQSL. Live's: **All spots**,
+  **Needed on its band** (a new DXCC or a new band), **New DXCC**, **New band**, **New
+  mode**, **New POTA parks**, **POTA activators**, **My watch list** and **Worked before**,
+  each with its count; choosing one shows only those.
+- **Map → watch list.** Calls, references (POTA parks, IOTA groups, any program's) and DXCC
+  entities to watch for: **Watch** in the selected panel or a row's right-click menu, or
+  **Watch List…** in Spots. A watched station spotted has a star on the map and in the list
+  (a **★** column), comes first under Best opportunity, says **Watched** in Why it matters,
+  and is counted by a **bell** in the header; the bell's menu lists them (each chooses its
+  spot) and says when the feeds have gone quiet. In the Map only: no notifications.
 - **Map → selected panel.** What you clicked, with its kind (**Live spot**, **QSO**, **DXCC
   entity**, **POTA park**…), a line under its name, its facts, and for a spot **Why it's
   interesting** (a new DXCC, band, mode or park, LoTW, how many heard it near you, your QSOs

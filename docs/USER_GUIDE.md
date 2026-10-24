@@ -541,7 +541,8 @@ parks you worked shaded and the grey line on.
 
 The window, from the top:
 
-- **The header**: your callsign, the log and its QSOs; at the right, **Log Table** (the
+- **The header**: your callsign, the log and its QSOs; at the right, the **bell** (see
+  [The watch list](#the-watch-list)), **Log Table** (the
   table), **Style Options** (the palette), **Export PNG** (the arrow out of a box),
   **Settings** (the gear), **Help** (this guide, in your browser), and three buttons that
   show or hide the sidebar, the list and the selected panel. The window's title names the
@@ -555,12 +556,17 @@ The window, from the top:
 - **The sidebar**, on the left, in sections you can close with their triangles:
   - **Quick Views**: in History, the whole log and each layer, with how many you worked
     (the tooltip adds how many are confirmed). Choosing one shows that layer's worked areas
-    among all of it; **All QSOs** goes back to squares, countries and parks. In Live, the
-    spots by what they mean: **All spots**, **New DXCC**, **New band**, **New mode**, **New
-    POTA parks**, **POTA activators**, **Worked before**, each with its count; choosing one
-    shows only those, on the map and in the list.
-  - **Spots** (Live): the Spots layer's boxes, **Sources and Filters…**, refresh, and
-    **Only spots of** (see [Spots on the map](#spots-on-the-map)).
+    among all of it; **All QSOs** goes back to squares, countries and parks. **Needs
+    confirmation** keeps the QSOs not yet confirmed by card, LoTW or eQSL (it sets the
+    toolbar's confirmation menu to **Not confirmed**, and another Quick View sets it back).
+    In Live, the spots by what they mean: **All spots**, **Needed on its band** (a new DXCC
+    or a new band: an entity you haven't worked on the spot's band), **New DXCC**, **New
+    band**, **New mode**, **New POTA parks**, **POTA activators**, **My watch list**,
+    **Worked before**, each with its count; choosing one shows only those, on the map and in
+    the list.
+  - **Spots** (Live): the Spots layer's boxes, **Sources and Filters…**, refresh,
+    **Only spots of** (see [Spots on the map](#spots-on-the-map)), and **Watch List…** (see
+    [The watch list](#the-watch-list)).
   - **Layers**: a row for each layer (see [Layers](#layers-worked-all-and-labels)), then
     **Contacts** (QSO markers, contact paths, your home station, other programs) and
     **Sun** (the grey line, day and night).
@@ -1027,6 +1033,8 @@ The panel on the right shows what you clicked (pointing only describes it, in th
 - **New QSO** (for a spot) fills New QSO from it: CALL, FREQ, BAND, MODE and the program's
   reference, or GRIDSQUARE when the spot gives one. **Center** puts it in the middle of the
   map at the zoom it has. With one QSO chosen, **View QSO** goes to its record in the log.
+  **Watch** puts the station's call (or the park's or IOTA group's reference, or the DXCC
+  entity) on [your watch list](#the-watch-list); it says **Watching** while it is on it.
   The **×** at the panel's top right hides it (the header's button shows it again).
 - Its description, and for a station its **DXCC entity in your log**: each band from 160m
   to 6m (and any other you worked it on) green when confirmed, orange when only worked, grey
@@ -1046,6 +1054,27 @@ The panel on the right shows what you clicked (pointing only describes it, in th
 **Recent spots** (in Live) are the five newest, with their frequency, band, mode and age
 (fainter after 15 minutes); click a call to choose its spot. **View all spots →** shows the
 list's Spots.
+
+### The watch list
+
+Put on it the stations you want to know are on the air: calls, references (a POTA park such
+as US-1234, an IOTA group such as EU-005, any program's) and DXCC entities. A call matches
+with or without a prefix or suffix (VE3/K1ABC/P is K1ABC). Add one with **Watch** in the
+selected panel or **Watch** in a row's right-click menu, or edit the whole list with **Watch
+List…** in the Spots section (the entities' names are completed as you type). When one is
+spotted:
+
+- it shows in Live's **My watch list** Quick View, with the others;
+- its call has a star on the map, its row a star in the list (the **★** column), and it comes
+  first under **Sort: Best opportunity**; **Why it matters** begins with **Watched**, and the
+  selected panel says **On your watch list**;
+- the **bell** in the header counts it. The bell is orange when one was spotted since you
+  last opened it, or when the feeds have sent nothing for 15 minutes; click it for the
+  stations (choose one to show its spot, in Live), the feeds' state when they went quiet, and
+  **Edit Watch List…**.
+
+The bell works while the spots are on, and only inside the Map: ADIF Lint sends no
+notifications.
 
 ### Map Detail: streets and buildings
 

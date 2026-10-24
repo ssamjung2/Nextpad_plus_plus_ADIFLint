@@ -108,6 +108,7 @@ struct ADIFMapSpot {
     bool exact = false;  // at its 6-character grid; else its grid square or country
     std::vector<ADIFSpotHeard> heard;  // newest first, one per spotter, at most 12, each where it is
     adif::SpotStatus status;           // what it means for the log (set by the view)
+    std::string watched;               // what on your watch list it is for (adif::watchedFor), "" when nothing
 };
 
 // A line of the information box (what is known about a clicked spot or spotter): a heading, or

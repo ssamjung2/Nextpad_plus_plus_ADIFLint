@@ -1461,7 +1461,7 @@ bool mapkit::potaSpot(const adif::Spot &s) { return s.program == "POTA"; }
         for (size_t k = 0; k < _spots.size() && k < 400; ++k) {  // the newest first get the room
             const ADIFMapSpot &s = _spots[k];
             NSPoint p = [self viewPointForLon:s.lon lat:s.lat];
-            NSString *call = ADIFString(s.spot.activator);
+            NSString *call = ADIFString((s.watched.empty() ? "" : "\u2605 ") + s.spot.activator);  // a star: on your watch list
             NSString *details = ADIFString(adif::spotLabelDetails(s.spot, _style.spotLabel, now));
             NSSize cs = [call sizeWithAttributes:attrs];
             NSSize ds = details.length ? [details sizeWithAttributes:small] : NSZeroSize;

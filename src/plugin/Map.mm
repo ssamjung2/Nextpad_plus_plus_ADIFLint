@@ -380,6 +380,12 @@ struct ADIFQuickRow {
 namespace worldmap {
 namespace {
 
+// A station on your watch list, spotted (the bell lists them).
+struct ADIFWatchedSpot {
+    std::string call, band, khz, mode, what;  // what: on the list for (adif::watchedFor)
+    long long epoch = 0;
+};
+
 struct {
     NSPanel *window = nil;
     ADIFMapView *view = nil;
@@ -427,8 +433,18 @@ struct {
     NSView *whyBox = nil;
     NSStackView *whyList = nil;
     int spotLens = 0;          // Live's Quick View: which of the spots show
-    size_t lensCounts[7] = {};  // how many stations each of Live's views has
+    size_t lensCounts[9] = {};  // how many stations each of Live's views has (kLiveViews)
     bool applyingView = false;  // a Quick View is setting the layers: not a change of the user's own
+    bool viewSetConfirmed = false;  // History's Needs confirmation set the Confirmed menu (and puts it back)
+    // The watch list: the selected panel's Watch, its editor (the Spots section), and the header's
+    // bell, with the watched stations spotted (those not seen since it was last opened tint it).
+    NSButton *watchButton = nil, *watchEdit = nil, *bell = nil;
+    NSMenu *bellMenu = nil;
+    NSPopover *watchPopover = nil;
+    NSTokenField *watchTokens = nil;
+    std::vector<ADIFWatchedSpot> watchedSpots;  // newest first, whichever Quick View is chosen
+    std::set<std::string> bellSeen;             // "call|band" of those listed when the bell was last opened
+    long long newestSpot = 0;                   // the newest spot of all, for whether the feeds went quiet
     // More Filters: places.
     NSButton *moreFilters = nil, *clearFilters = nil;
     NSPopover *filterPopover = nil;
@@ -484,7 +500,17 @@ int workflow();
 int quickView();
 void fillQuickViews();
 void showHover(const std::string &text);
-bool inLens(int lens, const adif::Spot &sp, const adif::SpotStatus &st);
+bool inLens(int lens, const adif::Spot &sp, const adif::SpotStatus &st, bool watched);
+void applyViewFilters();
+int historyViewOf(int layer);
+std::vector<std::string> watchList();
+std::string watchTokenFor(const ADIFMapHit &h);
+bool onWatchList(const std::string &token);
+void toggleWatch(const std::string &token);
+void showWatchButton(const ADIFMapHit &h);
+void showWatchList(NSView *anchor);
+void fillBell();
+void fillBellMenu(NSMenu *menu);
 
 bool flag(const char *key, bool fallback) {
     std::string v = setting(key);
@@ -801,6 +827,7 @@ void showChosenFacts(const ADIFMapHit &h) {
                 if (!r.heading && (r.label == tr("Continent") || r.label == tr("Zones") || r.label == tr("Distance") || r.label == tr("Comment")))
                     facts.push_back({symbolFor(r.label), r.label, r.value});
             if (sp.heardMe) break;
+            if (!ms.watched.empty()) why.push_back({@"star.fill", trf("On your watch list ({what})", {{"what", ms.watched}})});
             switch (st.need) {
                 case adif::SpotNeed::NewDxcc: why.push_back({@"star.circle.fill", trf("New DXCC entity ({entity})", {{"entity", st.entity}})}); break;
                 case adif::SpotNeed::NewBand: why.push_back({@"plus.circle.fill", trf("Needed on {band}: {entity} not worked there", {{"band", sp.band}, {"entity", st.entity}})}); break;
@@ -910,7 +937,7 @@ void showChosenFacts(const ADIFMapHit &h) {
     }
     for (const auto &[symbol, text] : why) {
         NSImageView *icon = [NSImageView imageViewWithImage:[NSImage imageWithSystemSymbolName:symbol accessibilityDescription:nil] ?: [[NSImage alloc] init]];
-        icon.contentTintColor = [symbol hasPrefix:@"star"] ? NSColor.systemPinkColor : [symbol hasPrefix:@"plus"] ? NSColor.systemTealColor
+        icon.contentTintColor = [symbol isEqualToString:@"star.fill"] ? NSColor.systemYellowColor : [symbol hasPrefix:@"star"] ? NSColor.systemPinkColor : [symbol hasPrefix:@"plus"] ? NSColor.systemTealColor
                                 : [symbol hasPrefix:@"leaf"] ? NSColor.systemGreenColor : NSColor.secondaryLabelColor;
         [icon.widthAnchor constraintEqualToConstant:16].active = YES;
         NSTextField *t = [NSTextField wrappingLabelWithString:ADIFString(text)];
@@ -1284,6 +1311,7 @@ void selected(const ADIFMapHit &h) {
     showList(qsos, h.kind);
     mw.useSpot.hidden = h.kind != ADIFMapHit::Spot;
     mw.viewQso.hidden = qsos.size() != 1;  // one QSO chosen: its record, a click away
+    showWatchButton(h);
     mw.centerButton.enabled = h.kind != ADIFMapHit::None;
     mw.centerButton.hidden = h.kind == ADIFMapHit::None;
     [mw.view setInfo:h.kind == ADIFMapHit::Spot || h.kind == ADIFMapHit::Spotter ? spotInfo(h) : std::vector<ADIFInfoRow>{}];
@@ -1761,6 +1789,7 @@ void refresh() {
         mw.centerButton.enabled = NO;
         mw.centerButton.hidden = YES;
         mw.viewQso.hidden = YES;
+        showWatchButton(ADIFMapHit());
         std::string call = setting("stationCall");
         mw.summaryLabel.stringValue = ADIFString((call.empty() ? "" : call + "  \u00B7  ") + documentName() + "  \u00B7  " + plural(mw.data.qsos.size(), "QSO"));
         if (workflow() == 0) {
@@ -2312,16 +2341,24 @@ void refreshSpots() {
     }
     // Live's Quick Views: how many stations each has, and only the chosen one's kept.
     for (size_t &n : mw.lensCounts) n = 0;
+    mw.watchedSpots.clear();
+    mw.newestSpot = 0;
     if (show) {
         const adif::CountryTable *countries = &ADIFCountries();
         std::vector<ADIFMapSpot> kept;
+        std::vector<std::string> watch = watchList();
         for (ADIFMapSpot &m : marks) {
             adif::SpotStatus st = adif::spotStatus(mw.view.worked, m.spot, countries);
-            for (int v = 0; v < 7; ++v) mw.lensCounts[v] += inLens(v, m.spot, st);
-            if (inLens(mw.spotLens, m.spot, st)) kept.push_back(std::move(m));
+            mw.newestSpot = std::max(mw.newestSpot, m.spot.epoch);
+            if (!m.spot.heardMe) m.watched = adif::watchedFor(watch, m.spot, st.entity);
+            if (!m.watched.empty()) mw.watchedSpots.push_back({m.spot.activator, m.spot.band, m.spot.khz, m.spot.mode, m.watched, m.spot.epoch});
+            for (int v = 0; v < (int)std::size(mw.lensCounts); ++v) mw.lensCounts[v] += inLens(v, m.spot, st, !m.watched.empty());
+            if (inLens(mw.spotLens, m.spot, st, !m.watched.empty())) kept.push_back(std::move(m));
         }
         marks = std::move(kept);
+        std::stable_sort(mw.watchedSpots.begin(), mw.watchedSpots.end(), [](const ADIFWatchedSpot &a, const ADIFWatchedSpot &b) { return a.epoch > b.epoch; });
     }
+    fillBell();
     long long newest = 0;
     for (const ADIFMapSpot &m : marks) newest = std::max(newest, m.spot.epoch);
     if (workflow() == 1) {
@@ -2739,6 +2776,7 @@ const std::vector<ListColumn> &listColumns(int kind) {
         {"distance", N_("Distance"), 64, 2, true, true},  {"bearing", N_("Bearing"), 54, 2, true, true},
     };
     static const std::vector<ListColumn> kSpots = {
+        {"watch", "\u2605", 24, 1, true, true},             // on your watch list
         {"call", N_("Call"), 76, 0, true, false},          {"country", N_("Country"), 120, 0, true, false}, {"grid", N_("Grid"), 62, 0, true, false},
         {"distance", N_("Distance"), 70, 2, true, true},   {"khz", "kHz", 60, 2, true, true},             {"band", N_("Band"), 42, 1, true, false},
         {"mode", N_("Mode"), 46, 0, true, false},          {"spotter", N_("Spotter"), 76, 0, true, false}, {"age", N_("Age"), 52, 2, true, true},
@@ -3098,18 +3136,19 @@ std::string cellText(int kind, const ADIFViewRow &r, const std::string &id) {
     }
     if (id == "band") return sp.band;
     if (id == "mode") return sp.mode;
-    if (id == "need") {  // what it means for the log, its program, and whether stations near you hear it
+    if (id == "watch") return ms.watched.empty() ? "" : "\u2605";
+    if (id == "need") {  // your watch list, what it means for the log, its program, whether stations near you hear it
         if (sp.heardMe) return "";
-        std::string out;
+        std::string out = ms.watched.empty() ? "" : tr("Watched");
+        auto plus = [&](const std::string &more) { out += (out.empty() ? "" : " + ") + more; };
         switch (ms.status.need) {
-            case adif::SpotNeed::NewDxcc: out = tr("New DXCC"); break;
-            case adif::SpotNeed::NewBand: out = trf("New on {band}", {{"band", sp.band}}); break;
-            case adif::SpotNeed::NewMode: out = tr("New mode"); break;
-            case adif::SpotNeed::Worked: out = tr("Worked, not confirmed"); break;
-            case adif::SpotNeed::Confirmed: out = tr("Confirmed"); break;
+            case adif::SpotNeed::NewDxcc: plus(tr("New DXCC")); break;
+            case adif::SpotNeed::NewBand: plus(trf("New on {band}", {{"band", sp.band}})); break;
+            case adif::SpotNeed::NewMode: plus(tr("New mode")); break;
+            case adif::SpotNeed::Worked: plus(tr("Worked, not confirmed")); break;
+            case adif::SpotNeed::Confirmed: plus(tr("Confirmed")); break;
             default: break;
         }
-        auto plus = [&](const std::string &more) { out += (out.empty() ? "" : " + ") + more; };
         if (ms.status.newPark) plus(trf("new {program} park", {{"program", sp.program}}));
         else if (!sp.program.empty()) plus(sp.program);
         double hlat, hlon;
@@ -3146,8 +3185,11 @@ double cellNumber(int kind, const ADIFViewRow &r, const std::string &id) {
         if (id == "age") return sp.epoch > 0 ? (double)((long long)time(nullptr) - sp.epoch) : 1e12;
         if (id == "snr") return sp.hasSnr ? sp.snr : -1e12;
     }
-    if (id == "need" && kind == kListSpots && r.item < mw.view.spots.size())  // the most wanted first
-        return mw.view.spots[r.item].spot.heardMe ? 9 : adif::spotPriority(mw.view.spots[r.item].status);
+    if (id == "need" && kind == kListSpots && r.item < mw.view.spots.size()) {  // the most wanted first, those you watch before them
+        const ADIFMapSpot &ms = mw.view.spots[r.item];
+        return ms.spot.heardMe ? 9 : !ms.watched.empty() ? -1 : adif::spotPriority(ms.status);
+    }
+    if (id == "watch" && kind == kListSpots && r.item < mw.view.spots.size()) return mw.view.spots[r.item].watched.empty();
     if (qsoList(kind) && r.item < mw.data.qsos.size()) {
         const adif::MapQso &q = mw.data.qsos[r.item];
         if (id == "record") return q.record;
@@ -3329,10 +3371,10 @@ void showSituation() {
     for (const adif::MapSquare &sq : mw.data.squares) squaresConfirmed += sq.confirmed;
     for (const ADIFMapEntity &e : mw.dxcc) dxccConfirmed += e.confirmed;
     std::pair<size_t, size_t> states = [mw.view workedCount:kLayerStates], parks = [mw.view workedCount:kLayerPota];
-    statRow(tr("Grid squares"), number(grouped(mw.data.squares.size()), false), number(grouped(squaresConfirmed), false), 1);
-    statRow(tr("DXCC entities"), number(grouped(mw.dxcc.size()), false), number(grouped(dxccConfirmed), false), 2);
-    statRow(tr("US states"), number(grouped(states.first), false), number(grouped(states.second), false), 3);
-    statRow(tr("POTA parks"), number(grouped(parks.first), false), number(grouped(parks.second), false), 7);
+    statRow(tr("Grid squares"), number(grouped(mw.data.squares.size()), false), number(grouped(squaresConfirmed), false), historyViewOf(kLayerSquares));
+    statRow(tr("DXCC entities"), number(grouped(mw.dxcc.size()), false), number(grouped(dxccConfirmed), false), historyViewOf(kLayerCountries));
+    statRow(tr("US states"), number(grouped(states.first), false), number(grouped(states.second), false), historyViewOf(kLayerStates));
+    statRow(tr("POTA parks"), number(grouped(parks.first), false), number(grouped(parks.second), false), historyViewOf(kLayerPota));
     auto spanning = [&](const std::string &text) {  // across both columns
         NSTextField *f = number(text, false);
         f.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize + 1];
@@ -3522,6 +3564,13 @@ void fillRowMenu(NSMenu *menu) {
         });
         add(@"Zoom to It", ^{ openRow(r); });
     }
+    if (std::string token = watchTokenFor(r.hit); !token.empty()) {
+        NSMenuItem *item = [menu addItemWithTitle:ADIFString(onWatchList(token) ? trf("Stop Watching {what}", {{"what", token}})
+                                                                                 : trf("Watch {what}", {{"what", token}}))
+                                           action:nil
+                                    keyEquivalent:@""];
+        ADIFBlockMenuItem(item, ^{ toggleWatch(token); });
+    }
 }
 
 // Double-click: a QSO chosen goes to its record; anything else fills the map (a park's outline
@@ -3615,7 +3664,7 @@ int workflow() { return number("mapWorkflow", 0, 1); }
 // The Quick View chosen; -1 when the layers were changed since (History).
 int quickView() {
     std::string v = setting("mapQuickView");
-    return v.empty() ? 0 : std::clamp(std::atoi(v.c_str()), -1, 9);
+    return v.empty() ? 0 : std::clamp(std::atoi(v.c_str()), -1, 99);
 }
 
 // What each workflow keeps for itself: its layers, contacts and lines, colours, list, Quick
@@ -3678,7 +3727,8 @@ void syncControls() {
     mw.spotsSection.hidden = wf != 1;
     mw.dates.hidden = mw.confirmed.hidden = wf == 1;  // the spots don't follow them (a tag says when they're on)
 
-    mw.spotLens = wf == 1 ? std::max(0, std::min(quickView(), 6)) : 0;
+    mw.spotLens = wf == 1 ? std::max(0, std::min(quickView(), (int)std::size(mw.lensCounts) - 1)) : 0;
+    applyViewFilters();
     refresh();       // the data and the style, the Quick Views' counts
     refreshSpots();  // the feeds start or stop with the Spots layer
 }
@@ -3689,11 +3739,13 @@ void syncControls() {
 struct HistoryView {
     const char *title;
     NSString *symbol;
-    int layer;  // -1 the whole log, -2 the contacts at their places
+    int layer;  // -1 the whole log, -2 the contacts at their places, -3 the QSOs not confirmed
     const char *tip;
 };
 const HistoryView kHistoryViews[] = {
     {N_("All QSOs"), @"list.bullet", -1, N_("The log as it first shows: worked grid squares, DXCC entities and POTA parks")},
+    {N_("Needs confirmation"), @"envelope.badge", -3,
+     N_("The QSOs not yet confirmed (by card, LoTW or eQSL), with the grid squares, DXCC entities and POTA parks they reached")},
     {N_("Grid squares"), @"square.grid.3x3", kLayerSquares, N_("The grid squares you worked, in the grid")},
     {N_("DXCC entities"), @"globe", kLayerCountries, N_("The DXCC entities you worked, among every country")},
     {N_("US states"), @"map", kLayerStates, N_("The US states you worked, among all 50")},
@@ -3713,25 +3765,52 @@ struct LiveView {
 };
 const LiveView kLiveViews[] = {
     {N_("All spots"), @"antenna.radiowaves.left.and.right", N_("Every station spotted now, as the spots' own filters allow")},
+    {N_("Needed on its band"), @"sparkles", N_("Stations in a DXCC entity you haven't worked on their band: a new DXCC or a new band")},
     {N_("New DXCC"), @"star.circle", N_("Stations in a DXCC entity you haven't worked")},
     {N_("New band"), @"plus.circle", N_("Stations in an entity you worked, but not on this band")},
     {N_("New mode"), @"plus.circle", N_("Stations in an entity you worked on this band, but not in this mode (CW, phone or data)")},
     {N_("New POTA parks"), @"leaf", N_("POTA activators at parks you haven't worked")},
     {N_("POTA activators"), @"leaf", N_("Every POTA activator spotted")},
+    {N_("My watch list"), @"star", N_("The calls, references and DXCC entities you watch, when spotted (Watch List... in Spots)")},
     {N_("Worked before"), @"checkmark.circle", N_("Stations whose entity you worked on this band and mode already")},
 };
 const size_t kLiveViewCount = sizeof kLiveViews / sizeof kLiveViews[0];
+static_assert(kLiveViewCount == sizeof mw.lensCounts / sizeof mw.lensCounts[0], "a count for each of Live's views");
+const int kWatchView = 7;  // My watch list
 
 // Whether a spotted station belongs in one of Live's views.
-bool inLens(int lens, const adif::Spot &sp, const adif::SpotStatus &st) {
+bool inLens(int lens, const adif::Spot &sp, const adif::SpotStatus &st, bool watched) {
     switch (lens) {
-        case 1: return !sp.heardMe && st.need == adif::SpotNeed::NewDxcc;
-        case 2: return !sp.heardMe && st.need == adif::SpotNeed::NewBand;
-        case 3: return !sp.heardMe && st.need == adif::SpotNeed::NewMode;
-        case 4: return mapkit::potaSpot(sp) && st.newPark;
-        case 5: return mapkit::potaSpot(sp);
-        case 6: return !sp.heardMe && (st.need == adif::SpotNeed::Worked || st.need == adif::SpotNeed::Confirmed);
+        case 1: return !sp.heardMe && (st.need == adif::SpotNeed::NewDxcc || st.need == adif::SpotNeed::NewBand);
+        case 2: return !sp.heardMe && st.need == adif::SpotNeed::NewDxcc;
+        case 3: return !sp.heardMe && st.need == adif::SpotNeed::NewBand;
+        case 4: return !sp.heardMe && st.need == adif::SpotNeed::NewMode;
+        case 5: return mapkit::potaSpot(sp) && st.newPark;
+        case 6: return mapkit::potaSpot(sp);
+        case kWatchView: return watched;
+        case 8: return !sp.heardMe && (st.need == adif::SpotNeed::Worked || st.need == adif::SpotNeed::Confirmed);
         default: return true;
+    }
+}
+
+// History's Quick View for a layer (its row), -1 when none.
+int historyViewOf(int layer) {
+    for (size_t i = 0; i < std::size(kHistoryViews); ++i)
+        if (kHistoryViews[i].layer == layer) return (int)i;
+    return -1;
+}
+
+// History's Needs confirmation sets the Confirmed menu to Not confirmed; another view, or Live,
+// puts it back as it was.
+void applyViewFilters() {
+    int v = quickView();
+    bool needs = workflow() == 0 && v >= 0 && (size_t)v < std::size(kHistoryViews) && kHistoryViews[v].layer == -3;
+    if (needs && !mw.viewSetConfirmed) {
+        [mw.confirmed selectItemAtIndex:2];
+        mw.viewSetConfirmed = true;
+    } else if (!needs && mw.viewSetConfirmed) {
+        [mw.confirmed selectItemAtIndex:0];
+        mw.viewSetConfirmed = false;
     }
 }
 
@@ -3750,6 +3829,8 @@ void fillQuickViews() {
             if (v.layer == -1) {
                 worked = mw.data.qsos.size();
                 for (const adif::MapQso &q : mw.data.qsos) confirmed += q.confirmed;
+            } else if (v.layer == -3) {
+                for (const adif::MapQso &q : mw.data.qsos) worked += !q.confirmed;
             } else if (v.layer == -2) {
                 worked = mw.view.contacts.size();
             } else if (v.layer == kLayerSquares) {
@@ -3763,7 +3844,7 @@ void fillQuickViews() {
                 worked = c.first, confirmed = c.second;
             }
             r.count = grouped(worked);
-            r.tip = tr(v.tip) + (v.layer == -2 ? "" : "\n" + trf("{worked} worked, {confirmed} confirmed", {{"worked", grouped(worked)}, {"confirmed", grouped(confirmed)}}));
+            r.tip = tr(v.tip) + (v.layer == -2 || v.layer == -3 ? "" : "\n" + trf("{worked} worked, {confirmed} confirmed", {{"worked", grouped(worked)}, {"confirmed", grouped(confirmed)}}));
             rows.push_back(r);
         }
     } else {
@@ -3771,7 +3852,7 @@ void fillQuickViews() {
             ADIFQuickRow r;
             r.title = tr(kLiveViews[i].title), r.symbol = kLiveViews[i].symbol, r.tip = tr(kLiveViews[i].tip);
             r.count = mw.view.style[kLayerSpots].show ? grouped(mw.lensCounts[i]) : "";
-            r.colour = i == 1 ? pal.needDxcc : i == 2 || i == 3 ? pal.needBand : i == 4 || i == 5 ? pal.park : i == 6 ? pal.worked : 0;
+            r.colour = i == 1 || i == 2 ? pal.needDxcc : i == 3 || i == 4 ? pal.needBand : i == 5 || i == 6 ? pal.park : i == kWatchView ? 0xD99A00 : i == 8 ? pal.worked : 0;
             rows.push_back(r);
         }
     }
@@ -3798,7 +3879,7 @@ void chooseQuickView(NSInteger row) {
     const HistoryView &v = kHistoryViews[row];
     for (const LayerUi &l : kLayerUi) {
         if (l.id == kLayerSpots || l.id == kLayerCities) continue;
-        bool focus = v.layer == -1 ? l.id == kLayerSquares || l.id == kLayerCountries || l.id == kLayerPota : l.id == v.layer;
+        bool focus = v.layer == -1 || v.layer == -3 ? l.id == kLayerSquares || l.id == kLayerCountries || l.id == kLayerPota : l.id == v.layer;
         if (l.showKey) saveFlag(l.showKey, focus);
         saveFlag(l.overlayKey, focus && v.layer >= 0 ? true : l.overlayOn);
         if (focus) saveFlag(l.labelsKey, true);
@@ -3808,6 +3889,213 @@ void chooseQuickView(NSInteger row) {
     mw.applyingView = true;
     syncControls();
     mw.applyingView = false;
+}
+
+// ── The watch list: the calls, references and DXCC entities you want to know are on the air ──
+
+std::vector<std::string> watchList() { return adif::watchList(setting("mapWatch")); }
+
+bool onWatchList(const std::string &token) {
+    std::vector<std::string> list = watchList();
+    return !token.empty() && std::find(list.begin(), list.end(), token) != list.end();
+}
+
+// What Watch watches for what is chosen: a spotted station's or a contact's call, a park's or an
+// IOTA group's reference, a DXCC entity; "" for anything else (a place with several stations).
+std::string watchTokenFor(const ADIFMapHit &h) {
+    std::string t;
+    if (h.kind == ADIFMapHit::Spot && h.index < mw.view.spots.size()) {
+        if (!mw.view.spots[h.index].spot.heardMe) t = adif::lookupCall(mw.view.spots[h.index].spot.activator);
+    } else if (h.kind == ADIFMapHit::Contact && h.index < mw.view.contacts.size()) {
+        for (size_t qi : mw.view.contacts[h.index].qsos) {
+            if (qi >= mw.data.qsos.size()) continue;
+            std::string c = adif::lookupCall(mw.data.qsos[qi].call);
+            if (!t.empty() && c != t) return "";
+            t = c;
+        }
+    } else if (h.kind == ADIFMapHit::Dxcc && h.index < mw.dxcc.size()) {
+        t = entityName(mw.dxcc[h.index].dxcc, "");
+    } else if (h.kind == ADIFMapHit::Pota && h.index < ADIFPotaParks().size()) {
+        t = ADIFPotaParks().parks()[h.index].ref;
+    } else if (h.kind == ADIFMapHit::Iota && h.index < ADIFIotaGroups().size()) {
+        t = ADIFIotaGroups()[h.index].ref;
+    } else if (h.kind == ADIFMapHit::Park && h.index < mw.data.parks.size()) {
+        t = mw.data.parks[h.index].reference;
+    }
+    std::vector<std::string> one = adif::watchList(t);  // as the list keeps it
+    return one.size() == 1 ? one[0] : "";
+}
+
+// The selected panel's Watch: whether what is chosen is on the list.
+void showWatchButton(const ADIFMapHit &h) {
+    if (!mw.watchButton) return;
+    std::string token = watchTokenFor(h);
+    mw.watchButton.hidden = token.empty();
+    if (token.empty()) return;
+    bool on = onWatchList(token);
+    mw.watchButton.title = on ? T(@"Watching") : T(@"Watch");
+    mw.watchButton.image = [NSImage imageWithSystemSymbolName:on ? @"star.fill" : @"star" accessibilityDescription:nil];
+    mw.watchButton.contentTintColor = on ? NSColor.systemYellowColor : nil;
+    mw.watchButton.toolTip = ADIFString(on ? trf("{what} is on your watch list; click to stop watching it", {{"what", token}})
+                                           : trf("Watch {what}: when it is spotted, it shows in My watch list, first among the spots, and under the bell",
+                                                 {{"what", token}}));
+}
+
+// The editor's tokens, as the list has them.
+void fillWatchList() {
+    if (!mw.watchTokens) return;
+    NSMutableArray *tokens = [NSMutableArray array];
+    for (const std::string &w : watchList()) [tokens addObject:ADIFString(w)];
+    mw.watchTokens.objectValue = tokens;
+}
+
+// The list changed: saved; the spots, the panel and the editor follow it.
+void saveWatchList(const std::vector<std::string> &list) {
+    setSetting("mapWatch", adif::watchListText(list));
+    refreshSpots();
+    ADIFMapHit h = mw.view.selectedHit;
+    if (h.kind != ADIFMapHit::None) showChosenFacts(h);
+    showWatchButton(h);
+    fillWatchList();
+}
+
+void toggleWatch(const std::string &token) {
+    if (token.empty()) return;
+    std::vector<std::string> list = watchList();
+    auto it = std::find(list.begin(), list.end(), token);
+    if (it != list.end()) list.erase(it);
+    else list.push_back(token);
+    saveWatchList(list);
+}
+
+// The watch list's editor, beside `anchor` (Watch List... in Spots, or the bell).
+void showWatchList(NSView *anchor) {
+    if (!mw.watchPopover) {
+        ADIFTokenCompleter *names = [[ADIFTokenCompleter alloc] init];  // the DXCC entities, by name
+        NSMutableArray *entities = [NSMutableArray array];
+        for (const adif::CountryInfo &c : ADIFCountries().all()) [entities addObject:ADIFString(c.name)];
+        names.candidates = entities;
+        if (!mw.completers) mw.completers = [NSMutableArray array];
+        [mw.completers addObject:names];
+        mw.watchTokens = [[NSTokenField alloc] initWithFrame:NSMakeRect(0, 0, 340, 48)];
+        mw.watchTokens.identifier = @"map.watch.tokens";
+        mw.watchTokens.placeholderString = T(@"e.g. K1ABC, US-1234, EU-005, Bhutan");
+        mw.watchTokens.tokenizingCharacterSet = [NSCharacterSet characterSetWithCharactersInString:@",\n"];
+        mw.watchTokens.delegate = names;
+        mw.watchTokens.translatesAutoresizingMaskIntoConstraints = NO;
+        [mw.watchTokens.heightAnchor constraintGreaterThanOrEqualToConstant:48].active = YES;
+        ADIFOnAction(mw.watchTokens, ^{
+            NSMutableArray *parts = [NSMutableArray array];
+            for (id t in (NSArray *)mw.watchTokens.objectValue) [parts addObject:[t description]];
+            saveWatchList(adif::watchList(ADIFStd([parts componentsJoinedByString:@","])));
+        });
+        NSTextField *help = [NSTextField
+            wrappingLabelWithString:T(@"Calls, references (a POTA park, an IOTA group...) and DXCC entities to watch for. When one is spotted, it "
+                                      @"shows in My watch list (Live's Quick Views), first among the spots with a star, and under the bell at "
+                                      @"the top. Watch in the selected panel adds what you chose.")];
+        help.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        help.textColor = NSColor.secondaryLabelColor;
+        help.translatesAutoresizingMaskIntoConstraints = NO;
+        NSView *content = [[NSView alloc] initWithFrame:NSZeroRect];
+        content.identifier = @"map.watch";
+        [content addSubview:help];
+        [content addSubview:mw.watchTokens];
+        [NSLayoutConstraint activateConstraints:@[
+            [help.topAnchor constraintEqualToAnchor:content.topAnchor constant:14],
+            [help.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:14],
+            [help.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-14],
+            [help.widthAnchor constraintEqualToConstant:340],
+            [mw.watchTokens.topAnchor constraintEqualToAnchor:help.bottomAnchor constant:10],
+            [mw.watchTokens.leadingAnchor constraintEqualToAnchor:help.leadingAnchor],
+            [mw.watchTokens.trailingAnchor constraintEqualToAnchor:help.trailingAnchor],
+            [mw.watchTokens.bottomAnchor constraintEqualToAnchor:content.bottomAnchor constant:-14],
+        ]];
+        NSViewController *vc = [[NSViewController alloc] init];
+        vc.view = content;
+        mw.watchPopover = [[NSPopover alloc] init];
+        mw.watchPopover.contentViewController = vc;
+        ADIFNightTrackPopover(mw.watchPopover);
+        mw.watchPopover.behavior = NSPopoverBehaviorTransient;
+    }
+    fillWatchList();
+    [mw.watchPopover showRelativeToRect:anchor.bounds ofView:anchor preferredEdge:NSRectEdgeMaxY];
+}
+
+// A spotted station chosen on the map, in Live (My watch list, when the Quick View hides it).
+void chooseSpot(const std::string &call, const std::string &band) {
+    if (workflow() != 1) switchWorkflow(1);
+    for (int pass = 0; pass < 2; ++pass) {
+        const std::vector<ADIFMapSpot> &spots = mw.view.spots;
+        for (size_t k = 0; k < spots.size(); ++k)
+            if (spots[k].spot.activator == call && spots[k].spot.band == band) {
+                ADIFMapHit h;
+                h.kind = ADIFMapHit::Spot, h.index = k, h.square = adif::squareAt(spots[k].lon, spots[k].lat);
+                [mw.view selectHit:h];
+                centerChosen();
+                return;
+            }
+        if (pass == 0) chooseQuickView(kWatchView);
+    }
+}
+
+// The header's bell: how many stations on your watch list are spotted; orange when one came since
+// it was last opened, or when the feeds have sent nothing for 15 minutes.
+void fillBell() {
+    if (!mw.bell) return;
+    size_t n = mw.watchedSpots.size();
+    bool unseen = false;
+    for (const ADIFWatchedSpot &w : mw.watchedSpots) unseen |= !mw.bellSeen.count(w.call + "|" + w.band);
+    long long now = (long long)time(nullptr);
+    bool stale = mw.view.style[kLayerSpots].show && mw.newestSpot > 0 && now - mw.newestSpot >= 900;
+    mw.bell.image = [NSImage imageWithSystemSymbolName:unseen ? @"bell.badge.fill" : n ? @"bell.fill" : @"bell" accessibilityDescription:nil];
+    mw.bell.title = n ? ADIFString(grouped(n)) : @"";
+    mw.bell.imagePosition = n ? NSImageLeading : NSImageOnly;
+    mw.bell.contentTintColor = unseen || stale ? NSColor.systemOrangeColor : nil;
+    std::string tip = n ? trp("{n} station on your watch list is spotted now", "{n} stations on your watch list are spotted now", (long long)n)
+                        : tr("None of your watch list is spotted now");
+    if (stale) tip += "\n" + tr("No new spots for 15 minutes or more: the feeds may have stopped");
+    mw.bell.toolTip = ADIFString(tip + "\n" + tr("Click for them, and to edit the watch list"));
+}
+
+// The bell's menu: the watched stations spotted (each chooses its spot, in Live), whether the
+// feeds have gone quiet, and the watch list's editor.
+void fillBellMenu(NSMenu *menu) {
+    [menu removeAllItems];
+    auto heading = [&](const std::string &text) { [menu addItemWithTitle:ADIFString(text) action:nil keyEquivalent:@""].enabled = NO; };
+    long long now = (long long)time(nullptr);
+    bool show = mw.view.style[kLayerSpots].show;
+    if (watchList().empty()) heading(tr("Your watch list is empty"));
+    else if (!show) heading(tr("Spots are off: Live shows them"));
+    else if (mw.watchedSpots.empty()) heading(tr("None of your watch list is spotted now"));
+    else heading(trp("{n} watched station spotted", "{n} watched stations spotted", (long long)mw.watchedSpots.size()));
+    for (const ADIFWatchedSpot &w : mw.watchedSpots) {
+        std::string title = w.call;
+        if (!w.khz.empty()) {
+            char mhz[32];
+            snprintf(mhz, sizeof mhz, "%.3f", std::atof(w.khz.c_str()) / 1000);
+            title += "  " + std::string(mhz);
+        }
+        if (!w.mode.empty()) title += " " + w.mode;
+        if (w.epoch > 0) title += "  ·  " + adif::spotAge(w.epoch, now);
+        if (w.what != adif::lookupCall(w.call)) title += "  (" + w.what + ")";
+        NSMenuItem *item = [menu addItemWithTitle:ADIFString(title) action:nil keyEquivalent:@""];
+        item.image = [NSImage imageWithSystemSymbolName:mw.bellSeen.count(w.call + "|" + w.band) ? @"star" : @"star.fill" accessibilityDescription:nil];
+        std::string call = w.call, band = w.band;
+        ADIFBlockMenuItem(item, ^{ chooseSpot(call, band); });
+    }
+    if (show && mw.newestSpot > 0 && now - mw.newestSpot >= 900) {
+        [menu addItem:NSMenuItem.separatorItem];
+        NSMenuItem *quiet = [menu addItemWithTitle:ADIFString(trf("No new spots for {age}: the feeds' state...", {{"age", adif::spotAge(mw.newestSpot, now)}}))
+                                            action:nil
+                                     keyEquivalent:@""];
+        quiet.image = [NSImage imageWithSystemSymbolName:@"exclamationmark.triangle" accessibilityDescription:nil];
+        ADIFBlockMenuItem(quiet, ^{ showSpotsPopover(); });
+    }
+    [menu addItem:NSMenuItem.separatorItem];
+    NSMenuItem *edit = [menu addItemWithTitle:T(@"Edit Watch List...") action:nil keyEquivalent:@""];
+    ADIFBlockMenuItem(edit, ^{ showWatchList(mw.bell); });
+    for (const ADIFWatchedSpot &w : mw.watchedSpots) mw.bellSeen.insert(w.call + "|" + w.band);  // seen now
+    fillBell();
 }
 
 // ── The footer: what is under the pointer, and the workflow's state ──
@@ -3937,6 +4225,7 @@ void cmdMap() {
         mw.mode = ADIFPopup(@[ @"All modes" ]);
         mw.dates = ADIFPopup(@[ @"All dates", @"Last 30 days", @"Last 12 months", @"This year" ]);
         mw.confirmed = ADIFPopup(@[ @"All QSOs", @"Confirmed", @"Not confirmed" ]);
+        mw.confirmed.identifier = @"map.filter.confirmed";
         // Zoom, projection, style.
         mw.projection = ADIFPopup(@[ @"Equirectangular", @"Mercator", @"Equal Earth", @"Globe" ]);
         mw.projection.autoenablesItems = NO;
@@ -3967,6 +4256,10 @@ void cmdMap() {
         }
         for (NSControl *c in @[ mw.contacts, mw.band, mw.mode, mw.dates, mw.confirmed ]) ADIFOnAction(c, ^{
             saveFlag("mapContacts", mw.contacts.state == NSControlStateValueOn);
+            if (c == mw.confirmed && mw.viewSetConfirmed) {  // your own choice now, not Needs confirmation's
+                mw.viewSetConfirmed = false;
+                setSetting("mapQuickView", "-1");
+            }
             refresh();
         });
         for (NSButton *b in @[ mw.lines, mw.mine ]) ADIFOnAction(b, ^{
@@ -4011,6 +4304,12 @@ void cmdMap() {
         mw.refreshSpotsButton.accessibilityLabel = T(@"Refresh Spots");
         mw.refreshSpotsButton.identifier = @"map.spots.refresh";
         mw.refreshSpotsButton.enabled = NO;
+        mw.watchEdit = smallButton(@"Watch List...", @"The calls, references and DXCC entities you watch for: when one is spotted, it shows in My "
+                                                     @"watch list, first among the spots, and under the bell",
+                                   ^{ showWatchList(mw.watchEdit); });
+        mw.watchEdit.image = [NSImage imageWithSystemSymbolName:@"star" accessibilityDescription:nil];
+        mw.watchEdit.imagePosition = NSImageLeading;
+        mw.watchEdit.identifier = @"map.watch.edit";
         // Spots: their filters, Refresh, and one station's spots only (who heard it, as on PSKReporter's map).
         mw.spotsOnly = ADIFCheckbox(@"Only spots of", flag("mapSpotsOnly", false));
         mw.spotsOnly.toolTip = T(@"Show only this station's spots, each with every station that heard it: who is hearing you, as on PSKReporter's "
@@ -4048,6 +4347,10 @@ void cmdMap() {
         mw.clearFilters = smallButton(@"Clear", @"Show every QSO again: all bands, modes, dates and places (and in Live, every spot)", ^{
             for (NSPopUpButton *p in @[ mw.band, mw.mode, mw.dates, mw.confirmed ]) [p selectItemAtIndex:0];
             if (workflow() == 1 && mw.spotLens > 0) chooseQuickView(0);
+            if (mw.viewSetConfirmed) {  // Needs confirmation's filter gone: All QSOs
+                mw.viewSetConfirmed = false;
+                setSetting("mapQuickView", "0");
+            }
             for (const char *key : {"mapFilterContinents", "mapFilterDxcc", "mapFilterCq", "mapFilterItu", "mapFilterStates", "mapFilterCounties",
                                     "mapFilterRegions", "mapFilterPota"})
                 setSetting(key, "");
@@ -4223,6 +4526,7 @@ void cmdMap() {
             mw.listTable.menu = mw.listRowMenu;
             mw.listRows.fillMenu = ^(NSMenu *menu) {
                 if (menu == mw.listRowMenu) fillRowMenu(menu);
+                else if (menu == mw.bellMenu) fillBellMenu(menu);
                 else fillColumnsMenu(menu, menu == columnsMenu);
             };
         }
@@ -4391,8 +4695,18 @@ void cmdMap() {
         });
         iconOnly(help, @"questionmark.circle");
         help.identifier = @"map.help";
-        for (NSView *v in @[ logTable, styleButton, save, settings, help, mw.paneToggle[0], mw.paneToggle[1], mw.paneToggle[2] ])
+        // The bell: the stations on your watch list spotted now, in a menu.
+        mw.bell = [NSButton buttonWithTitle:@"" target:nil action:nil];
+        mw.bell.identifier = @"map.bell";
+        mw.bell.accessibilityLabel = T(@"Watch list alerts");
+        mw.bellMenu = [[NSMenu alloc] init];
+        mw.bellMenu.delegate = mw.listRows;
+        mw.bell.menu = mw.bellMenu;  // right-click too
+        ADIFOnAction(mw.bell, ^{ [mw.bellMenu popUpMenuPositioningItem:nil atLocation:NSMakePoint(0, NSMaxY(mw.bell.bounds) + 4) inView:mw.bell]; });
+        fillBell();
+        for (NSView *v in @[ mw.bell, logTable, styleButton, save, settings, help, mw.paneToggle[0], mw.paneToggle[1], mw.paneToggle[2] ])
             [header addView:v inGravity:NSStackViewGravityTrailing];
+        [header setCustomSpacing:20 afterView:mw.bell];
         [header setCustomSpacing:6 afterView:logTable];
         [header setCustomSpacing:6 afterView:styleButton];
         [header setCustomSpacing:20 afterView:save];
@@ -4529,7 +4843,7 @@ void cmdMap() {
         [layerSection setCustomSpacing:12 afterView:layers];
         [layerSection setCustomSpacing:12 afterView:mw.programs];
         NSArray<NSView *> *sectionViews = @[
-            section(@"views", N(@"Quick Views"), quickScroll), mw.spotsSection = section(@"spots", N(@"Spots"), rows(@[ spotLayer, spotsLine, onlyLine ], 8)),
+            section(@"views", N(@"Quick Views"), quickScroll), mw.spotsSection = section(@"spots", N(@"Spots"), rows(@[ spotLayer, spotsLine, onlyLine, mw.watchEdit ], 8)),
             section(@"layers", N(@"Layers"), layerSection), section(@"map", N(@"Map"), mapRows), section(@"filters", N(@"Filters"), filterRows)
         ];
         mw.spotsSection.hidden = workflow() != 1;
@@ -4618,7 +4932,12 @@ void cmdMap() {
         mw.viewQso.imagePosition = NSImageLeading;
         mw.viewQso.identifier = @"map.viewqso";
         mw.viewQso.hidden = YES;
-        NSStackView *actions = line(@[ mw.centerButton, mw.viewQso ]);
+        mw.watchButton = smallButton(@"Watch", @"Watch this station", ^{ toggleWatch(watchTokenFor(mw.view.selectedHit)); });
+        mw.watchButton.image = [NSImage imageWithSystemSymbolName:@"star" accessibilityDescription:nil];
+        mw.watchButton.imagePosition = NSImageLeading;
+        mw.watchButton.identifier = @"map.watch";
+        mw.watchButton.hidden = YES;
+        NSStackView *actions = line(@[ mw.centerButton, mw.viewQso, mw.watchButton ]);
         actions.detachesHiddenViews = YES;
         mw.useSpot.bordered = NO;  // green, the panel's one main action
         mw.useSpot.wantsLayer = YES;
@@ -4850,7 +5169,7 @@ void cmdMap() {
             [mw.selectedPanel.widthAnchor constraintGreaterThanOrEqualToConstant:240],
         ]];
         for (int i = 0; i < 3; ++i) showPane(i, flag(kPaneKeys[i], true));
-        mw.spotLens = workflow() == 1 ? std::max(0, std::min(quickView(), 6)) : 0;
+        mw.spotLens = workflow() == 1 ? std::max(0, std::min(quickView(), (int)std::size(mw.lensCounts) - 1)) : 0;
         [mw.window center];
         // New spots redraw the layer; closing the window stops the feeds.
         [[NSNotificationCenter defaultCenter] addObserverForName:ADIFParkOutlinesChangedNotification
