@@ -563,7 +563,10 @@ The window, from the top:
   the Quick Views), **Spots** (any program, POTA only, new POTA parks, or plain DX only), how
   new the spots are and from which source, as in Sources and Filters; and the continent),
   **More Filters…**, and **Clear**, which says how many filters are on and lists them in its
-  tooltip. A filter the
+  tooltip. Three buttons end it: **Save View…** (the bookmark; as under the Quick Views),
+  **Copy Map** (the map as Export PNG would save it, on the clipboard, to paste into a message
+  or document) and **Focus Map** (the map alone: the sidebar, the list and the selected panel
+  hidden; again, the ones it hid come back). A filter the
   toolbar can't show (a place chosen in More Filters; in Live, the dates and confirmation,
   which spots don't follow, and the Quick View) is a tag beside it: click the tag to remove
   that filter.
@@ -1246,7 +1249,9 @@ your own use; if you pass them on, the licence goes with them.
   and **Fade older spots**.
 - **On the map**: **Reference layers** (strong, subtle or faint: how strongly the grid, the
   overlays' lines and names and the distance rings show, so your QSOs, parks and spots stand
-  out from them; subtle at first); **Spotlight what's chosen** (while something is clicked,
+  out from them; subtle at first); **Terrain** (off at first, subtle or strong: see below);
+  **Country flags** (on at first: a flag before each DXCC entity's name and station, see
+  below); **Spotlight what's chosen** (while something is clicked,
   the rest of the map dims, the chosen marker, square, area, outline or box left clear; what
   you click gets a ring in your Mac's accent colour either way); the **Legend** (off, top
   right or bottom left); **Map text** (standard or large: labels, legend, tags and the
@@ -1266,6 +1271,24 @@ draws them for now, updated each minute, or for the time of the QSO you clicked.
 place comes from NOAA's solar calculator equations (after Meeus), good to about a minute.
 
 ![Day and night at a QSO's time: the night side shaded, the grey line in gold, and the sun overhead in the Gulf of Guinea](images/map-day-night.png)
+
+**Terrain** shades the land's mountains and valleys from Natural Earth's 1:50m shaded relief
+(public domain; lit from the north-west): slopes facing away from the light darker, those
+facing it lighter, flat ground left in the palette's colour, in every palette and
+projection. It is about 5 km a pixel, so it fades out as you zoom in from 16× and is gone by
+48×, where Map Detail and the 1:10m coasts take over.
+
+![Terrain, strong, over the Alps](images/map-terrain.png)
+
+**Country flags** puts the flag of each DXCC entity before its name in the list's
+**Country** and **DXCC entity** columns and in the selected panel's title (for a spot, a
+contact or an entity), as your Mac draws them (emoji). An entity has its own flag where ISO
+gives it a code (Guam, Åland, the Faroes), else the flag of the country it belongs to
+(Alaska, Sardinia, the Azores); England, Scotland and Wales have their own, Northern Ireland
+the UK's; the UN and ITU headquarters the UN's; the Antarctic islands Antarctica's. The
+Spratly Islands and Scarborough Reef (disputed), the Sovereign Military Order of Malta and
+deleted entities have none. The flags are shown only: sorting and the list's search use the
+names.
 
 **Export PNG…** saves the map as it is shown, legend included, at twice the screen's size.
 

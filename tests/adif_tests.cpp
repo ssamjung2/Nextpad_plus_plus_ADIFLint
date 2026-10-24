@@ -35,6 +35,7 @@
 #include "adif_import.h"
 #include "adif_json.h"
 #include "adif_outlines.h"
+#include "adif_flags.h"
 
 #include <algorithm>
 #include <cmath>
@@ -3999,6 +4000,31 @@ static void testJson() {
           "JSON: numbers read without the locale");
 }
 
+// Flags: each current entity has one, but for the four without; as emoji.
+static void testFlags() {
+    size_t n = 0;
+    const adif::DxccName *table = adif::dxccTable(&n);
+    int missing = 0, bad = 0, deletedWithFlag = 0;
+    for (size_t i = 0; i < n; ++i) {
+        std::string code = adif::dxccFlagCode(table[i].code);
+        if (table[i].deleted) deletedWithFlag += !code.empty();
+        else if (code.empty() && table[i].code != 0 && table[i].code != 246 && table[i].code != 247 && table[i].code != 506) ++missing;
+        else if (!code.empty() && !(code.size() == 2 && isupper((unsigned char)code[0]) && isupper((unsigned char)code[1])) &&
+                 code != "GB-ENG" && code != "GB-SCT" && code != "GB-WLS")
+            ++bad;
+    }
+    CHECK(n > 400 && missing == 0 && bad == 0 && deletedWithFlag == 0, "flags: every current entity has one (missing %d, bad %d, deleted %d)", missing,
+          bad, deletedWithFlag);
+    CHECK(adif::dxccFlag(291) == "\xF0\x9F\x87\xBA\xF0\x9F\x87\xB8", "flags: the US, two regional indicators");
+    CHECK(adif::dxccFlag(6) == adif::dxccFlag(291) && adif::dxccFlagCode(110) == "US" && adif::dxccFlagCode(29) == "IC" && adif::dxccFlagCode(5) == "AX",
+          "flags: Alaska and Hawaii the US's; the Canaries and Aland their own");
+    CHECK(adif::dxccFlag(223) == "\xF0\x9F\x8F\xB4\xF3\xA0\x81\xA7\xF3\xA0\x81\xA2\xF3\xA0\x81\xA5\xF3\xA0\x81\xAE\xF3\xA0\x81\xA7\xF3\xA0\x81\xBF",
+          "flags: England's tag sequence");
+    CHECK(adif::dxccFlagCode(265) == "GB" && adif::dxccFlag(246).empty() && adif::dxccFlag(247).empty() && adif::dxccFlag(0).empty() &&
+              adif::dxccFlag(-1).empty() && adif::dxccFlag(9999).empty(),
+          "flags: Northern Ireland the UK's; none for SMOM, Spratly, none, or codes that aren't entities");
+}
+
 static void testOutlines() {
     CHECK(potaRefShaped("US-1234") && potaRefShaped("VK-12345") && potaRefShaped("9A-0001") && !potaRefShaped("US-123") &&
               !potaRefShaped("us-1234") && !potaRefShaped("DE--0038") && !potaRefShaped("yes"),
@@ -4150,6 +4176,7 @@ int main(int argc, char **argv) {
     testCluster();
     testJson();
     testOutlines();
+    testFlags();
     testProjections();
     testPalettes();
     for (int i = 1; i < argc; ++i)

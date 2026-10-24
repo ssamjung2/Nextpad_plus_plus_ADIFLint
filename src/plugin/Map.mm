@@ -17,6 +17,7 @@
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include "adif_detail.h"
 #include "adif_edit.h"
+#include "adif_flags.h"
 #include "adif_geo.h"
 #include "adif_worked.h"
 #include "adif_regions.h"
@@ -472,6 +473,8 @@ struct {
     NSSegmentedControl *workflow = nil;
     NSView *sidebar = nil, *selectedPanel = nil, *nav = nil, *spotsSection = nil;
     NSButton *paneToggle[3] = {};  // the sidebar, the list, the selected panel
+    NSButton *focusButton = nil;    // the toolbar's Focus Map: the panes hidden, or back
+    bool focusRestore[3] = {};      // the panes Focus Map hid, to show again
     NSMutableDictionary<NSString *, NSView *> *sections = nil;  // a section's body, by its name
     NSMutableDictionary<NSString *, NSButton *> *sectionTriangles = nil;
     NSMutableDictionary<NSString *, NSTextField *> *sectionTitles = nil;
@@ -760,6 +763,8 @@ ADIFMapStyle savedStyle() {
     s.parkOutlineOnly = number("mapParkOutlines", 0, 1) == 1;
     s.reference = number("mapReference", 1, 2);
     s.spotlight = flag("mapSpotlight", false);
+    s.terrain = number("mapTerrain", 0, 2);
+    s.flags = flag("mapFlags", true);
     return s;
 }
 
@@ -792,6 +797,21 @@ std::string idleStatus() {
 
 void showSituation();
 std::string entityName(int dxcc, const std::string &call);
+
+// The DXCC entity of a call (its DXCC field, else the country file's), 0 when unknown.
+int entityOf(int dxcc, const std::string &call) {
+    adif::CountryInfo info;
+    if (dxcc > 0) return dxcc;
+    const adif::CountryTable &countries = ADIFCountries();
+    return !countries.empty() && countries.lookup(call, &info) ? info.dxcc : 0;
+}
+
+// A flag and a space before a DXCC entity's name or a call, when Style Options shows flags.
+std::string flagged(int dxcc, const std::string &text) {
+    std::string f = mw.view.style.flags ? adif::dxccFlag(dxcc) : "";
+    return f.empty() || text.empty() ? text : f + " " + text;
+}
+
 
 // The contact panel's second line: the band slots of a DXCC entity (green confirmed, orange
 // worked, grey not yet), its mode groups the same way, and your QSOs with the call.
@@ -1197,11 +1217,6 @@ void showContact(const ADIFMapHit &h, const std::string &text) {
         else if (!countries.empty() && countries.lookup(c, &info)) dxcc = info.dxcc;
         entity = entityName(dxcc, c);
     };
-    if (mw.contactTitle) {
-        std::string title = contactTitle(h);
-        mw.contactTitle.stringValue = ADIFString(title);
-        mw.contactTitle.hidden = title.empty();
-    }
     if (h.kind == ADIFMapHit::Spot && h.index < mw.view.spots.size()) {
         const ADIFMapSpot &ms = mw.view.spots[h.index];
         if (!ms.spot.heardMe) dxcc = ms.status.dxcc, entity = ms.status.entity, call = ms.spot.activator;
@@ -1210,6 +1225,11 @@ void showContact(const ADIFMapHit &h, const std::string &text) {
         place(q.call, q.dxcc);
     } else if (h.kind == ADIFMapHit::Dxcc && h.index < mw.dxcc.size()) {
         dxcc = mw.dxcc[h.index].dxcc, entity = mw.dxcc[h.index].name;
+    }
+    if (mw.contactTitle) {  // the station's or the entity's flag before it
+        std::string title = flagged(dxcc, contactTitle(h));
+        mw.contactTitle.stringValue = ADIFString(title);
+        mw.contactTitle.hidden = title.empty();
     }
     showSlots(dxcc, entity, call);
 }
@@ -1845,6 +1865,10 @@ void showStyleOptions() {
         add({"mapReference", @"map.style.reference", 1, @[ N(@"Strong##reference"), N(@"Subtle"), N(@"Faint##reference") ], N(@"Reference layers:"),
              N(@"How strongly the grid, the overlays' lines and names, and the distance rings show: subtle or faint, your QSOs, parks and "
              @"spots stand out from them")});
+        add({"mapTerrain", @"map.style.terrain", 0, @[ N(@"Off##terrain"), N(@"Subtle##terrain"), N(@"Strong##terrain") ], N(@"Terrain:"),
+             N(@"Mountains and valleys shaded on the land (Natural Earth's shaded relief), fading out as you zoom in past its detail")});
+        add({"mapFlags", @"map.style.flags", 1, nil, N(@"Country flags"),
+             N(@"A flag before each DXCC entity and station: in the list's Country and DXCC entity columns and the selected panel's title")});
         add({"mapSpotlight", @"map.style.spotlight", 0, nil, N(@"Spotlight what's chosen"),
              N(@"With something clicked on the map, dim the rest of it: the chosen marker, square, area, outline or box stays clear")});
         add({"mapLegend", @"map.style.legend", 1, @[ N(@"Off##legend"), N(@"Top right"), N(@"Bottom left") ], N(@"Legend:"),
@@ -1867,7 +1891,7 @@ void showStyleOptions() {
             for (const char *key : {"mapPalette", "mapMarkerSize", "mapMarkerShape", "mapContactMarker", "mapSquareFill", "mapAreaShade", "mapLineStyle",
                                     "mapLineWidth", "mapLineOpacity", "mapArcs", "mapLegend", "mapTextSize", "mapHatch", "mapRings", "mapDayNight", "mapGreyLine", "mapSunTime",
                                     "mapSpotters", "mapSpotterStyle", "mapSpotLineStyle", "mapSpotLabelMode", "mapSpotLabelFreq", "mapSpotLabelAge",
-                                    "mapSpotLabelSnr", "mapSpotFade", "mapParkOutlines", "mapReference", "mapSpotlight"})
+                                    "mapSpotLabelSnr", "mapSpotFade", "mapParkOutlines", "mapReference", "mapSpotlight", "mapTerrain", "mapFlags"})
                 setSetting(key, "");
             [mw.styleWindow orderOut:nil];
             mw.styleWindow = nil;
@@ -2163,6 +2187,8 @@ void goToIssue(size_t i) {
     if (mw.issues[i].start < adifhost::text(h).size()) goTo(h, mw.issues[i].start, true);
 }
 
+NSBitmapImageRep *mapImage();
+
 void exportPng() {
     std::string base = documentName();
     if (size_t dot = base.rfind('.'); dot != std::string::npos) base.resize(dot);
@@ -2176,7 +2202,45 @@ void exportPng() {
         if ([p runModal] != NSModalResponseOK || !p.URL) return;
         path = ADIFStd(p.URL.path);
     }
-    // What the map shows now, legend included, at twice the screen's size.
+    NSData *png = [mapImage() representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+    if (![png writeToFile:ADIFString(path) atomically:YES]) {
+        setStatus("Could not save the map.");
+        return;
+    }
+    setStatus("Saved " + ADIFStd(ADIFString(path).lastPathComponent) + ".");
+}
+
+// Copy Map: the picture Export PNG saves, on the clipboard (a test's own pasteboard in the tests).
+void copyMap() {
+    NSBitmapImageRep *rep = mapImage();
+    NSData *png = [rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+    const char *name = getenv("ADIFLINT_TEST_PASTEBOARD");
+    NSPasteboard *pb = name ? [NSPasteboard pasteboardWithName:@(name)] : NSPasteboard.generalPasteboard;
+    [pb clearContents];
+    if (!png || ![pb setData:png forType:NSPasteboardTypePNG]) return setStatus(tr("Could not copy the map."));
+    [pb setData:rep.TIFFRepresentation forType:NSPasteboardTypeTIFF];  // for the apps that read only TIFF
+    setStatus(tr("Copied the map, as Export PNG would save it."));
+}
+
+// Focus Map: the map alone (the sidebar, the list and the selected panel hidden); again, the
+// panes it hid come back.
+void focusMap() {
+    bool any = false;
+    for (int i = 0; i < 3; ++i) any = any || mw.paneToggle[i].state == NSControlStateValueOn;
+    if (any) {
+        for (int i = 0; i < 3; ++i) {
+            mw.focusRestore[i] = mw.paneToggle[i].state == NSControlStateValueOn;
+            if (mw.focusRestore[i]) showPane(i, false);
+        }
+    } else {
+        bool some = mw.focusRestore[0] || mw.focusRestore[1] || mw.focusRestore[2];
+        for (int i = 0; i < 3; ++i)
+            if (mw.focusRestore[i] || !some) showPane(i, true);
+    }
+}
+
+// What the map shows now, legend included, at twice the screen's size.
+NSBitmapImageRep *mapImage() {
     NSRect r = mw.view.bounds;
     NSBitmapImageRep *rep = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:nullptr
                                                                     pixelsWide:(NSInteger)(r.size.width * 2)
@@ -2193,12 +2257,7 @@ void exportPng() {
     NSGraphicsContext.currentContext = [NSGraphicsContext graphicsContextWithBitmapImageRep:rep];
     [mw.view drawRect:r];
     [NSGraphicsContext restoreGraphicsState];
-    NSData *png = [rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
-    if (![png writeToFile:ADIFString(path) atomically:YES]) {
-        setStatus("Could not save the map.");
-        return;
-    }
-    setStatus("Saved " + ADIFStd(ADIFString(path).lastPathComponent) + ".");
+    return rep;
 }
 
 // ── More Filters: places ──
@@ -3887,6 +3946,18 @@ std::string entityContinent(int dxcc) {
 }
 
 // A DXCC entity's name, from the country data.
+// The DXCC entity of a list row, for its flag: an entity's, a spot's, a QSO's; 0 for the others.
+int cellDxcc(int kind, const ADIFViewRow &r) {
+    if (kind == kListDxcc) return r.item < mw.dxcc.size() ? mw.dxcc[r.item].dxcc : 0;
+    if (kind == kListSpots) return r.item < mw.view.spots.size() && !mw.view.spots[r.item].spot.heardMe ? mw.view.spots[r.item].status.dxcc : 0;
+    size_t qso = r.item;
+    if (kind == kListIssues) {
+        if (r.item >= mw.issues.size()) return 0;
+        qso = mw.issues[r.item].qso;
+    } else if (!qsoList(kind)) return 0;
+    return qso < mw.data.qsos.size() ? entityOf(mw.data.qsos[qso].dxcc, mw.data.qsos[qso].call) : 0;
+}
+
 std::string entityName(int dxcc, const std::string &call) {
     static std::map<int, std::string> names;
     static size_t namesFor = 0;
@@ -3902,6 +3973,8 @@ std::string entityName(int dxcc, const std::string &call) {
 }
 
 // A row's text in a column.
+int cellDxcc(int kind, const ADIFViewRow &r);
+
 std::string cellText(int kind, const ADIFViewRow &r, const std::string &id) {
     if (id == "distance") return r.km < 0 ? "" : adif::distanceText(r.km, mw.listUnits.selectedSegment == 0);
     if (id == "bearing") {
@@ -4574,6 +4647,13 @@ void showPane(int pane, bool on) {
     mw.splitsRestored = restored;
     if (on && restored) restorePane(pane);
     if (pane == 1 && on) queueViewList();
+    if (mw.focusButton) {  // on while the map is alone
+        bool alone = true;
+        for (int i = 0; i < 3; ++i) alone = alone && mw.paneToggle[i].state != NSControlStateValueOn;
+        mw.focusButton.state = alone ? NSControlStateValueOn : NSControlStateValueOff;
+        mw.focusButton.image = [NSImage imageWithSystemSymbolName:alone ? @"arrow.down.right.and.arrow.up.left" : @"arrow.up.left.and.arrow.down.right"
+                                         accessibilityDescription:nil];
+    }
 }
 
 // A section of the sidebar open or closed (its triangle); remembered.
@@ -4683,6 +4763,13 @@ void switchWorkflow(int to) {
 }
 
 // The controls as the settings now say (a workflow or a Quick View set them), then the map.
+// The toolbar's menus for a workflow: History's dates and confirmation, Live's spot age, sources,
+// DXCC and program.
+void workflowBars(int wf) {
+    mw.dates.hidden = mw.confirmed.hidden = wf >= 1;  // the spots don't follow them (a tag says when they're on)
+    mw.spotAgeBar.hidden = mw.spotSourceBar.hidden = mw.dxccBar.hidden = mw.potaBar.hidden = wf < 1;
+}
+
 void syncControls() {
     ADIFMapStyle saved = savedStyle();
     auto state = [](bool on) { return on ? NSControlStateValueOn : NSControlStateValueOff; };
@@ -4700,8 +4787,7 @@ void syncControls() {
     int wf = workflow();
     mw.workflow.selectedSegment = wf;
     mw.spotsSection.hidden = wf < 1;
-    mw.dates.hidden = mw.confirmed.hidden = wf >= 1;  // the spots don't follow them (a tag says when they're on)
-    mw.spotAgeBar.hidden = mw.spotSourceBar.hidden = mw.dxccBar.hidden = mw.potaBar.hidden = wf < 1;
+    workflowBars(wf);
 
     mw.spotLens = wf >= 1 ? lensOfView(quickView()) : 0;
     applyViewFilters();
@@ -5970,7 +6056,10 @@ void cmdMap() {
             mw.choosingFromList = false;
         };
         mw.listRows.text = ^NSString *(const ADIFViewRow &r, const std::string &column) {
-            return ADIFString(cellText((int)mw.listKind.selectedSegment, r, column));
+            int kind = (int)mw.listKind.selectedSegment;
+            std::string text = cellText(kind, r, column);
+            if (column == "country" || column == "entity") text = flagged(cellDxcc(kind, r), text);  // shown, not sorted or searched by
+            return ADIFString(text);
         };
         mw.listRows.onSort = ^{
             NSSortDescriptor *d = mw.listTable.sortDescriptors.firstObject;
@@ -6398,12 +6487,34 @@ void cmdMap() {
             c.detachesHiddenViews = YES;
             return c;
         };
+        workflowBars(workflow());
         ADIFFlowView *toolbar = [[ADIFFlowView alloc] initWithFrame:NSZeroRect];  // wraps in a narrow window
         toolbar.gap = 15;
         toolbar.centred = YES;
         toolbar.identifier = @"map.toolbar";
+        // Its own actions, at its end: the view kept as a Quick View, the map copied, the map alone.
+        NSButton *keepView = smallButton(@"Save View...", @"Keep the layers, colours and filters as they are now as a Quick View of your own, in "
+                                                          @"this workflow (right-click one of yours to remove it)",
+                                         ^{});
+        __weak NSButton *weakKeep = keepView;
+        ADIFOnAction(keepView, ^{ showSaveView(weakKeep); });
+        iconOnly(keepView, @"bookmark");
+        keepView.identifier = @"map.toolbar.saveview";
+        NSButton *copyButton = smallButton(@"Copy Map", @"Copy the map as it is shown now, with its legend, to paste into a message or document "
+                                                        @"(Export PNG... saves it)",
+                                           ^{ copyMap(); });
+        iconOnly(copyButton, @"doc.on.doc");
+        copyButton.identifier = @"map.toolbar.copy";
+        mw.focusButton = smallButton(@"Focus Map", @"The map alone: hide the sidebar, the list and the selected panel (again to bring them back)",
+                                     ^{ focusMap(); });
+        [mw.focusButton setButtonType:NSButtonTypePushOnPushOff];
+        iconOnly(mw.focusButton, @"arrow.up.left.and.arrow.down.right");
+        mw.focusButton.identifier = @"map.toolbar.focus";
+        for (NSButton *b in @[ keepView, copyButton, mw.focusButton ]) {
+            b.controlSize = NSControlSizeSmall;
+        }
         for (NSView *v in @[ mw.workflow, mw.scopeLabel, cluster(@[ mw.band, mw.mode, mw.dates, mw.confirmed, mw.dxccBar, mw.potaBar, mw.spotAgeBar, mw.spotSourceBar, mw.continentPopup, mw.moreFilters ]),
-                             cluster(@[ mw.chips, mw.clearFilters ]) ])
+                             cluster(@[ mw.chips, mw.clearFilters ]), cluster(@[ keepView, copyButton, mw.focusButton ]) ])
             [toolbar addSubview:v];
 
         // The sidebar: sections, each with a triangle to close it.

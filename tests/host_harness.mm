@@ -3782,6 +3782,7 @@ int main(int argc, char **argv) {
             if (mapw) {
                 [mapw.contentView layoutSubtreeIfNeeded];
                 NSSegmentedControl *workflowSwitch = (NSSegmentedControl *)viewWithIdentifier(mapw.contentView, @"map.workflow");
+                CHECK(!shown(@"map.filter.age") && !shown(@"map.filter.dxccNeed"), "History at first: no Live menus in the toolbar");
                 CHECK(workflowSwitch.selectedSegment == 0 && shown(@"map.sidebar") && shown(@"map.list") && shown(@"map.selected") &&
                           !shown(@"map.group.spots") && overlaps(mapw.contentView) == 0,
                       "Map does not overlap (%d); History at first (%ld), with the sidebar (%d; no Spots section: %d), the list (%d) and the selected panel (%d)",
@@ -4194,6 +4195,38 @@ int main(int argc, char **argv) {
                 styleSet(@"dayNight", false), styleSet(@"greyLine", false);
                 setBox(contactsBox, false);
             }
+            {  // Terrain: the Himalaya shaded, the open sea as it was, on every projection
+                auto change = [&](NSBitmapImageRep *a, NSBitmapImageRep *b, NSPoint at) {  // the mean change over 21 by 21 points
+                    double sum = 0;
+                    int n = 0;
+                    for (int dx = -10; dx <= 10; ++dx)
+                        for (int dy = -10; dy <= 10; ++dy) {
+                            NSColor *p = colourAt(a, NSMakePoint(at.x + dx, at.y + dy)), *q = colourAt(b, NSMakePoint(at.x + dx, at.y + dy));
+                            if (p && q) sum += colourGap(p, q), ++n;
+                        }
+                    return n ? sum / n : -1;
+                };
+                CHECK(style(@"terrain") && [((NSPopUpButton *)style(@"terrain")).titleOfSelectedItem isEqualToString:@"Off"], "Terrain starts off");
+                for (NSString *projection in @[ @"Equirectangular", @"Mercator", @"Equal Earth", @"Globe" ]) {
+                    if ([projection isEqualToString:@"Globe"]) {
+                        pick(proj, [proj itemAtIndex:3].title);
+                        menuAction(regionMenu, @"Asia");
+                    } else {
+                        pick(proj, projection);
+                        [findButton(mapw.contentView, @"World") performClick:nil];
+                    }
+                    NSBitmapImageRep *flat = mapImage();
+                    stylePick(@"terrain", @"Strong");
+                    NSBitmapImageRep *shaded = mapImage();
+                    double hills = change(flat, shaded, pointFor(84, 30)), sea = change(flat, shaded, pointFor(70, -30));
+                    CHECK(hills > 0.03 && sea >= 0 && sea < 0.002, "Terrain on %s: the Himalaya shaded (%.3f), the sea unchanged (%.4f)", projection.UTF8String,
+                          hills, sea);
+                    if ([projection isEqualToString:@"Equirectangular"]) snapshot(mapw, "map-terrain");
+                    if ([projection isEqualToString:@"Globe"]) snapshot(mapw, "map-terrain-globe");
+                    stylePick(@"terrain", @"Off");
+                }
+                pick(proj, @"Equirectangular");
+            }
             pick(proj, @"Equirectangular");
             CHECK(menuAction(regionMenu, @"Europe") && regionMiddle(10, 53) < 3 && std::atof(zoomShown().c_str()) > 2,
                   "Region → Europe on a flat map (%.1f px off, %s)", regionMiddle(10, 53), zoomShown().c_str());
@@ -4458,6 +4491,42 @@ int main(int argc, char **argv) {
                         [kind sendAction:kind.action to:kind.target];
                         pump(0.3);
                     };
+                    {  // flags: before a QSO's country (the UN's for 4U1UN, added for this; none for the Order of Malta) and in the
+                       // selected panel's title; off in Style Options
+                        std::string savedDoc = H.doc;
+                        H.doc += "<CALL:5>4U1UN <QSO_DATE:8>20261010 <TIME_ON:4>1300 <BAND:3>20m <MODE:2>CW <DXCC:3>289 <EOR>\n";
+                        notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+                        pump(0.5);
+                        showKind(4);
+                        NSString *un = @"\U0001F1FA\U0001F1F3 ";
+                        NSInteger unRow = -1, maltaRow = -1;
+                        for (NSInteger row = 0; row < [rowsTable.dataSource numberOfRowsInTableView:rowsTable]; ++row) {
+                            if ([cell(rowsTable, row, @"call") isEqualToString:@"4U1UN"]) unRow = row;
+                            if ([cell(rowsTable, row, @"call") isEqualToString:@"1A0C"]) maltaRow = row;
+                        }
+                        NSString *unCountry = unRow >= 0 ? cell(rowsTable, unRow, @"country") : @"";
+                        bool malta = maltaRow >= 0 && [cell(rowsTable, maltaRow, @"country") isEqualToString:@"Sov Mil Order of Malta"];
+                        showKind(6);  // DXCC: the entity's row, chosen, names it with its flag over the selected panel
+                        NSInteger entityRow = -1;
+                        for (NSInteger row = 0; row < [rowsTable.dataSource numberOfRowsInTableView:rowsTable]; ++row)
+                            if ([cell(rowsTable, row, @"entity") hasPrefix:[un stringByAppendingString:@"United Nations"]]) entityRow = row;
+                        [rowsTable selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)std::max<NSInteger>(entityRow, 0)] byExtendingSelection:NO];
+                        [rowsTable.delegate tableViewSelectionDidChange:[NSNotification notificationWithName:NSTableViewSelectionDidChangeNotification
+                                                                                                        object:rowsTable]];
+                        NSString *titled = entityRow >= 0 ? ((NSTextField *)viewWithIdentifier(mapw.contentView, @"map.contact.title")).stringValue : @"";
+                        bool off = styleSet(@"flags", false);
+                        [stylePanel() orderOut:nil];
+                        showKind(4);
+                        NSString *plain = unRow >= 0 ? cell(rowsTable, unRow, @"country") : @"";
+                        styleSet(@"flags", true);
+                        [stylePanel() orderOut:nil];
+                        CHECK([unCountry hasPrefix:un] && malta && [titled hasPrefix:un] && off && plain.length && ![plain hasPrefix:un],
+                              "flags: the UN's before 4U1UN's country (%s), none for SMOM (%d), in the title (%s); off in Style Options (%s)",
+                              unCountry.UTF8String, malta, titled.UTF8String, plain.UTF8String);
+                        H.doc = savedDoc;
+                        notify(SCN_MODIFIED, 0, 0, SC_MOD_DELETETEXT);
+                        pump(0.5);
+                    }
                     showKind(6);
                     NSInteger entities = [rowsTable.dataSource numberOfRowsInTableView:rowsTable];
                     bool slots = entities == 1 && [cell(rowsTable, 0, @"entity") isEqualToString:@"Sov Mil Order of Malta"] &&
@@ -4835,6 +4904,36 @@ int main(int argc, char **argv) {
                           std::fabs(mapView.frame.size.height - tall) < 3 && std::fabs(inWindow(@"map.sidebar").size.width - sideWidth) < 3,
                       "and shown again at their sizes (%.0f x %.0f, was %.0f x %.0f; sidebar %.0f, was %.0f)", mapView.frame.size.width, mapView.frame.size.height,
                       wide, tall, inWindow(@"map.sidebar").size.width, sideWidth);
+                {  // the toolbar's own three: Focus Map (the map alone, then the panes back), Copy Map, Save View...
+                    NSButton *focus = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.toolbar.focus");
+                    [toggles[1] performClick:nil];  // the list hidden first: Focus Map brings back only the panes it hid
+                    [focus performClick:nil];
+                    [mapw.contentView layoutSubtreeIfNeeded];
+                    bool alone = !shown(@"map.sidebar") && !shown(@"map.list") && !shown(@"map.selected") && focus.state == NSControlStateValueOn;
+                    [focus performClick:nil];
+                    [mapw.contentView layoutSubtreeIfNeeded];
+                    bool back = shown(@"map.sidebar") && !shown(@"map.list") && shown(@"map.selected") && focus.state == NSControlStateValueOff;
+                    [toggles[1] performClick:nil];
+                    CHECK(focus && alone && back, "Focus Map: the map alone (%d), then the panes it hid back (%d)", alone, back);
+                    setenv("ADIFLINT_TEST_PASTEBOARD", "ADIFLintHarness", 1);
+                    NSPasteboard *pb = [NSPasteboard pasteboardWithName:@"ADIFLintHarness"];
+                    [pb clearContents];
+                    [(NSButton *)viewWithIdentifier(mapw.contentView, @"map.toolbar.copy") performClick:nil];
+                    NSData *copied = [pb dataForType:NSPasteboardTypePNG];
+                    NSBitmapImageRep *copiedRep = copied ? [NSBitmapImageRep imageRepWithData:copied] : nil;
+                    CHECK(copiedRep && copiedRep.pixelsWide == (NSInteger)(mapView.bounds.size.width * 2) && [pb dataForType:NSPasteboardTypeTIFF],
+                          "Copy Map: the map as a PNG (and TIFF) on the clipboard, %ld px wide", (long)copiedRep.pixelsWide);
+                    unsetenv("ADIFLINT_TEST_PASTEBOARD");
+                    [pb releaseGlobally];
+                    [(NSButton *)viewWithIdentifier(mapw.contentView, @"map.toolbar.saveview") performClick:nil];
+                    pump(0.2);
+                    NSTextField *named = nil;
+                    for (NSWindow *w in NSApp.windows)
+                        if (!named && w.visible) named = (NSTextField *)viewWithIdentifier(w.contentView, @"map.views.name");
+                    CHECK(named, "the toolbar's Save View... asks for the view's name");
+                    for (NSWindow *w in [NSApp.windows copy])
+                        if (viewWithIdentifier(w.contentView, @"map.views.name")) [w orderOut:nil];
+                }
                 // History's Quick Views: the log, and what it reached on each layer; one chosen shows that layer's worked
                 // areas among all of it; a layer changed by hand leaves none chosen.
                 NSTableView *views = (NSTableView *)viewWithIdentifier(mapw.contentView, @"map.views");
@@ -6201,6 +6300,11 @@ int main(int argc, char **argv) {
                 snapshot(mapw, "docs-map-day-night");
                 stylePick(@"sunTime", @"Now"), styleSet(@"dayNight", false), styleSet(@"greyLine", false);
                 box(@"Worked squares", false);
+                // Terrain over the Alps.
+                CHECK(stylePick(@"terrain", @"Strong"), "docs: terrain");
+                showBox(3, 42.5, 17, 49);
+                snapshot(mapw, "docs-map-terrain");
+                stylePick(@"terrain", @"Off");
                 // Back to the defaults.
                 stylePick(@"palette", @"Standard");
                 stylePick(@"width", @"Medium");

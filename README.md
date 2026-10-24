@@ -382,8 +382,8 @@ Nextpad++ and its plugins.
 - `data/cty.csv` is Jim Reisert AD1C's [Big CTY](https://www.country-files.com/) country
   file, under the MIT licence ([`data/cty-copyright.txt`](data/cty-copyright.txt)).
 - The Map draws [Natural Earth](https://www.naturalearthdata.com)'s land, lakes, rivers,
-  borders, countries, map subunits, US states and counties, urban areas and cities (public
-  domain), and CQ and ITU zones from HB9HIL's
+  borders, countries, map subunits, US states and counties, urban areas, cities and shaded
+  relief (public domain), and CQ and ITU zones from HB9HIL's
   [hamradio-zones-geojson](https://github.com/HB9HIL/hamradio-zones-geojson) under the MIT
   licence ([`data/zones-license.txt`](data/zones-license.txt)); see
   [`data/SOURCE.md`](data/SOURCE.md). Colour by band uses

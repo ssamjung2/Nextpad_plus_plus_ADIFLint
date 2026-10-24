@@ -39,6 +39,23 @@ borders, state and province lines, urban areas and 7,342 cities), comes from Nat
 ca96624 (downloaded 2026-10-13). `tools/gen_map_detail.py` writes it and describes its format;
 the plugin installs it next to `ADIFLint.dylib`.
 
+# Terrain
+
+`relief.jpg`, the Map's **Terrain** (Style Options), is Natural Earth's 1:50m Shaded Relief
+Basic (`SR_50M.tif`, 10,800 x 5,400 8-bit grey, plate carrée, public domain; VERSION 2.0.0),
+from https://naciscdn.org/naturalearth/50m/raster/SR_50M.zip (11,380,369 bytes, SHA-256
+ff810f5f2747463fd8ffa612b23e5f5e5d593a345218976872b6749610976ab7; downloaded 2026-10-24).
+`tools/gen_relief.py` scales it to 8,192 x 4,096 and maps its flat grey (206, measured: the sea
+and flat land) to 128; the plugin installs it next to `ADIFLint.dylib`.
+
+# Country flags
+
+`src/core/adif_flags.cpp` maps each current DXCC entity to a flag (ISO 3166-1 codes, a few codes
+ISO reserves that Unicode draws, England's, Scotland's and Wales's tag sequences, the UN's). It was
+written for this plugin on 2026-10-24 and checked against k0swe/dxcc-json (Apache-2.0, commit
+7d0c8dd), Wavelog's `DxccFlag.php` (MIT, 5e9513e) and QLog's `dxcc.json` (4d41fc7), and against
+Unicode's `emoji-sequences.txt` 18.0: no data was copied from them.
+
 # Not included
 
 POTA's park list (`all_parks_ext.csv`, about 9.5 MB, rebuilt daily) has no published terms of

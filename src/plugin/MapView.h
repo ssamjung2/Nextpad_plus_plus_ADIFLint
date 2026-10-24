@@ -90,6 +90,8 @@ struct ADIFMapStyle {
     // distance rings): 0 strong, 1 subtle, 2 faint; and the rest dimmed round what is chosen.
     int reference = 1;
     bool spotlight = false;
+    int terrain = 0;  // the land's shaded relief (relief.jpg, Natural Earth): 0 off, 1 subtle, 2 strong
+    bool flags = true;  // the DXCC entities' flags beside their names and calls (the list, the selected panel)
     // Squares: Show the worked squares, Overlay the Maidenhead grid, Labels its names. Countries:
     // Show each worked DXCC entity's land. POTA and IOTA need their lists (downloaded in Settings).
     std::array<LayerState, kLayerCount> layer;
@@ -285,6 +287,7 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
     NSRect _legendFrame;             // where the legend was drawn last; empty: none
     std::vector<std::pair<NSRect, std::string>> _legendKeys;  // its entries that a click turns off or on
     std::vector<std::pair<std::string, bool>> _legendNames;   // theirs as they read, and whether off (accessibility actions)
+    std::shared_ptr<struct ReliefShown> _reliefShown;          // the globe's terrain as last drawn (MapRelief.mm)
 }
 @property(nonatomic) BOOL showContacts;
 @property(nonatomic) std::set<std::string> hiddenPrograms;
@@ -415,6 +418,11 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 - (void)drawOsm:(MapDrawCtx &)d;
 - (void)drawOsmCredit;
 - (NSString *)creditLine;  // "" when nothing needs crediting
+@end
+
+// The terrain (MapRelief.mm).
+@interface ADIFMapView (Relief)
+- (void)drawRelief:(CGContextRef)ctx land:(CGPathRef)land;  // in plane units, over the land just filled
 @end
 
 @interface ADIFMapView (Layers)

@@ -209,8 +209,11 @@ using namespace mapkit;
             CGPathRelease(path);
         };
         setFill(ctx, pal.land);
-        draw(adif::DetailLayer::Land, true, all);
+        CGMutablePathRef land = detailPath(_pr, adif::DetailLayer::Land, true, w, s, e, n, all);
+        CGContextAddPath(ctx, land);
         CGContextEOFillPath(ctx);
+        [self drawRelief:ctx land:land];
+        CGPathRelease(land);
         // Towns and cities, a little lighter than the land around them.
         CGContextSetFillColorWithColor(ctx, [rgb(pal.land) blendedColorWithFraction:pal.dark ? 0.14 : 0.18 ofColor:pal.dark ? NSColor.whiteColor : NSColor.grayColor].CGColor);
         draw(adif::DetailLayer::Urban, true, all);
@@ -238,8 +241,10 @@ using namespace mapkit;
     } else {  // the 1:110m and 1:50m maps
         bool fine = _zoom >= 3;
         setFill(ctx, pal.land);
-        CGContextAddPath(ctx, projectedLayer(_pr, fine ? adif::MapLayer::Land50 : adif::MapLayer::Land110));
+        CGPathRef land = projectedLayer(_pr, fine ? adif::MapLayer::Land50 : adif::MapLayer::Land110);
+        CGContextAddPath(ctx, land);
         CGContextEOFillPath(ctx);
+        [self drawRelief:ctx land:land];
         setFill(ctx, pal.ocean);  // lakes: the ocean's colour; their islands stay land
         CGContextAddPath(ctx, projectedLayer(_pr, fine ? adif::MapLayer::Lakes50 : adif::MapLayer::Lakes110));
         CGContextEOFillPath(ctx);

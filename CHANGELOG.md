@@ -185,6 +185,17 @@ Versions before 0.8.0 were development builds and were not published.
   RBN spots get their reports from their comments ("20 dB"), as Spothole has no field for
   them.
 
+- **Map → Style Options → Terrain** (off, subtle or strong): the land's mountains and valleys
+  shaded, from Natural Earth's 1:50m shaded relief (public domain, bundled as `relief.jpg`), in
+  every palette and projection; it fades out as you zoom in past its detail.
+- **Map: country flags** before each DXCC entity's name in the list's Country and DXCC entity
+  columns and in the selected panel's title (Style Options → Country flags, on at first). The
+  table of 337 entities was checked against k0swe/dxcc-json, Wavelog and QLog and against
+  Unicode's flag list.
+- **Map's toolbar: Save View…, Copy Map and Focus Map**, three buttons at its end: keep the view
+  as a Quick View, copy the map to the clipboard as Export PNG would save it, and show the map
+  alone (the sidebar, list and selected panel hidden; again to bring them back).
+
 ### Changed
 
 - **Map**: **Spots…** moved from the Filters row to the Spots group.
@@ -210,6 +221,8 @@ Versions before 0.8.0 were development builds and were not published.
 - **Map:** the band filter lists the bands spotted too, not only the log's.
 - **Map:** your station's grid, when it comes from the log's MY_GRIDSQUARE, is taken from the
   whole log, not only the QSOs the filters keep (with none kept, the map lost its home).
+- **Map:** History's toolbar no longer shows Live's menus (spot age, sources, DXCC, program) when
+  the Map first opens, nor Live's the dates and confirmation, until you switched workflows.
 - **Map:** a click off everything (open sea, a square you haven't worked) chooses nothing, and so
   does **Escape** on the map; before, it chose the square, and only a click off the Earth cleared
   the selected panel.

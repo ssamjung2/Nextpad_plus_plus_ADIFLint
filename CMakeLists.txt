@@ -57,6 +57,7 @@ add_library(adif_core STATIC
     src/core/adif_palette.cpp
     src/core/adif_detail.cpp
     src/core/adif_parks.cpp
+    src/core/adif_flags.cpp
     src/core/adif_needs.cpp
     src/core/adif_worked.cpp
     src/core/adif_regions.cpp
@@ -120,7 +121,7 @@ add_test(NAME adiflint_tools COMMAND sh ${CMAKE_SOURCE_DIR}/tests/cli_tools.sh $
 if(NOT ADIF_SANITIZE)
     add_library(ADIFLint SHARED src/plugin/ADIFLint.mm src/plugin/RecordPanel.mm src/plugin/NewQsoPanel.mm
         src/plugin/EnrichPanel.mm src/plugin/Lookup.mm src/plugin/SettingsPanel.mm src/plugin/QsoFieldsPanel.mm
-        src/plugin/ToolWindow.mm src/plugin/LogTools.mm src/plugin/CheckLog.mm src/plugin/Families.mm src/plugin/Station.mm src/plugin/Monitor.mm src/plugin/Contest.mm src/plugin/Labels.mm src/plugin/LotwUsers.mm src/plugin/IotaGroups.mm src/plugin/PotaParks.mm src/plugin/Map.mm src/plugin/MapView.mm src/plugin/MapLayers.mm src/plugin/MapOsm.mm src/plugin/MapDetail.mm src/plugin/Network.mm src/plugin/L10n.mm src/plugin/Spots.mm src/plugin/Night.mm src/plugin/SpotOffer.mm src/plugin/ParkOutlines.mm
+        src/plugin/ToolWindow.mm src/plugin/LogTools.mm src/plugin/CheckLog.mm src/plugin/Families.mm src/plugin/Station.mm src/plugin/Monitor.mm src/plugin/Contest.mm src/plugin/Labels.mm src/plugin/LotwUsers.mm src/plugin/IotaGroups.mm src/plugin/PotaParks.mm src/plugin/Map.mm src/plugin/MapView.mm src/plugin/MapLayers.mm src/plugin/MapRelief.mm src/plugin/MapOsm.mm src/plugin/MapDetail.mm src/plugin/Network.mm src/plugin/L10n.mm src/plugin/Spots.mm src/plugin/Night.mm src/plugin/SpotOffer.mm src/plugin/ParkOutlines.mm
         src/plugin/Uploads.mm src/plugin/Imports.mm src/plugin/Country.mm)
     target_include_directories(ADIFLint PRIVATE
         third_party/nextpad
@@ -136,6 +137,7 @@ if(NOT ADIF_SANITIZE)
     add_custom_command(TARGET ADIFLint POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/data/cty.csv $<TARGET_FILE_DIR:ADIFLint>/cty.csv
         COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/data/map-detail.bin $<TARGET_FILE_DIR:ADIFLint>/map-detail.bin
+        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/data/relief.jpg $<TARGET_FILE_DIR:ADIFLint>/relief.jpg
         COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/data/lang $<TARGET_FILE_DIR:ADIFLint>/lang)
 
     set(PLUGIN_INSTALL_DIR "$ENV{HOME}/Library/Application Support/Nextpad++/plugins/ADIFLint"
@@ -154,7 +156,7 @@ if(NOT ADIF_SANITIZE)
         endif()
         execute_process(COMMAND codesign --force --sign - \"\${dir}/ADIFLint.dylib.new\")
         file(RENAME \"\${dir}/ADIFLint.dylib.new\" \"\${dir}/ADIFLint.dylib\")
-        file(COPY \"${CMAKE_SOURCE_DIR}/data/cty.csv\" \"${CMAKE_SOURCE_DIR}/data/cty-copyright.txt\" \"${CMAKE_SOURCE_DIR}/data/zones-license.txt\" \"${CMAKE_SOURCE_DIR}/data/map-detail.bin\" DESTINATION \"\${dir}\")
+        file(COPY \"${CMAKE_SOURCE_DIR}/data/cty.csv\" \"${CMAKE_SOURCE_DIR}/data/cty-copyright.txt\" \"${CMAKE_SOURCE_DIR}/data/zones-license.txt\" \"${CMAKE_SOURCE_DIR}/data/map-detail.bin\" \"${CMAKE_SOURCE_DIR}/data/relief.jpg\" DESTINATION \"\${dir}\")
         file(COPY \"${CMAKE_SOURCE_DIR}/data/lang\" DESTINATION \"\${dir}\")
         file(GLOB icons \"${CMAKE_SOURCE_DIR}/data/toolbar/*.png\")
         file(COPY \${icons} DESTINATION \"\${dir}\")
