@@ -26,6 +26,7 @@
 #include "adif_spots.h"
 #include "adif_json.h"
 #include "adif_outlines.h"
+#include "adif_solar.h"
 
 #include <chrono>
 #include <cmath>
@@ -667,6 +668,39 @@ int main(int argc, char **argv) {
             ++gFailures;
         }
         std::printf("park outline sources: %d mutated, %zu outlines still read; hostile JSON in %.2f s\n", iterations * 8, outlines, secs);
+    }
+
+    // Space weather (SWPC's files, broken at random): whatever they say, the values stay in range.
+    {
+        const char *const seeds[] = {
+            "[{\"flux\":101,\"time_tag\":\"2026-10-23T20:00:00\"}]",
+            "[{\"time_tag\":\"2026-10-24T12:00:00\",\"Kp\":1.67,\"a_running\":6,\"station_count\":8}]",
+            "2026 10 23     7  1 1 1 2 3 2 3 1    21  2 1 4 5 5 3 3 2    11   1.67  1.67  1.67  2.33  2.67  2.67  4.33  1.67\n",
+            "[{\"time_tag\":\"2026-10-24T18:42:00Z\",\"flux\":3.7e-07,\"energy\":\"0.1-0.8nm\"}]",
+            "{\"0\":{\"R\":{\"Scale\":\"0\",\"Text\":\"none\"},\"G\":{\"Scale\":\"1\",\"Text\":\"minor\"}}}",
+            "{\"coordinates\":[[0,60,40],[1,60,40],[2,60,40]]}"};
+        int bad = 0;
+        for (int k = 0; k < iterations * 6; ++k) {
+            std::string x = seeds[k % 6];
+            for (int e = 1 + (int)(rng() % 6); e > 0; --e) {
+                size_t at = rng() % x.size();
+                switch (rng() % 3) {
+                    case 0: x[at] = (char)(rng() & 0xff); break;
+                    case 1: x.erase(at, 1 + rng() % 4); break;
+                    default: x.insert(at, 1, (char)(rng() & 0xff)); break;
+                }
+                if (x.empty()) x = "x";
+            }
+            adif::SpaceWeather w;
+            adif::AuroraGrid g;
+            adif::parseSolarFlux(x, w), adif::parsePlanetaryK(x, w), adif::parseDailyIndices(x, w), adif::parseXrays(x, w), adif::parseNoaaScales(x, w);
+            adif::parseOvation(x, g);
+            bool ok = (w.sfi < 0 || (w.sfi > 0 && w.sfi <= 1000)) && (w.kp < 0 || w.kp <= 9) && w.ap <= 400 && (w.xray < 0 || w.xray <= 1) &&
+                      w.r <= 5 && w.s <= 5 && w.g <= 5 && (g.value.empty() || g.value.size() == 360u * 181u);
+            adif::flareClass(w.xray), adif::kpText(w.kp), g.at(rng() % 400 - 200.0, rng() % 200 - 100.0);
+            if (!ok && ++bad == 1) std::printf("FAIL space weather from: %s\n", x.c_str()), ++gFailures;
+        }
+        std::printf("space weather: %d mutated files read\n", iterations * 6);
     }
 
     // The Map's worked areas: the area at any point (also off the Earth and across the 180th

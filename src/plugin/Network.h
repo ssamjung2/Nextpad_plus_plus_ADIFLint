@@ -24,6 +24,9 @@ BOOL ADIFOpenURL(NSString *url);
 // queue; the task can be cancelled. Refused in offline mode. In the tests
 // (ADIFLINT_FAKE_LOOKUP_DIR), answered from the fixtures' mapdetail folder by file name.
 NSURLSessionTask *ADIFFetchFile(NSURL *url, void (^done)(NSData *body, NSString *error));
+// The same for other data files (space weather), answered in the tests from the fixtures' folder
+// `fixtures`.
+NSURLSessionTask *ADIFFetchData(NSURL *url, NSString *fixtures, void (^done)(NSData *body, NSString *error));
 
 // Park outlines' requests (Overpass and PAD-US: a form POST; pota-map.info: GET when `form` is
 // nil), with the HTTP status whatever it is, so a busy server (429, 502, 503, 504) can be told

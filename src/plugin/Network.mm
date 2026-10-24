@@ -65,10 +65,10 @@ NSURLSession *downloadSession() {
 // Who is asking, as servers like to know: the program and where to find it.
 NSString *userAgent() { return [NSString stringWithFormat:@"ADIFLint/%s (+https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint)", ADIFLINT_VERSION]; }
 
-NSString *fixture(NSURL *url) {
+NSString *fixture(NSURL *url, NSString *folder = @"mapdetail") {
     const char *dir = getenv("ADIFLINT_FAKE_LOOKUP_DIR");
     if (!dir || !*dir || !url.lastPathComponent.length) return nil;
-    return [[@(dir) stringByAppendingPathComponent:@"mapdetail"] stringByAppendingPathComponent:url.lastPathComponent];
+    return [[@(dir) stringByAppendingPathComponent:folder] stringByAppendingPathComponent:url.lastPathComponent];
 }
 
 void later(void (^block)(void)) { dispatch_async(dispatch_get_main_queue(), block); }
@@ -127,13 +127,15 @@ NSURLSessionTask *ADIFOutlineRequest(NSURL *url, NSString *form, void (^done)(NS
     return task;
 }
 
-NSURLSessionTask *ADIFFetchFile(NSURL *url, void (^done)(NSData *body, NSString *error)) {
+NSURLSessionTask *ADIFFetchFile(NSURL *url, void (^done)(NSData *body, NSString *error)) { return ADIFFetchData(url, @"mapdetail", done); }
+
+NSURLSessionTask *ADIFFetchData(NSURL *url, NSString *fixtures, void (^done)(NSData *body, NSString *error)) {
     if (ADIFOffline()) {
         NSString *why = ADIFOfflineReason();
         later(^{ done(nil, why); });
         return nil;
     }
-    if (NSString *path = fixture(url)) {
+    if (NSString *path = fixture(url, fixtures)) {
         NSData *d = [NSData dataWithContentsOfFile:path];
         later(^{ done(d, d ? nil : @"HTTP 404 (fixture)"); });
         return nil;

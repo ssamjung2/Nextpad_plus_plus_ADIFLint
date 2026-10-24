@@ -36,6 +36,8 @@
 #include "adif_json.h"
 #include "adif_outlines.h"
 #include "adif_flags.h"
+#include "adif_beacons.h"
+#include "adif_solar.h"
 
 #include <algorithm>
 #include <cmath>
@@ -4025,6 +4027,72 @@ static void testFlags() {
           "flags: Northern Ireland the UK's; none for SMOM, Spratly, none, or codes that aren't entities");
 }
 
+// NCDXF beacons: 4U1UN on 14.100 MHz at the top of each 3-minute cycle, VE8AT 10 s later; on
+// 18.110 MHz the beacon before (YV5B at 00:00), as ncdxf.org's schedule table has it.
+static void testBeacons() {
+    double t = 1792800000;  // 2026-10-24 00:00:00 UTC, a multiple of 180 s
+    CHECK(std::fmod(t, 180) == 0, "beacons: the test time starts a cycle");
+    CHECK(std::string(adif::kBeacons[adif::beaconOn(0, t)].call) == "4U1UN" && std::string(adif::kBeacons[adif::beaconOn(0, t + 10)].call) == "VE8AT" &&
+              std::string(adif::kBeacons[adif::beaconOn(0, t + 20)].call) == "W6WX" && std::string(adif::kBeacons[adif::beaconOn(0, t + 179)].call) == "YV5B",
+          "beacons: 14.100 MHz, 4U1UN first, YV5B last");
+    CHECK(std::string(adif::kBeacons[adif::beaconOn(1, t)].call) == "YV5B" && std::string(adif::kBeacons[adif::beaconOn(4, t)].call) == "CS3B" &&
+              std::string(adif::kBeacons[adif::beaconOn(4, t + 40)].call) == "4U1UN",
+          "beacons: 18.110 YV5B and 28.200 CS3B at 00:00; 4U1UN on 28.200 at 00:40");
+    CHECK(adif::beaconBand(0, t + 25) == 2 && adif::beaconBand(0, t + 55) == adif::kBeaconBands && std::fabs(adif::beaconSlotLeft(t + 3.5) - 6.5) < 1e-9,
+          "beacons: 4U1UN on 21.150 at 00:20-00:30, silent at 00:50; 6.5 s left at 00:03.5");
+    bool once = true;
+    for (size_t band = 0; band < adif::kBeaconBands; ++band)
+        for (int slot = 0; slot < 18; ++slot) {
+            size_t n = 0;
+            for (size_t other = 0; other < adif::kBeaconBands; ++other) n += adif::beaconOn(other, t + slot * 10) == adif::beaconOn(band, t + slot * 10);
+            once = once && n == 1;
+        }
+    CHECK(once, "beacons: no beacon on two bands at once");
+}
+
+// SWPC's files as served since 31 March 2026.
+static void testSolar() {
+    adif::SpaceWeather w;
+    CHECK(adif::parseSolarFlux(R"([{"flux":101,"time_tag":"2026-10-23T20:00:00"}])", w) && w.sfi == 101 && w.sfiTime == "2026-10-23T20:00:00",
+          "solar: the 10.7 cm flux");
+    std::string kp = "[";
+    for (int i = 0; i < 10; ++i) kp += std::string(i ? "," : "") + R"({"time_tag":"2026-10-24T)" + std::to_string(10 + i) + R"(:00:00","Kp":)" + (i == 9 ? "1.67" : "2.00") +
+                                    R"(,"a_running":7,"station_count":8})";
+    kp += "]";
+    CHECK(adif::parsePlanetaryK(kp, w) && std::fabs(w.kp - 1.67) < 1e-9 && w.kpRecent.size() == 8 && w.kpTime == "2026-10-24T19:00:00",
+          "solar: the planetary K, the last of the file, and the last 8");
+    CHECK(adif::kpText(1.67) == "2-" && adif::kpText(2.0) == "2" && adif::kpText(2.33) == "2+" && adif::kpText(0.33) == "0+" && adif::kpText(9) == "9" &&
+              adif::kpText(-1).empty(),
+          "solar: Kp in thirds");
+    const char *dgd = "#  Date        A     K-indices        A     K-indices        A     K-indices\n"
+                      "2026 10 22    15  2 3 3 3 4 3 2 3    45  2 2 5 7 6 5 3 3    20   2.33  3.00  3.00  4.33  4.00  3.67  3.67  3.33\n"
+                      "2026 10 23     7  1 1 1 2 3 2 3 1    21  2 1 4 5 5 3 3 2    11   1.67  1.67  1.67  2.33  2.67  2.67  4.33  1.67\n"
+                      "2026 10 24    -1  1 1 1 1 2 1-1-1    -1  1 1 1 4 3 3-1-1     9   2.00  1.33  0.67  2.00  1.67  1.67 -1.00 -1.00\n";
+    CHECK(adif::parseDailyIndices(dgd, w) && w.ap == 11 && w.apDate == "2026 10 23", "solar: the daily A, the last whole day's (%d, %s)", w.ap, w.apDate.c_str());
+    std::string xr = R"([{"time_tag":"2026-10-24T18:42:00Z","satellite":18,"flux":3.7374374528553744e-07,"energy":"0.1-0.8nm"},)"
+                     R"({"time_tag":"2026-10-24T18:43:00Z","satellite":18,"flux":9.2e-09,"energy":"0.05-0.4nm"}])";
+    xr += std::string(2, '\0');
+    CHECK(adif::parseXrays(xr, w) && std::fabs(w.xray - 3.7374374528553744e-07) < 1e-15 && w.xrayTime == "2026-10-24T18:42:00Z",
+          "solar: the long X-ray band's last value, NULs after the file");
+    CHECK(adif::flareClass(3.74e-7) == "B3.7" && adif::flareClass(2.3e-6) == "C2.3" && adif::flareClass(1.2e-3) == "X12.0" && adif::flareClass(5e-9) == "A0.5" &&
+              adif::flareClass(0).empty(),
+          "solar: flare classes (%s %s)", adif::flareClass(3.74e-7).c_str(), adif::flareClass(5e-9).c_str());
+    CHECK(adif::parseNoaaScales(R"({"0":{"R":{"Scale":"0","Text":"none"},"S":{"Scale":"0","Text":"none"},"G":{"Scale":"1","Text":"minor"}},"1":{"R":{"Scale":null}}})", w) &&
+              w.r == 0 && w.s == 0 && w.g == 1 && w.gText == "minor",
+          "solar: the NOAA scales now");
+    adif::SpaceWeather none;
+    CHECK(!adif::parseSolarFlux("[]", none) && !adif::parsePlanetaryK("{}", none) && !adif::parseXrays("not json", none) && !adif::parseDailyIndices("", none) &&
+              none.sfi < 0 && none.kp < 0 && none.ap < 0,
+          "solar: broken files change nothing");
+    std::string ov = R"({"Observation Time":"2026-10-24T18:33:00Z","Forecast Time":"2026-10-24T19:46:00Z","coordinates":[)";
+    for (int lon = 0; lon < 360; ++lon)
+        for (int lat = 60; lat < 64; ++lat) ov += (lon || lat > 60 ? "," : "") + std::string("[") + std::to_string(lon) + "," + std::to_string(lat) + ",40]";
+    ov += "]}";
+    adif::AuroraGrid g;
+    CHECK(adif::parseOvation(ov, g) && g.at(-100, 61) == 40 && g.at(10, 50) == 0 && std::fabs(g.at(359.5, 61) - 40) < 1e-9 && g.observed == "2026-10-24T18:33:00Z",
+          "solar: the aurora grid, west longitudes and across 0");
+}
+
 static void testOutlines() {
     CHECK(potaRefShaped("US-1234") && potaRefShaped("VK-12345") && potaRefShaped("9A-0001") && !potaRefShaped("US-123") &&
               !potaRefShaped("us-1234") && !potaRefShaped("DE--0038") && !potaRefShaped("yes"),
@@ -4177,6 +4245,8 @@ int main(int argc, char **argv) {
     testJson();
     testOutlines();
     testFlags();
+    testBeacons();
+    testSolar();
     testProjections();
     testPalettes();
     for (int i = 1; i < argc; ++i)
