@@ -43,8 +43,9 @@ Versions before 0.8.0 were development builds and were not published.
   Worked, All and Labels, with **Contacts** and **Sun**; **Map**; **Filters**); the map,
   with its zoom buttons (+, −, Home, Fit Log or, in Live, the spots, World) at its top left
   and a distance scale and the legend at its bottom left; the list under it; the
-  **selected panel** on the right; and a footer (how fresh the spots are, and what is under
-  the pointer). Dividers can be dragged, panes hidden, and all is remembered.
+  **selected panel** on the right; and a footer (how fresh the spots are, as a coloured dot
+  that shows each feed's state, and what is under the pointer). The header also has Log
+  Table, Settings and Help. Dividers can be dragged, panes hidden, and all is remembered.
 - **Map → Quick Views.** History's: the whole log and each layer with how many you worked
   (and confirmed); choosing one shows that layer's worked areas among all of it. Live's:
   **All spots**, **New DXCC**, **New band**, **New mode**, **New POTA parks**, **POTA
@@ -55,7 +56,9 @@ Versions before 0.8.0 were development builds and were not published.
   with the call), **New QSO** and **Center**; then its entity's bands and modes in your log.
   Under it, **Situation**: the log at a glance (worked and confirmed, a click shows the layer
   in History), today, the QSOs without a grid, the spots you most want now as links, the
-  busiest bands and the sun at your station.
+  busiest bands and the sun at your station. Its facts have symbols, say **Unavailable** for what a spot
+  doesn't give (signal, grid), and give the spotter and how long ago; a QSO chosen gets
+  **View QSO**; **×** hides the panel. **Recent spots** lists the five newest, each a link.
 - **Map → List: Selected, Contacts, Parks, Spots, Recent.** The QSO table under the map
   became the list's **Selected** (the QSOs of what you click); **Recent** has the log's QSOs,
   the newest first. Each tab says how many it has. Every list has pages (25 to 500 rows a
@@ -63,7 +66,9 @@ Versions before 0.8.0 were development builds and were not published.
   country, state, county, zones, park and record for QSOs; location, how worked and outline
   for parks; country, grid, distance, band, spotter, age and **Why it matters** (the most
   wanted first) for spots, and time, program, reference, park, source, signal report and
-  comment.
+  comment. A **Sort** menu has the orders that matter for each list; a row's
+  right-click menu has New QSO, View QSO, Center and Zoom to It; **Why it matters** joins
+  the reasons ("New on 40m + POTA + heard near you").
 - **Map → Style Options → Reference layers** (strong, subtle, faint): the grid, the
   overlays' lines and names and the distance rings drawn more lightly, subtle at first, so
   the log's markers stand out. **Spotlight what's chosen** dims the rest of the map round

@@ -541,9 +541,11 @@ parks you worked shaded and the grey line on.
 
 The window, from the top:
 
-- **The header**: your callsign, the log and its QSOs; at the right, **Style Options**
-  (the palette), **Export PNG** (the arrow out of a box), and three buttons that show or hide
-  the sidebar, the list and the selected panel. The window's title names the log too.
+- **The header**: your callsign, the log and its QSOs; at the right, **Log Table** (the
+  table), **Style Options** (the palette), **Export PNG** (the arrow out of a box),
+  **Settings** (the gear), **Help** (this guide, in your browser), and three buttons that
+  show or hide the sidebar, the list and the selected panel. The window's title names the
+  log too.
 - **The toolbar**: **History** or **Live**; what the map shows (in History, the QSOs and the
   dates they span; in Live, the stations spotted); the filters (band, mode, in History the
   dates and confirmation, and the continent), **More Filters…**, and **Clear**. A filter the
@@ -570,8 +572,10 @@ The window, from the top:
 - **Under the map**, [the list](#the-list-the-qsos-chosen-and-whats-in-view), its tabs
   saying how many each has.
 - **On the right**, [the selected panel and the situation](#the-selected-panel-and-the-situation).
-- **The footer**: whether the spots are live and how fresh (green when the newest is less
-  than 15 minutes old), and what is under the pointer.
+- **The footer**: whether the spots are live and how fresh, as a dot (green when the newest
+  is less than 15 minutes old, orange when older, grey with spots off; the toolbar has it
+  too), and what is under the pointer. Point at the live status for what each feed did and
+  when; click it for Sources and Filters.
 
 Drag the dividers to give the sidebar, the list or the selected panel more room. Every
 choice, the sections closed and where the dividers were left are remembered.
@@ -982,7 +986,13 @@ heading), nearest first at first.
   new band, new mode, worked, confirmed, new park), age, time, program, reference, park,
   spotter, source, signal report, grid, country, comment, distance and bearing. Drag a
   title to move its column, its edge to size it. **Reset Columns** goes back to the list's own.
-- **Sort** by any column: click its title (again for the other way round).
+- **Sort**: the **Sort** menu over the table has the orders that matter for the list (for
+  spots **Best opportunity** first, then newest, nearest, strongest signal, band, call; for
+  QSOs newest, oldest, call, band, nearest, log order), or click any column's title (again
+  for the other way round). The pager under the table says which rows show ("Showing 1–50
+  of 212").
+- **Right-click** a row for its own menu: **New QSO** for a spot, **View QSO** for a QSO,
+  **Center** and **Zoom to It**.
 - **Pages**: the list shows 25 to 500 rows a page (**50 a page** at first); the arrows go to
   the previous and next pages, and the line between them says which rows these are.
 - **Nearest to** chooses where distances are measured from: **Your station** (Settings →
@@ -1004,16 +1014,20 @@ The panel on the right shows what you clicked (pointing only describes it, in th
 - **Its name and kind**: a call and frequency, a park, a square, a DXCC entity, an area,
   with a badge (**Live spot**, **QSO**, **DXCC entity**, **POTA park**…) and a line under
   it (its entity, grid and distance, or its DXCC number and QSOs).
-- **Its facts**, for a spot or a spotter: frequency, band, mode, when and by whom it was
-  spotted, the source, where it is, its country, continent and zones, and its distance and
-  bearing.
+- **Its facts**, each with its symbol. For a spot: the frequency in MHz with its band, the
+  mode, the signal (in dB, and who measured it: an RBN skimmer or PSKReporter), the spotter
+  and how long ago (and how many others heard it), the DXCC entity, the grid, the program's
+  reference and park, the source, continent, zones and distance. A fact the spot doesn't
+  give says **Unavailable**. For a QSO: its date and time, band, mode, grid, entity,
+  whether it is confirmed, and its record.
 - **Why it's interesting**, for a spot: a new DXCC entity, a band or mode new for the
   entity, a park you haven't worked; whether the station uses LoTW (with the LoTW users list
   on, in Settings); how many of the stations that heard it are within 1,500 km of you; and
-  your QSOs with the call.
+  your QSOs with the call (on which bands, since when, confirmed or not).
 - **New QSO** (for a spot) fills New QSO from it: CALL, FREQ, BAND, MODE and the program's
   reference, or GRIDSQUARE when the spot gives one. **Center** puts it in the middle of the
-  map at the zoom it has.
+  map at the zoom it has. With one QSO chosen, **View QSO** goes to its record in the log.
+  The **×** at the panel's top right hides it (the header's button shows it again).
 - Its description, and for a station its **DXCC entity in your log**: each band from 160m
   to 6m (and any other you worked it on) green when confirmed, orange when only worked, grey
   when not yet; the same for CW, phone and data; and your QSOs with the call.
@@ -1028,6 +1042,10 @@ The panel on the right shows what you clicked (pointing only describes it, in th
   spot on the map (and in the list).
 - **On the air**: the busiest bands, by stations spotted; and **the sun at your station**:
   how high it is, when it next rises or sets, and when the grey line is over you.
+
+**Recent spots** (in Live) are the five newest, with their frequency, band, mode and age
+(fainter after 15 minutes); click a call to choose its spot. **View all spots →** shows the
+list's Spots.
 
 ### Map Detail: streets and buildings
 

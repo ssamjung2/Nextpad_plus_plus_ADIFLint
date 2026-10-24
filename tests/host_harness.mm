@@ -3845,6 +3845,12 @@ int main(int argc, char **argv) {
             [qsoList selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
             [NSApp sendAction:qsoList.doubleAction to:qsoList.target from:qsoList];
             CHECK(H.pos == (intptr_t)H.doc.find("<CALL:4>K1AB"), "double-clicking the QSO goes to its record (%ld)", (long)H.pos);
+            {  // one QSO chosen: View QSO in the selected panel goes to it too
+                NSButton *viewQso = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.viewqso");
+                H.pos = 0;
+                [viewQso performClick:nil];
+                CHECK(viewQso && !viewQso.hidden && H.pos == (intptr_t)H.doc.find("<CALL:4>K1AB"), "View QSO goes to the record (%ld)", (long)H.pos);
+            }
             [findButton(mapw.contentView, @"World") performClick:nil];
             [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(12.43, 41.90), 0)];  // 1A's centre in the test country file
             CHECK([labelContaining(mapw.contentView, @"DXCC 246") containsString:@"(DXCC 246): 1 QSO, confirmed (1A0C)"],
@@ -5160,7 +5166,7 @@ int main(int argc, char **argv) {
                     [mapView mouseMoved:mouse(NSEventTypeMouseMoved, NSMakePoint(madison.x - 60, madison.y - 60), 0)];
                     NSColor *disc = colourAt(mapImage(), NSMakePoint(madison.x + 0.5 * 6.5, madison.y + 0.5 * 6.5));
                     [mapView mouseMoved:mouse(NSEventTypeMouseMoved, NSMakePoint(madison.x + 9.5, madison.y), 0)];
-                    NSString *onRing = labelContaining(mapw.contentView, @"K9ABC");
+                    NSString *onRing = hoverText();  // what the pointer is on, in the footer
                     CHECK(disc.redComponent > 0.8 && disc.redComponent - disc.blueComponent > 0.06 && [onRing containsString:@"K9ABC on 7185 kHz"],
                           "a POTA spot on the map: the park badge (%.2f %.2f %.2f), found at its ring: %s", disc.redComponent, disc.greenComponent,
                           disc.blueComponent, onRing.UTF8String);
@@ -5410,16 +5416,59 @@ int main(int argc, char **argv) {
                           "Live's Quick Views: New band %s", viewCount(2).UTF8String);
                     [views selectRowIndexes:[NSIndexSet indexSetWithIndex:2] byExtendingSelection:NO];  // New band: 1A0KM (40m, new for the SMOM)
                     pump(0.2);
-                    CHECK([rowsTable.dataSource numberOfRowsInTableView:rowsTable] == 1 && [cell(rowsTable, 0, @"call") isEqualToString:@"1A0KM"],
-                          "New band: only 1A0KM on the map and in the list (%ld)", (long)[rowsTable.dataSource numberOfRowsInTableView:rowsTable]);
+                    CHECK([rowsTable.dataSource numberOfRowsInTableView:rowsTable] == 1 && [cell(rowsTable, 0, @"call") isEqualToString:@"1A0KM"] &&
+                              [cell(rowsTable, 0, @"need") isEqualToString:@"New on 40m"],
+                          "New band: only 1A0KM on the map and in the list, new on 40m (%ld, %s)", (long)[rowsTable.dataSource numberOfRowsInTableView:rowsTable],
+                          cell(rowsTable, 0, @"need").UTF8String);
+                    // The selected panel's facts for the spot, and the row's own menu.
+                    [rowsTable selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
+                    [rowsTable.delegate tableViewSelectionDidChange:[NSNotification notificationWithName:NSTableViewSelectionDidChangeNotification object:rowsTable]];
+                    NSMutableArray *factLabels = [NSMutableArray array];
+                    collect(viewWithIdentifier(mapw.contentView, @"map.chosen.facts"), NSTextField.class, factLabels);
+                    NSMutableArray *factTexts = [NSMutableArray array];
+                    for (NSTextField *f in factLabels) [factTexts addObject:f.stringValue];
+                    NSString *facts = [factTexts componentsJoinedByString:@"|"];
+                    CHECK([facts containsString:@"Frequency|7.010 MHz (40m)"] && [facts containsString:@"Spotter|IK0XYZ"] && [facts containsString:@"Grid|Unavailable"],
+                          "the spot's facts: %s", facts.UTF8String);
+                    NSMenu *rowMenu = rowsTable.menu;
+                    [rowMenu.delegate menuNeedsUpdate:rowMenu];
+                    NSMutableArray *menuTitles = [NSMutableArray array];
+                    for (NSMenuItem *i in rowMenu.itemArray) [menuTitles addObject:i.title];
+                    CHECK([[menuTitles componentsJoinedByString:@","] isEqualToString:@"New QSO,Center,Zoom to It"], "a spot's own menu: %s",
+                          [menuTitles componentsJoinedByString:@","].UTF8String);
                     snapshot(mapw, "map-live");
+                    // All spots again: Sort by nearest puts K9TST (90 km) first; Recent spots: the newest, a link to each.
+                    [views selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
+                    pump(0.2);
+                    NSPopUpButton *sortMenu = (NSPopUpButton *)viewWithIdentifier(mapw.contentView, @"map.list.sort");
+                    bool bestFirst = [sortMenu.titleOfSelectedItem isEqualToString:@"Sort: Best opportunity"];
+                    [sortMenu selectItemWithTitle:@"Sort: Nearest"];
+                    [sortMenu sendAction:sortMenu.action to:sortMenu.target];
+                    std::string order;
+                    bool nearestFirst = true;
+                    double was = -1;
+                    for (NSInteger k = 0; k < [rowsTable.dataSource numberOfRowsInTableView:rowsTable]; ++k) {
+                        double km = [cell(rowsTable, k, @"distance") stringByReplacingOccurrencesOfString:@"," withString:@""].doubleValue;
+                        nearestFirst &= km >= was;
+                        was = km;
+                        order += std::string(cell(rowsTable, k, @"call").UTF8String) + "/" + cell(rowsTable, k, @"distance").UTF8String + " ";
+                    }
+                    CHECK(bestFirst && nearestFirst && [rowsTable.dataSource numberOfRowsInTableView:rowsTable] > 1, "Sort: Nearest (%s)", order.c_str());
+                    [sortMenu selectItemWithTitle:@"Sort: Best opportunity"];
+                    [sortMenu sendAction:sortMenu.action to:sortMenu.target];
+                    NSButton *newest = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.recent.0");
+                    [newest performClick:nil];
+                    std::string chosenNow = ((NSString *)[mapView performSelector:@selector(infoText)]).UTF8String;
+                    CHECK(newest && !viewWithIdentifier(mapw.contentView, @"map.recent.section").hidden &&
+                              chosenNow.find(newest.attributedTitle.string.UTF8String) == 0,
+                          "Recent spots: the newest (%s) chooses its spot (%s)", newest.attributedTitle.string.UTF8String, chosenNow.c_str());
                     setBox(mapBox(@"labels", @"spots"), false);
                     toWorkflow(0);
                     CHECK(wf.selectedSegment == 0 && !shown(@"map.group.spots") && [views.dataSource numberOfRowsInTableView:views] == 10,
                           "History: its own Quick Views, no Spots section");
                     toWorkflow(1);
-                    CHECK(!isOn(@"labels", @"spots") && views.selectedRow == 2 && listKind.selectedSegment == 3 && shown(@"map.group.spots"),
-                          "Live again as it was left: spot labels off, New band chosen, the spots' list");
+                    CHECK(!isOn(@"labels", @"spots") && views.selectedRow == 0 && listKind.selectedSegment == 3 && shown(@"map.group.spots"),
+                          "Live again as it was left: spot labels off, All spots chosen, the spots' list");
                     setBox(mapBox(@"labels", @"spots"), true);
                     [views selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
                 }
