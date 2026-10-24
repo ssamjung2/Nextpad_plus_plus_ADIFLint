@@ -568,9 +568,11 @@ The window, from the top:
     **Only spots of** (see [Spots on the map](#spots-on-the-map)), and **Watch List…** (see
     [The watch list](#the-watch-list)).
   - **Layers**: a row for each layer (see [Layers](#layers-worked-all-and-labels)), then
-    **Contacts** (QSO markers, contact paths, your home station, other programs) and
-    **Sun** (the grey line, day and night).
-  - **Map**: **Colour by** (see [Colours](#colours)), the projection, and **Region**.
+    **Contacts** (QSO markers, contact paths, your home station) and **Sun** (the grey
+    line, day and night). Each group (**Worked areas**, **Programs**, **Places**,
+    **Contacts**, **Sun**) closes on its own with its triangle.
+  - **Map**: the palettes, a swatch each (one click; see [Colours](#colours)), **Colour by**,
+    the projection, and **Region**.
   - **Filters**: **POTA parks in** (see [POTA parks in](#pota-parks-in-fewer-parks)).
 - **The map**, with the zoom buttons at its top left: **+**, the zoom, **−**, then
   **Home**, **Fit Log** and **World** (see [Moving around](#moving-around)). The legend and
@@ -589,7 +591,8 @@ choice, the sections closed and where the dividers were left are remembered.
 ### Layers: Worked, All and Labels
 
 Each layer in the sidebar's **Layers** section has up to three boxes, in three groups
-(**Worked areas**, **Programs**, **Places**); the Spots layer's are in the **Spots** section:
+(**Worked areas**, **Programs**, **Places**, each closed with its triangle); the Spots
+layer's are in the **Spots** section:
 
 - **Worked** marks what you worked on that layer: the worked grid squares, countries, states,
   counties and zones shaded in the map's colours, the POTA parks you worked badged, the IOTA
@@ -599,7 +602,11 @@ Each layer in the sidebar's **Layers** section has up to three boxes, in three g
 - **All** draws the whole layer (its overlay): every square, country, state, county, zone,
   park or group (see [Overlays](#overlays)).
 - **Labels** names them: square and zone numbers, country names, state codes, county and
-  city names, park references, IOTA references. Labels work while the layer shows.
+  city names, park references, IOTA references. Labels work while the layer shows: with
+  Worked and All both unticked, the Labels box is faded.
+
+**Other programs**, the last row of Programs, has a box of its own for every other
+program's references at once (see [Contacts](#contacts)); its name is the menu of which.
 
 Point at a shaded area for its QSOs, and click it to list them. The selected panel says where
 each QSO's area came from, for example "WI: 12 QSOs (…); 10 by STATE, 2 by where the QSO
@@ -636,12 +643,14 @@ The **Contacts** group, under the layers:
   [contacts and their places](#contacts-and-their-places)).
 - **Contact paths**: a great-circle line from your station to each contact, in the
   colour of the contact's marker (see [Style Options](#style-options-and-export)).
-- **Other programs**, a list with a colour and a count for each: WWFF parks, SOTA summits,
-  IOTA islands, GMA, WWBOTA bunkers, HEMA, SiOTA silos, WCA castles, ILLW and ARLHS
-  lighthouses, MOTA mills, ZLOTA, WOTA, and any other SIG in the log, each a diamond at the
-  QSO's GRIDSQUARE. Tick the ones to show (**Show All**, **Hide All**). IOTA starts hidden: a
-  callbook such as QRZ.com fills it in for every island station.
 - **Home station**: a star at each MY_GRIDSQUARE.
+
+**Other programs**, in the Programs group of the layers: its name is a list with a colour and
+a count for each: WWFF parks, SOTA summits, IOTA islands, GMA, WWBOTA bunkers, HEMA, SiOTA
+silos, WCA castles, ILLW and ARLHS lighthouses, MOTA mills, ZLOTA, WOTA, and any other SIG
+in the log, each a diamond at the QSO's GRIDSQUARE. Tick the ones to show (**Show All**,
+**Hide All**). Its box hides them all, and ticked again brings back the ones you had shown.
+IOTA starts hidden: a callbook such as QRZ.com fills it in for every island station.
 
 How they are coloured is **Colour by**, in the sidebar's Map section (see [Colours](#colours)).
 
@@ -876,7 +885,8 @@ and the spot's information box says what it means for the log ("For this log: ne
 Sov Mil Order of Malta (40m)").
 
 **Style Options** has five palettes: **Standard**, **Colour-blind safe**, **High contrast**,
-**Light** for printing, and **Night (red)**.
+**Light** for printing, and **Night (red)**. The sidebar's Map section has them too, a
+swatch each (its sea, land, confirmed and worked colours): one click changes the map.
 
 **Night (red)** draws the whole map, legend and labels too, in shades of red on black, as
 bright as each part would be: red light keeps your eyes adapted to the dark at a night-time

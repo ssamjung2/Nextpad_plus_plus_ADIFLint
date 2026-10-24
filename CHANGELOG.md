@@ -52,6 +52,11 @@ Versions before 0.8.0 were development builds and were not published.
   **Needed on its band** (a new DXCC or a new band), **New DXCC**, **New band**, **New
   mode**, **New POTA parks**, **POTA activators**, **My watch list** and **Worked before**,
   each with its count; choosing one shows only those.
+- **Map → Layers.** Each group (Worked areas, Programs, Places, Contacts, Sun) closes on its
+  own with its triangle, remembered. **Other programs** is a row in Programs with a box for
+  them all (off hides them, on brings back those you had shown); its name is the menu of
+  which. A Labels box that can't work (its layer hidden) is faded, so it doesn't look merely
+  unticked. The Map section has the palettes as swatches, one click each.
 - **Map → watch list.** Calls, references (POTA parks, IOTA groups, any program's) and DXCC
   entities to watch for: **Watch** in the selected panel or a row's right-click menu, or
   **Watch List…** in Spots. A watched station spotted has a star on the map and in the list

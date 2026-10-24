@@ -4677,6 +4677,55 @@ int main(int argc, char **argv) {
             CHECK(!menuState(programsMenu, @"IOTA (islands): 1") && menuAction(programsMenu, @"IOTA (islands)") &&
                       menuState(programsMenu, @"IOTA (islands): 1") && menuState(programsMenu, @"SOTA (summits): none"),
                   "Other programs: IOTA starts hidden and can be shown; the common programs are listed");
+            auto setting = [&](NSString *key) -> NSString * {  // as ADIFLint.ini has it
+                NSString *ini = [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint.ini"] encoding:NSUTF8StringEncoding error:nil];
+                for (NSString *l in [ini componentsSeparatedByString:@"\n"])
+                    if ([l hasPrefix:[key stringByAppendingString:@"="]]) return [l substringFromIndex:key.length + 1];
+                return @"";
+            };
+            {  // Other programs' own box: off hides them all, on brings back those shown before (IOTA too, now).
+                NSButton *others = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.show.others");
+                bool wasOn = others.state == NSControlStateValueOn;
+                setBox(others, false);
+                bool allHidden = !menuState(programsMenu, @"IOTA (islands): 1") && !menuState(programsMenu, @"WWFF");
+                setBox(others, true);
+                CHECK(wasOn && allHidden && menuState(programsMenu, @"IOTA (islands): 1") && menuState(programsMenu, @"WWFF") &&
+                          others.state == NSControlStateValueOn,
+                      "Other programs' box: off hides them all, on brings them back as they were");
+            }
+            {  // The Layers section's groups close on their own (remembered); a Labels box off for a hidden
+               // layer is faded; the palettes are a click each, as Style Options has them.
+                NSButton *areas = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.layergroup.areas");
+                NSButton *sun = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.layergroup.sun");
+                NSButton *gridBox = mapBox(@"show", @"grid");
+                auto hiddenIn = [](NSView *v) { return v.isHiddenOrHasHiddenAncestor || v.frame.size.height < 1; };
+                bool openFirst = !hiddenIn(gridBox) && !hiddenIn(viewWithIdentifier(mapw.contentView, @"map.greyline"));
+                [areas performClick:nil];
+                [sun performClick:nil];
+                [mapw.contentView layoutSubtreeIfNeeded];
+                bool closed = hiddenIn(gridBox) && hiddenIn(viewWithIdentifier(mapw.contentView, @"map.greyline")) && !hiddenIn(mapBox(@"show", @"pota")) &&
+                              [setting(@"mapLayerGroupsClosed") isEqualToString:@"areas,sun"];
+                [areas performClick:nil];
+                [sun performClick:nil];
+                [mapw.contentView layoutSubtreeIfNeeded];
+                CHECK(openFirst && closed && !hiddenIn(gridBox) && setting(@"mapLayerGroupsClosed").length == 0,
+                      "Worked areas and Sun closed on their own, then open again (%s)", setting(@"mapLayerGroupsClosed").UTF8String);
+                NSButton *stateLabels = mapBox(@"labels", @"counties"), *stateShow = mapBox(@"show", @"counties"), *stateAll = mapBox(@"overlay", @"counties");
+                CHECK(stateShow.state == NSControlStateValueOff && stateAll.state == NSControlStateValueOff && !stateLabels.enabled &&
+                          stateLabels.alphaValue < 0.5 && mapBox(@"labels", @"grid").alphaValue == 1,
+                      "a Labels box for a hidden layer is faded (%.2f), a working one isn't", stateLabels.alphaValue);
+                NSSegmentedControl *palettes = (NSSegmentedControl *)viewWithIdentifier(mapw.contentView, @"map.palette");
+                NSInteger was = palettes.selectedSegment;
+                palettes.selectedSegment = 3;
+                [palettes sendAction:palettes.action to:palettes.target];
+                bool light = [setting(@"mapPalette") isEqualToString:@"3"] && palettes.segmentCount == 5 &&
+                             [[palettes toolTipForSegment:3] isEqualToString:@"Light (for printing)"];
+                palettes.selectedSegment = was;
+                [palettes sendAction:palettes.action to:palettes.target];
+                NSString *wasText = @(std::to_string(was).c_str());
+                CHECK(light && [setting(@"mapPalette") isEqualToString:wasText],
+                      "the sidebar's palettes: Light chosen with a click, then back (%s)", setting(@"mapPalette").UTF8String);
+            }
             [mapw.contentView layoutSubtreeIfNeeded];
             CHECK(overlaps(mapw.contentView) == 0, "the map's controls do not overlap (%d)", overlaps(mapw.contentView));
             {  // The panes: the sidebar, the list under the map and the selected panel, each hidden (the map

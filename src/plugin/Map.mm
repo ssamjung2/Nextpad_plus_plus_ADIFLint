@@ -414,6 +414,12 @@ struct {
     NSMutableDictionary<NSString *, NSView *> *sections = nil;  // a section's body, by its name
     NSMutableDictionary<NSString *, NSButton *> *sectionTriangles = nil;
     NSMutableDictionary<NSString *, NSTextField *> *sectionTitles = nil;
+    // The Layers section's groups (areas, programs, places, contacts, sun), each closed on its
+    // own: its grid rows or views, and its triangle.
+    NSMutableDictionary<NSString *, NSArray *> *layerGroups = nil;
+    NSMutableDictionary<NSString *, NSButton *> *layerGroupTriangles = nil;
+    NSButton *otherBox = nil;              // Other programs' row: any of them shown
+    NSSegmentedControl *paletteBar = nil;  // the Map section's palettes, one click each
     NSTableView *quickTable = nil;
     ADIFQuickViews *quickRows = nil;
     NSLayoutConstraint *quickHeight = nil;
@@ -501,6 +507,7 @@ int quickView();
 void fillQuickViews();
 void showHover(const std::string &text);
 bool inLens(int lens, const adif::Spot &sp, const adif::SpotStatus &st, bool watched);
+std::vector<std::string> splitSetting(const char *key, char sep);
 void applyViewFilters();
 int historyViewOf(int layer);
 std::vector<std::string> watchList();
@@ -1404,6 +1411,15 @@ void fillStyle();
 adif::MapFilter savedPlaceFilter();
 void updateFilterButton();
 
+// Every other program: the common ones and any other SIG in the log.
+std::set<std::string> allPrograms() {
+    std::set<std::string> all;
+    for (size_t i = 0; i < kProgramCount; ++i) all.insert(kPrograms[i].key);
+    for (const adif::MapPark &p : mw.data.parks)
+        if (p.program != "POTA") all.insert(p.program);
+    return all;
+}
+
 // The Other programs list: the common programs, then any other SIG in the log, each with its count.
 void fillPrograms() {
     NSMenu *menu = mw.programs.menu;
@@ -1427,11 +1443,7 @@ void fillPrograms() {
         fillPrograms();
     });
     menuItem(menu, @"Hide All", false, ^{
-        std::set<std::string> all;
-        for (size_t i = 0; i < kProgramCount; ++i) all.insert(kPrograms[i].key);
-        for (const adif::MapPark &p : mw.data.parks)
-            if (p.program != "POTA") all.insert(p.program);
-        saveHidden(all);
+        saveHidden(allPrograms());
         applyStyle();
         fillPrograms();
     });
@@ -1450,6 +1462,28 @@ void fillPrograms() {
         });
         item.image = swatch([mw.view programColor:key], true);
     }
+    bool any = false;
+    for (const std::string &k : allPrograms()) any |= !hidden.count(k);
+    mw.otherBox.state = any ? NSControlStateValueOn : NSControlStateValueOff;
+}
+
+// Other programs' box: off hides them all; on brings back those shown before.
+void otherProgramsChanged() {
+    std::set<std::string> all = allPrograms();
+    if (mw.otherBox.state == NSControlStateValueOn) {
+        std::set<std::string> before;
+        for (const std::string &k : splitSetting("mapHiddenProgramsBefore", ',')) before.insert(k);
+        bool none = true;
+        for (const std::string &k : all) none &= before.count(k) > 0;
+        saveHidden(none ? std::set<std::string>() : before);
+    } else {
+        std::string v;
+        for (const std::string &k : hiddenPrograms()) v += (v.empty() ? "" : ",") + k;
+        setSetting("mapHiddenProgramsBefore", v);
+        saveHidden(all);
+    }
+    applyStyle();
+    fillPrograms();
 }
 
 // The view with this identifier inside v, or nil.
@@ -1474,8 +1508,11 @@ void fillStyle() {
     ADIFMapStyle s = savedStyle();
     mw.greyLineBox.state = s.greyLine ? NSControlStateValueOn : NSControlStateValueOff;  // the sidebar's, as Style Options left them
     mw.dayNightBox.state = s.dayNight ? NSControlStateValueOn : NSControlStateValueOff;
+    mw.paletteBar.selectedSegment = number("mapPalette", 0, 4);  // the sidebar's and Style Options' the same
+    mw.paletteBar.enabled = !ADIFNightMode();
     if (!mw.styleWindow) return;
     NSView *root = mw.styleWindow.contentView;
+    if (NSPopUpButton *p = (NSPopUpButton *)findView(root, @"map.style.palette")) [p selectItemAtIndex:number("mapPalette", 0, 4)];
     for (NSString *ident in @[ @"map.style.line", @"map.style.width", @"map.style.strength", @"map.style.arcs" ])
         if (NSControl *c = (NSControl *)findView(root, ident)) c.enabled = s.paths;
     if (NSControl *c = (NSControl *)findView(root, @"map.style.rings")) c.enabled = !mw.home.empty();
@@ -2535,10 +2572,16 @@ void showSpotsPopover() {
     [mw.spotsPopover showRelativeToRect:mw.spotsButton.bounds ofView:mw.spotsButton preferredEdge:NSRectEdgeMaxX];
 }
 
-// A Labels box works while its layer shows (outlined, or its worked areas).
+// A Labels box works while its layer shows (outlined, or its worked areas); off, it is faded, so
+// that it doesn't look like a box merely unticked.
 void labelsFollow() {
-    for (const LayerUi &l : kLayerUi)
-        mw.labels[l.id].enabled = mw.overlay[l.id].state == NSControlStateValueOn || (mw.show[l.id] && mw.show[l.id].state == NSControlStateValueOn);
+    for (const LayerUi &l : kLayerUi) {
+        NSButton *b = mw.labels[l.id];
+        b.enabled = mw.overlay[l.id].state == NSControlStateValueOn || (mw.show[l.id] && mw.show[l.id].state == NSControlStateValueOn);
+        if (l.id == kLayerSpots) continue;  // its title greys
+        b.alphaValue = b.enabled ? 1 : 0.3;
+        b.toolTip = b.enabled ? T(l.labelsTip) : [T(l.labelsTip) stringByAppendingFormat:@"\n%@", T(@"Labels work while the layer shows: tick Worked or All")];
+    }
 }
 
 // A layer's box changed (0 Show, 1 Overlay, 2 Labels). Ticking Show turns that layer's Overlay
@@ -3644,6 +3687,19 @@ void setSectionOpen(NSString *name, bool open) {
     setSetting("mapSectionsClosed", v);
 }
 
+// A group of the Layers section open or closed (its triangle): its rows hide; remembered.
+void setLayerGroupOpen(NSString *name, bool open) {
+    for (id part in mw.layerGroups[name]) [part setHidden:!open];  // grid rows and views alike
+    mw.layerGroupTriangles[name].state = open ? NSControlStateValueOn : NSControlStateValueOff;
+    std::set<std::string> closed;
+    for (const std::string &n : splitSetting("mapLayerGroupsClosed", ',')) closed.insert(n);
+    if (open) closed.erase(ADIFStd(name));
+    else closed.insert(ADIFStd(name));
+    std::string v;
+    for (const std::string &n : closed) v += (v.empty() ? "" : ",") + n;
+    setSetting("mapLayerGroupsClosed", v);
+}
+
 void switchWorkflow(int to);
 
 // A section's control asked for (its popover; or a test): the sidebar shown and the section open;
@@ -4162,26 +4218,68 @@ void cmdMap() {
             t.textColor = NSColor.secondaryLabelColor;
             return t;
         };
+        // A group's title with its triangle: closed, its rows hide (remembered).
+        mw.layerGroups = [NSMutableDictionary dictionary];
+        mw.layerGroupTriangles = [NSMutableDictionary dictionary];
+        auto groupHead = [&](NSString *name, NSString *title) -> NSView * {
+            NSButton *triangle = [NSButton buttonWithTitle:@"" target:nil action:nil];
+            triangle.bezelStyle = NSBezelStyleDisclosure;
+            [triangle setButtonType:NSButtonTypePushOnPushOff];
+            triangle.controlSize = NSControlSizeSmall;
+            triangle.identifier = [@"map.layergroup." stringByAppendingString:name];
+            triangle.accessibilityLabel = T(title);
+            triangle.state = NSControlStateValueOn;
+            __weak NSButton *weak = triangle;
+            ADIFOnAction(triangle, ^{ setLayerGroupOpen(name, weak.state == NSControlStateValueOn); });
+            mw.layerGroupTriangles[name] = triangle;
+            NSStackView *h = [NSStackView stackViewWithViews:@[ triangle, heading(title, NSFontWeightSemibold) ]];
+            h.spacing = 1;
+            return h;
+        };
+        // Other programs (WWFF, SOTA, IOTA's references in the log...): a box for them all, the name a
+        // menu of which.
+        mw.programs = pullDown(@"Other programs", @"Other programs' references, a colour each: WWFF parks, SOTA summits, IOTA islands, GMA, "
+                                                  @"bunkers, castles... (IOTA starts hidden: callbooks fill it in for every island station)");
+        mw.programs.bordered = NO;
+        ((NSPopUpButtonCell *)mw.programs.cell).arrowPosition = NSPopUpArrowAtBottom;
+        mw.programs.identifier = @"map.programs";
+        mw.otherBox = ADIFCheckbox(@"", true);
+        mw.otherBox.identifier = @"map.show.others";
+        mw.otherBox.toolTip = T(@"The references of other programs you worked (WWFF, SOTA, IOTA...), a colour each; the name chooses which");
+        mw.otherBox.accessibilityLabel = T(@"Show other programs");
+        ADIFOnAction(mw.otherBox, ^{ otherProgramsChanged(); });
         NSMutableArray *layerRows = [NSMutableArray arrayWithObject:@[
-            heading(N(@"Worked areas"), NSFontWeightSemibold), heading(N(@"Worked"), NSFontWeightMedium), heading(N(@"All"), NSFontWeightMedium),
+            groupHead(@"areas", N(@"Worked areas")), heading(N(@"Worked"), NSFontWeightMedium), heading(N(@"All"), NSFontWeightMedium),
             heading(N(@"Labels"), NSFontWeightMedium)
         ]];
         std::vector<NSInteger> sections;
+        std::map<std::string, std::vector<NSInteger>> groupRows;  // a group's rows in the grid
+        std::string group = "areas";
         for (const LayerUi &l : kLayerUi) {
             mw.show[l.id] = l.showKey ? box(saved[l.id].show, @"show", l, l.showTip, l.id == kLayerSpots ? N(@"Show %@") : N(@"Show worked %@")) : nil;
             mw.overlay[l.id] = box(saved[l.id].overlay, @"overlay", l, l.overlayTip, N(@"Overlay %@"));
             mw.labels[l.id] = box(saved[l.id].labels, @"labels", l, l.labelsTip, N(@"Labels for %@"));
             if (l.id == kLayerSpots) continue;
             if (l.id == kLayerPota || l.id == kLayerCities) {
+                if (l.id == kLayerCities)  // the programs' last row: the others
+                    groupRows[group].push_back((NSInteger)layerRows.count),
+                        [layerRows addObject:@[ mw.programs, mw.otherBox, [NSGridCell emptyContentView], [NSGridCell emptyContentView] ]];
+                group = l.id == kLayerPota ? "programs" : "places";
                 sections.push_back((NSInteger)layerRows.count);
                 [layerRows addObject:@[
-                    heading(l.id == kLayerPota ? N(@"Programs") : N(@"Places"), NSFontWeightSemibold), [NSGridCell emptyContentView],
+                    groupHead(ADIFString(group), l.id == kLayerPota ? N(@"Programs") : N(@"Places")), [NSGridCell emptyContentView],
                     [NSGridCell emptyContentView], [NSGridCell emptyContentView]
                 ]];
             }
+            groupRows[group].push_back((NSInteger)layerRows.count);
             [layerRows addObject:@[ ADIFLabel(l.title), mw.show[l.id] ?: [NSGridCell emptyContentView], mw.overlay[l.id], mw.labels[l.id] ]];
         }
         NSGridView *layers = [NSGridView gridViewWithViews:layerRows];
+        for (const auto &[name, rowsOf] : groupRows) {
+            NSMutableArray *parts = [NSMutableArray array];
+            for (NSInteger r : rowsOf) [parts addObject:[layers rowAtIndex:r]];
+            mw.layerGroups[ADIFString(name)] = parts;
+        }
         layers.rowSpacing = 3;
         layers.columnSpacing = 12;
         for (NSInteger c = 1; c < layers.numberOfColumns; ++c) [layers columnAtIndex:c].xPlacement = NSGridCellPlacementCenter;
@@ -4211,8 +4309,6 @@ void cmdMap() {
         mw.lines = ADIFCheckbox(@"Contact paths", flag("mapPaths", false));
         mw.lines.identifier = @"map.lines";
         mw.lines.toolTip = T(@"A great-circle line from your station to each contact, in its marker's colour; Style Options chooses their look");
-        mw.programs = pullDown(@"Other programs", @"Other programs' references, a colour each: WWFF parks, SOTA summits, IOTA islands, GMA, "
-                                                  @"bunkers, castles... (IOTA starts hidden: callbooks fill it in for every island station)");
         mw.mine = ADIFCheckbox(@"Home station", flag("mapMine", true));
         mw.mine.identifier = @"map.mine";
         mw.mine.toolTip = T(@"A star at each MY_GRIDSQUARE in the log");
@@ -4813,12 +4909,56 @@ void cmdMap() {
         [onlyLine setCustomSpacing:4 afterView:mw.spotsOnly];
         NSStackView *spotLayer = line(@[ mw.show[kLayerSpots], mw.overlay[kLayerSpots], mw.labels[kLayerSpots] ]);
         spotLayer.spacing = 12;
-        // Map: its colours, projection and region.
-        NSStackView *mapRows = rows(@[ mw.colorBy, mw.projection, mw.region ], 6);
-        fullWidth(mapRows, @[ mw.colorBy, mw.projection, mw.region ]);
+        // Map: its palette (a swatch each: its sea, land, confirmed and worked), colours, projection and region.
+        NSMutableArray *swatches = [NSMutableArray array];
+        for (NSUInteger i = 0; i < kPaletteTitles.count; ++i) {
+            const MapPalette &pal = paletteAt((int)i);
+            bool night = pal.night;
+            unsigned ocean = pal.ocean, land = pal.land, confirmed = pal.confirmed, worked = pal.worked;
+            auto ink = [night](unsigned c) {  // the night palette as it shows: reds of each colour's brightness
+                if (!night) return rgb(c);
+                double l = (0.2126 * ((c >> 16) & 255) + 0.7152 * ((c >> 8) & 255) + 0.0722 * (c & 255)) / 255;
+                return [NSColor colorWithSRGBRed:l green:0 blue:0 alpha:1];
+            };
+            NSImage *img = [NSImage imageWithSize:NSMakeSize(30, 16)
+                                          flipped:NO
+                                   drawingHandler:^BOOL(NSRect r) {
+                                       NSBezierPath *frame = [NSBezierPath bezierPathWithRoundedRect:NSInsetRect(r, 0.5, 0.5) xRadius:3 yRadius:3];
+                                       [ink(ocean) setFill];
+                                       [frame fill];
+                                       [NSGraphicsContext saveGraphicsState];
+                                       [frame addClip];
+                                       [ink(land) setFill];
+                                       [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(-6, -8, 26, 20)] fill];
+                                       [ink(confirmed) setFill];
+                                       [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(7, 5, 6, 6)] fill];
+                                       [ink(worked) setFill];
+                                       [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(19, 6, 6, 6)] fill];
+                                       [NSGraphicsContext restoreGraphicsState];
+                                       [[NSColor colorWithWhite:0.5 alpha:0.6] setStroke];
+                                       [frame stroke];
+                                       return YES;
+                                   }];
+            img.accessibilityDescription = T(kPaletteTitles[i]);
+            [swatches addObject:img];
+        }
+        mw.paletteBar = [NSSegmentedControl segmentedControlWithImages:swatches trackingMode:NSSegmentSwitchTrackingSelectOne target:nil action:nil];
+        for (NSUInteger i = 0; i < kPaletteTitles.count; ++i) [mw.paletteBar setToolTip:T(kPaletteTitles[i]) forSegment:(NSInteger)i];
+        mw.paletteBar.segmentDistribution = NSSegmentDistributionFillEqually;
+        mw.paletteBar.identifier = @"map.palette";
+        mw.paletteBar.accessibilityLabel = T(@"Palette");
+        mw.paletteBar.selectedSegment = number("mapPalette", 0, 4);
+        mw.paletteBar.enabled = !ADIFNightMode();  // Night Mode sets it
+        ADIFOnAction(mw.paletteBar, ^{
+            setSetting("mapPalette", std::to_string(mw.paletteBar.selectedSegment));
+            applyStyle();
+            fillStyle();
+        });
+        NSStackView *mapRows = rows(@[ mw.paletteBar, mw.colorBy, mw.projection, mw.region ], 6);
+        fullWidth(mapRows, @[ mw.paletteBar, mw.colorBy, mw.projection, mw.region ]);
         // Filters (the QSOs' and spots' are in the toolbar): which parks you haven't worked show.
         NSStackView *filterRows = rows(@[ line(@[ parksIn, mw.parkPlacesButton ]) ], 6);
-        NSView *contactsHead = heading(N(@"Contacts"), NSFontWeightSemibold), *sunHead = heading(N(@"Sun"), NSFontWeightSemibold);
+        NSView *contactsHead = groupHead(@"contacts", N(@"Contacts")), *sunHead = groupHead(@"sun", N(@"Sun"));
         // The sun: the grey line and day and night (Style Options says how, and when).
         auto sunBox = [](NSString *title, const char *setting, NSString *tip) {
             NSButton *b = ADIFCheckbox(title, flag(setting, false));
@@ -4839,9 +4979,13 @@ void cmdMap() {
         mw.greyLineBox.identifier = @"map.greyline";
         mw.dayNightBox = sunBox(@"Day and night", "mapDayNight", N(@"Night shaded on the map (Style Options: now or at the QSO chosen)"));
         mw.dayNightBox.identifier = @"map.daynight";
-        NSStackView *layerSection = rows(@[ layers, contactsHead, mw.contacts, mw.lines, mw.mine, mw.programs, sunHead, mw.greyLineBox, mw.dayNightBox ], 5);
+        NSStackView *layerSection = rows(@[ layers, contactsHead, mw.contacts, mw.lines, mw.mine, sunHead, mw.greyLineBox, mw.dayNightBox ], 5);
         [layerSection setCustomSpacing:12 afterView:layers];
-        [layerSection setCustomSpacing:12 afterView:mw.programs];
+        [layerSection setCustomSpacing:12 afterView:mw.mine];
+        mw.layerGroups[@"contacts"] = @[ mw.contacts, mw.lines, mw.mine ];
+        mw.layerGroups[@"sun"] = @[ mw.greyLineBox, mw.dayNightBox ];
+        for (const std::string &n : splitSetting("mapLayerGroupsClosed", ','))
+            if (mw.layerGroups[ADIFString(n)]) setLayerGroupOpen(ADIFString(n), false);
         NSArray<NSView *> *sectionViews = @[
             section(@"views", N(@"Quick Views"), quickScroll), mw.spotsSection = section(@"spots", N(@"Spots"), rows(@[ spotLayer, spotsLine, onlyLine, mw.watchEdit ], 8)),
             section(@"layers", N(@"Layers"), layerSection), section(@"map", N(@"Map"), mapRows), section(@"filters", N(@"Filters"), filterRows)
