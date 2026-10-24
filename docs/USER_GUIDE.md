@@ -687,8 +687,10 @@ confirmed or not confirmed QSOs (confirmed: QSL_RCVD, LOTW_QSL_RCVD or EQSL_QSL_
 The confirmation menu also has **Confirmed on LoTW**, **Confirmed by eQSL**, **Confirmed by
 card** and **Not confirmed on LoTW**, each by its own field.
 
-**More Filters…** keeps the QSOs in some places, near you, and of some kinds. Within a line
-any of its values counts, and every line that has values must match:
+**More Filters…** keeps the QSOs in some places, near you, and of some kinds, in groups
+(**Where**, **How far**, **Programs**, **Which records**; band, mode, dates and confirmation
+are in the toolbar). Within a line any of its values counts, and every line that has values
+must match; **Clear These Filters** clears them all:
 
 - **Continents** (the QSO's CONT, else the country data's).
 - **DXCC**: countries by name, completed as you type.

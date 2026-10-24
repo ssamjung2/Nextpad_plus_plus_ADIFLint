@@ -2582,7 +2582,7 @@ void showMoreFilters() {
         mw.parksToo.identifier = @"map.filter.parks";
         mw.parksToo.toolTip = T(@"The POTA layer's Overlay shows only the parks in these places (their location, state, region, country and continent)");
         ADIFOnAction(mw.parksToo, ^{ placeFiltersChanged(); });
-        NSButton *clear = [NSButton buttonWithTitle:T(@"Clear Places") target:nil action:nil];
+        NSButton *clear = [NSButton buttonWithTitle:T(@"Clear These Filters") target:nil action:nil];
         ADIFOnAction(clear, ^{
             for (const char *key : {"mapFilterContinents", "mapFilterDxcc", "mapFilterCq", "mapFilterItu", "mapFilterStates", "mapFilterCounties",
                                     "mapFilterRegions", "mapFilterPota", "mapFilterWithinKm", "mapFilterRecords"})
@@ -2590,20 +2590,36 @@ void showMoreFilters() {
             fillPlaceControls();
             refresh();
         });
-        NSGridView *grid = [NSGridView gridViewWithViews:@[
-            @[ ADIFLabel(@"Continents:"), contRow ], @[ ADIFLabel(@"DXCC:"), mw.dxccTokens ], @[ ADIFLabel(@"CQ zones:"), zones ],
-            @[ ADIFLabel(@"US states:"), mw.stateTokens ], @[ ADIFLabel(@"US counties:"), mw.countyTokens ],
-            @[ ADIFLabel(@"US regions:"), mw.regions ], @[ ADIFLabel(@"POTA locations:"), mw.potaTokens ], @[ ADIFLabel(@"Within:"), within ],
-            @[ ADIFLabel(@"Records:"), mw.recordsPopup ], @[ [NSGridCell emptyContentView], mw.parksToo ], @[ [NSGridCell emptyContentView], clear ]
-        ]];
+        // In groups, each under its heading: where, how far, the programs, which records.
+        auto group = [](NSString *title) {
+            NSTextField *t = ADIFLabel(title);
+            t.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightSemibold];
+            t.textColor = NSColor.secondaryLabelColor;
+            return t;
+        };
+        NSArray *rowsOfGrid = @[
+            @[ group(N(@"Where")), [NSGridCell emptyContentView] ], @[ ADIFLabel(@"Continents:"), contRow ], @[ ADIFLabel(@"DXCC:"), mw.dxccTokens ],
+            @[ ADIFLabel(@"CQ zones:"), zones ], @[ ADIFLabel(@"US states:"), mw.stateTokens ], @[ ADIFLabel(@"US counties:"), mw.countyTokens ],
+            @[ ADIFLabel(@"US regions:"), mw.regions ], @[ group(N(@"How far")), [NSGridCell emptyContentView] ], @[ ADIFLabel(@"Within:"), within ],
+            @[ group(N(@"Programs")), [NSGridCell emptyContentView] ], @[ ADIFLabel(@"POTA locations:"), mw.potaTokens ],
+            @[ [NSGridCell emptyContentView], mw.parksToo ], @[ group(N(@"Which records")), [NSGridCell emptyContentView] ],
+            @[ ADIFLabel(@"Records:"), mw.recordsPopup ], @[ [NSGridCell emptyContentView], clear ]
+        ];
+        NSGridView *grid = [NSGridView gridViewWithViews:rowsOfGrid];
         grid.rowSpacing = 8;
         grid.columnSpacing = 10;
         [grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
         grid.rowAlignment = NSGridRowAlignmentFirstBaseline;
+        for (NSInteger r : {0, 7, 9, 12}) {  // the headings, across both columns, at the left
+            [grid mergeCellsInHorizontalRange:NSMakeRange(0, 2) verticalRange:NSMakeRange(r, 1)];
+            [grid cellAtColumnIndex:0 rowIndex:r].xPlacement = NSGridCellPlacementLeading;
+            [grid rowAtIndex:r].topPadding = r ? 6 : 0;
+        }
         grid.translatesAutoresizingMaskIntoConstraints = NO;
         NSTextField *help = [NSTextField wrappingLabelWithString:T(@"Keep only the QSOs in these places, this close to your station, and of "
                                                                  @"this kind: within a line any of its values, and every line that has "
-                                                                 @"values. Changes apply as you make them.")];
+                                                                 @"values. Changes apply as you make them. Band, mode, dates and "
+                                                                 @"confirmation are in the toolbar (in Live, the spots' age and source too).")];
         help.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
         help.textColor = NSColor.secondaryLabelColor;
         help.translatesAutoresizingMaskIntoConstraints = NO;

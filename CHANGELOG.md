@@ -90,6 +90,7 @@ Versions before 0.8.0 were development builds and were not published.
   right (Style Options: off, top right or bottom left), and a click on a spot's kind or band,
   the POTA activators, or another program hides or shows them. **Home**'s right-click menu
   sets the view as your Home view, or forgets it.
+- **Map → More Filters** in groups: Where, How far, Programs, Which records.
 - **Map → Filters.** The dates menu has **Custom Range…** (from one day to another, the
   range shown in the menu). The confirmation menu adds **Confirmed on LoTW**, **by eQSL**,
   **by card** and **Not confirmed on LoTW**. More Filters adds **Within** so many km or mi of
