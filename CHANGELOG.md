@@ -9,6 +9,14 @@ Versions before 0.8.0 were development builds and were not published.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Map Detail:** for a region larger than a town (a state or a country), the Map drew only
+  that region's zoom-10 tiles however far you zoomed in, so streets, their names and
+  buildings never showed, only main roads. It now draws the tiles for the view. (Since 1.3.0;
+  the box of the view it measured had margins of whole degrees, which at street level took in
+  hundreds of tiles.)
+
 ## [1.4.0] - 2026-10-24
 
 ### Added

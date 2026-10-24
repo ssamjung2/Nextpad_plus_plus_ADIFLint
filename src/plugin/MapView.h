@@ -279,6 +279,7 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
     ADIFMapStyle _style;
     std::shared_ptr<OsmCache> _osm;
     BOOL _osmDrawn;  // OpenStreetMap detail is showing: credit it
+    int _osmZoom;    // the zoom of the tiles it drew last (for the tests)
     uint8_t _outlineCredit;  // park outlines drawn from: 1 OSM, 2 PAD-US, 4 pota-map.info
     std::vector<ADIFMapSpot> _spots;  // newest first
     std::vector<ADIFMapSpotter> _spotters;  // the stations that heard them, from _spots

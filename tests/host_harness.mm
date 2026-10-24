@@ -5348,9 +5348,12 @@ int main(int argc, char **argv) {
                 NSBitmapImageRep *img = mapImage();
                 NSColor *lake = colourAt(img, pointFor(-89.395, 43.077)), *building = colourAt(img, pointFor(-89.37875, 43.07175)),
                         *land = colourAt(img, pointFor(-89.3735, 43.0775));
+                int tileZoom = [[mapView valueForKey:@"osmZoom"] intValue];
                 CHECK(z11 && osmShown() && mapZoom() > 1024 && colourGap(lake, sea) < 0.03 && colourGap(building, land) > 0.04,
                       "Map Detail drawn (zoom %.0f): the lake in the sea's colour (%.3f apart), a building apart from the land (%.3f)", mapZoom(),
                       colourGap(lake, sea), colourGap(building, land));
+                // The tiles for the view, not for a box whole degrees wider (which took in hundreds of tiles and fell back to zoom 10).
+                CHECK(tileZoom >= (int)std::floor(std::log2(mapZoom())) - 1, "Map Detail at %.0fx draws zoom %d tiles", mapZoom(), tileZoom);
                 snapshot(mapw, "map-detail");
                 [findButton(mapw.contentView, @"World") performClick:nil];
                 CHECK(!osmShown(), "the whole world: the base map only");
@@ -6313,18 +6316,18 @@ int main(int argc, char **argv) {
                 // Map Detail on real OpenStreetMap data, when given a downloaded region (it isn't
                 // in the repository): downtown Madison, with the contacts there.
                 if (const char *real = getenv("ADIFLINT_DOCS_MAPDETAIL")) {
-                    NSString *maps = [tmp stringByAppendingPathComponent:@"maps"], *copy = [maps stringByAppendingPathComponent:@"Madison z15 20261018.pmtiles"];
+                    NSString *maps = [tmp stringByAppendingPathComponent:@"maps"], *copy = [maps stringByAppendingPathComponent:@"Illinois z15 20261020.pmtiles"];
                     [[NSFileManager defaultManager] createDirectoryAtPath:maps withIntermediateDirectories:YES attributes:nil error:nil];
                     [[NSFileManager defaultManager] copyItemAtPath:@(real) toPath:copy error:nil];
                     pump(0.2);
                     box(@"US counties", false), box(@"Cities", false), box(@"Contacts", true);
-                    showBox(-89.42, 43.06, -89.35, 43.09);
+                    showBox(-89.68, 39.78, -89.62, 39.82);  // downtown Springfield, Illinois
                     zoomMap(8);
                     pump(0.2);
                     snapshot(mapw, "docs-map-detail-town");
                     zoomMap(4);
                     snapshot(mapw, "docs-map-detail");
-                    showBox(-89.392, 43.070, -89.376, 43.080);  // the Capitol, at street level
+                    showBox(-89.6600, 39.7950, -89.6480, 39.8020);  // the State Capitol, at street level
                     zoomMap(16), zoomMap(16);
                     snapshot(mapw, "docs-map-detail-streets");
                     stylePick(@"palette", @"Light (for printing)");

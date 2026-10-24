@@ -224,7 +224,24 @@ NSColor *mix(unsigned base, unsigned with, double f) { return [rgb(base) blended
         cache.tiles.clear();
         cache.projection = (int)_pr.kind(), cache.centerLat = _pr.centerLat(), cache.centerLon = _pr.centerLon();
     }
+    // The view's own box, a tenth wider each way: the layers' box (d) has margins of whole
+    // degrees, which at street level would take in hundreds of tiles and send the zoom down.
     double west = d.west, south = d.south, east = d.east, north = d.north;
+    if (!d.globe) {
+        double w = 180, e = -180, s = 90, n = -90;
+        int hits = 0;
+        for (int i = 0; i <= 4; ++i)
+            for (int j = 0; j <= 4; ++j) {
+                double lon, lat;
+                if (![self lonLatAt:NSMakePoint(NSMinX(b) + b.size.width * i / 4, NSMinY(b) + b.size.height * j / 4) lon:&lon lat:&lat]) continue;
+                ++hits;
+                w = std::min(w, lon), e = std::max(e, lon), s = std::min(s, lat), n = std::max(n, lat);
+            }
+        if (hits == 25 && e - w < 180) {
+            double mx = (e - w) / 10, my = (n - s) / 10;
+            west = std::max(west, w - mx), east = std::min(east, e + mx), south = std::max(south, s - my), north = std::min(north, n + my);
+        }
+    }
     std::vector<Tile *> shown;
     for (const mapdetail::Region &r : regions) {
         double w = std::max(west, r.bounds[0]), e = std::min(east, r.bounds[2]), s = std::max(south, r.bounds[1]), n = std::min(north, r.bounds[3]);
@@ -237,6 +254,7 @@ NSColor *mix(unsigned base, unsigned with, double f) { return [rgb(base) blended
             y0 = (long)std::floor(pm::tileY(n, z)), y1 = (long)std::floor(pm::tileY(s, z));
             if ((x1 - x0 + 1) * (y1 - y0 + 1) <= 160 || z <= h.minZoom) break;
         }
+        _osmZoom = z;
         long last = (1L << z) - 1;
         x0 = std::clamp(x0, 0L, last), x1 = std::clamp(x1, 0L, last), y0 = std::clamp(y0, 0L, last), y1 = std::clamp(y1, 0L, last);
         for (long ty = y0; ty <= y1; ++ty)
