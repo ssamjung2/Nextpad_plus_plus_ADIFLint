@@ -139,6 +139,7 @@ using namespace mapkit;
             static const CGFloat kShade[] = {0.22, 0.38, 0.55};
             [[c colorWithAlphaComponent:lit ? 0.62 : kShade[std::clamp(_style.areaShade, 0, 2)]] setFill];
             [region fill];
+            if (_style.hatch && !_areaAgg[l][name].confirmed) [self hatch:region];
             region.lineWidth = lit ? 2 : 0.8;
             region.lineJoinStyle = NSLineJoinStyleRound;
             [[c colorWithAlphaComponent:0.9] setStroke];
@@ -343,6 +344,7 @@ using namespace mapkit;
             static const CGFloat kShade[] = {0.25, 0.42, 0.6};
             [[c colorWithAlphaComponent:lit ? 0.62 : kShade[std::clamp(_style.areaShade, 0, 2)]] setFill];
             [region fill];
+            if (_style.hatch && !_entityAgg[i].confirmed) [self hatch:region];
             region.lineWidth = lit ? 2 : 1;
             region.lineJoinStyle = NSLineJoinStyleRound;
             [[c colorWithAlphaComponent:0.95] setStroke];
@@ -384,7 +386,7 @@ using namespace mapkit;
         [[os.color colorWithAlphaComponent:os.color.alphaComponent * d.ref] setStroke];
         [lines stroke];
         if (!os.names) continue;
-        NSDictionary *attrs = @{NSFontAttributeName : [NSFont systemFontOfSize:os.labelSize weight:NSFontWeightSemibold],
+        NSDictionary *attrs = @{NSFontAttributeName : [NSFont systemFontOfSize:os.labelSize * _style.textScale weight:NSFontWeightSemibold],
                                 NSForegroundColorAttributeName : [os.color colorWithAlphaComponent:0.95 * std::max(d.ref, (CGFloat)0.55)]};
         for (size_t i = 0; i < oc.areas.size(); ++i) {
             const adif::OverlayArea &a = oc.areas[i];
@@ -460,7 +462,7 @@ using namespace mapkit;
             NSShadow *halo = [[NSShadow alloc] init];
             halo.shadowColor = [NSColor colorWithCalibratedWhite:pal.dark ? 0 : 1 alpha:0.9];
             halo.shadowBlurRadius = 2;
-            NSDictionary *attrs = @{NSFontAttributeName : [NSFont systemFontOfSize:10 weight:NSFontWeightSemibold],
+            NSDictionary *attrs = @{NSFontAttributeName : [NSFont systemFontOfSize:10 * _style.textScale weight:NSFontWeightSemibold],
                                     NSForegroundColorAttributeName : [tint colorWithAlphaComponent:0.95], NSShadowAttributeName : halo};
             std::vector<NSRect> taken;
             for (size_t k = 0; k < shown.size(); ++k) {
@@ -494,7 +496,7 @@ using namespace mapkit;
         NSShadow *halo = [[NSShadow alloc] init];
         halo.shadowColor = [NSColor colorWithCalibratedWhite:pal.dark ? 0 : 1 alpha:0.9];
         halo.shadowBlurRadius = 2.5;
-        NSDictionary *attrs = @{NSFontAttributeName : [NSFont systemFontOfSize:10.5 weight:NSFontWeightMedium],
+        NSDictionary *attrs = @{NSFontAttributeName : [NSFont systemFontOfSize:10.5 * _style.textScale weight:NSFontWeightMedium],
                                 NSForegroundColorAttributeName : [NSColor colorWithCalibratedWhite:ink alpha:0.92], NSShadowAttributeName : halo};
         size_t shown = 0;
         for (const adif::DetailCity &c : mapDetail().cities()) {
@@ -622,6 +624,7 @@ using namespace mapkit;
             } else {
                 [[c colorWithAlphaComponent:alpha] setFill];
                 [cell fill];
+                if (_style.hatch && !_squareAgg[i].confirmed) [self hatch:cell];
                 if (pal.dark && darkColour(c)) {  // a dark square (60m's navy) needs an edge on a dark map
                     cell.lineWidth = 1;
                     [[NSColor colorWithCalibratedWhite:1 alpha:0.5] setStroke];
@@ -1231,8 +1234,8 @@ bool mapkit::potaSpot(const adif::Spot &s) { return s.program == "POTA"; }
     const adif::PotaParks &list = ADIFPotaParks();
     const MapPalette &pal = paletteAt(_style.palette);
     NSColor *ink = pal.night ? [NSColor colorWithCalibratedWhite:1 alpha:0.9] : [NSColor colorWithCalibratedWhite:0.08 alpha:0.92];
-    NSDictionary *refAttrs = @{NSFontAttributeName : [NSFont systemFontOfSize:10 weight:NSFontWeightSemibold], NSForegroundColorAttributeName : ink};
-    NSDictionary *nameAttrs = @{NSFontAttributeName : [NSFont systemFontOfSize:9], NSForegroundColorAttributeName : ink};
+    NSDictionary *refAttrs = @{NSFontAttributeName : [NSFont systemFontOfSize:10 * _style.textScale weight:NSFontWeightSemibold], NSForegroundColorAttributeName : ink};
+    NSDictionary *nameAttrs = @{NSFontAttributeName : [NSFont systemFontOfSize:9 * _style.textScale], NSForegroundColorAttributeName : ink};
     size_t others = (size_t)std::count_if(_potaSpots.begin(), _potaSpots.end(), [](const ADIFParkSpot &sp) { return !sp.pin; });
     bool otherLabels = others <= 250, names = _potaSpots.size() <= 60;
     std::vector<NSRect> taken, badges;  // the labels placed, and every badge (a label covers none)
@@ -1345,6 +1348,23 @@ bool mapkit::potaSpot(const adif::Spot &s) { return s.program == "POTA"; }
 // Overlay: a line from each spotter to the station it heard, in the spot's colour, fainter, or
 // faint grey (Style Options). The lines of the spot or spotter under the pointer or chosen show
 // in the spot's colour while Show is on, Overlay or not, on top.
+// Diagonal lines across a worked area not yet confirmed: its confirmation told by more than colour.
+- (void)hatch:(NSBezierPath *)path {
+    NSRect r = path.bounds;
+    if (r.size.width < 4 || r.size.height < 3) return;  // too small for a line through it
+    [NSGraphicsContext saveGraphicsState];
+    [path addClip];
+    NSBezierPath *lines = [NSBezierPath bezierPath];
+    for (CGFloat x = NSMinX(r) - NSHeight(r); x < NSMaxX(r); x += 6) {
+        [lines moveToPoint:NSMakePoint(x, NSMinY(r))];
+        [lines lineToPoint:NSMakePoint(x + NSHeight(r), NSMaxY(r))];
+    }
+    lines.lineWidth = 1;
+    [[NSColor colorWithCalibratedWhite:paletteAt(_style.palette).dark ? 1 : 0 alpha:0.35] setStroke];
+    [lines stroke];
+    [NSGraphicsContext restoreGraphicsState];
+}
+
 // The great-circle path from your station to the spot or contact chosen, dashed in the accent
 // colour, with its distance and bearing at its middle: where to point the antenna.
 - (void)drawChosenPath:(MapDrawCtx &)d {
@@ -1371,7 +1391,7 @@ bool mapkit::potaSpot(const adif::Spot &s) { return s.program == "POTA"; }
     char bearing[16];
     snprintf(bearing, sizeof bearing, "%.0f\u00B0", adif::initialBearing(_homeLat, _homeLon, lat, lon));
     NSString *text = ADIFString(adif::distanceText(km, self.scaleInMiles) + "  \u00B7  " + bearing);
-    NSDictionary *a = @{NSFontAttributeName : [NSFont monospacedDigitSystemFontOfSize:10 weight:NSFontWeightSemibold],
+    NSDictionary *a = @{NSFontAttributeName : [NSFont monospacedDigitSystemFontOfSize:10 * _style.textScale weight:NSFontWeightSemibold],
                         NSForegroundColorAttributeName : NSColor.whiteColor};
     NSSize sz = [text sizeWithAttributes:a];
     NSRect card = NSMakeRect(m.x - sz.width / 2 - 5, m.y - sz.height / 2 - 2, sz.width + 10, sz.height + 4);
@@ -1460,11 +1480,11 @@ bool mapkit::potaSpot(const adif::Spot &s) { return s.program == "POTA"; }
     halo.shadowColor = [NSColor colorWithCalibratedWhite:pal.dark ? 0 : 1 alpha:0.9];
     halo.shadowBlurRadius = 2;
     NSColor *textColor = [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.9];
-    NSDictionary *attrs = @{NSFontAttributeName : [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightSemibold],
+    NSDictionary *attrs = @{NSFontAttributeName : [NSFont monospacedSystemFontOfSize:10 * _style.textScale weight:NSFontWeightSemibold],
                             NSForegroundColorAttributeName : textColor, NSShadowAttributeName : halo};
-    NSDictionary *small = @{NSFontAttributeName : [NSFont systemFontOfSize:9], NSForegroundColorAttributeName : textColor,
+    NSDictionary *small = @{NSFontAttributeName : [NSFont systemFontOfSize:9 * _style.textScale], NSForegroundColorAttributeName : textColor,
                             NSShadowAttributeName : halo};
-    NSDictionary *spotterAttrs = @{NSFontAttributeName : [NSFont monospacedSystemFontOfSize:9 weight:NSFontWeightRegular],
+    NSDictionary *spotterAttrs = @{NSFontAttributeName : [NSFont monospacedSystemFontOfSize:9 * _style.textScale weight:NSFontWeightRegular],
                                    NSForegroundColorAttributeName : [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.7],
                                    NSShadowAttributeName : halo};
     std::vector<NSRect> taken = d.taken;
@@ -1486,8 +1506,21 @@ bool mapkit::potaSpot(const adif::Spot &s) { return s.program == "POTA"; }
         [c setFill];
         [dot fill];
         circle.lineWidth = lit ? 2.2 : 1.4;
+        // What a spot means shows in its ring's shape too, not only its colour: a new DXCC two
+        // rings, a new band or mode a dashed one.
+        bool newBandOrMode = !s.spot.heardMe && (s.status.need == adif::SpotNeed::NewBand || s.status.need == adif::SpotNeed::NewMode);
+        if (newBandOrMode) {
+            const CGFloat dash[] = {2.6, 1.8};
+            [circle setLineDash:dash count:2 phase:0];
+        }
         [c setStroke];
         [circle stroke];
+        if (!s.spot.heardMe && s.status.need == adif::SpotNeed::NewDxcc) {
+            double outer = ring + 2.6 * _style.marker;
+            NSBezierPath *second = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(p.x - outer, p.y - outer, 2 * outer, 2 * outer)];
+            second.lineWidth = 1.1;
+            [second stroke];
+        }
         [[NSColor colorWithCalibratedWhite:lit ? ink : (pal.dark && darkColour(c) ? 1 : 0) alpha:lit ? 1 : 0.7 * alpha] setStroke];
         dot.lineWidth = lit ? 1.4 : 0.8;
         [dot stroke];

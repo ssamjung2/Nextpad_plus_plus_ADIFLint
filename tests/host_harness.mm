@@ -4779,7 +4779,7 @@ int main(int argc, char **argv) {
                       "Worked areas and Sun closed on their own, then open again (%s)", setting(@"mapLayerGroupsClosed").UTF8String);
                 NSButton *stateLabels = mapBox(@"labels", @"counties"), *stateShow = mapBox(@"show", @"counties"), *stateAll = mapBox(@"overlay", @"counties");
                 CHECK(stateShow.state == NSControlStateValueOff && stateAll.state == NSControlStateValueOff && !stateLabels.enabled &&
-                          stateLabels.alphaValue < 0.5 && mapBox(@"labels", @"grid").alphaValue == 1,
+                          stateLabels.alphaValue < 0.6 && mapBox(@"labels", @"grid").alphaValue == 1,
                       "a Labels box for a hidden layer is faded (%.2f), a working one isn't", stateLabels.alphaValue);
                 NSSegmentedControl *palettes = (NSSegmentedControl *)viewWithIdentifier(mapw.contentView, @"map.palette");
                 NSInteger was = palettes.selectedSegment;
@@ -5024,7 +5024,46 @@ int main(int argc, char **argv) {
                 NSData *strong = [mapImage() TIFFRepresentation];
                 CHECK(faint.length && ![faint isEqualToData:strong], "faint and strong reference layers differ");
                 stylePick(@"reference", @"Subtle");
+                {  // Larger map text (the legend taller), and the worked areas not confirmed hatched (the map differs).
+                    CGFloat legendTall = ((NSValue *)[mapView valueForKey:@"legendFrame"]).rectValue.size.height;
+                    bool large = stylePick(@"textSize", @"Large");
+                    [mapView display];
+                    CGFloat legendLarge = ((NSValue *)[mapView valueForKey:@"legendFrame"]).rectValue.size.height;
+                    stylePick(@"textSize", @"Standard");
+                    {  // IO91, worked but not confirmed, big enough to hatch
+                        double box[4] = {-3.5, 50.5, 1.5, 52.5};
+                        SEL sel = NSSelectorFromString(@"showWest:south:east:north:");
+                        NSInvocation *inv = [NSInvocation invocationWithMethodSignature:[mapView methodSignatureForSelector:sel]];
+                        inv.target = mapView;
+                        inv.selector = sel;
+                        for (int i = 0; i < 4; ++i) [inv setArgument:&box[i] atIndex:2 + i];
+                        [inv invoke];
+                    }
+                    NSData *plain = [mapImage() TIFFRepresentation];
+                    bool hatched = styleSet(@"hatch", true);
+                    NSData *withHatch = [mapImage() TIFFRepresentation];
+                    styleSet(@"hatch", false);
+                    [findButton(mapw.contentView, @"World") performClick:nil];
+                    CHECK(large && legendLarge > legendTall + 5 && hatched && ![plain isEqualToData:withHatch],
+                          "Style Options: Large map text (the legend %.0f, was %.0f); hatching what isn't confirmed (%d %d; squares %d)", legendLarge, legendTall,
+                          hatched, ![plain isEqualToData:withHatch], mapBox(@"show", @"grid").state == NSControlStateValueOn);
+                }
                 [stylePanel() orderOut:nil];
+                {  // A layer's own menu (right-click its name): Only This Layer shows it alone.
+                    NSMenu *layerMenu = viewWithIdentifier(mapw.contentView, @"map.layername.states").menu;
+                    [layerMenu.delegate menuNeedsUpdate:layerMenu];
+                    NSMutableArray *titles = [NSMutableArray array];
+                    for (NSMenuItem *i in layerMenu.itemArray)
+                        if (!i.isSeparatorItem) [titles addObject:i.title];
+                    NSInteger onlyAt = [layerMenu indexOfItemWithTitle:@"Only This Layer"];
+                    if (onlyAt >= 0) [layerMenu performActionForItemAtIndex:onlyAt];
+                    bool alone = mapBox(@"show", @"states").state == NSControlStateValueOn && mapBox(@"show", @"grid").state == NSControlStateValueOff &&
+                                 mapBox(@"overlay", @"grid").state == NSControlStateValueOff;
+                    CHECK([[titles componentsJoinedByString:@","] isEqualToString:@"Worked,All,Labels,Only This Layer,Worked Areas' Shading"] && alone,
+                          "a layer's menu: %s; Only This Layer (%d)", [titles componentsJoinedByString:@","].UTF8String, alone);
+                    setBox(mapBox(@"show", @"states"), false), setBox(mapBox(@"overlay", @"states"), false);
+                    setBox(mapBox(@"overlay", @"grid"), true);
+                }
                 CHECK(NSHeight(stylePanel().frame) <= 900, "Style Options in two columns fits a 900-high screen (%.0f)", NSHeight(stylePanel().frame));
                 snapshot(stylePanel(), "map-style");
                 [stylePanel() orderOut:nil];
@@ -5877,6 +5916,46 @@ int main(int argc, char **argv) {
                               "the legend at the top right; its new-band entry hides 1A0KM, and shows it again (%d %d %d; %s in %s; %ld rows, was %ld)", before, hid,
                               listed(), NSStringFromRect(inView).UTF8String, NSStringFromRect(mapView.bounds).UTF8String,
                               (long)[rowsTable.dataSource numberOfRowsInTableView:rowsTable], (long)rowsBefore);
+                        NSArray *actions = mapView.accessibilityCustomActions;
+                        bool hideNewDxcc = false, showIota = false;
+                        for (NSAccessibilityCustomAction *a in actions) {
+                            hideNewDxcc |= [a.name isEqualToString:@"Hide in the legend: new DXCC"];
+                            showIota |= [a.name isEqualToString:@"Show in the legend: IOTA"];
+                        }
+                        CHECK(actions.count >= 4 && hideNewDxcc && showIota, "the legend's entries are VoiceOver actions too (%lu)", (unsigned long)actions.count);
+                    }
+                    {  // The keyboard: ⌘] the next row (chosen on the map), ] with the map focused the same; ⌘D watch it and again stop;
+                       // ⌘F the search.
+                        [views selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
+                        pump(0.2);
+                        [rowsTable deselectAll:nil];
+                        auto key = [&](NSString *k, NSEventModifierFlags mods) {
+                            return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:mods timestamp:0
+                                                windowNumber:mapw.windowNumber context:nil characters:k charactersIgnoringModifiers:k isARepeat:NO keyCode:0];
+                        };
+                        bool took = [mapw performKeyEquivalent:key(@"]", NSEventModifierFlagCommand)];
+                        pump(0.2);
+                        NSInteger first = rowsTable.selectedRow;
+                        NSString *firstCall = first >= 0 ? cell(rowsTable, first, @"call") : @"";
+                        NSString *chosenTitle = ((NSTextField *)viewWithIdentifier(mapw.contentView, @"map.contact.title")).stringValue;
+                        [mapw makeFirstResponder:mapView];
+                        [mapView keyDown:key(@"]", 0)];
+                        pump(0.2);
+                        NSInteger second = rowsTable.selectedRow;
+                        NSButton *watchNow = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.watch");
+                        [mapw performKeyEquivalent:key(@"d", NSEventModifierFlagCommand)];
+                        pump(0.2);
+                        NSString *watching = watchNow.title;
+                        [mapw performKeyEquivalent:key(@"d", NSEventModifierFlagCommand)];
+                        pump(0.2);
+                        [mapw performKeyEquivalent:key(@"f", NSEventModifierFlagCommand)];
+                        NSResponder *focus = mapw.firstResponder;
+                        bool findFocused = [focus isKindOfClass:NSTextView.class] && [((NSTextView *)focus).delegate isKindOfClass:NSSearchField.class];
+                        CHECK(took && first == 0 && [chosenTitle hasPrefix:firstCall] && second == 1 && [watching isEqualToString:@"Watching"] &&
+                                  [watchNow.title isEqualToString:@"Watch"] && findFocused,
+                              "the keyboard: ⌘] chose %s (%s), ] the next (%ld); ⌘D %s and back; ⌘F the search (%d)", firstCall.UTF8String, chosenTitle.UTF8String,
+                              (long)second, watching.UTF8String, findFocused);
+                        [mapw makeFirstResponder:mapView];
                     }
                     // All spots again: Sort by nearest puts K9TST (90 km) first; Recent spots: the newest, a link to each.
                     [views selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];

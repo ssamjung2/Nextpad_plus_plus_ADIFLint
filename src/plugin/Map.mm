@@ -230,6 +230,18 @@ static NSAttributedString *treeMark(NSColor *color) {
 }
 @end
 
+// The Map's window: its shortcuts before the app's menus see them.
+@interface ADIFMapWindow : NSPanel
+@property(nonatomic, copy) BOOL (^shortcut)(NSEvent *event);
+@end
+
+@implementation ADIFMapWindow
+- (BOOL)performKeyEquivalent:(NSEvent *)event {
+    if (self.shortcut && self.shortcut(event)) return YES;
+    return [super performKeyEquivalent:event];
+}
+@end
+
 // A panel floating on the map (its bar, the cards under it, the zoom buttons): translucent and
 // rounded, with a hairline edge, light or dark as the map is so that its controls read against
 // it. Clicks, scrolls and pinches on it stay on it, off the map.
@@ -468,6 +480,7 @@ struct {
     NSMutableDictionary<NSString *, NSArray *> *layerGroups = nil;
     NSMutableDictionary<NSString *, NSButton *> *layerGroupTriangles = nil;
     NSButton *otherBox = nil;              // Other programs' row: any of them shown
+    NSMutableArray<NSMenu *> *layerMenus = nil;  // each layer name's own (right-click)
     NSSegmentedControl *paletteBar = nil;  // the Map section's palettes, one click each
     NSTableView *quickTable = nil;
     ADIFQuickViews *quickRows = nil;
@@ -599,6 +612,11 @@ void fillHomeMenu(NSMenu *menu);
 void fillViewsMenu(NSMenu *menu);
 void fillSynced();
 void fillDxccPotaBars();
+void fillLayerMenu(NSMenu *menu);
+bool mapShortcut(NSEvent *e);
+bool stepList(int by);
+void useSelectedSpot();
+void layerChanged(MapLayerId id, int which);
 int lensOfView(int view);
 void showList(const std::vector<size_t> &qsos, ADIFMapHit::Kind kind);
 void showListKind(int kind);
@@ -608,6 +626,10 @@ void revealBands();
 void showPane(int pane, bool on);
 void fillFindMenu(NSMenu *menu);
 void goHomeView();
+
+// Faint text, as faint as the system's Increase contrast (Accessibility) allows: secondary then.
+bool moreContrast() { return NSWorkspace.sharedWorkspace.accessibilityDisplayShouldIncreaseContrast; }
+NSColor *faintInk() { return moreContrast() ? NSColor.secondaryLabelColor : NSColor.tertiaryLabelColor; }
 
 bool flag(const char *key, bool fallback) {
     std::string v = setting(key);
@@ -712,6 +734,8 @@ ADIFMapStyle savedStyle() {
         st.labels = flag(l.labelsKey, true);
     }
     s.legend = number("mapLegend", 1, 2);
+    s.textScale = number("mapTextSize", 0, 1) == 1 ? 1.25 : 1;
+    s.hatch = flag("mapHatch", false);
     for (const std::string &id : splitSetting("mapLegendHidden", ',')) s.legendHidden.insert(id);
     s.rings = flag("mapRings", false);
     s.paths = flag("mapPaths", false);
@@ -786,7 +810,7 @@ void showSlots(int dxcc, const std::string &entity, const std::string &call) {
                                                                     attributes:@{NSFontAttributeName : f, NSForegroundColorAttributeName : colour}]];
     };
     auto colourOf = [&](adif::SlotState st) {
-        return st == adif::SlotState::Confirmed ? rgb(pal.confirmed) : st == adif::SlotState::Worked ? rgb(pal.worked) : NSColor.tertiaryLabelColor;
+        return st == adif::SlotState::Confirmed ? rgb(pal.confirmed) : st == adif::SlotState::Worked ? rgb(pal.worked) : faintInk();
     };
     add(entity + ":  ", NSColor.secondaryLabelColor, [NSFont systemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightSemibold]);
     for (const auto &[band, st] : adif::bandSlots(w, dxcc)) {
@@ -1093,7 +1117,7 @@ void showChosenFacts(const ADIFMapHit &h) {
         // A fact the source doesn't give says so, rather than being left out.
         NSTextField *v = [NSTextField labelWithString:f.value.empty() ? T(@"Unavailable") : ADIFString(f.value)];
         v.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize + 1 weight:f.value.empty() ? NSFontWeightRegular : NSFontWeightMedium];
-        v.textColor = f.value.empty() ? NSColor.tertiaryLabelColor : NSColor.labelColor;
+        v.textColor = f.value.empty() ? faintInk() : NSColor.labelColor;
         v.lineBreakMode = NSLineBreakByTruncatingTail;
         v.toolTip = v.stringValue;
         [v setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
@@ -1823,6 +1847,10 @@ void showStyleOptions() {
              N(@"With something clicked on the map, dim the rest of it: the chosen marker, square, area, outline or box stays clear")});
         add({"mapLegend", @"map.style.legend", 1, @[ N(@"Off##legend"), N(@"Top right"), N(@"Bottom left") ], N(@"Legend:"),
              N(@"The key to the map's colours and markers; click a spot's kind or band, or another program, in it to hide or show those")});
+        add({"mapTextSize", @"map.style.textSize", 0, @[ N(@"Standard##text"), N(@"Large##text") ], N(@"Map text:"),
+             N(@"How big the map's labels, legend, tags and information box are")});
+        add({"mapHatch", @"map.style.hatch", 0, nil, N(@"Hatch what isn't confirmed"),
+             N(@"Worked squares, countries and areas not yet confirmed get diagonal lines, so confirmation shows without relying on colour")});
         add({"mapRings", @"map.style.rings", 0, nil, N(@"Distance rings from my grid"), nil});
         add({"mapDayNight", @"map.style.dayNight", 0, nil, N(@"Day and night"), N(@"The night side shaded, deeper as the sun goes further down, and the "
                                                                               @"line between day and night; the sun where it is overhead")});
@@ -1835,7 +1863,7 @@ void showStyleOptions() {
         reset.identifier = @"map.style.reset";
         ADIFOnAction(reset, ^{
             for (const char *key : {"mapPalette", "mapMarkerSize", "mapMarkerShape", "mapContactMarker", "mapSquareFill", "mapAreaShade", "mapLineStyle",
-                                    "mapLineWidth", "mapLineOpacity", "mapArcs", "mapLegend", "mapRings", "mapDayNight", "mapGreyLine", "mapSunTime",
+                                    "mapLineWidth", "mapLineOpacity", "mapArcs", "mapLegend", "mapTextSize", "mapHatch", "mapRings", "mapDayNight", "mapGreyLine", "mapSunTime",
                                     "mapSpotters", "mapSpotterStyle", "mapSpotLineStyle", "mapSpotLabelMode", "mapSpotLabelFreq", "mapSpotLabelAge",
                                     "mapSpotLabelSnr", "mapSpotFade", "mapParkOutlines", "mapReference", "mapSpotlight"})
                 setSetting(key, "");
@@ -2985,14 +3013,14 @@ void fillRecentSpots() {
     for (size_t i = 0; i < order.size() && i < 5; ++i) {
         const adif::Spot &sp = spots[order[i]].spot;
         bool old = sp.epoch > 0 && now - sp.epoch > 900;
-        NSColor *ink = old ? NSColor.tertiaryLabelColor : NSColor.labelColor;
+        NSColor *ink = old ? faintInk() : NSColor.labelColor;
         std::string activator = sp.activator, band = sp.band;
         NSButton *call = [NSButton buttonWithTitle:@"" target:nil action:nil];
         call.bordered = NO;
         call.attributedTitle = [[NSAttributedString alloc]
             initWithString:ADIFString(activator)
                 attributes:@{NSFontAttributeName : [NSFont systemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightSemibold],
-                             NSForegroundColorAttributeName : old ? NSColor.tertiaryLabelColor : NSColor.linkColor}];
+                             NSForegroundColorAttributeName : old ? faintInk() : NSColor.linkColor}];
         call.identifier = [NSString stringWithFormat:@"map.recent.%zu", i];
         ADIFOnAction(call, ^{  // the spot (found again: the spots may have changed), chosen on the map
             const std::vector<ADIFMapSpot> &now = mw.view.spots;
@@ -3117,7 +3145,7 @@ void labelsFollow() {
         NSButton *b = mw.labels[l.id];
         b.enabled = mw.overlay[l.id].state == NSControlStateValueOn || (mw.show[l.id] && mw.show[l.id].state == NSControlStateValueOn);
         if (l.id == kLayerSpots) continue;  // its title greys
-        b.alphaValue = b.enabled ? 1 : 0.3;
+        b.alphaValue = b.enabled ? 1 : moreContrast() ? 0.55 : 0.35;
         b.toolTip = b.enabled ? T(l.labelsTip) : [T(l.labelsTip) stringByAppendingFormat:@"\n%@", T(@"Labels work while the layer shows: tick Worked or All")];
     }
 }
@@ -4923,9 +4951,9 @@ void showWatchButton(const ADIFMapHit &h) {
     mw.watchButton.image = [NSImage imageWithSystemSymbolName:on ? @"star.fill" : @"star" accessibilityDescription:nil];
     mw.watchButton.contentTintColor = on ? NSColor.systemYellowColor : nil;
     mw.actions.needsLayout = YES;  // its title's width too
-    mw.watchButton.toolTip = ADIFString(on ? trf("{what} is on your watch list; click to stop watching it", {{"what", token}})
-                                           : trf("Watch {what}: when it is spotted, it shows in My watch list, first among the spots, and under the bell",
-                                                 {{"what", token}}));
+    mw.watchButton.toolTip = [ADIFString(on ? trf("{what} is on your watch list; click to stop watching it", {{"what", token}})
+                                            : trf("Watch {what}: when it is spotted, it shows in My watch list, first among the spots, and under the bell",
+                                                  {{"what", token}})) stringByAppendingString:@"  (\u2318D)"];
 }
 
 // The editor's tokens, as the list has them.
@@ -5259,6 +5287,103 @@ void fillDxccPotaBars() {
         if ([v isKindOfClass:ADIFFlowView.class]) v.needsLayout = YES;
 }
 
+// ── Shortcuts: ⌘] and ⌘[ the list's next and previous row (chosen on the map); ⌘↩ New QSO with
+// the spot chosen; ⌘L the map centred on what is chosen; ⌘D watch it, or stop; ⌘F the search ──
+
+// The list's next or previous row (the first when none is), chosen on the map as a click on it would.
+bool stepList(int by) {
+    NSInteger n = mw.listTable.numberOfRows;
+    if (!n || mw.listPanel.hidden) return false;
+    NSInteger r = mw.listTable.selectedRow;
+    NSInteger to = r < 0 ? 0 : std::clamp<NSInteger>(r + by, 0, n - 1);
+    [mw.listTable selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)to] byExtendingSelection:NO];
+    [mw.listTable scrollRowToVisible:to];
+    return true;
+}
+
+bool mapShortcut(NSEvent *e) {
+    NSEventModifierFlags mods = e.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask & ~(NSEventModifierFlagNumericPad | NSEventModifierFlagFunction);
+    if (mods != NSEventModifierFlagCommand) return false;
+    NSString *k = e.charactersIgnoringModifiers.lowercaseString;
+    ADIFMapHit h = mw.view.selectedHit;
+    if ([k isEqualToString:@"]"] || [k isEqualToString:@"["]) return stepList([k isEqualToString:@"]"] ? 1 : -1);
+    if ([k isEqualToString:@"\r"]) {
+        if (h.kind != ADIFMapHit::Spot) return false;
+        useSelectedSpot();
+        return true;
+    }
+    if ([k isEqualToString:@"l"]) {
+        if (h.kind == ADIFMapHit::None) return false;
+        centerChosen();
+        return true;
+    }
+    if ([k isEqualToString:@"d"]) {
+        std::string token = watchTokenFor(h);
+        if (token.empty()) return false;
+        toggleWatch(token);
+        return true;
+    }
+    if ([k isEqualToString:@"f"]) {
+        [mw.window makeFirstResponder:mw.findField];
+        return true;
+    }
+    return false;
+}
+
+// A layer's own menu (right-click its name): its boxes; this layer only; how strongly worked
+// areas are shaded.
+void fillLayerMenu(NSMenu *menu) {
+    [menu removeAllItems];
+    std::string ident = ADIFStd(menu.title).substr(6);  // "layer:grid"
+    const LayerUi *layer = nullptr;
+    for (const LayerUi &l : kLayerUi)
+        if (ADIFStd(l.ident) == ident) layer = &l;
+    if (!layer) return;
+    MapLayerId id = layer->id;
+    auto toggle = [&](NSString *title, NSButton *b) {
+        if (!b) return;
+        NSMenuItem *item = [menu addItemWithTitle:T(title) action:nil keyEquivalent:@""];
+        item.state = b.state;
+        item.enabled = b.enabled;
+        ADIFBlockMenuItem(item, ^{
+            b.state = b.state == NSControlStateValueOn ? NSControlStateValueOff : NSControlStateValueOn;
+            [b sendAction:b.action to:b.target];
+        });
+    };
+    menu.autoenablesItems = NO;
+    toggle(N(@"Worked"), mw.show[id]);
+    toggle(N(@"All"), mw.overlay[id]);
+    toggle(N(@"Labels"), mw.labels[id]);
+    [menu addItem:NSMenuItem.separatorItem];
+    NSMenuItem *only = [menu addItemWithTitle:T(@"Only This Layer") action:nil keyEquivalent:@""];
+    ADIFBlockMenuItem(only, ^{  // this one shown, with its labels; the other layers (not the spots) off
+        for (const LayerUi &l : kLayerUi) {
+            if (l.id == kLayerSpots) continue;
+            bool me = l.id == id;
+            if (mw.show[l.id]) mw.show[l.id].state = me ? NSControlStateValueOn : NSControlStateValueOff;
+            mw.overlay[l.id].state = me ? NSControlStateValueOn : NSControlStateValueOff;
+            if (me) mw.labels[l.id].state = NSControlStateValueOn;
+        }
+        layerChanged(id, 1);
+    });
+    if (layer->showKey && id != kLayerPota && id != kLayerIota) {
+        NSMenuItem *shade = [menu addItemWithTitle:T(@"Worked Areas' Shading") action:nil keyEquivalent:@""];
+        NSMenu *sub = [[NSMenu alloc] init];
+        int now = number("mapAreaShade", 1, 2);
+        NSArray<NSString *> *names = @[ N(@"Light##shade"), N(@"Medium##shade"), N(@"Strong##shade") ];
+        for (int i = 0; i < 3; ++i) {
+            NSMenuItem *it = [sub addItemWithTitle:T(names[i]) action:nil keyEquivalent:@""];
+            it.state = i == now ? NSControlStateValueOn : NSControlStateValueOff;
+            ADIFBlockMenuItem(it, ^{
+                setSetting("mapAreaShade", std::to_string(i));
+                applyStyle();
+                fillStyle();
+            });
+        }
+        shade.submenu = sub;
+    }
+}
+
 // ── The footer: what is under the pointer, and the workflow's state ──
 
 void showHover(const std::string &text) {
@@ -5295,7 +5420,7 @@ NSPopUpButton *pullDown(NSString *title, NSString *tip) {
 
 void cmdMap() {
     if (!mw.window) {
-        mw.window = [[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 1460, 900)
+        mw.window = [[ADIFMapWindow alloc] initWithContentRect:NSMakeRect(0, 0, 1460, 900)
                                                styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable |
                                                          NSWindowStyleMaskUtilityWindow
                                                  backing:NSBackingStoreBuffered
@@ -5325,6 +5450,7 @@ void cmdMap() {
         };
         // A group's title with its triangle: closed, its rows hide (remembered).
         mw.layerGroups = [NSMutableDictionary dictionary];
+        mw.layerMenus = [NSMutableArray array];
         mw.layerGroupTriangles = [NSMutableDictionary dictionary];
         auto groupHead = [&](NSString *name, NSString *title) -> NSView * {
             NSButton *triangle = [NSButton buttonWithTitle:@"" target:nil action:nil];
@@ -5381,7 +5507,12 @@ void cmdMap() {
                 ]];
             }
             groupRows[group].push_back((NSInteger)layerRows.count);
-            [layerRows addObject:@[ ADIFLabel(l.title), mw.show[l.id] ?: [NSGridCell emptyContentView], mw.overlay[l.id], mw.labels[l.id] ]];
+            NSTextField *name = ADIFLabel(l.title);
+            name.menu = [[NSMenu alloc] initWithTitle:[@"layer:" stringByAppendingString:l.ident]];  // filled by the list's menu delegate
+            name.toolTip = T(@"Right-click for this layer's menu: its boxes, this layer only, the shading");
+            name.identifier = [@"map.layername." stringByAppendingString:l.ident];
+            [mw.layerMenus addObject:name.menu];
+            [layerRows addObject:@[ name, mw.show[l.id] ?: [NSGridCell emptyContentView], mw.overlay[l.id], mw.labels[l.id] ]];
         }
         NSGridView *layers = [NSGridView gridViewWithViews:layerRows];
         for (const auto &[name, rowsOf] : groupRows) {
@@ -5749,6 +5880,20 @@ void cmdMap() {
             showHover(d.empty() ? idleStatus() : d);
         };
         mw.view.onSelect = ^(const ADIFMapHit &h) { selected(h); };
+        ((ADIFMapWindow *)mw.window).shortcut = ^BOOL(NSEvent *e) { return mapShortcut(e); };
+        mw.view.onStep = ^(int by) { stepList(by); };
+        mw.view.onReturn = ^{  // a spot: New QSO; one QSO: its record
+            ADIFMapHit h = mw.view.selectedHit;
+            if (h.kind == ADIFMapHit::Spot) useSelectedSpot();
+            else if (mw.listed.size() == 1) goToQso(mw.listed[0]);
+        };
+        [NSWorkspace.sharedWorkspace.notificationCenter addObserverForName:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification
+                                                                    object:nil
+                                                                     queue:NSOperationQueue.mainQueue
+                                                                usingBlock:^(NSNotification *) {  // Increase contrast: the faint text again
+                                                                    labelsFollow();
+                                                                    refresh();
+                                                                }];
         // A legend entry clicked: another program's references (as Other programs' menu), or a kind
         // or band of spots, off or on.
         mw.view.onLegendToggle = ^(const std::string &id) {
@@ -5785,6 +5930,7 @@ void cmdMap() {
         mw.useSpot.bezelColor = NSColor.systemGreenColor;
         mw.useSpot.keyEquivalent = @"";
         mw.useSpot.identifier = @"map.spots.use";
+        mw.useSpot.toolTip = [mw.useSpot.toolTip stringByAppendingString:@"  (\u2318\u21A9)"];
         mw.useSpot.hidden = YES;
         // The list's footer: the page (with the previous and next), how many a page, the columns.
         mw.listPrev = smallButton(@"", @"The previous page", ^{
@@ -5834,9 +5980,11 @@ void cmdMap() {
                 else if (menu == mw.homeMenu) fillHomeMenu(menu);
                 else if (menu == mw.findMenu) fillFindMenu(menu);
                 else if (menu == mw.viewsMenu) fillViewsMenu(menu);
+                else if ([menu.title hasPrefix:@"layer:"]) fillLayerMenu(menu);
                 else fillColumnsMenu(menu, menu == columnsMenu);
             };
             mw.homeMenu.delegate = mw.listRows;
+            for (NSMenu *m in mw.layerMenus) m.delegate = mw.listRows;
         }
         mw.listSearch = [[NSSearchField alloc] initWithFrame:NSZeroRect];
         mw.listSearch.placeholderString = T(@"Search: a call, reference, name...");
@@ -6059,6 +6207,7 @@ void cmdMap() {
         mw.findField.toolTip = T(@"Find on the map: a call (your QSOs with it, or its spot), a grid square, a DXCC entity you worked, a POTA park "
                                  @"(by reference or name). Return chooses it; more than one, a menu of them");
         mw.findField.identifier = @"map.find";
+        mw.findField.toolTip = [mw.findField.toolTip stringByAppendingString:@"  (\u2318F)"];
         mw.findField.sendsWholeSearchString = YES;
         mw.findField.controlSize = NSControlSizeSmall;
         NSLayoutConstraint *findWidth = [mw.findField.widthAnchor constraintEqualToConstant:230];
@@ -6357,6 +6506,7 @@ void cmdMap() {
         mw.centerButton.image = [NSImage imageWithSystemSymbolName:@"scope" accessibilityDescription:nil];
         mw.centerButton.imagePosition = NSImageLeading;
         mw.centerButton.identifier = @"map.center";
+        mw.centerButton.toolTip = [mw.centerButton.toolTip stringByAppendingString:@"  (\u2318L)"];
         mw.centerButton.enabled = NO;
         mw.centerButton.hidden = YES;
         mw.viewQso = smallButton(@"View QSO", @"This QSO's record in the log", ^{

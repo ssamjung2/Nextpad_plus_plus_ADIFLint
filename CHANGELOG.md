@@ -52,6 +52,13 @@ Versions before 0.8.0 were development builds and were not published.
   **Needed on its band** (a new DXCC or a new band), **New DXCC**, **New band**, **New
   mode**, **New POTA parks**, **POTA activators**, **My watch list** and **Worked before**,
   each with its count; choosing one shows only those.
+- **Map → keyboard and accessibility**: ⌘] and ⌘[ (or ] and [ on the map) step through the
+  list's rows, choosing each on the map; ⌘↩ New QSO, ⌘L Center, ⌘D Watch, ⌘F Find; Return on
+  the map acts on what is chosen. Style Options' **Map text** makes the map's text larger, and
+  **Hatch what isn't confirmed** shows confirmation without colour; spots' rings differ by
+  shape too (two for a new DXCC, dashed for a new band or mode). Faint text follows macOS's
+  Increase contrast. The legend's clickable entries are VoiceOver actions. A layer's name has
+  a right-click menu (its boxes, Only This Layer, the shading).
 - **Map → header and toolbar**: the header says **Operating Map** and when confirmations were
   last downloaded (a click opens QSL Sync). Live's toolbar adds a **DXCC** menu (the spots by
   what they mean for your DXCC) and a **Spots** menu (any program, POTA only, new POTA parks,

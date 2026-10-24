@@ -351,9 +351,10 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     const MapPalette &pal = paletteAt(_style.palette);
     NSColor *ink = [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.92];
     NSColor *soft = [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.6];
-    NSDictionary *head = @{NSFontAttributeName : [NSFont boldSystemFontOfSize:12], NSForegroundColorAttributeName : ink};
-    NSDictionary *label = @{NSFontAttributeName : [NSFont systemFontOfSize:10], NSForegroundColorAttributeName : soft};
-    NSDictionary *value = @{NSFontAttributeName : [NSFont systemFontOfSize:10.5], NSForegroundColorAttributeName : ink};
+    CGFloat ts = _style.textScale;
+    NSDictionary *head = @{NSFontAttributeName : [NSFont boldSystemFontOfSize:12 * ts], NSForegroundColorAttributeName : ink};
+    NSDictionary *label = @{NSFontAttributeName : [NSFont systemFontOfSize:10 * ts], NSForegroundColorAttributeName : soft};
+    NSDictionary *value = @{NSFontAttributeName : [NSFont systemFontOfSize:10.5 * ts], NSForegroundColorAttributeName : ink};
     const CGFloat pad = 8, gap = 8, valueWidth = 250, lineGap = 2;
     CGFloat labelWidth = 0;
     for (const ADIFInfoRow &r : _info)
@@ -1042,7 +1043,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 
 - (void)drawLabel:(NSString *)text at:(NSPoint)p size:(CGFloat)size alpha:(CGFloat)alpha {
     const MapPalette &pal = paletteAt(_style.palette);
-    NSDictionary *attrs = @{NSFontAttributeName : [NSFont monospacedSystemFontOfSize:size weight:NSFontWeightMedium],
+    NSDictionary *attrs = @{NSFontAttributeName : [NSFont monospacedSystemFontOfSize:size * _style.textScale weight:NSFontWeightMedium],
                             NSForegroundColorAttributeName : [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:alpha]};
     NSSize s = [text sizeWithAttributes:attrs];
     [text drawAtPoint:NSMakePoint(p.x - s.width / 2, p.y - s.height / 2) withAttributes:attrs];
@@ -1128,7 +1129,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     [self drawSelectionHalo];
     CGContextRestoreGState(d.ctx);
     if (_style.legend) [self drawLegend];
-    else _legendKeys.clear(), [self legendAt:NSZeroRect];
+    else _legendKeys.clear(), _legendNames.clear(), [self legendAt:NSZeroRect];
     if (!_info.empty() && !self.infoHidden) [self drawInfoBox];
     [self drawScaleBar];
     [self drawOsmCredit];
@@ -1154,7 +1155,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     halo.shadowColor = [NSColor colorWithCalibratedWhite:pal.dark ? 0 : 1 alpha:0.9];
     halo.shadowBlurRadius = 2;
     halo.shadowOffset = NSZeroSize;
-    NSDictionary *font = @{NSFontAttributeName : [NSFont monospacedDigitSystemFontOfSize:9.5 weight:NSFontWeightRegular], NSForegroundColorAttributeName : ink,
+    NSDictionary *font = @{NSFontAttributeName : [NSFont monospacedDigitSystemFontOfSize:9.5 * _style.textScale weight:NSFontWeightRegular], NSForegroundColorAttributeName : ink,
                            NSShadowAttributeName : halo};
     NSBezierPath *bar = [NSBezierPath bezierPath];
     [bar moveToPoint:NSMakePoint(x0, y0)];
@@ -1194,6 +1195,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 - (void)drawLegend {
     const MapPalette &pal = paletteAt(_style.palette);
     _legendKeys.clear();
+    _legendNames.clear();
     struct Entry {
         // 0 swatch, 1 dot, 2 triangle, 3 diamond, 4 star, 5 line, 6 contact marker, 7 heading, 8 plain text, 9 dashed box,
         // 10 park badge (hunted), 11 park badge (activated), 12 park badge (not worked), 13 spotter, 14 spot, 15 POTA spot
@@ -1343,11 +1345,11 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     if (rows.empty()) return [self legendAt:NSZeroRect];
     if (std::any_of(rows.begin(), rows.end(), [](const Entry &e) { return !e.toggle.empty(); })) rows.push_back({8, nil, tr("Click an entry to hide or show it")});
 
-    NSDictionary *text = @{NSFontAttributeName : [NSFont systemFontOfSize:11],
+    NSDictionary *text = @{NSFontAttributeName : [NSFont systemFontOfSize:11 * _style.textScale],
                            NSForegroundColorAttributeName : [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.9]};
-    NSDictionary *head = @{NSFontAttributeName : [NSFont boldSystemFontOfSize:11],
+    NSDictionary *head = @{NSFontAttributeName : [NSFont boldSystemFontOfSize:11 * _style.textScale],
                            NSForegroundColorAttributeName : [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.9]};
-    CGFloat width = 0, lineH = 16;
+    CGFloat width = 0, lineH = std::round(16 * _style.textScale);
     for (const Entry &e : rows)
         width = std::max(width, [ADIFString(e.text) sizeWithAttributes:e.kind == 7 ? head : text].width + (e.kind == 7 || e.kind == 8 ? 0 : 20));
     CGFloat boxW = width + 16, boxH = rows.size() * lineH + 10;
@@ -1360,9 +1362,12 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     CGFloat y = NSMaxY(box) - 5 - lineH;
     for (const Entry &e : rows) {
         NSPoint at = NSMakePoint(NSMinX(box) + 8, y);
-        if (!e.toggle.empty()) _legendKeys.push_back({NSMakeRect(NSMinX(box) + 2, y, NSWidth(box) - 4, lineH), e.toggle});
+        if (!e.toggle.empty()) {
+            _legendKeys.push_back({NSMakeRect(NSMinX(box) + 2, y, NSWidth(box) - 4, lineH), e.toggle});
+            _legendNames.push_back({e.text, e.off});
+        }
         [NSGraphicsContext saveGraphicsState];
-        if (e.off) CGContextSetAlpha(NSGraphicsContext.currentContext.CGContext, 0.3);
+        if (e.off) CGContextSetAlpha(NSGraphicsContext.currentContext.CGContext, NSWorkspace.sharedWorkspace.accessibilityDisplayShouldIncreaseContrast ? 0.5 : 0.35);
         if (e.kind == 10 || e.kind == 11 || e.kind == 12) {
             [self drawParkBadgeAt:NSMakePoint(at.x + 6, y + lineH / 2) radius:e.kind == 12 ? 5.5 : 6.5 color:e.color worked:e.kind != 12
                         activated:e.kind == 11
@@ -1378,8 +1383,17 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
                 [e.color setFill];
                 [dot fill];
                 ring.lineWidth = 1.4;
+                if (e.toggle == "need.newband") {  // as on the map: a new band or mode dashed, a new DXCC two rings
+                    const CGFloat dash[] = {2.2, 1.6};
+                    [ring setLineDash:dash count:2 phase:0];
+                }
                 [e.color setStroke];
                 [ring stroke];
+                if (e.toggle == "need.newdxcc") {
+                    NSBezierPath *second = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(c.x - 7, c.y - 7, 14, 14)];
+                    second.lineWidth = 1;
+                    [second stroke];
+                }
             }
             [ADIFString(e.text) drawAtPoint:NSMakePoint(at.x + 18, y + 1) withAttributes:text];
         } else if (e.kind == 7 || e.kind == 8) {
@@ -1599,6 +1613,8 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
                      y:k == NSDownArrowFunctionKey ? step : k == NSUpArrowFunctionKey ? -step : 0];
         return;
     }
+    if ((k == ']' || k == '[') && self.onStep) return self.onStep(k == ']' ? 1 : -1);  // through the list's rows, each chosen here
+    if ((k == '\r' || k == 3) && self.onReturn) return self.onReturn();
     if (k == '+' || k == '=') [self zoomBy:1.5];
     else if (k == '-') [self zoomBy:1 / 1.5];
     else if (k == '0') [self showWorld];
@@ -1612,6 +1628,22 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 - (void)setFrameSize:(NSSize)size {
     [super setFrameSize:size];
     [self clampCenter];
+}
+
+// The legend's entries that a click turns off or on, for VoiceOver and the keyboard too.
+- (NSArray<NSAccessibilityCustomAction *> *)accessibilityCustomActions {
+    NSMutableArray *out = [NSMutableArray array];
+    for (size_t i = 0; i < _legendKeys.size() && i < _legendNames.size(); ++i) {
+        std::string key = _legendKeys[i].second;
+        NSString *name = ADIFString(trf(_legendNames[i].second ? "Show in the legend: {entry}" : "Hide in the legend: {entry}", {{"entry", _legendNames[i].first}}));
+        __weak ADIFMapView *weakSelf = self;
+        [out addObject:[[NSAccessibilityCustomAction alloc] initWithName:name
+                                                                 handler:^BOOL {
+                                                                     if (weakSelf.onLegendToggle) weakSelf.onLegendToggle(key);
+                                                                     return YES;
+                                                                 }]];
+    }
+    return out;
 }
 
 @end

@@ -625,6 +625,9 @@ layer's are in the **Spots** section:
 **Other programs**, the last row of Programs, has a box of its own for every other
 program's references at once (see [Contacts](#contacts)); its name is the menu of which.
 
+Right-click a layer's name for its menu: its boxes, **Only This Layer** (it alone, with its
+labels), and how strongly worked areas are shaded.
+
 Point at a shaded area for its QSOs, and click it to list them. The selected panel says where
 each QSO's area came from, for example "WI: 12 QSOs (…); 10 by STATE, 2 by where the QSO
 was".
@@ -719,7 +722,8 @@ The **Spots** layer marks the stations spotted now, live, beside your log:
 
 - **Show** fetches the spots and marks each station: a dot in a ring in its colour (see
   [Colours](#colours): by confirmation, what the spot means for your log), solid for 10
-  minutes and fainter as it ages. A POTA activator (a spot of the POTA program) is POTA's
+  minutes and fainter as it ages. The ring's shape says it too, without colour: two rings for
+  a new DXCC, a dashed ring for a new band or mode. A POTA activator (a spot of the POTA program) is POTA's
   badge instead, the tree in the spot's colour with the ring round it, so the stations
   calling from a park stand out from the rest. A station spotted on several bands has a
   marker for each band, from its newest spot. The stations that heard it, its spotters (up
@@ -978,6 +982,17 @@ On the globe:
   the selected panel, and
   double-click one there to go to its record in the log.
 
+#### Keyboard
+
+- **⌘]** and **⌘[** choose the list's next and previous row, on the map as a click would; with
+  the map focused (click it), **]** and **[** do the same, and **Return** fills New QSO from
+  the spot chosen (or goes to the one QSO chosen).
+- **⌘↩** New QSO with the spot chosen; **⌘L** the map centred on what is chosen; **⌘D** watch
+  it (again to stop); **⌘F** the search.
+- With macOS's keyboard navigation on (System Settings, Keyboard), Tab moves between the
+  sidebar's, the list's and the panel's controls. VoiceOver offers the legend's entries that a
+  click turns off or on as actions of the map.
+
 ### POTA parks in: fewer parks
 
 POTA has tens of thousands of parks, and a map of several states is crowded with them.
@@ -1213,7 +1228,9 @@ your own use; if you pass them on, the licence goes with them.
   out from them; subtle at first); **Spotlight what's chosen** (while something is clicked,
   the rest of the map dims, the chosen marker, square, area, outline or box left clear; what
   you click gets a ring in your Mac's accent colour either way); the **Legend** (off, top
-  right or bottom left); **Distance
+  right or bottom left); **Map text** (standard or large: labels, legend, tags and the
+  information box); **Hatch what isn't confirmed** (diagonal lines across the worked squares,
+  countries and areas not yet confirmed, so confirmation shows without colour); **Distance
   rings** from your grid, 2,500 km apart for the whole world, closer as you zoom in, with
   bearings every 30° when the globe is centred on home; **Day and night**; **Grey line**; and
   **Sun at** now or at the selected QSO's time. Style Options is in two columns: colours,

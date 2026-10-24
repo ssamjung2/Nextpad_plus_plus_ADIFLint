@@ -64,6 +64,8 @@ struct ADIFMapStyle {
     int lineWidth = 1;  // 0 thin, 1 medium, 2 thick
     double marker = 1;  // marker size factor
     int legend = 1;  // 0 off, 1 top right, 2 bottom left
+    double textScale = 1;  // the map's text: 1 standard, 1.25 large
+    bool hatch = false;    // worked areas not confirmed hatched: confirmation shown besides colour
     bool rings = false, paths = false, mine = true;
     // The legend's entries clicked off ("need.newdxcc", "band.20m", "spot.pota"): those spots hidden
     // while the legend shows the entry (adif "program.X" entries are hiddenPrograms instead).
@@ -282,6 +284,7 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
     NSEdgeInsets _clearInsets;       // the edges the window's floating controls cover
     NSRect _legendFrame;             // where the legend was drawn last; empty: none
     std::vector<std::pair<NSRect, std::string>> _legendKeys;  // its entries that a click turns off or on
+    std::vector<std::pair<std::string, bool>> _legendNames;   // theirs as they read, and whether off (accessibility actions)
 }
 @property(nonatomic) BOOL showContacts;
 @property(nonatomic) std::set<std::string> hiddenPrograms;
@@ -297,6 +300,8 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 @property(nonatomic, readonly) NSRect legendFrame;      // the legend's box; empty when it is off
 @property(nonatomic, copy) void (^onLegendMoved)(void);  // the legend's box changed (after it was drawn)
 @property(nonatomic, copy) void (^onLegendToggle)(const std::string &key);  // an entry clicked: its key
+@property(nonatomic, copy) void (^onStep)(int by);      // ] or [ with the map focused: the next or previous row of the list
+@property(nonatomic, copy) void (^onReturn)(void);      // Return with the map focused: act on what is chosen
 @property(nonatomic) std::vector<std::string> legendSpotBands;  // the spots' bands before the legend hid any, for its entries
 - (void)setData:(const adif::MapData &)data entities:(const std::vector<ADIFMapEntity> &)entities;
 - (void)setProjector:(const adif::Projector &)projector home:(NSString *)homeGrid lat:(double)lat lon:(double)lon;
@@ -456,6 +461,7 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 - (bool)spotterLit:(size_t)j;  // so, or a spotter of such a spot
 - (void)drawSpotLines:(MapDrawCtx &)d;
 - (void)drawChosenPath:(MapDrawCtx &)d;
+- (void)hatch:(NSBezierPath *)path;
 - (void)drawSpots:(MapDrawCtx &)d;
 - (void)drawSpotters:(MapDrawCtx &)d;
 - (void)drawSpotterAt:(NSPoint)p radius:(double)r lit:(BOOL)lit dark:(BOOL)dark faint:(BOOL)faint;
