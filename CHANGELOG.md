@@ -52,6 +52,12 @@ Versions before 0.8.0 were development builds and were not published.
   **Needed on its band** (a new DXCC or a new band), **New DXCC**, **New band**, **New
   mode**, **New POTA parks**, **POTA activators**, **My watch list** and **Worked before**,
   each with its count; choosing one shows only those.
+- **Map → the map.** Spot labels are tags beside their markers, edged in each spot's colour;
+  the chosen spot's always shows, edged in the accent colour, with a dashed path from your
+  station to it and its distance and bearing (a chosen contact too). The legend is at the top
+  right (Style Options: off, top right or bottom left), and a click on a spot's kind or band,
+  the POTA activators, or another program hides or shows them. **Home**'s right-click menu
+  sets the view as your Home view, or forgets it.
 - **Map → Filters.** The dates menu has **Custom Range…** (from one day to another, the
   range shown in the menu). The confirmation menu adds **Confirmed on LoTW**, **by eQSL**,
   **by card** and **Not confirmed on LoTW**. More Filters adds **Within** so many km or mi of

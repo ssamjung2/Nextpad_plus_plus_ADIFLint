@@ -575,8 +575,9 @@ The window, from the top:
     the projection, and **Region**.
   - **Filters**: **POTA parks in** (see [POTA parks in](#pota-parks-in-fewer-parks)).
 - **The map**, with the zoom buttons at its top left: **+**, the zoom, **−**, then
-  **Home**, **Fit Log** and **World** (see [Moving around](#moving-around)). The legend and
-  a distance scale are at its bottom left; a map lower than its room sits at the top.
+  **Home**, **Fit Log** and **World** (see [Moving around](#moving-around)). The legend is
+  at its top right (Style Options can put it at the bottom left), a distance scale at its
+  bottom left; a map lower than its room sits at the top.
 - **Under the map**, [the list](#the-list-the-qsos-chosen-and-whats-in-view), its tabs
   saying how many each has.
 - **On the right**, [the selected panel and the situation](#the-selected-panel-and-the-situation).
@@ -714,8 +715,11 @@ The **Spots** layer marks the stations spotted now, live, beside your log:
   heard, while Show is on.
   Without it, pointing at a spot (or clicking it) still draws its spotters' lines, and
   pointing at a spotter draws the lines to the stations it heard.
-- **Labels** writes each station's call beside it, where there's room, with its mode, how
-  long ago it was spotted and its signal report under it (Style Options chooses which).
+- **Labels** writes each station's call beside it in a tag edged in its colour, where there's
+  room, with its mode, how long ago it was spotted and its signal report under it (Style
+  Options chooses which). The spot you choose always has its tag, edged in your Mac's accent
+  colour, with or without Labels, and a dashed line from your station to it, with the
+  distance and bearing at its middle (a contact chosen gets the line too).
 
 Where the spots come from is set in **Settings → Spots** (see [Settings](#settings)):
 Spothole at first, and a DX cluster and PSKReporter when you turn them on. Nothing is
@@ -878,7 +882,10 @@ disagree in places; the zone a QSO counts for is the one in its CQZ or ITUZ fiel
 in the square, in [PSKReporter](https://pskreporter.info/pskmap.html)'s colours, so 20m is
 the same yellow as on its map), mode (CW, phone or data), QSO count (1, 2-4, 5-9, 10-24,
 25 and more) or the year a square was first worked. The **legend** in the corner says what
-each colour and marker means.
+each colour and marker means. Some of its entries can be clicked off and on again (faded
+while off): the spots' kinds (new DXCC, new band or mode, worked, confirmed) or, coloured by
+band, their bands; the POTA activators spotted; and the other programs (WWFF, SOTA, IOTA…,
+as in **Other programs**). The spots stay hidden while the legend shows their entry.
 
 Spots follow it too:
 
@@ -939,7 +946,8 @@ On the globe:
 - **Zoom** with a pinch, the mouse wheel, Option and a two-finger scroll, a double-click,
   or the **+** and **−** buttons (at the map's top left) or keys, up to 1,024×, where a
   kilometre is some 30 points across. **Home** (the house) puts your station in the middle
-  at the zoom the map has; **Fit Log** (the frame) zooms to the log's QSOs, and in Live to
+  at the zoom the map has, or goes to the view you set as Home (right-click it: **Set Home
+  View to This**, and **Forget Home View** to go back to your station); **Fit Log** (the frame) zooms to the log's QSOs, and in Live to
   the spots shown; **World** (the globe, or the 0 key) shows the whole world; and
   **Region**, in the sidebar's Map section, zooms to a continent (Africa, Antarctica, Asia,
   Europe, North America, Oceania, South America; the globe turns to face it). Fit Log,
@@ -1162,7 +1170,8 @@ your own use; if you pass them on, the licence goes with them.
   overlays' lines and names and the distance rings show, so your QSOs, parks and spots stand
   out from them; subtle at first); **Spotlight what's chosen** (while something is clicked,
   the rest of the map dims, the chosen marker, square, area, outline or box left clear; what
-  you click gets a ring in your Mac's accent colour either way); the **Legend**; **Distance
+  you click gets a ring in your Mac's accent colour either way); the **Legend** (off, top
+  right or bottom left); **Distance
   rings** from your grid, 2,500 km apart for the whole world, closer as you zoom in, with
   bearings every 30° when the globe is centred on home; **Day and night**; **Grey line**; and
   **Sun at** now or at the selected QSO's time. Style Options is in two columns: colours,

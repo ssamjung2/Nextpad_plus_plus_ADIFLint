@@ -4883,6 +4883,23 @@ int main(int argc, char **argv) {
                 CHECK(center.enabled && std::hypot(dot.x - middle.x, dot.y - middle.y) < 3 && zoomShown() == zoomBefore,
                       "Center: 1A's dot in the middle of the map (%.1f px off), at the same zoom (%s, was %s)", std::hypot(dot.x - middle.x, dot.y - middle.y),
                       zoomShown().c_str(), zoomBefore.c_str());
+                {  // Home view: this view set as Home (the Home button's menu); World, then Home comes back to it; forgotten, it can't be again.
+                    NSButton *homeButton = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.home");
+                    NSMenu *homeMenu = homeButton.menu;
+                    [homeMenu.delegate menuNeedsUpdate:homeMenu];
+                    bool nothingToForget = homeMenu.numberOfItems == 2 && ![homeMenu itemAtIndex:1].enabled;
+                    [homeMenu performActionForItemAtIndex:0];
+                    [findButton(mapw.contentView, @"World") performClick:nil];
+                    [homeButton performClick:nil];
+                    NSPoint again = pointFor(12.43, 41.9);
+                    double off = std::hypot(again.x - middle.x, again.y - middle.y);
+                    [homeMenu.delegate menuNeedsUpdate:homeMenu];
+                    bool canForget = [homeMenu itemAtIndex:1].enabled;
+                    [homeMenu performActionForItemAtIndex:1];
+                    [homeMenu.delegate menuNeedsUpdate:homeMenu];
+                    CHECK(nothingToForget && off < 3 && zoomShown() == zoomBefore && canForget && ![homeMenu itemAtIndex:1].enabled,
+                          "the Home view: back to the view set (%.1f px off, %s), then forgotten", off, zoomShown().c_str());
+                }
                 // Reference layers: faint and strong draw the grid and the overlays differently.
                 [findButton(mapw.contentView, @"World") performClick:nil];
                 setBox(mapBox(@"overlay", @"grid"), true);
@@ -5613,7 +5630,66 @@ int main(int argc, char **argv) {
                     pump(0.2);
                     [rowsTable selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
                     [rowsTable.delegate tableViewSelectionDidChange:[NSNotification notificationWithName:NSTableViewSelectionDidChangeNotification object:rowsTable]];
+                    {  // The path from your station to the chosen spot: dashed in the accent colour, its distance and bearing in a tag
+                       // at its middle (EN52WA to the SMOM's centre, over the Atlantic); none with nothing chosen.
+                        [findButton(mapw.contentView, @"World") performClick:nil];
+                        double la1 = 42.0 * M_PI / 180, lo1 = -89.0 * M_PI / 180, la2 = 41.9 * M_PI / 180, lo2 = 12.4 * M_PI / 180;
+                        double x = std::cos(la1) * std::cos(lo1) + std::cos(la2) * std::cos(lo2), y = std::cos(la1) * std::sin(lo1) + std::cos(la2) * std::sin(lo2),
+                               z = std::sin(la1) + std::sin(la2);
+                        NSPoint mid = pointFor(std::atan2(y, x) * 180 / M_PI, std::atan2(z, std::hypot(x, y)) * 180 / M_PI);
+                        NSColor *accent = [NSColor.controlAccentColor colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+                        (void)accent;
+                        auto tagNear = [&]() {  // the tag's blue (the accent, as the view draws it) round the middle, in many places
+                            NSBitmapImageRep *rep = mapImage();
+                            int blue = 0;
+                            for (int dx = -60; dx <= 60; dx += 3)
+                                for (int dy = -6; dy <= 6; dy += 3) {
+                                    NSColor *c = colourAt(rep, NSMakePoint(mid.x + dx, mid.y + dy));
+                                    blue += c && c.blueComponent > 0.85 && c.blueComponent - c.redComponent > 0.5;
+                                }
+                            return blue >= 12;
+                        };
+                        bool withPath = tagNear();
+                        [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, pointFor(-140, -50), 1)];  // the empty Pacific
+                        [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, pointFor(-140, -50), 1)];
+                        bool without = tagNear();
+                        CHECK(withPath && !without, "the chosen spot's path from your station, its distance in a tag at the middle (%d, then %d)", withPath,
+                              without);
+                        [rowsTable selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
+                        [rowsTable.delegate tableViewSelectionDidChange:[NSNotification notificationWithName:NSTableViewSelectionDidChangeNotification
+                                                                                                        object:rowsTable]];
+                    }
                     snapshot(mapw, "map-live");
+                    {  // The legend, top right: a click on "new band or mode" hides 1A0KM (new on 40m) from the map and the list, and
+                       // another shows it again.
+                        [views selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
+                        pump(0.2);
+                        NSRect legend = ((NSValue *)[mapView valueForKey:@"legendFrame"]).rectValue;
+                        auto listed = [&]() {
+                            for (NSInteger k = 0; k < [rowsTable.dataSource numberOfRowsInTableView:rowsTable]; ++k)
+                                if ([cell(rowsTable, k, @"call") isEqualToString:@"1A0KM"]) return true;
+                            return false;
+                        };
+                        bool before = listed(), hid = false;
+                        NSInteger rowsBefore = [rowsTable.dataSource numberOfRowsInTableView:rowsTable];
+                        for (CGFloat y = NSMaxY(legend) - 13; y > NSMinY(legend); y -= 16) {  // each row clicked off, looked at, and on again
+                            NSPoint at = [mapView convertPoint:NSMakePoint(NSMidX(legend), y) toView:nil];
+                            NSInteger was = [rowsTable.dataSource numberOfRowsInTableView:rowsTable];
+                            [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, at, 1)];
+                            [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, at, 1)];
+                            pump(0.3);  // the list follows a sixth of a second later
+                            if (!listed()) hid = [rowsTable.dataSource numberOfRowsInTableView:rowsTable] == was - 1;
+                            [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, at, 1)];
+                            [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, at, 1)];
+                            pump(0.3);
+                        }
+                        NSRect inView = legend;
+                        CHECK(before && hid && listed() && [rowsTable.dataSource numberOfRowsInTableView:rowsTable] == rowsBefore &&
+                                  NSMaxX(inView) > NSMaxX(mapView.bounds) - 20 && NSMaxY(inView) > NSMaxY(mapView.bounds) - 20,
+                              "the legend at the top right; its new-band entry hides 1A0KM, and shows it again (%d %d %d; %s in %s; %ld rows, was %ld)", before, hid,
+                              listed(), NSStringFromRect(inView).UTF8String, NSStringFromRect(mapView.bounds).UTF8String,
+                              (long)[rowsTable.dataSource numberOfRowsInTableView:rowsTable], (long)rowsBefore);
+                    }
                     // All spots again: Sort by nearest puts K9TST (90 km) first; Recent spots: the newest, a link to each.
                     [views selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
                     pump(0.2);

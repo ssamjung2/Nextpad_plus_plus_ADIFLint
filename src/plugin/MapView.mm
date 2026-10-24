@@ -431,6 +431,19 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     [self fitPlaneWest:west south:south east:east north:north minSpan:0.06];
 }
 
+// The view as it is (the middle of what is clear, and the zoom), and back to it: a Home view.
+- (BOOL)viewLon:(double *)lon lat:(double *)lat zoom:(double *)zoom {
+    NSRect clear = [self clearRect];
+    if (![self lonLatAt:NSMakePoint(NSMidX(clear), NSMidY(clear)) lon:lon lat:lat]) return NO;
+    *zoom = _zoom;
+    return YES;
+}
+
+- (void)showLon:(double)lon lat:(double)lat zoom:(double)zoom {
+    _zoom = std::clamp(std::isfinite(zoom) ? zoom : 1.0, 1.0, kMaxZoom);
+    [self centerOnLon:lon lat:lat];
+}
+
 - (void)centerOnLon:(double)lon lat:(double)lat {
     if ([self globe]) {
         _pr = adif::Projector(adif::Projection::Globe, lat, lon);
@@ -1093,6 +1106,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     [self drawCities:d];
     [self drawLines:d];
     [self drawSpotLines:d];
+    [self drawChosenPath:d];
     [self drawSquares:d];
     [self drawGridLabels:d];
     // POTA: the parks' outlines and the badges of those you haven't worked (dots when there are many), over the
@@ -1114,7 +1128,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     [self drawSelectionHalo];
     CGContextRestoreGState(d.ctx);
     if (_style.legend) [self drawLegend];
-    else [self legendAt:NSZeroRect];
+    else _legendKeys.clear(), [self legendAt:NSZeroRect];
     if (!_info.empty() && !self.infoHidden) [self drawInfoBox];
     [self drawScaleBar];
     [self drawOsmCredit];
@@ -1132,7 +1146,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     if (!(perPoint > 0)) return;
     double raw = perPoint * 40, power = std::pow(10.0, std::floor(std::log10(raw)));
     double step = raw / power < 2 ? power : raw / power < 5 ? 2 * power : 5 * power;
-    CGFloat seg = step / perPoint, x0 = (NSIsEmptyRect(_legendFrame) ? NSMinX(b) + 12 : NSMaxX(_legendFrame) + 16), y0 = NSMinY(b) + 22;
+    CGFloat seg = step / perPoint, x0 = (NSIsEmptyRect(_legendFrame) || _style.legend != 2 ? NSMinX(b) + 12 : NSMaxX(_legendFrame) + 16), y0 = NSMinY(b) + 22;
     if (x0 + 4 * seg + 40 > NSMaxX(b) - 8) return;  // no room
     const MapPalette &pal = paletteAt(_style.palette);
     NSColor *ink = [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.85];
@@ -1175,15 +1189,24 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     });
 }
 
-// The key to the colours and markers, bottom left (in the PNG too).
+// The key to the colours and markers, top right or bottom left (in the PNG too). The spots' kinds
+// and bands, and the other programs, are entries a click turns off or on (faded while off).
 - (void)drawLegend {
     const MapPalette &pal = paletteAt(_style.palette);
+    _legendKeys.clear();
     struct Entry {
         // 0 swatch, 1 dot, 2 triangle, 3 diamond, 4 star, 5 line, 6 contact marker, 7 heading, 8 plain text, 9 dashed box,
         // 10 park badge (hunted), 11 park badge (activated), 12 park badge (not worked), 13 spotter, 14 spot, 15 POTA spot
         int kind;
         NSColor *color;
         std::string text;
+        std::string toggle = "";  // what a click turns off or on (onLegendToggle)
+        bool off = false;
+    };
+    auto switchable = [&](int kind, NSColor *color, const std::string &text, const std::string &id, bool off) {
+        Entry e{kind, color, text};
+        e.toggle = id, e.off = off;
+        return e;
     };
     std::vector<Entry> rows;
     if ([self globe]) {
@@ -1235,14 +1258,16 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
                 break;
         }
     }
-    std::set<std::string> programs;
+    std::set<std::string> programs;  // the other programs in the log, shown or not
     bool parks = false;
-    for (const adif::MapPark &pk : _data.parks)
-        if ([self programShown:pk] && ![self parkPinned:pk]) pk.program == "POTA" ? (void)(parks = true) : (void)programs.insert(pk.program);
+    for (const adif::MapPark &pk : _data.parks) {
+        if (pk.program != "POTA") programs.insert(pk.program);
+        else if ([self programShown:pk] && ![self parkPinned:pk]) parks = true;
+    }
     if (contacts || parks || !programs.empty()) rows.push_back({7, nil, tr("Markers")});
     if (contacts) rows.push_back({6, [NSColor colorWithCalibratedWhite:pal.dark ? 0.85 : 0.35 alpha:1], tr("contacts (exact place)")});
     if (parks) rows.push_back({2, rgb(pal.park), tr("POTA parks (at the QSO's grid)")});
-    for (const std::string &p : programs) rows.push_back({3, [self programColor:p], p});
+    for (const std::string &p : programs) rows.push_back(switchable(3, [self programColor:p], p, "program." + p, _hiddenPrograms.count(p) > 0));
     if (_style.mine && !_data.mine.empty()) rows.push_back({4, rgb(pal.me), tr("my station")});
     if (_style.paths) rows.push_back({5, [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.6], tr("lines to contacts (in their colours)")});
     if (_style.dayNight || _style.greyLine) {
@@ -1272,20 +1297,22 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         if (_style[kLayerPota].overlay)
             rows.push_back({12, rgb(pal.park), _parkPlacesName.empty() ? tr("not worked") : trf("not worked, in {places}", {{"places", _parkPlacesName}})});
     }
-    if (_style[kLayerSpots].show && !_spots.empty()) {
+    auto spotEntry = [&](int kind, NSColor *color, const std::string &text, const std::string &id) {
+        rows.push_back(switchable(kind, color, text, id, _style.legendHidden.count(id) > 0));
+    };
+    if (_style[kLayerSpots].show && (!_spots.empty() || !_legendSpotBands.empty())) {
         rows.push_back({7, nil, tr("Spots")});
         // The spots' colours, as Colour by says (their own key: the QSOs' may not show).
         NSColor *grey = [NSColor colorWithCalibratedWhite:pal.dark ? 0.85 : 0.35 alpha:1];
         switch (_style.colorBy) {
             case 1: {
-                std::set<std::string> seen;
-                std::vector<std::string> bands;
+                std::vector<std::string> bands = _legendSpotBands;  // those the legend hid too
                 for (const ADIFMapSpot &s : _spots)
-                    if (!s.spot.band.empty() && seen.insert(s.spot.band).second) bands.push_back(s.spot.band);
+                    if (!s.spot.band.empty() && std::find(bands.begin(), bands.end(), s.spot.band) == bands.end()) bands.push_back(s.spot.band);
                 std::sort(bands.begin(), bands.end(), [](const std::string &a, const std::string &b) { return adif::bandOrder(a) < adif::bandOrder(b); });
                 if (bands.size() > 10) bands.resize(10);
                 rows.push_back({14, grey, tr("stations spotted (in their band's colour)")});
-                for (const std::string &b : bands) rows.push_back({14, [self bandColor:b], b});
+                for (const std::string &b : bands) spotEntry(14, [self bandColor:b], b, "band." + b);
                 break;
             }
             case 2:
@@ -1294,14 +1321,14 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
             case 3:
             case 4: rows.push_back({14, grey, tr("stations spotted (by your QSOs with them; grey: none)")}); break;
             default:
-                rows.push_back({14, rgb(pal.needDxcc), tr("new DXCC")});
-                rows.push_back({14, rgb(pal.needBand), tr("new band or mode for its DXCC")});
-                rows.push_back({14, rgb(pal.worked), tr("its DXCC worked on the band")});
-                rows.push_back({14, rgb(pal.confirmed), tr("its DXCC confirmed on the band")});
+                spotEntry(14, rgb(pal.needDxcc), tr("new DXCC"), "need.newdxcc");
+                spotEntry(14, rgb(pal.needBand), tr("new band or mode for its DXCC"), "need.newband");
+                spotEntry(14, rgb(pal.worked), tr("its DXCC worked on the band"), "need.worked");
+                spotEntry(14, rgb(pal.confirmed), tr("its DXCC confirmed on the band"), "need.confirmed");
                 break;
         }
-        if (std::any_of(_spots.begin(), _spots.end(), [](const ADIFMapSpot &s) { return potaSpot(s.spot); }))
-            rows.push_back({15, [NSColor colorWithCalibratedWhite:pal.dark ? 0.85 : 0.35 alpha:1], tr("POTA activators spotted (at their park)")});
+        if (_style.legendHidden.count("spot.pota") || std::any_of(_spots.begin(), _spots.end(), [](const ADIFMapSpot &s) { return potaSpot(s.spot); }))
+            spotEntry(15, [NSColor colorWithCalibratedWhite:pal.dark ? 0.85 : 0.35 alpha:1], tr("POTA activators spotted (at their park)"), "spot.pota");
         if (_style.spotters != 0 && !_spotters.empty()) rows.push_back({13, nil, tr("stations that heard them")});
     }
     if ((_style[kLayerIota].show || _style[kLayerIota].overlay) && !ADIFIotaGroups().empty()) {
@@ -1314,6 +1341,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         if (_style[kLayerIota].overlay) rows.push_back({9, [tint colorWithAlphaComponent:0.75], tr("not worked")});
     }
     if (rows.empty()) return [self legendAt:NSZeroRect];
+    if (std::any_of(rows.begin(), rows.end(), [](const Entry &e) { return !e.toggle.empty(); })) rows.push_back({8, nil, tr("Click an entry to hide or show it")});
 
     NSDictionary *text = @{NSFontAttributeName : [NSFont systemFontOfSize:11],
                            NSForegroundColorAttributeName : [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.9]};
@@ -1322,7 +1350,9 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     CGFloat width = 0, lineH = 16;
     for (const Entry &e : rows)
         width = std::max(width, [ADIFString(e.text) sizeWithAttributes:e.kind == 7 ? head : text].width + (e.kind == 7 || e.kind == 8 ? 0 : 20));
-    NSRect box = NSMakeRect(NSMinX(self.bounds) + 8, NSMinY(self.bounds) + 8, width + 16, rows.size() * lineH + 10);
+    CGFloat boxW = width + 16, boxH = rows.size() * lineH + 10;
+    NSRect box = _style.legend == 2 ? NSMakeRect(NSMinX(self.bounds) + 8, NSMinY(self.bounds) + 8, boxW, boxH)
+                                    : NSMakeRect(NSMaxX(self.bounds) - 8 - boxW, NSMaxY(self.bounds) - 8 - boxH, boxW, boxH);
     [self legendAt:box];
     NSBezierPath *bg = [NSBezierPath bezierPathWithRoundedRect:box xRadius:6 yRadius:6];
     [[NSColor colorWithCalibratedWhite:pal.dark ? 0 : 1 alpha:0.62] setFill];
@@ -1330,6 +1360,9 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     CGFloat y = NSMaxY(box) - 5 - lineH;
     for (const Entry &e : rows) {
         NSPoint at = NSMakePoint(NSMinX(box) + 8, y);
+        if (!e.toggle.empty()) _legendKeys.push_back({NSMakeRect(NSMinX(box) + 2, y, NSWidth(box) - 4, lineH), e.toggle});
+        [NSGraphicsContext saveGraphicsState];
+        if (e.off) CGContextSetAlpha(NSGraphicsContext.currentContext.CGContext, 0.3);
         if (e.kind == 10 || e.kind == 11 || e.kind == 12) {
             [self drawParkBadgeAt:NSMakePoint(at.x + 6, y + lineH / 2) radius:e.kind == 12 ? 5.5 : 6.5 color:e.color worked:e.kind != 12
                         activated:e.kind == 11
@@ -1389,6 +1422,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
             }
             [ADIFString(e.text) drawAtPoint:NSMakePoint(at.x + 18, y + 1) withAttributes:text];
         }
+        [NSGraphicsContext restoreGraphicsState];
         y -= lineH;
     }
 }
@@ -1509,7 +1543,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     [self.window makeFirstResponder:self];
     _down = [self convertPoint:event.locationInWindow fromView:nil];
     _dragged = NO;
-    if (event.clickCount == 2) [self zoomBy:2 at:_down];
+    if (event.clickCount == 2 && !NSPointInRect(_down, _legendFrame)) [self zoomBy:2 at:_down];
 }
 
 - (void)mouseDragged:(NSEvent *)event {
@@ -1525,7 +1559,13 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 - (void)mouseUp:(NSEvent *)event {
     [[NSCursor arrowCursor] set];
     if (_dragged || event.clickCount > 1) return;
-    ADIFMapHit h = [self hitAt:[self convertPoint:event.locationInWindow fromView:nil]];
+    NSPoint at = [self convertPoint:event.locationInWindow fromView:nil];
+    for (const auto &[row, id] : _legendKeys)
+        if (NSPointInRect(at, row)) {  // a legend entry: off or on, not a click on the map
+            if (self.onLegendToggle) self.onLegendToggle(id);
+            return;
+        }
+    ADIFMapHit h = [self hitAt:at];
     _selected = h;
     self.needsDisplay = YES;
     if (self.onSelect) self.onSelect(h);

@@ -446,6 +446,7 @@ struct {
     // bell, with the watched stations spotted (those not seen since it was last opened tint it).
     NSButton *watchButton = nil, *watchEdit = nil, *bell = nil;
     NSMenu *bellMenu = nil;
+    NSMenu *homeMenu = nil;  // the Home button's own: set or forget the Home view
     NSPopover *watchPopover = nil;
     NSTokenField *watchTokens = nil;
     std::vector<ADIFWatchedSpot> watchedSpots;  // newest first, whichever Quick View is chosen
@@ -522,6 +523,8 @@ void showWatchButton(const ADIFMapHit &h);
 void showWatchList(NSView *anchor);
 void fillBell();
 void fillBellMenu(NSMenu *menu);
+void fillHomeMenu(NSMenu *menu);
+void goHomeView();
 
 bool flag(const char *key, bool fallback) {
     std::string v = setting(key);
@@ -625,7 +628,8 @@ ADIFMapStyle savedStyle() {
         st.overlay = flag(l.overlayKey, l.overlayOn);
         st.labels = flag(l.labelsKey, true);
     }
-    s.legend = flag("mapLegend", true);
+    s.legend = number("mapLegend", 1, 2);
+    for (const std::string &id : splitSetting("mapLegendHidden", ',')) s.legendHidden.insert(id);
     s.rings = flag("mapRings", false);
     s.paths = flag("mapPaths", false);
     s.lineStyle = number("mapLineStyle", 0, 2);
@@ -1620,7 +1624,8 @@ void showStyleOptions() {
              @"spots stand out from them")});
         add({"mapSpotlight", @"map.style.spotlight", 0, nil, N(@"Spotlight what's chosen"),
              N(@"With something clicked on the map, dim the rest of it: the chosen marker, square, area, outline or box stays clear")});
-        add({"mapLegend", @"map.style.legend", 1, nil, N(@"Legend"), nil});
+        add({"mapLegend", @"map.style.legend", 1, @[ N(@"Off##legend"), N(@"Top right"), N(@"Bottom left") ], N(@"Legend:"),
+             N(@"The key to the map's colours and markers; click a spot's kind or band, or another program, in it to hide or show those")});
         add({"mapRings", @"map.style.rings", 0, nil, N(@"Distance rings from my grid"), nil});
         add({"mapDayNight", @"map.style.dayNight", 0, nil, N(@"Day and night"), N(@"The night side shaded, deeper as the sun goes further down, and the "
                                                                               @"line between day and night; the sun where it is overhead")});
@@ -2514,17 +2519,37 @@ void refreshSpots() {
     }
     // Live's Quick Views: how many stations each has, and only the chosen one's kept.
     for (size_t &n : mw.lensCounts) n = 0;
+    std::vector<std::string> spotBands;  // before the legend hides any: its entries
     mw.watchedSpots.clear();
     mw.newestSpot = 0;
     if (show) {
         const adif::CountryTable *countries = &ADIFCountries();
         std::vector<ADIFMapSpot> kept;
         std::vector<std::string> watch = watchList();
+        // The legend's entries clicked off: those spots hidden, while the legend shows the entry.
+        ADIFMapStyle look = mw.view.style;
+        auto legendHides = [&](const adif::Spot &sp, const adif::SpotStatus &st) {
+            const std::set<std::string> &off = look.legendHidden;
+            if (!look.legend || off.empty()) return false;
+            if (mapkit::potaSpot(sp) && off.count("spot.pota")) return true;
+            if (look.colorBy == 1) return off.count("band." + sp.band) > 0;
+            if (look.colorBy != 0) return false;
+            switch (st.need) {
+                case adif::SpotNeed::NewDxcc: return off.count("need.newdxcc") > 0;
+                case adif::SpotNeed::NewBand:
+                case adif::SpotNeed::NewMode: return off.count("need.newband") > 0;
+                case adif::SpotNeed::Worked: return off.count("need.worked") > 0;
+                case adif::SpotNeed::Confirmed: return off.count("need.confirmed") > 0;
+                default: return false;
+            }
+        };
         for (ADIFMapSpot &m : marks) {
             adif::SpotStatus st = adif::spotStatus(mw.view.worked, m.spot, countries);
             mw.newestSpot = std::max(mw.newestSpot, m.spot.epoch);
             if (!m.spot.heardMe) m.watched = adif::watchedFor(watch, m.spot, st.entity);
             if (!m.watched.empty()) mw.watchedSpots.push_back({m.spot.activator, m.spot.band, m.spot.khz, m.spot.mode, m.watched, m.spot.epoch});
+            if (!m.spot.band.empty() && std::find(spotBands.begin(), spotBands.end(), m.spot.band) == spotBands.end()) spotBands.push_back(m.spot.band);
+            if (legendHides(m.spot, st)) continue;
             for (int v = 0; v < (int)std::size(mw.lensCounts); ++v) mw.lensCounts[v] += inLens(v, m.spot, st, !m.watched.empty());
             if (inLens(mw.spotLens, m.spot, st, !m.watched.empty())) kept.push_back(std::move(m));
         }
@@ -2551,6 +2576,7 @@ void refreshSpots() {
         fillQuickViews();
         fillFilterChips();
     }
+    mw.view.legendSpotBands = spotBands;
     [mw.view setSpots:marks now:now maxAge:f.maxAge];
     fillRecentSpots();
     queueViewList();
@@ -4290,6 +4316,30 @@ void fillBellMenu(NSMenu *menu) {
     fillBell();
 }
 
+// ── Home: your station in the middle, or the view you set as Home (mapHomeView: lon, lat, zoom) ──
+
+void goHomeView() {
+    std::vector<std::string> v = splitSetting("mapHomeView", ',');
+    if (v.size() == 3) [mw.view showLon:std::atof(v[0].c_str()) lat:std::atof(v[1].c_str()) zoom:std::atof(v[2].c_str())];
+    else [mw.view goHome];
+}
+
+void fillHomeMenu(NSMenu *menu) {
+    [menu removeAllItems];
+    menu.autoenablesItems = NO;
+    NSMenuItem *set = [menu addItemWithTitle:T(@"Set Home View to This") action:nil keyEquivalent:@""];
+    ADIFBlockMenuItem(set, ^{
+        double lon, lat, zoom;
+        if (![mw.view viewLon:&lon lat:&lat zoom:&zoom]) return;
+        char v[64];
+        snprintf(v, sizeof v, "%.5f,%.5f,%.4f", lon, lat, zoom);
+        setSetting("mapHomeView", v);
+    });
+    NSMenuItem *reset = [menu addItemWithTitle:T(@"Forget Home View (Your Station)") action:nil keyEquivalent:@""];
+    reset.enabled = !setting("mapHomeView").empty();
+    ADIFBlockMenuItem(reset, ^{ setSetting("mapHomeView", ""); });
+}
+
 // ── The footer: what is under the pointer, and the workflow's state ──
 
 void showHover(const std::string &text) {
@@ -4519,8 +4569,12 @@ void cmdMap() {
             if (workflow() == 1) [mw.view fitSpots];
             else [mw.view fitLog];
         });
-        NSButton *home = smallButton(@"Home", @"Your station in the middle of the map, at the zoom it has (Settings, Your Station's grid)",
-                                     ^{ [mw.view goHome]; });
+        NSButton *home = smallButton(@"Home", @"Your station in the middle of the map, at the zoom it has (Settings, Your Station's grid); or "
+                                              @"the Home view you set (right-click: Set Home View)",
+                                     ^{ goHomeView(); });
+        home.identifier = @"map.home";
+        mw.homeMenu = [[NSMenu alloc] init];  // filled by the list's menu delegate, made below
+        home.menu = mw.homeMenu;
         NSButton *world = smallButton(@"World", @"The whole world (0)", ^{ [mw.view showWorld]; });
         NSButton *save = smallButton(@"Export PNG...", @"Save the map as it is shown now, with its legend", ^{ exportPng(); });
         mw.spotsButton = smallButton(@"Sources and Filters...", @"The spots the Spots layer shows: how new, from which sources, which program; and what the "
@@ -4701,6 +4755,27 @@ void cmdMap() {
             showHover(d.empty() ? idleStatus() : d);
         };
         mw.view.onSelect = ^(const ADIFMapHit &h) { selected(h); };
+        // A legend entry clicked: another program's references (as Other programs' menu), or a kind
+        // or band of spots, off or on.
+        mw.view.onLegendToggle = ^(const std::string &id) {
+            if (id.rfind("program.", 0) == 0) {
+                std::set<std::string> h = hiddenPrograms();
+                if (!h.erase(id.substr(8))) h.insert(id.substr(8));
+                saveHidden(h);
+                applyStyle();
+                fillPrograms();
+                return;
+            }
+            std::vector<std::string> off = splitSetting("mapLegendHidden", ',');
+            auto at = std::find(off.begin(), off.end(), id);
+            if (at != off.end()) off.erase(at);
+            else off.push_back(id);
+            std::string v;
+            for (const std::string &o : off) v += (v.empty() ? "" : ",") + o;
+            setSetting("mapLegendHidden", v);
+            applyStyle();
+            refreshSpots();
+        };
         mw.view.onViewChanged = ^{
             updateZoomLabel();
             queueViewList();
@@ -4762,8 +4837,10 @@ void cmdMap() {
             mw.listRows.fillMenu = ^(NSMenu *menu) {
                 if (menu == mw.listRowMenu) fillRowMenu(menu);
                 else if (menu == mw.bellMenu) fillBellMenu(menu);
+                else if (menu == mw.homeMenu) fillHomeMenu(menu);
                 else fillColumnsMenu(menu, menu == columnsMenu);
             };
+            mw.homeMenu.delegate = mw.listRows;
         }
         mw.listSearch = [[NSSearchField alloc] initWithFrame:NSZeroRect];
         mw.listSearch.placeholderString = T(@"Search: a call, reference, name...");

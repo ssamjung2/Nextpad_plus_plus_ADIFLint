@@ -63,7 +63,11 @@ struct ADIFMapStyle {
     int lineStyle = 0;  // lines to contacts: 0 solid, 1 dashed, 2 dotted
     int lineWidth = 1;  // 0 thin, 1 medium, 2 thick
     double marker = 1;  // marker size factor
-    bool legend = true, rings = false, paths = false, mine = true;
+    int legend = 1;  // 0 off, 1 top right, 2 bottom left
+    bool rings = false, paths = false, mine = true;
+    // The legend's entries clicked off ("need.newdxcc", "band.20m", "spot.pota"): those spots hidden
+    // while the legend shows the entry (adif "program.X" entries are hiddenPrograms instead).
+    std::set<std::string> legendHidden;
     bool arcs = true;      // on the globe, lines to contacts arch over it
     int lineOpacity = 1;   // lines to contacts: 0 faint, 1 medium, 2 solid
     int areaShade = 1;     // worked areas (DXCC, states, counties, zones): 0 light, 1 medium, 2 strong
@@ -277,6 +281,7 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
     long long _spotMaxAge;           // the Spots filter's age (fading); 0 any
     NSEdgeInsets _clearInsets;       // the edges the window's floating controls cover
     NSRect _legendFrame;             // where the legend was drawn last; empty: none
+    std::vector<std::pair<NSRect, std::string>> _legendKeys;  // its entries that a click turns off or on
 }
 @property(nonatomic) BOOL showContacts;
 @property(nonatomic) std::set<std::string> hiddenPrograms;
@@ -289,8 +294,10 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 // The edges of the view the window's own controls float over (its bar, cards and zoom buttons):
 // Fit Log, a region and a place are fitted inside the rest.
 @property(nonatomic) NSEdgeInsets clearInsets;
-@property(nonatomic, readonly) NSRect legendFrame;      // the legend's box, bottom left; empty when it is off
+@property(nonatomic, readonly) NSRect legendFrame;      // the legend's box; empty when it is off
 @property(nonatomic, copy) void (^onLegendMoved)(void);  // the legend's box changed (after it was drawn)
+@property(nonatomic, copy) void (^onLegendToggle)(const std::string &key);  // an entry clicked: its key
+@property(nonatomic) std::vector<std::string> legendSpotBands;  // the spots' bands before the legend hid any, for its entries
 - (void)setData:(const adif::MapData &)data entities:(const std::vector<ADIFMapEntity> &)entities;
 - (void)setProjector:(const adif::Projector &)projector home:(NSString *)homeGrid lat:(double)lat lon:(double)lon;
 - (void)zoomBy:(double)factor;  // about the middle of what is clear
@@ -326,6 +333,8 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 // Zoom right in to a small place (a park, or its outline's box), as close as the map goes there.
 - (void)showPlaceWest:(double)w south:(double)s east:(double)e north:(double)n;
 - (void)centerOnLon:(double)lon lat:(double)lat;  // at the zoom it has (the globe turns to face it)
+- (BOOL)viewLon:(double *)lon lat:(double *)lat zoom:(double *)zoom;  // the middle of what is clear, and the zoom
+- (void)showLon:(double)lon lat:(double)lat zoom:(double)zoom;        // back to such a view
 // How many areas of a layer the QSOs reached, and how many of them have a confirmed QSO: US
 // states, counties, CQ and ITU zones; POTA parks hunted or activated; IOTA groups.
 - (std::pair<size_t, size_t>)workedCount:(int)layer;
@@ -446,6 +455,7 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 - (bool)spotLit:(size_t)k;     // under the pointer or chosen
 - (bool)spotterLit:(size_t)j;  // so, or a spotter of such a spot
 - (void)drawSpotLines:(MapDrawCtx &)d;
+- (void)drawChosenPath:(MapDrawCtx &)d;
 - (void)drawSpots:(MapDrawCtx &)d;
 - (void)drawSpotters:(MapDrawCtx &)d;
 - (void)drawSpotterAt:(NSPoint)p radius:(double)r lit:(BOOL)lit dark:(BOOL)dark faint:(BOOL)faint;

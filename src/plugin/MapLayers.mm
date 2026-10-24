@@ -1345,6 +1345,41 @@ bool mapkit::potaSpot(const adif::Spot &s) { return s.program == "POTA"; }
 // Overlay: a line from each spotter to the station it heard, in the spot's colour, fainter, or
 // faint grey (Style Options). The lines of the spot or spotter under the pointer or chosen show
 // in the spot's colour while Show is on, Overlay or not, on top.
+// The great-circle path from your station to the spot or contact chosen, dashed in the accent
+// colour, with its distance and bearing at its middle: where to point the antenna.
+- (void)drawChosenPath:(MapDrawCtx &)d {
+    if (!_hasHome) return;
+    const ADIFMapHit &h = _selected;
+    double lat = 0, lon = 0;
+    if (h.kind == ADIFMapHit::Spot && h.index < _spots.size() && !_spots[h.index].spot.heardMe) lat = _spots[h.index].lat, lon = _spots[h.index].lon;
+    else if (h.kind == ADIFMapHit::Contact && h.index < _contacts.size()) lat = _contacts[h.index].lat, lon = _contacts[h.index].lon;
+    else return;
+    double km = adif::greatCircleKm(_homeLat, _homeLon, lat, lon);
+    if (km < 1) return;
+    std::vector<std::pair<double, double>> pts = adif::greatCirclePath(_homeLat, _homeLon, lat, lon, 2);
+    NSBezierPath *path = [self viewPath:pts close:NO wraps:YES];
+    NSColor *accent = [NSColor.controlAccentColor colorUsingColorSpace:NSColorSpace.sRGBColorSpace] ?: NSColor.systemBlueColor;
+    path.lineWidth = 2;
+    path.lineJoinStyle = NSLineJoinStyleRound;
+    const CGFloat dash[] = {7, 4};
+    [path setLineDash:dash count:2 phase:0];
+    [[accent colorWithAlphaComponent:0.9] setStroke];
+    [path stroke];
+    const std::pair<double, double> &mid = pts[pts.size() / 2];  // (lon, lat)
+    NSPoint m = [self viewPointForLon:mid.first lat:mid.second];
+    if (!NSPointInRect(m, NSInsetRect(d.b, 30, 12))) return;
+    char bearing[16];
+    snprintf(bearing, sizeof bearing, "%.0f\u00B0", adif::initialBearing(_homeLat, _homeLon, lat, lon));
+    NSString *text = ADIFString(adif::distanceText(km, self.scaleInMiles) + "  \u00B7  " + bearing);
+    NSDictionary *a = @{NSFontAttributeName : [NSFont monospacedDigitSystemFontOfSize:10 weight:NSFontWeightSemibold],
+                        NSForegroundColorAttributeName : NSColor.whiteColor};
+    NSSize sz = [text sizeWithAttributes:a];
+    NSRect card = NSMakeRect(m.x - sz.width / 2 - 5, m.y - sz.height / 2 - 2, sz.width + 10, sz.height + 4);
+    [[accent colorWithAlphaComponent:0.92] setFill];
+    [[NSBezierPath bezierPathWithRoundedRect:card xRadius:card.size.height / 2 yRadius:card.size.height / 2] fill];
+    [text drawAtPoint:NSMakePoint(NSMinX(card) + 5, NSMinY(card) + 2) withAttributes:a];
+}
+
 - (void)drawSpotLines:(MapDrawCtx &)d {
     if (!_style[kLayerSpots].show) return;
     std::set<std::string> litSpotters;
@@ -1457,26 +1492,49 @@ bool mapkit::potaSpot(const adif::Spot &s) { return s.program == "POTA"; }
         dot.lineWidth = lit ? 1.4 : 0.8;
         [dot stroke];
     }
-    if (_style[kLayerSpots].labels) {
-        long long now = (long long)time(nullptr);
-        for (size_t k = 0; k < _spots.size() && k < 400; ++k) {  // the newest first get the room
-            const ADIFMapSpot &s = _spots[k];
-            NSPoint p = [self viewPointForLon:s.lon lat:s.lat];
-            NSString *call = ADIFString((s.watched.empty() ? "" : "\u2605 ") + s.spot.activator);  // a star: on your watch list
-            NSString *details = ADIFString(adif::spotLabelDetails(s.spot, _style.spotLabel, now));
-            NSSize cs = [call sizeWithAttributes:attrs];
-            NSSize ds = details.length ? [details sizeWithAttributes:small] : NSZeroSize;
-            double gap = [self spotRadius:s] + 2;
-            NSRect r = NSMakeRect(p.x + gap, p.y - (cs.height + ds.height) / 2, std::max(cs.width, ds.width), cs.height + ds.height);
-            if (!NSIntersectsRect(r, d.b)) continue;
-            bool clear = true;
-            for (const NSRect &t : taken) clear &= !NSIntersectsRect(NSInsetRect(t, -2, -1), r);
-            if (!clear) continue;
-            [call drawAtPoint:NSMakePoint(r.origin.x, r.origin.y + ds.height) withAttributes:attrs];
-            if (details.length) [details drawAtPoint:r.origin withAttributes:small];
-            taken.push_back(r);
+    // Each label a tag beside its marker: the call, then the details Style Options chooses, on a
+    // card of the map's own colour edged in the spot's; the chosen spot's always shows (labels on
+    // or off), edged in the accent colour, over the rest.
+    long long now = (long long)time(nullptr);
+    NSDictionary *tagCall = @{NSFontAttributeName : attrs[NSFontAttributeName], NSForegroundColorAttributeName : textColor};
+    NSDictionary *tagSmall = @{NSFontAttributeName : small[NSFontAttributeName], NSForegroundColorAttributeName : textColor};
+    NSColor *accent = [NSColor.controlAccentColor colorUsingColorSpace:NSColorSpace.sRGBColorSpace] ?: NSColor.systemBlueColor;
+    auto callout = [&](size_t k, bool chosen) {
+        const ADIFMapSpot &s = _spots[k];
+        NSPoint p = [self viewPointForLon:s.lon lat:s.lat];
+        NSString *call = ADIFString((s.watched.empty() ? "" : "\u2605 ") + s.spot.activator);  // a star: on your watch list
+        NSString *details = ADIFString(adif::spotLabelDetails(s.spot, _style.spotLabel, now));
+        NSSize cs = [call sizeWithAttributes:tagCall];
+        NSSize ds = details.length ? [details sizeWithAttributes:tagSmall] : NSZeroSize;
+        double gap = [self spotRadius:s] + (chosen ? 9 : 5);  // the chosen one clears its halo
+        NSRect text = NSMakeRect(p.x + gap + 4, p.y - (cs.height + ds.height) / 2, std::max(cs.width, ds.width), cs.height + ds.height);
+        NSRect card = NSInsetRect(text, -4, -1.5);
+        if (!NSIntersectsRect(card, d.b)) return;
+        if (!chosen) {
+            for (const NSRect &t : taken)
+                if (NSIntersectsRect(NSInsetRect(t, -2, -1), card)) return;
         }
-    }
+        NSColor *edge = chosen ? accent : [[self spotColor:s] colorWithAlphaComponent:0.85 * [self spotAlpha:s]];
+        NSBezierPath *leader = [NSBezierPath bezierPath];  // from the marker to the card
+        [leader moveToPoint:NSMakePoint(p.x + gap - 4, p.y)];
+        [leader lineToPoint:NSMakePoint(NSMinX(card), p.y)];
+        leader.lineWidth = chosen ? 1.6 : 1;
+        [edge setStroke];
+        [leader stroke];
+        NSBezierPath *bg = [NSBezierPath bezierPathWithRoundedRect:card xRadius:3 yRadius:3];
+        [[rgb(pal.background) colorWithAlphaComponent:0.85] setFill];
+        [bg fill];
+        bg.lineWidth = chosen ? 1.6 : 0.8;
+        [bg stroke];
+        [call drawAtPoint:NSMakePoint(text.origin.x, text.origin.y + ds.height) withAttributes:tagCall];
+        if (details.length) [details drawAtPoint:text.origin withAttributes:tagSmall];
+        taken.push_back(card);
+    };
+    size_t chosen = _selected.kind == ADIFMapHit::Spot && _selected.index < _spots.size() ? _selected.index : (size_t)-1;
+    if (_style[kLayerSpots].labels)
+        for (size_t k = 0; k < _spots.size() && k < 400; ++k)  // the newest first get the room
+            if (k != chosen) callout(k, false);
+    if (chosen != (size_t)-1) callout(chosen, true);
     if (_style.spotters == 3)  // the spotters' calls last: they give way to everything else
         for (size_t j = 0; j < _spotters.size(); ++j) {
             NSPoint p = [self viewPointForLon:_spotters[j].lon lat:_spotters[j].lat];
