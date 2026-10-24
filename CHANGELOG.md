@@ -52,6 +52,12 @@ Versions before 0.8.0 were development builds and were not published.
   **Needed on its band** (a new DXCC or a new band), **New DXCC**, **New band**, **New
   mode**, **New POTA parks**, **POTA activators**, **My watch list** and **Worked before**,
   each with its count; choosing one shows only those.
+- **Map → your own Quick Views**: **Save View…** keeps the layers, colours and filters (and in
+  Live which spots show) as a Quick View in that workflow; right-click one to remove it.
+- **Map → selected panel**: a reason that can show more has an arrow (a band or mode: the
+  entity in the list's DXCC; a new DXCC or park: its Quick View; heard near you: Band
+  conditions; your QSOs: the list). **Details** gives who heard the spot, your QSOs with the
+  call, its references and its entity. In POTA, Best opportunity puts new parks first.
 - **Map → DX Chase and POTA**, beside History and Live: Live with its own settings for chasing
   what you need (Needed on its band, plain DX spots, the grey line) or for hunting parks (POTA
   activators, every park).

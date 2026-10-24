@@ -537,7 +537,8 @@ The Map has two ways of working, chosen at the left of its toolbar:
 - **DX Chase** is Live for the DXCC entities and bands you need: it opens on **Needed on its
   band**, with plain DX spots (no programs), no parks, and the grey line.
 - **POTA** is Live for the parks: it opens on **POTA activators**, with every park (those you
-  worked badged) and no DXCC shading.
+  worked badged) and no DXCC shading. Its **Best opportunity** puts the parks you haven't
+  hunted first, then the other activators (elsewhere a new DXCC comes first).
 
 Each keeps its own layers, colours, list, Quick View and spot program: switch and come back,
 and each is as you left it. The first time, Live shows the spots and their list, with the
@@ -569,7 +570,9 @@ The window, from the top:
     or a new band: an entity you haven't worked on the spot's band), **New DXCC**, **New
     band**, **New mode**, **New POTA parks**, **POTA activators**, **My watch list**,
     **Worked before**, each with its count; choosing one shows only those, on the map and in
-    the list.
+    the list. **Save View…** under them keeps the layers, colours and filters as they are
+    (and in Live which spots show) as a Quick View of your own in that workflow, after the
+    others; right-click one of yours to remove it.
   - **Spots** (Live): the Spots layer's boxes, **Sources and Filters…**, refresh,
     **Only spots of** (see [Spots on the map](#spots-on-the-map)), and **Watch List…** (see
     [The watch list](#the-watch-list)).
@@ -1073,7 +1076,13 @@ The panel on the right shows what you clicked (pointing only describes it, in th
 - **Why it's interesting**, for a spot: a new DXCC entity, a band or mode new for the
   entity, a park you haven't worked; whether the station uses LoTW (with the LoTW users list
   on, in Settings); how many of the stations that heard it are within 1,500 km of you; and
-  your QSOs with the call (on which bands, since when, confirmed or not).
+  your QSOs with the call (on which bands, since when, confirmed or not). A reason with an
+  arrow shows more: a new DXCC or a new park its Quick View; a band or mode the entity's
+  row in the list's DXCC (the spot stays chosen); the stations near you Band conditions;
+  your QSOs with the call the list's Selected; your watch list its editor.
+- **Details** (closed at first): who heard the spot (how long ago, how strong, how far from
+  you), your QSOs with the call, its references (with the park's name), and its entity
+  (DXCC number, continent, zones).
 - **New QSO** (for a spot) fills New QSO from it: CALL, FREQ, BAND, MODE and the program's
   reference, or GRIDSQUARE when the spot gives one. **Center** puts it in the middle of the
   map at the zoom it has. With one QSO chosen, **View QSO** goes to its record in the log.

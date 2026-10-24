@@ -4847,6 +4847,37 @@ int main(int argc, char **argv) {
                 CHECK(views.selectedRow == 0 && on(@"show", @"grid") && on(@"show", @"countries") && on(@"show", @"pota") && !on(@"show", @"states") &&
                           !on(@"show", @"cq"),
                       "All QSOs: squares, countries and parks again");
+                {  // Save View...: US states with CQ zones too, saved as your own; All QSOs, then it again; removed from its menu.
+                    chooseView(4);
+                    setBox(mapBox(@"show", @"cq"), true);
+                    [(NSButton *)viewWithIdentifier(mapw.contentView, @"map.views.save") performClick:nil];
+                    pump(0.2);
+                    NSTextField *name = nil;
+                    NSButton *saveOk = nil;
+                    for (NSWindow *w in NSApp.windows) {
+                        if (!name) name = (NSTextField *)viewWithIdentifier(w.contentView, @"map.views.name");
+                        if (!saveOk) saveOk = (NSButton *)viewWithIdentifier(w.contentView, @"map.views.saveok");
+                    }
+                    name.stringValue = @"States and CQ";
+                    [saveOk performClick:nil];
+                    pump(0.2);
+                    NSInteger rowsNow = [views.dataSource numberOfRowsInTableView:views];
+                    bool saved = rowsNow == 12 && [viewCell(11).textField.stringValue isEqualToString:@"States and CQ"] && views.selectedRow == 11;
+                    chooseView(0);
+                    bool back = !on(@"show", @"states") && !on(@"show", @"cq");
+                    chooseView(11);
+                    bool mine = on(@"show", @"states") && on(@"show", @"cq") && !on(@"show", @"grid") && views.selectedRow == 11;
+                    NSMenu *viewMenu = views.menu;
+                    [viewMenu.delegate menuNeedsUpdate:viewMenu];
+                    NSString *removeTitle = viewMenu.numberOfItems ? [viewMenu itemAtIndex:0].title : @"";
+                    if (viewMenu.numberOfItems) [viewMenu performActionForItemAtIndex:0];
+                    for (NSWindow *w in [NSApp.windows copy])
+                        if (viewWithIdentifier(w.contentView, @"map.views.saving")) [w orderOut:nil];
+                    CHECK(name && saved && back && mine && [removeTitle isEqualToString:@"Remove \u201CStates and CQ\u201D"] &&
+                              [views.dataSource numberOfRowsInTableView:views] == 11,
+                          "your own Quick View: saved (%ld rows), chosen again (%d), removed (%s)", (long)rowsNow, mine, removeTitle.UTF8String);
+                    chooseView(0);
+                }
                 // The toolbar: what the map shows (the QSOs and their dates); a filter on, Clear can clear it; the
                 // continent menu and a place chosen in More Filters (a tag, which removes it when clicked).
                 NSPopUpButton *bands = findPopupWith(mapw.contentView, @"All bands");
@@ -5737,6 +5768,24 @@ int main(int argc, char **argv) {
                                                                                                         object:rowsTable]];
                     }
                     snapshot(mapw, "map-live");
+                    {  // The reasons' arrows: Needed on 40m shows the entity in the list's DXCC (the spot stays chosen); Details says who
+                       // heard it and the entity.
+                        NSButton *firstWhy = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.why.0");
+                        NSString *tip = firstWhy.toolTip ?: @"";
+                        [firstWhy performClick:nil];
+                        pump(0.2);
+                        NSInteger dxRow = rowsTable.selectedRow;
+                        NSString *entityRow = dxRow >= 0 ? cell(rowsTable, dxRow, @"entity") : @"";
+                        NSString *stillChosen = ((NSTextField *)viewWithIdentifier(mapw.contentView, @"map.contact.title")).stringValue;
+                        NSString *details = ((NSTextField *)viewWithIdentifier(mapw.contentView, @"map.details")).stringValue;
+                        CHECK(firstWhy && [tip containsString:@"DXCC"] && listKind.selectedSegment == 6 && [entityRow isEqualToString:@"Sov Mil Order of Malta"] &&
+                                  [stillChosen hasPrefix:@"1A0KM"] && shown(@"map.details.section") && [details containsString:@"Heard by"] &&
+                                  [details containsString:@"IK0XYZ"] && [details containsString:@"DXCC 246"],
+                              "the reason's arrow: the DXCC list at %s, %s still chosen; details: %s", entityRow.UTF8String, stillChosen.UTF8String,
+                              [details stringByReplacingOccurrencesOfString:@"\n" withString:@" | "].UTF8String);
+                        listKind.selectedSegment = 3;
+                        [listKind sendAction:listKind.action to:listKind.target];
+                    }
                     {  // The legend, top right: a click on "new band or mode" hides 1A0KM (new on 40m) from the map and the list, and
                        // another shows it again.
                         [views selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
