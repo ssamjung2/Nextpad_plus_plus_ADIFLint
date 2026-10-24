@@ -52,6 +52,12 @@ Versions before 0.8.0 were development builds and were not published.
   **Needed on its band** (a new DXCC or a new band), **New DXCC**, **New band**, **New
   mode**, **New POTA parks**, **POTA activators**, **My watch list** and **Worked before**,
   each with its count; choosing one shows only those.
+- **Map → Filters.** The dates menu has **Custom Range…** (from one day to another, the
+  range shown in the menu). The confirmation menu adds **Confirmed on LoTW**, **by eQSL**,
+  **by card** and **Not confirmed on LoTW**. More Filters adds **Within** so many km or mi of
+  your station (QSOs, spots, and the parks you haven't worked when they follow the filters)
+  and **Records**: without a grid square, possible duplicates, or with problems Check Log
+  finds. Each shows as a tag in the toolbar.
 - **Map → Layers.** Each group (Worked areas, Programs, Places, Contacts, Sun) closes on its
   own with its triangle, remembered. **Other programs** is a row in Programs with a box for
   them all (off hides them, on brings back those you had shown); its name is the menu of
@@ -155,6 +161,8 @@ Versions before 0.8.0 were development builds and were not published.
 ### Fixed
 
 - **Map → Colour by** now colours the spots too; they were always in their band's colour.
+- **Map:** your station's grid, when it comes from the log's MY_GRIDSQUARE, is taken from the
+  whole log, not only the QSOs the filters keep (with none kept, the map lost its home).
 
 ## [1.3.0] - 2026-10-19
 

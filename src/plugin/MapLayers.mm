@@ -1101,6 +1101,7 @@ bool mapkit::potaSpot(const adif::Spot &s) { return s.program == "POTA"; }
     }
     const adif::MapFilter &f = _parkFilter;
     if (!_filterParks || !f.any()) return YES;
+    if (f.withinKm > 0 && (!p.placed || adif::greatCircleKm(f.homeLat, f.homeLon, p.lat, p.lon) > f.withinKm)) return NO;
     std::vector<std::string> locs;
     for (size_t b = 0; b <= p.location.size();) {
         size_t e = p.location.find(',', b);

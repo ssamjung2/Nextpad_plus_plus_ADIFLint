@@ -1,5 +1,6 @@
 #include "adif_world.h"
 
+#include "adif_edit.h"
 #include "adif_enrich.h"
 #include "adif_geo.h"
 #include "adif_parks.h"
@@ -7,6 +8,7 @@
 #include "adif_regions.h"
 #include "adif_worked.h"
 #include "adif_spec.h"
+#include "adif_tools.h"
 
 #include <algorithm>
 #include <array>
@@ -91,11 +93,20 @@ MapData mapData(std::string_view text, const DocModel &m, std::string_view band,
 
 bool MapFilter::any() const {
     return !continents.empty() || !dxcc.empty() || !cq.empty() || !itu.empty() || !states.empty() || !counties.empty() || !regions.empty() ||
-           !potaLocations.empty();
+           !potaLocations.empty() || withinKm > 0;
+}
+
+std::set<int> problemGroups(const LintResult &r) {
+    std::set<int> out;
+    for (const Diagnostic &d : r.diagnostics)
+        if (d.severity == Severity::Error || d.severity == Severity::Warning)
+            if (int g = groupAt(r.model, d.start); g >= 0 && (size_t)g < r.model.groups.size() && !r.model.groups[(size_t)g].header) out.insert(g);
+    return out;
 }
 
 bool placeMatches(const MapFilter &f, const MapQso &q, const PotaParks *parks) {
     const QsoAreas &a = q.areas;
+    if (f.withinKm > 0 && (!a.placed || greatCircleKm(f.homeLat, f.homeLon, a.lat, a.lon) > f.withinKm)) return false;
     if (!f.continents.empty() && !f.continents.count(a.cont)) return false;
     if (!f.dxcc.empty() && !f.dxcc.count(a.dxcc)) return false;
     if (!f.cq.empty() && !f.cq.count(a.cq)) return false;
@@ -132,15 +143,43 @@ MapData mapData(std::string_view text, const DocModel &m, const MapFilter &filte
     std::map<std::string, size_t> squareIndex;
     std::vector<std::string> mine;
     const std::string &band = filter.band, &mode = filter.mode;
+    std::set<int> dupes;  // the records of a contact logged more than once
+    if (filter.records == 2)
+        for (const DupeSet &d : findDuplicates(text, m, DupeOptions())) {
+            dupes.insert(d.keep);
+            dupes.insert(d.remove.begin(), d.remove.end());
+        }
     for (const Record &r : records(text, m)) {
         if (r.fields.empty()) continue;
+        if (filter.records == 2 && !dupes.count(r.group)) continue;
+        if (filter.records == 3 && !filter.problemGroups.count(r.group)) continue;
+        if (filter.records == 1) {
+            bool square = !usableSquare(r.get("GRIDSQUARE")).empty();
+            std::string vucc = r.get("VUCC_GRIDS");
+            for (size_t b = 0; b < vucc.size() && !square;) {
+                size_t e = vucc.find(',', b);
+                if (e == std::string::npos) e = vucc.size();
+                square = !usableSquare(vucc.substr(b, e - b)).empty();
+                b = e + 1;
+            }
+            if (square) continue;
+        }
         if (!band.empty() && !equalsNoCase(effectiveBand(r), band)) continue;
         if (!mode.empty() && !equalsNoCase(trimmed(r.get("MODE")), mode) && !equalsNoCase(trimmed(r.get("SUBMODE")), mode)) continue;
         std::string date8 = trimmed(r.get("QSO_DATE"));
         if (!filter.from.empty() && date8 < filter.from) continue;
         if (!filter.to.empty() && (date8.empty() || date8 > filter.to)) continue;
         bool confirmed = isConfirmed(r);
-        if ((filter.confirmed == 1 && !confirmed) || (filter.confirmed == 2 && confirmed)) continue;
+        bool lotw = yes(r.get("LOTW_QSL_RCVD"));
+        switch (filter.confirmed) {
+            case 1: if (!confirmed) continue; break;
+            case 2: if (confirmed) continue; break;
+            case 3: if (!lotw) continue; break;
+            case 4: if (!yes(r.get("EQSL_QSL_RCVD"))) continue; break;
+            case 5: if (!yes(r.get("QSL_RCVD"))) continue; break;
+            case 6: if (lotw) continue; break;
+            default: break;
+        }
         std::string call = upper(trimmed(r.get("CALL")));
         size_t index = out.qsos.size();
         {

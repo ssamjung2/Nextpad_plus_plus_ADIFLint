@@ -60,6 +60,8 @@ struct QsoPlaceFacts {
     bool exact = false;         // lat and lon say where it was (LAT/LON or a 6-character grid)
     double lat = 0, lon = 0;
     std::string grid4;  // its 4-character square, when it has one
+    bool ctyPlaced = false;  // the country data's place for its entity
+    double ctyLat = 0, ctyLon = 0;
 };
 QsoAreas resolveAreas(const QsoPlaceFacts &q);
 

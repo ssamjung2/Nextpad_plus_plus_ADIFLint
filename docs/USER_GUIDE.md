@@ -661,11 +661,14 @@ with POTA's park list downloaded, they get a badge at the parks themselves inste
 ### Filters
 
 The toolbar's filters keep only some QSOs: a band, a mode, a time (the last 30 days, the
-last 12 months, this year, or a year in the log), and all, confirmed or not confirmed QSOs
-(confirmed: QSL_RCVD, LOTW_QSL_RCVD or EQSL_QSL_RCVD Y or V).
+last 12 months, this year, a year in the log, or **Custom Range…**: from one day to another,
+both included, as QSO_DATE has them in UTC; the menu then shows the range), and all,
+confirmed or not confirmed QSOs (confirmed: QSL_RCVD, LOTW_QSL_RCVD or EQSL_QSL_RCVD Y or V).
+The confirmation menu also has **Confirmed on LoTW**, **Confirmed by eQSL**, **Confirmed by
+card** and **Not confirmed on LoTW**, each by its own field.
 
-**More Filters…** keeps the QSOs in some places. Within a line any of its values counts,
-and every line that has values must match:
+**More Filters…** keeps the QSOs in some places, near you, and of some kinds. Within a line
+any of its values counts, and every line that has values must match:
 
 - **Continents** (the QSO's CONT, else the country data's).
 - **DXCC**: countries by name, completed as you type.
@@ -676,6 +679,13 @@ and every line that has values must match:
   and the ARRL divisions. California, New York and New Jersey are split between ARRL
   divisions, so for those a QSO counts by its ARRL_SECT.
 - **POTA locations** (`US-WI, CA-ON`): the QSO's park's location.
+- **Within** so many km (or mi, as the list measures) **of your station**: where the QSO
+  was, else its grid square's centre, else its country's (the country data), measured from
+  your station's grid (Settings, else the log's most used MY_GRIDSQUARE). The spots follow it
+  too, and with the box below the POTA parks you haven't worked.
+- **Records**: **Without a grid square** (to look up), **Possible duplicates** (the same
+  call, band and mode within two minutes, as [Remove Duplicates](#editing-the-whole-log) finds them), or
+  **With problems** (an error or warning from Check Log).
 - **Also limit the POTA parks you haven't worked**: the POTA overlay shows only the parks
   in these places.
 

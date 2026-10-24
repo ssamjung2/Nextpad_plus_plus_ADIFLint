@@ -84,6 +84,10 @@ struct QsoAreas {
     AreaFrom cqFrom = AreaFrom::None, ituFrom = AreaFrom::None;
     int dxcc = 0;      // DXCC, else the country data's
     std::string cont;  // CONT, else the country data's
+    // Where it was as closely as known: its exact place, else its grid square's centre, else its
+    // entity's (the country data); `placed` false when none of them.
+    bool placed = false;
+    double lat = 0, lon = 0;
 };
 
 struct MapQso {
@@ -138,14 +142,25 @@ struct MapData {
 struct MapFilter {
     std::string band, mode;      // mode matches MODE or SUBMODE
     std::string from, to;        // QSO_DATE range, YYYYMMDD, both included
-    int confirmed = 0;           // 0 all, 1 confirmed only, 2 not confirmed
+    // 0 all, 1 confirmed (by any), 2 not confirmed; 3 confirmed on LoTW (LOTW_QSL_RCVD), 4 by
+    // eQSL (EQSL_QSL_RCVD), 5 by card (QSL_RCVD); 6 not confirmed on LoTW.
+    int confirmed = 0;
+    // Which records: 0 all; 1 without a grid square (no usable GRIDSQUARE or VUCC_GRIDS); 2
+    // possible duplicates (findDuplicates in adif_tools: the same contact logged twice); 3 those
+    // in `problemGroups` (problemGroups below: an error or warning).
+    int records = 0;
+    std::set<int> problemGroups;
+    // Within this many km of home (great circle; 0: anywhere), the QSO where QsoAreas places it.
+    double withinKm = 0, homeLat = 0, homeLon = 0;
     std::set<std::string> continents;  // AF AN AS EU NA OC SA (QsoAreas::cont)
     std::set<int> dxcc, cq, itu;
     std::set<std::string> states, counties;  // postal codes; the Map's counties ("WI,Dane")
     std::set<std::string> regions;           // adif_regions ids ("W9", "Census-Midwest", "ARRL-Central")
     std::set<std::string> potaLocations;     // POTA locations ("US-WI"): QSOs with a park there
-    bool any() const;  // whether any place kind is given
+    bool any() const;  // whether any place kind (or a distance) is given
 };
+// The records (DocModel groups) with an error or a warning, for MapFilter::records 3.
+std::set<int> problemGroups(const LintResult &r);
 // What mapData can use: the country data for DXCC, zones and continents by call, and POTA's
 // park list for parks' locations. Either may be null.
 struct MapContext {

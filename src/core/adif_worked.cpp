@@ -148,6 +148,7 @@ QsoPlaceFacts placeFacts(const MapQso &m, const CountryTable *countries) {
         if (!f.dxcc) f.dxcc = info.dxcc;
         if (f.cont.empty()) f.cont = info.continent;
         f.ctyCq = info.cq, f.ctyItu = info.itu;
+        f.ctyPlaced = true, f.ctyLat = info.lat, f.ctyLon = info.lon;
     }
     f.exact = m.located, f.lat = m.lat, f.lon = m.lon;
     f.grid4 = grid4Of(m.grid);
@@ -157,6 +158,10 @@ QsoPlaceFacts placeFacts(const MapQso &m, const CountryTable *countries) {
 QsoAreas resolveAreas(const QsoPlaceFacts &q) {
     QsoAreas a;
     a.dxcc = q.dxcc, a.cont = upperAscii(trimmed(q.cont));
+    double w, s, e, n;
+    if (q.exact) a.placed = true, a.lat = q.lat, a.lon = q.lon;
+    else if (!q.grid4.empty() && squareBounds(q.grid4, &w, &s, &e, &n)) a.placed = true, a.lat = (s + n) / 2, a.lon = (w + e) / 2;
+    else if (q.ctyPlaced) a.placed = true, a.lat = q.ctyLat, a.lon = q.ctyLon;
     const AreaIndex &states = areaIndex(Overlay::UsStates);
     bool us = isUsEntity(q.dxcc) || q.dxcc == 0;
     // State: STATE, else where it was (exactly, or a square wholly inside one state).

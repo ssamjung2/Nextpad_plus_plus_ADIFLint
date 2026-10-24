@@ -3328,6 +3328,37 @@ static void testWorked() {
     CHECK(count(mf) == 3, "the K1AB QSO has no DXCC without country data");
     mf = {}, mf.potaLocations = {"US-NY"};
     CHECK(count(mf) == 0, "a POTA location needs the park list");
+    mf = {}, mf.withinKm = 500, mf.homeLat = 43.07, mf.homeLon = -89.4;  // Madison, Wisconsin
+    size_t near = count(mf);
+    mf.withinKm = 2000;
+    CHECK(near == 1 && count(mf) == 2 && d.qsos[1].areas.placed && !d.qsos[3].areas.placed,
+          "within 500 km of home: W9AB; 2,000 km: K1AB's square too; N2AB, placed nowhere, never (%zu)", near);
+
+    std::string kinds = "<CALL:5>K1ABC<QSO_DATE:8>20240101<TIME_ON:4>1200<BAND:3>20m<MODE:2>CW<GRIDSQUARE:4>FN31<LOTW_QSL_RCVD:1>Y<EOR>\n"
+                        "<CALL:5>K1ABC<QSO_DATE:8>20240101<TIME_ON:4>1201<BAND:3>20m<MODE:2>CW<GRIDSQUARE:4>FN31<EQSL_QSL_RCVD:1>Y<EOR>\n"
+                        "<CALL:6>DL1ABC<QSO_DATE:8>20240102<TIME_ON:4>1300<BAND:3>40m<MODE:3>SSB<QSL_RCVD:1>Y<EOR>\n"
+                        "<CALL:6>JA1XYZ<QSO_DATE:8>20240103<TIME_ON:4>1400<BAND:3>20m<FREQ:6>21.074<MODE:3>FT8<GRIDSQUARE:4>PM95<EOR>\n"
+                        "<CALL:4>W9AB<QSO_DATE:8>20240104<TIME_ON:4>1500<BAND:3>15m<MODE:3>FT8<VUCC_GRIDS:9>EN52,EN53<EOR>\n";
+    LintResult kr = lintModel(kinds);
+    auto calls = [&](MapFilter f) {
+        std::string out;
+        for (const MapQso &q : mapData(kinds, kr.model, f).qsos) out += (out.empty() ? "" : " ") + q.call;
+        return out;
+    };
+    MapFilter kf;
+    std::string byService[7];
+    for (int c = 0; c < 7; ++c) kf.confirmed = c, byService[c] = calls(kf);
+    CHECK(byService[1] == "K1ABC K1ABC DL1ABC" && byService[2] == "JA1XYZ W9AB" && byService[3] == "K1ABC" && byService[4] == "K1ABC" &&
+              byService[5] == "DL1ABC" && byService[6] == "K1ABC DL1ABC JA1XYZ W9AB",
+          "confirmed by any, none, LoTW, eQSL, card; not on LoTW (%s | %s)", byService[3].c_str(), byService[6].c_str());
+    kf = {}, kf.records = 1;
+    std::string noGrid = calls(kf);
+    kf.records = 2;
+    std::string dupes = calls(kf);
+    kf.records = 3, kf.problemGroups = problemGroups(kr);
+    std::string problems = calls(kf);
+    CHECK(noGrid == "DL1ABC" && dupes == "K1ABC K1ABC" && problems.find("JA1XYZ") != std::string::npos && problems.find("W9AB") == std::string::npos,
+          "records without a square (VUCC_GRIDS counts), possible duplicates, with problems (%s | %s | %s)", noGrid.c_str(), dupes.c_str(), problems.c_str());
 }
 
 static void testRegionsAndSun() {

@@ -457,6 +457,10 @@ struct {
     NSButton *continent[7] = {}, *parksToo = nil;
     NSTokenField *dxccTokens = nil, *stateTokens = nil, *countyTokens = nil, *potaTokens = nil;
     NSTextField *cqField = nil, *ituField = nil;
+    NSTextField *withinField = nil, *withinUnits = nil;  // within so far of your station
+    NSPopUpButton *recordsPopup = nil;                   // which records: all, without a square, duplicates, with problems
+    NSPopover *datesPopover = nil;                       // the dates menu's Custom Range
+    NSDatePicker *dateFrom = nil, *dateTo = nil;
     NSPopUpButton *regions = nil;
     NSMutableArray *completers = nil;
     // Spots: the popover of their own filters, Refresh, Use in New QSO, and what tells the Map of new ones.
@@ -1691,14 +1695,13 @@ void showStyleOptions() {
     [mw.styleWindow makeKeyAndOrderFront:nil];
 }
 
-// Home: Settings → Your Station's grid, else the log's most used MY_GRIDSQUARE.
-std::string homeGrid() {
+// Home: Settings → Your Station's grid, else the log's most used MY_GRIDSQUARE (`myGrids`: the
+// whole log's, so that the filters, the distance from home among them, can't move it).
+std::string homeGrid(const std::map<std::string, size_t> &myGrids) {
     std::string g = setting("stationGrid");
     double lat, lon;
     if (!g.empty() && adif::gridToLatLon(g, &lat, &lon)) return g;
-    std::map<std::string, size_t> n;
-    for (const adif::MapQso &q : mw.data.qsos)
-        if (q.myGrid.size() >= 4 && !adif::isPlaceholderGrid(q.myGrid)) ++n[q.myGrid];
+    const std::map<std::string, size_t> &n = myGrids;
     size_t most = 0;
     for (const auto &kv : n)
         if (kv.second > most) most = kv.second, g = kv.first;
@@ -1715,8 +1718,12 @@ void refresh() {
         mw.window.title = TF(@"Map — {name}", @{@"name" : ADIFString(documentName())});
         // The bands, modes and years in the log, for the filters.
         std::set<std::string> bands, modes, years;
-        std::map<std::string, size_t> qsosPerBand;
+        std::map<std::string, size_t> qsosPerBand, myGrids;
         for (const adif::Record &rec : adif::records(text, r.model)) {
+            std::string my;
+            for (char c : rec.get("MY_GRIDSQUARE"))
+                if (!isspace((unsigned char)c)) my += (char)toupper((unsigned char)c);
+            if (my.size() >= 4 && !adif::isPlaceholderGrid(my) && adif::gridToLatLon(my, nullptr, nullptr)) ++myGrids[my];
             if (std::string b = adif::effectiveBand(rec); !b.empty()) bands.insert(b), ++qsosPerBand[b];
             if (std::string m = rec.get("MODE"); !m.empty()) modes.insert(m);
             if (std::string d = rec.get("QSO_DATE"); d.size() == 8) years.insert(d.substr(0, 4));
@@ -1730,11 +1737,19 @@ void refresh() {
         };
         fill(mw.band, @[ N(@"All bands") ], std::vector<std::string>(bands.begin(), bands.end()));
         fill(mw.mode, @[ N(@"All modes") ], std::vector<std::string>(modes.begin(), modes.end()));
-        fill(mw.dates, @[ N(@"All dates"), N(@"Last 30 days"), N(@"Last 12 months"), N(@"This year") ], std::vector<std::string>(years.rbegin(), years.rend()));
+        bool customDates = mw.dates.indexOfSelectedItem == 4;  // its title is the range: kept by place, not title
+        if (customDates) [mw.dates selectItemAtIndex:0];
+        fill(mw.dates, @[ N(@"All dates"), N(@"Last 30 days"), N(@"Last 12 months"), N(@"This year"), N(@"Custom Range...") ],
+             std::vector<std::string>(years.rbegin(), years.rend()));
+        if (customDates) {
+            [mw.dates selectItemAtIndex:4];
+            auto shown = [](const std::string &d) { return d.size() == 8 ? d.substr(0, 4) + "-" + d.substr(4, 2) + "-" + d.substr(6, 2) : d; };
+            [mw.dates itemAtIndex:4].title = ADIFString(trf("{from} to {to}", {{"from", shown(setting("mapDateFrom"))}, {"to", shown(setting("mapDateTo"))}}));
+        }
         adif::MapFilter f;
         f.band = mw.band.indexOfSelectedItem > 0 ? ADIFStd(mw.band.titleOfSelectedItem) : "";
         f.mode = mw.mode.indexOfSelectedItem > 0 ? ADIFStd(mw.mode.titleOfSelectedItem) : "";
-        f.confirmed = (int)std::clamp<NSInteger>(mw.confirmed.indexOfSelectedItem, 0, 2);
+        f.confirmed = (int)std::clamp<NSInteger>(mw.confirmed.indexOfSelectedItem, 0, 6);
         std::string today = utcNow("%Y%m%d");
         auto daysAgo = [](int days) {
             NSDateFormatter *df = [[NSDateFormatter alloc] init];
@@ -1747,8 +1762,9 @@ void refresh() {
             case 1: f.from = daysAgo(30); break;
             case 2: f.from = daysAgo(365); break;
             case 3: f.from = today.substr(0, 4) + "0101"; break;
+            case 4: f.from = setting("mapDateFrom"), f.to = setting("mapDateTo"); break;
             default:
-                if (mw.dates.indexOfSelectedItem > 3) {
+                if (mw.dates.indexOfSelectedItem > 4) {
                     std::string y = ADIFStd(mw.dates.titleOfSelectedItem);
                     f.from = y + "0101", f.to = y + "1231";
                 }
@@ -1757,6 +1773,9 @@ void refresh() {
         adif::MapFilter places = savedPlaceFilter();
         f.continents = places.continents, f.dxcc = places.dxcc, f.cq = places.cq, f.itu = places.itu, f.states = places.states,
         f.counties = places.counties, f.regions = places.regions, f.potaLocations = places.potaLocations;
+        f.withinKm = places.withinKm, f.homeLat = places.homeLat, f.homeLon = places.homeLon;
+        f.records = places.records;
+        if (f.records == 3) f.problemGroups = adif::problemGroups(r);
         adif::MapContext context;
         context.countries = &ADIFCountries();
         context.parks = &ADIFPotaParks();
@@ -1794,7 +1813,7 @@ void refresh() {
         for (const adif::MapSquare &sq : mw.data.squares) confirmedSquares += sq.confirmed;
         mw.view.showContacts = mw.contacts.state == NSControlStateValueOn;
         mw.view.qsosPerBand = qsosPerBand;
-        mw.home = homeGrid();
+        mw.home = homeGrid(myGrids);
         applyStyle();
         applyProjection();
         [mw.view setData:mw.data entities:mw.dxcc];
@@ -1951,12 +1970,24 @@ adif::MapFilter savedPlaceFilter() {
     }
     for (const std::string &r : splitSetting("mapFilterRegions", ',')) f.regions.insert(r);
     for (const std::string &l : splitSetting("mapFilterPota", ',')) f.potaLocations.insert(l);
+    double km = std::atof(setting("mapFilterWithinKm").c_str()), lat, lon;  // only with a home to measure from
+    if (km > 0 && !mw.home.empty() && adif::gridToLatLon(mw.home, &lat, &lon)) f.withinKm = km, f.homeLat = lat, f.homeLon = lon;
+    f.records = number("mapFilterRecords", 0, 3);
     return f;
 }
 
 size_t placeKinds(const adif::MapFilter &f) {
     return !f.continents.empty() + !f.dxcc.empty() + !f.cq.empty() + !f.itu.empty() + !f.states.empty() + !f.counties.empty() + !f.regions.empty() +
-           !f.potaLocations.empty();
+           !f.potaLocations.empty() + (f.withinKm > 0) + (f.records > 0);
+}
+
+// More Filters' kinds of record.
+const char *const kRecordKinds[4] = {N_("All records"), N_("Without a grid square"), N_("Possible duplicates"), N_("With problems (Check Log)")};
+
+// "Within 1,500 km" (or miles, as the list measures).
+std::string withinText(double km) {
+    bool miles = setting("mapListUnits") == "mi";
+    return ADIFStd(TF(miles ? @"Within {n} mi" : @"Within {n} km", @{@"n" : @(std::lround(miles ? km / 1.609344 : km))}));
 }
 
 const char *const kContinentNames[7] = {N_("Africa"), N_("Antarctica"), N_("Asia"), N_("Europe"), N_("North America"), N_("Oceania"), N_("South America")};
@@ -2035,6 +2066,18 @@ void fillFilterChips() {
             refresh();
         });
     }
+    if (double km = std::atof(setting("mapFilterWithinKm").c_str()); km > 0 && !mw.home.empty())
+        chip(withinText(km), ^{
+            setSetting("mapFilterWithinKm", "");
+            if (mw.filterPopover) fillPlaceControls();
+            refresh();
+        });
+    if (int kind = number("mapFilterRecords", 0, 3); kind > 0)
+        chip(tr(kRecordKinds[kind]), ^{
+            setSetting("mapFilterRecords", "0");
+            if (mw.filterPopover) fillPlaceControls();
+            refresh();
+        });
     if (workflow() == 1) {
         for (NSPopUpButton *p : {mw.dates, mw.confirmed})
             if (p.indexOfSelectedItem > 0) {
@@ -2101,6 +2144,10 @@ void placeFiltersChanged() {
     }
     saveSetting("mapFilterPota", pota, ',');
     saveFlag("mapFilterParks", mw.parksToo.state == NSControlStateValueOn);
+    double within = mw.withinField.doubleValue;
+    if (setting("mapListUnits") == "mi") within *= 1.609344;
+    setSetting("mapFilterWithinKm", within > 0 ? std::to_string(std::lround(within)) : "");
+    setSetting("mapFilterRecords", std::to_string(std::max<NSInteger>(0, mw.recordsPopup.indexOfSelectedItem)));
     refresh();
 }
 
@@ -2124,6 +2171,13 @@ void fillPlaceControls() {
     mw.cqField.stringValue = join(splitSetting("mapFilterCq", ','));
     mw.ituField.stringValue = join(splitSetting("mapFilterItu", ','));
     mw.parksToo.state = flag("mapFilterParks", false) ? NSControlStateValueOn : NSControlStateValueOff;
+    bool miles = setting("mapListUnits") == "mi";
+    double km = std::atof(setting("mapFilterWithinKm").c_str());
+    mw.withinField.stringValue = km > 0 ? [NSString stringWithFormat:@"%ld", std::lround(miles ? km / 1.609344 : km)] : @"";
+    mw.withinField.enabled = !mw.home.empty();
+    mw.withinField.placeholderString = mw.home.empty() ? T(@"your grid first (Settings)") : T(@"anywhere");
+    mw.withinUnits.stringValue = miles ? T(@"mi of your station") : T(@"km of your station");
+    [mw.recordsPopup selectItemAtIndex:number("mapFilterRecords", 0, 3)];
     // Regions: a menu of checkable items, by kind.
     NSMenu *menu = mw.regions.menu;
     [menu removeAllItems];
@@ -2216,6 +2270,20 @@ void showMoreFilters() {
         mw.regions.identifier = @"map.filter.regions";
         mw.regions.toolTip = T(@"US call areas, Census regions and divisions, ARRL divisions (California, New York and New Jersey count for an ARRL "
                              @"division by the QSO's ARRL_SECT)");
+        mw.withinField = ADIFTextField(@"anywhere", 80);
+        mw.withinField.identifier = @"map.filter.within";
+        mw.withinField.toolTip = T(@"Keep the QSOs (and spots) this close to your station: where each was, else its grid square, else its "
+                                   @"country; measured from Settings' grid");
+        ADIFOnAction(mw.withinField, ^{ placeFiltersChanged(); });
+        mw.withinUnits = ADIFLabel(@"km of your station");
+        NSStackView *within = [NSStackView stackViewWithViews:@[ mw.withinField, mw.withinUnits ]];
+        within.spacing = 6;
+        mw.recordsPopup = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+        for (const char *k : kRecordKinds) [mw.recordsPopup addItemWithTitle:ADIFString(tr(k))];
+        mw.recordsPopup.identifier = @"map.filter.records";
+        mw.recordsPopup.toolTip = T(@"Which records: those without a grid square (to look up), a contact logged more than once (two minutes "
+                                    @"apart, same band and mode), or those Check Log finds an error or warning in");
+        ADIFOnAction(mw.recordsPopup, ^{ placeFiltersChanged(); });
         mw.parksToo = ADIFCheckbox(@"Also limit the POTA parks you haven't worked", false);
         mw.parksToo.identifier = @"map.filter.parks";
         mw.parksToo.toolTip = T(@"The POTA layer's Overlay shows only the parks in these places (their location, state, region, country and continent)");
@@ -2223,7 +2291,7 @@ void showMoreFilters() {
         NSButton *clear = [NSButton buttonWithTitle:T(@"Clear Places") target:nil action:nil];
         ADIFOnAction(clear, ^{
             for (const char *key : {"mapFilterContinents", "mapFilterDxcc", "mapFilterCq", "mapFilterItu", "mapFilterStates", "mapFilterCounties",
-                                    "mapFilterRegions", "mapFilterPota"})
+                                    "mapFilterRegions", "mapFilterPota", "mapFilterWithinKm", "mapFilterRecords"})
                 setSetting(key, "");
             fillPlaceControls();
             refresh();
@@ -2231,16 +2299,17 @@ void showMoreFilters() {
         NSGridView *grid = [NSGridView gridViewWithViews:@[
             @[ ADIFLabel(@"Continents:"), contRow ], @[ ADIFLabel(@"DXCC:"), mw.dxccTokens ], @[ ADIFLabel(@"CQ zones:"), zones ],
             @[ ADIFLabel(@"US states:"), mw.stateTokens ], @[ ADIFLabel(@"US counties:"), mw.countyTokens ],
-            @[ ADIFLabel(@"US regions:"), mw.regions ], @[ ADIFLabel(@"POTA locations:"), mw.potaTokens ],
-            @[ [NSGridCell emptyContentView], mw.parksToo ], @[ [NSGridCell emptyContentView], clear ]
+            @[ ADIFLabel(@"US regions:"), mw.regions ], @[ ADIFLabel(@"POTA locations:"), mw.potaTokens ], @[ ADIFLabel(@"Within:"), within ],
+            @[ ADIFLabel(@"Records:"), mw.recordsPopup ], @[ [NSGridCell emptyContentView], mw.parksToo ], @[ [NSGridCell emptyContentView], clear ]
         ]];
         grid.rowSpacing = 8;
         grid.columnSpacing = 10;
         [grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
         grid.rowAlignment = NSGridRowAlignmentFirstBaseline;
         grid.translatesAutoresizingMaskIntoConstraints = NO;
-        NSTextField *help = [NSTextField wrappingLabelWithString:T(@"Keep only the QSOs in these places: within a line any of its values, "
-                                                                 @"and every line that has values. Changes apply as you make them.")];
+        NSTextField *help = [NSTextField wrappingLabelWithString:T(@"Keep only the QSOs in these places, this close to your station, and of "
+                                                                 @"this kind: within a line any of its values, and every line that has "
+                                                                 @"values. Changes apply as you make them.")];
         help.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
         help.textColor = NSColor.secondaryLabelColor;
         help.translatesAutoresizingMaskIntoConstraints = NO;
@@ -2271,6 +2340,72 @@ void showMoreFilters() {
     [mw.filterPopover showRelativeToRect:mw.moreFilters.bounds ofView:mw.moreFilters preferredEdge:NSRectEdgeMaxY];
 }
 
+// The dates menu's Custom Range: QSO_DATE from one day to another (UTC, both included), each
+// change applied at once; remembered (mapDateFrom, mapDateTo).
+NSDateFormatter *dayStamp() {
+    static NSDateFormatter *df = [] {
+        NSDateFormatter *f = [[NSDateFormatter alloc] init];
+        f.dateFormat = @"yyyyMMdd";
+        f.timeZone = [NSTimeZone timeZoneWithAbbreviation:@"UTC"];
+        f.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
+        f.calendar = [NSCalendar calendarWithIdentifier:NSCalendarIdentifierGregorian];
+        return f;
+    }();
+    return df;
+}
+
+void dateRangeChanged() {
+    if ([mw.dateTo.dateValue compare:mw.dateFrom.dateValue] == NSOrderedAscending) mw.dateTo.dateValue = mw.dateFrom.dateValue;
+    setSetting("mapDateFrom", ADIFStd([dayStamp() stringFromDate:mw.dateFrom.dateValue]));
+    setSetting("mapDateTo", ADIFStd([dayStamp() stringFromDate:mw.dateTo.dateValue]));
+    if (mw.dates.indexOfSelectedItem != 4) [mw.dates selectItemAtIndex:4];
+    refresh();
+}
+
+void showDateRange() {
+    if (!mw.datesPopover) {
+        auto picker = [](NSString *ident) {
+            NSDatePicker *p = [[NSDatePicker alloc] initWithFrame:NSZeroRect];
+            p.datePickerStyle = NSDatePickerStyleTextFieldAndStepper;
+            p.datePickerElements = NSDatePickerElementFlagYearMonthDay;
+            p.timeZone = [NSTimeZone timeZoneWithAbbreviation:@"UTC"];
+            p.calendar = [NSCalendar calendarWithIdentifier:NSCalendarIdentifierGregorian];
+            p.identifier = ident;
+            ADIFOnAction(p, ^{ dateRangeChanged(); });
+            return p;
+        };
+        mw.dateFrom = picker(@"map.dates.from");
+        mw.dateTo = picker(@"map.dates.to");
+        NSStackView *row = [NSStackView stackViewWithViews:@[ ADIFLabel(@"From:"), mw.dateFrom, ADIFLabel(@"To:"), mw.dateTo ]];
+        row.spacing = 8;
+        NSTextField *help = [NSTextField wrappingLabelWithString:T(@"The QSOs from the first day to the last, both included (UTC, as QSO_DATE has them).")];
+        help.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        help.textColor = NSColor.secondaryLabelColor;
+        NSStackView *stack = [NSStackView stackViewWithViews:@[ help, row ]];
+        stack.orientation = NSUserInterfaceLayoutOrientationVertical;
+        stack.alignment = NSLayoutAttributeLeading;
+        stack.spacing = 10;
+        stack.edgeInsets = NSEdgeInsetsMake(14, 14, 14, 14);
+        stack.identifier = @"map.dates";
+        [help.widthAnchor constraintEqualToAnchor:row.widthAnchor].active = YES;
+        NSViewController *vc = [[NSViewController alloc] init];
+        vc.view = stack;
+        mw.datesPopover = [[NSPopover alloc] init];
+        mw.datesPopover.contentViewController = vc;
+        ADIFNightTrackPopover(mw.datesPopover);
+        mw.datesPopover.behavior = NSPopoverBehaviorTransient;
+    }
+    // As last chosen; the first time, this year so far.
+    NSDate *from = [dayStamp() dateFromString:ADIFString(setting("mapDateFrom"))], *to = [dayStamp() dateFromString:ADIFString(setting("mapDateTo"))];
+    mw.dateFrom.dateValue = from ?: [dayStamp() dateFromString:ADIFString(utcNow("%Y") + "0101")];
+    mw.dateTo.dateValue = to ?: [dayStamp() dateFromString:ADIFString(utcNow("%Y%m%d"))];
+    if (!from || !to) {
+        setSetting("mapDateFrom", ADIFStd([dayStamp() stringFromDate:mw.dateFrom.dateValue]));
+        setSetting("mapDateTo", ADIFStd([dayStamp() stringFromDate:mw.dateTo.dateValue]));
+    }
+    [mw.datesPopover showRelativeToRect:mw.dates.bounds ofView:mw.dates preferredEdge:NSRectEdgeMaxY];
+}
+
 // ── Spots ──
 
 const long long kSpotAges[] = {600, 1800, 3600};
@@ -2283,6 +2418,7 @@ adif::SpotFilter spotFilter() {
     adif::MapFilter places = savedPlaceFilter();
     f.map.continents = places.continents, f.map.dxcc = places.dxcc, f.map.cq = places.cq, f.map.itu = places.itu, f.map.states = places.states,
     f.map.counties = places.counties, f.map.regions = places.regions, f.map.potaLocations = places.potaLocations;
+    f.map.withinKm = places.withinKm, f.map.homeLat = places.homeLat, f.map.homeLon = places.homeLon;
     f.map.band = mw.band.indexOfSelectedItem > 0 ? ADIFStd(mw.band.titleOfSelectedItem) : "";
     f.map.mode = mw.mode.indexOfSelectedItem > 0 ? ADIFStd(mw.mode.titleOfSelectedItem) : "";
     f.maxAge = kSpotAges[number("mapSpotsAge", 1, 2)];
@@ -4320,7 +4456,9 @@ void cmdMap() {
         mw.band = ADIFPopup(@[ @"All bands" ]);
         mw.mode = ADIFPopup(@[ @"All modes" ]);
         mw.dates = ADIFPopup(@[ @"All dates", @"Last 30 days", @"Last 12 months", @"This year" ]);
-        mw.confirmed = ADIFPopup(@[ @"All QSOs", @"Confirmed", @"Not confirmed" ]);
+        mw.confirmed = ADIFPopup(@[ @"All QSOs", @"Confirmed", @"Not confirmed", @"Confirmed on LoTW", @"Confirmed by eQSL", @"Confirmed by card",
+                                    @"Not confirmed on LoTW" ]);
+        mw.confirmed.toolTip = T(@"Confirmed by any of card (QSL_RCVD), LoTW or eQSL, or by one of them; or not");
         mw.confirmed.identifier = @"map.filter.confirmed";
         // Zoom, projection, style.
         mw.projection = ADIFPopup(@[ @"Equirectangular", @"Mercator", @"Equal Earth", @"Globe" ]);
@@ -4352,6 +4490,7 @@ void cmdMap() {
         }
         for (NSControl *c in @[ mw.contacts, mw.band, mw.mode, mw.dates, mw.confirmed ]) ADIFOnAction(c, ^{
             saveFlag("mapContacts", mw.contacts.state == NSControlStateValueOn);
+            if (c == mw.dates && mw.dates.indexOfSelectedItem == 4) showDateRange();
             if (c == mw.confirmed && mw.viewSetConfirmed) {  // your own choice now, not Needs confirmation's
                 mw.viewSetConfirmed = false;
                 setSetting("mapQuickView", "-1");
@@ -4448,7 +4587,7 @@ void cmdMap() {
                 setSetting("mapQuickView", "0");
             }
             for (const char *key : {"mapFilterContinents", "mapFilterDxcc", "mapFilterCq", "mapFilterItu", "mapFilterStates", "mapFilterCounties",
-                                    "mapFilterRegions", "mapFilterPota"})
+                                    "mapFilterRegions", "mapFilterPota", "mapFilterWithinKm", "mapFilterRecords"})
                 setSetting(key, "");
             if (mw.filterPopover) fillPlaceControls();
             refresh();

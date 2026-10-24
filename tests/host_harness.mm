@@ -4217,6 +4217,7 @@ int main(int argc, char **argv) {
                 if ((filtersView = viewWithIdentifier(w.contentView, @"map.filters"))) break;
             NSButton *eu = filtersView ? (NSButton *)viewWithIdentifier(filtersView, @"map.filter.continent.EU") : nil;
             CHECK(moreFilters && filtersView && eu, "More Filters opens its places");
+            if (filtersView) snapshot(filtersView.window, "map-filters");
             setBox(eu, true);
             CHECK([mapSummary() hasPrefix:@"0 grid squares (0 confirmed), 1 DXCC (1 confirmed)"] &&
                       [moreFilters.title isEqualToString:@"More Filters (1)..."],
@@ -4803,6 +4804,72 @@ int main(int argc, char **argv) {
                 CHECK([scope.stringValue hasPrefix:@"1 QSO on the map"] && clearButton.enabled, "the continent menu: Europe's QSO (%s)", scope.stringValue.UTF8String);
                 [continents selectItemAtIndex:0];
                 [continents sendAction:continents.action to:continents.target];
+                // Confirmation by service: on LoTW and not on LoTW split the log.
+                {
+                    NSPopUpButton *confirmedBy = (NSPopUpButton *)viewWithIdentifier(mapw.contentView, @"map.filter.confirmed");
+                    auto pickTitle = [&](NSPopUpButton *p, NSString *title) {
+                        [p selectItemWithTitle:title];
+                        [p sendAction:p.action to:p.target];
+                        return scope.stringValue.integerValue;
+                    };
+                    NSInteger lotw = pickTitle(confirmedBy, @"Confirmed on LoTW"), notLotw = pickTitle(confirmedBy, @"Not confirmed on LoTW"),
+                              anyWay = pickTitle(confirmedBy, @"Confirmed");
+                    pickTitle(confirmedBy, @"All QSOs");
+                    CHECK(confirmedBy.numberOfItems == 7 && lotw + notLotw == 5 && lotw <= anyWay && scope.stringValue.integerValue == 5,
+                          "confirmed on LoTW %ld, not on LoTW %ld, by any %ld", (long)lotw, (long)notLotw, (long)anyWay);
+                    // Custom Range: the dates from one day to another; none in 1990, all of them 1900 to 2100.
+                    NSPopUpButton *datesMenu = findPopupWith(mapw.contentView, @"Last 30 days");
+                    [datesMenu selectItemAtIndex:4];
+                    [datesMenu sendAction:datesMenu.action to:datesMenu.target];
+                    pump(0.2);
+                    NSDatePicker *from = nil, *to = nil;
+                    for (NSWindow *w in NSApp.windows) {
+                        if (!from) from = (NSDatePicker *)viewWithIdentifier(w.contentView, @"map.dates.from");
+                        if (!to) to = (NSDatePicker *)viewWithIdentifier(w.contentView, @"map.dates.to");
+                    }
+                    NSDateFormatter *day = [[NSDateFormatter alloc] init];
+                    day.dateFormat = @"yyyyMMdd";
+                    day.timeZone = [NSTimeZone timeZoneWithAbbreviation:@"UTC"];
+                    day.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
+                    auto range = [&](NSString *a, NSString *b) {
+                        from.dateValue = [day dateFromString:a];
+                        to.dateValue = [day dateFromString:b];
+                        [to sendAction:to.action to:to.target];
+                        return scope.stringValue.integerValue;
+                    };
+                    NSInteger in1990 = range(@"19900101", @"19901231");
+                    NSString *rangeTitle = datesMenu.titleOfSelectedItem;
+                    NSInteger wide = range(@"19000101", @"21001231");
+                    CHECK(from && to && in1990 == 0 && [rangeTitle isEqualToString:@"1990-01-01 to 1990-12-31"] && wide == 5 && datesMenu.indexOfSelectedItem == 4,
+                          "a custom range of dates: %ld in 1990 (%s), %ld 1900 to 2100", (long)in1990, rangeTitle.UTF8String, (long)wide);
+                    for (NSWindow *w in [NSApp.windows copy])
+                        if (viewWithIdentifier(w.contentView, @"map.dates")) [w orderOut:nil];
+                    [datesMenu selectItemAtIndex:0];
+                    [datesMenu sendAction:datesMenu.action to:datesMenu.target];
+                    // More Filters: which records (those without a grid square), and how far from your station.
+                    [(NSButton *)viewWithIdentifier(mapw.contentView, @"map.filter.more") performClick:nil];
+                    pump(0.2);
+                    NSPopUpButton *recordsMenu = nil;
+                    NSTextField *withinField = nil;
+                    for (NSWindow *w in NSApp.windows) {
+                        if (!recordsMenu) recordsMenu = (NSPopUpButton *)viewWithIdentifier(w.contentView, @"map.filter.records");
+                        if (!withinField) withinField = (NSTextField *)viewWithIdentifier(w.contentView, @"map.filter.within");
+                    }
+                    NSInteger noGrid = pickTitle(recordsMenu, @"Without a grid square");
+                    pickTitle(recordsMenu, @"All records");
+                    withinField.stringValue = @"1";
+                    [withinField sendAction:withinField.action to:withinField.target];
+                    NSInteger near = scope.stringValue.integerValue;
+                    NSButton *withinChip = nil;
+                    for (NSView *v in viewWithIdentifier(mapw.contentView, @"map.chips").subviews)
+                        if ([v isKindOfClass:NSButton.class] && [((NSButton *)v).title hasPrefix:@"Within 1 km"]) withinChip = (NSButton *)v;
+                    [withinChip performClick:nil];
+                    CHECK(noGrid == 1 && withinField.enabled && near < 5 && withinChip && scope.stringValue.integerValue == 5 && withinField.stringValue.length == 0,
+                          "More Filters: %ld QSO without a grid square; %ld within 1 km of the station, its tag removes it (%d %d %s, %s)", (long)noGrid, (long)near, withinField.enabled,
+                          withinChip != nil, scope.stringValue.UTF8String, withinField.stringValue.UTF8String);
+                    for (NSWindow *w in [NSApp.windows copy])
+                        if (viewWithIdentifier(w.contentView, @"map.filters")) [w orderOut:nil];
+                }
                 // Center: the map on what was chosen, at its zoom.
                 [findButton(mapw.contentView, @"World") performClick:nil];
                 [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, pointFor(12.43, 41.9), 1)];  // 1A's dot
