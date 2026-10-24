@@ -1588,6 +1588,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
             return;
         }
     ADIFMapHit h = [self hitAt:at];
+    if (h.kind == ADIFMapHit::Empty) h = ADIFMapHit();  // off everything (open sea, a square not worked): nothing chosen
     _selected = h;
     self.needsDisplay = YES;
     if (self.onSelect) self.onSelect(h);
@@ -1623,6 +1624,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     }
     if ((k == ']' || k == '[') && self.onStep) return self.onStep(k == ']' ? 1 : -1);  // through the list's rows, each chosen here
     if ((k == '\r' || k == 3) && self.onReturn) return self.onReturn();
+    if (k == 27 && _selected.kind != ADIFMapHit::None) return [self selectHit:ADIFMapHit()];  // Escape: nothing chosen
     if (k == '+' || k == '=') [self zoomBy:1.5];
     else if (k == '-') [self zoomBy:1 / 1.5];
     else if (k == '0') [self showWorld];

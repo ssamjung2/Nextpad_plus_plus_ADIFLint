@@ -3851,6 +3851,26 @@ int main(int argc, char **argv) {
                 [viewQso performClick:nil];
                 CHECK(viewQso && !viewQso.hidden && H.pos == (intptr_t)H.doc.find("<CALL:4>K1AB"), "View QSO goes to the record (%ld)", (long)H.pos);
             }
+            {  // clicking off, on the open sea, or Escape, chooses nothing; a click on what is chosen keeps it
+                NSView *badge = viewWithIdentifier(mapw.contentView, @"map.chosen.kind");
+                auto click = [&](NSPoint at) {
+                    [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, at, 1)];
+                    [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, at, 1)];
+                };
+                bool chosen = badge && !badge.hidden;
+                click(pointFor(-70, 40));  // the Atlantic south of Cape Cod, in FN50
+                bool sea = badge.hidden;
+                click(fn31);
+                bool back = !badge.hidden;
+                click(fn31);
+                bool again = !badge.hidden;
+                NSEvent *esc = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:mapw.windowNumber
+                                                 context:nil characters:@"\x1b" charactersIgnoringModifiers:@"\x1b" isARepeat:NO keyCode:53];
+                [mapView keyDown:esc];
+                CHECK(chosen && sea && back && again && badge.hidden, "clicking off chooses nothing: the sea %d, FN31 again %d %d, Escape %d", sea, back, again,
+                      badge.hidden);
+                click(fn31);
+            }
             [findButton(mapw.contentView, @"World") performClick:nil];
             [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(12.43, 41.90), 0)];  // 1A's centre in the test country file
             CHECK([labelContaining(mapw.contentView, @"DXCC 246") containsString:@"(DXCC 246): 1 QSO, confirmed (1A0C)"],

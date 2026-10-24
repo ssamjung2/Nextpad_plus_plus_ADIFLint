@@ -210,6 +210,9 @@ Versions before 0.8.0 were development builds and were not published.
 - **Map:** the band filter lists the bands spotted too, not only the log's.
 - **Map:** your station's grid, when it comes from the log's MY_GRIDSQUARE, is taken from the
   whole log, not only the QSOs the filters keep (with none kept, the map lost its home).
+- **Map:** a click off everything (open sea, a square you haven't worked) chooses nothing, and so
+  does **Escape** on the map; before, it chose the square, and only a click off the Earth cleared
+  the selected panel.
 
 ## [1.3.0] - 2026-10-19
 

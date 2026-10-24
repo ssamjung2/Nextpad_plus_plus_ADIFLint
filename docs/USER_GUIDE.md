@@ -982,13 +982,14 @@ On the globe:
   QSOs, and (for a square, contact or POTA park) how far it is from home and at what
   bearing, in the footer. **Click** it to list its QSOs (the list's Selected) and see it in
   the selected panel, and
-  double-click one there to go to its record in the log.
+  double-click one there to go to its record in the log. A click off everything (open sea, a
+  square you haven't worked) chooses nothing, and so does **Escape**.
 
 #### Keyboard
 
 - **⌘]** and **⌘[** choose the list's next and previous row, on the map as a click would; with
   the map focused (click it), **]** and **[** do the same, and **Return** fills New QSO from
-  the spot chosen (or goes to the one QSO chosen).
+  the spot chosen (or goes to the one QSO chosen), and **Escape** chooses nothing.
 - **⌘↩** New QSO with the spot chosen; **⌘L** the map centred on what is chosen; **⌘D** watch
   it (again to stop); **⌘F** the search.
 - With macOS's keyboard navigation on (System Settings, Keyboard), Tab moves between the
