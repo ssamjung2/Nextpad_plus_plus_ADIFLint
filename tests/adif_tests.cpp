@@ -3803,6 +3803,20 @@ static void testSpotsCore() {
     Spot tokyo = spot(SpotSource::PskReporter, "JA1XYZ", "20m", "FT8", now - 4000);
     Spot madison = spot(SpotSource::Spothole, "K9ABC", "40m", "SSB", now - 60, "EN53xb");
     madison.program = "POTA", madison.refs = {"US-1234"};
+    {  // How each band is doing: stations, spotters, those near home (Madison) and the best report they gave
+        Spot a = berlin, b = berlin, c = madison, d = tokyo, mine = madison;
+        a.spotter = "W9XYZ-#", a.spotterGrid = "EN53", a.hasSnr = true, a.snr = 12;  // heard in Wisconsin
+        b.activator = "DL2BBB", b.spotter = "DL0ABC", b.spotterGrid = "JO62", b.hasSnr = true, b.snr = 30;  // in Germany: not near
+        c.spotter = "K9AA", c.spotterGrid = "EN52";
+        d.spotter = "JA1AAA", d.spotterGrid = "PM95";
+        mine.heardMe = true, mine.spotter = "W9QQQ", mine.spotterGrid = "EN53";
+        std::vector<BandActivity> act = bandActivity({a, b, c, d, mine}, true, 43.07, -89.4, 1500, &ct);
+        CHECK(act.size() == 2 && act[0].band == "40m" && act[1].band == "20m" && act[1].stations == 3 && act[1].spotters == 3 && act[1].nearSpotters == 1 &&
+                  act[1].nearStations == 1 && act[1].nearSnr && act[1].bestNearSnr == 12 && act[0].nearSpotters == 1 && !act[0].nearSnr &&
+                  act[1].continents.size() == 2 && act[1].continents[0].first == "EU" && act[1].continents[0].second == 2 && act[1].newest == berlin.epoch,
+              "band activity: 40m then 20m; on 20m 3 stations, 1 heard near home at +12 dB, EU first (%zu bands)", act.size());
+        CHECK(bandActivity({a}, false, 0, 0, 1500, &ct)[0].nearSpotters == 0, "without a home nothing is near");
+    }
     SpotFilter f;
     CHECK(spotMatches(f, berlin, now, &ct, nullptr) && spotMatches(f, tokyo, now, &ct, nullptr), "no filter: every spot");
     f.maxAge = 3600;

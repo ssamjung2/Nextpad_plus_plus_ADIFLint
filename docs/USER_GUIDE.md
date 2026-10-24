@@ -1004,13 +1004,23 @@ how many it has, as the filters leave them:
   then a new band, mode or park). Choosing one chooses the spot, as a click on it does.
 - **Recent**: the log's QSOs, as the filters keep them, the newest first. Choosing one finds
   it on the map; double-clicking goes to it in the log.
+- **Issues**: Check Log's errors and warnings in the QSOs shown, a row each, with the
+  record, call, date, kind, field and problem. Choosing one finds its QSO on the map;
+  double-clicking goes to the problem in the log (right-click: **Go to Problem**, **View
+  QSO**).
+- **DXCC**: DXCC Progress, the entities worked, with their QSOs, bands worked and confirmed,
+  and a column for each band from 160m to 6m and for CW, phone and data: **●** confirmed,
+  **○** worked. Sort by name, most bands, most or fewest confirmed, most QSOs or nearest.
+  Choosing one shows the entity on the map.
 
 The lists in view show each row's distance and bearing (degrees from true north, a beam
 heading), nearest first at first.
 
 - **Search** (over the table) keeps the rows with what you type in any column shown, or in
-  the call, reference, name, park, country or grid: a call, `US-2`, `state park`. Beside it,
-  **Within** keeps the rows within 10 to 1,000 km (or miles) of where the list measures from.
+  the call, reference, name, park, country or grid: a call, `US-2`, `state park`. Under the
+  table, beside where the list measures from and mi or km, **Within** keeps the rows within
+  10 to 1,000 km (or miles) of it. In a narrow window the page size, Columns and Within (when
+  it is off) step aside, and Sort (a column's title sorts too).
   The note under the list says how many of how many are shown.
 - **Columns**: right-click a column's title, or use **Columns** under the list, to show or
   hide columns. QSOs can show the record number, call, date, UTC, band, mode, grid,
@@ -1076,8 +1086,17 @@ The panel on the right shows what you clicked (pointing only describes it, in th
 - **Wanted now**: the spots you most need, as links: a new DXCC first, then a new band or
   mode for an entity, then a new park; the newest first among them. Click one to choose that
   spot on the map (and in the list).
-- **On the air**: the busiest bands, by stations spotted; and **the sun at your station**:
-  how high it is, when it next rises or sets, and when the grey line is over you.
+- **On the air** (in History, with spots on): the busiest bands, by stations spotted; and
+  **the sun at your station**: how high it is, when it next rises or sets, and when the grey
+  line is over you.
+
+**Band conditions** (in Live, closed with its triangle) tells how the bands are doing, from
+the spots the Spots filters keep: a line for the band in focus (the band filter's, else the
+chosen spot's, else the one most heard near you), such as "20m: 23 stations spotted (EU 12, NA
+8); heard near you: 7 stations, by 4 spotters within 1,500 km, best +18 dB; newest 2 min",
+and a row for each band with its stations spotted, those heard within 1,500 km of you, and
+the best report they gave. Click a band's name to show only that band (the band filter);
+again for every band. Solar and geomagnetic data are not included yet.
 
 **Recent spots** (in Live) are the five newest, with their frequency, band, mode and age
 (fainter after 15 minutes); click a call to choose its spot. **View all spots →** shows the

@@ -59,6 +59,23 @@ SpotPlace spotterPlace(const Spot &s, const CountryTable *countries);
 // A spotter's call without a node's suffix: "W3LPL-#" and "K1TTT-2" are W3LPL and K1TTT.
 std::string spotterCall(std::string_view spotter);
 
+// How each band is doing, from the spots: the stations spotted on it and the stations that
+// heard them; how many of those are within `nearKm` of home (where spotterPlace puts them), how
+// many stations they heard, and the best signal report they gave; the newest spot; and the
+// stations' continents (country data), the most first. In band order, bands in lower case;
+// your own signal (heardMe) left out. Without a home (hasHome false), nothing is near.
+struct BandActivity {
+    std::string band;
+    size_t stations = 0, spotters = 0;
+    size_t nearSpotters = 0, nearStations = 0;
+    bool nearSnr = false;
+    int bestNearSnr = 0;
+    long long newest = 0;
+    std::vector<std::pair<std::string, size_t>> continents;
+};
+std::vector<BandActivity> bandActivity(const std::vector<Spot> &spots, bool hasHome, double homeLat, double homeLon, double nearKm,
+                                       const CountryTable *countries);
+
 // The Map's filters for spots: the Map's own (band, mode and places; dates and confirmed don't
 // apply to spots), plus their age, sources and programs.
 struct SpotFilter {

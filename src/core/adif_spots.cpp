@@ -4,6 +4,7 @@
 #include "adif_enrich.h"
 #include "adif_geo.h"
 #include "adif_i18n.h"
+#include "adif_palette.h"
 #include "adif_programs.h"
 #include "adif_tools.h"
 #include "adif_spec.h"
@@ -115,6 +116,49 @@ MapQso spotQso(const Spot &s, const CountryTable *countries) {
             if (!r.empty()) q.potaHunted.push_back(potaListRef(r));
     q.areas = resolveAreas(placeFacts(q, countries));
     return q;
+}
+
+std::vector<BandActivity> bandActivity(const std::vector<Spot> &spots, bool hasHome, double homeLat, double homeLon, double nearKm,
+                                       const CountryTable *countries) {
+    struct Tally {
+        std::set<std::string> stations, spotters, nearSpotters, nearStations;
+        std::map<std::string, std::set<std::string>> continents;
+        bool snr = false;
+        int best = 0;
+        long long newest = 0;
+    };
+    std::map<std::string, Tally> byBand;
+    for (const Spot &s : spots) {
+        if (s.heardMe || s.band.empty() || trimmed(s.activator).empty()) continue;
+        std::string band = s.band;
+        for (char &c : band) c = (char)std::tolower((unsigned char)c);
+        Tally &t = byBand[band];
+        std::string station = upper(trimmed(s.activator));
+        t.stations.insert(station);
+        t.newest = std::max(t.newest, s.epoch);
+        CountryInfo info;
+        if (countries && !countries->empty() && countries->lookup(station, &info) && !info.continent.empty()) t.continents[info.continent].insert(station);
+        if (s.spotter.empty()) continue;
+        std::string by = spotterCall(s.spotter);
+        t.spotters.insert(by);
+        if (!hasHome) continue;
+        SpotPlace at = spotterPlace(s, countries);
+        if (!at.ok || greatCircleKm(homeLat, homeLon, at.lat, at.lon) > nearKm) continue;
+        t.nearSpotters.insert(by);
+        t.nearStations.insert(station);
+        if (s.hasSnr && (!t.snr || s.snr > t.best)) t.snr = true, t.best = s.snr;
+    }
+    std::vector<BandActivity> out;
+    for (const auto &[band, t] : byBand) {
+        BandActivity a;
+        a.band = band, a.stations = t.stations.size(), a.spotters = t.spotters.size(), a.nearSpotters = t.nearSpotters.size();
+        a.nearStations = t.nearStations.size(), a.nearSnr = t.snr, a.bestNearSnr = t.best, a.newest = t.newest;
+        for (const auto &[cont, calls] : t.continents) a.continents.emplace_back(cont, calls.size());
+        std::stable_sort(a.continents.begin(), a.continents.end(), [](const auto &x, const auto &y) { return x.second > y.second; });
+        out.push_back(std::move(a));
+    }
+    std::stable_sort(out.begin(), out.end(), [](const BandActivity &x, const BandActivity &y) { return bandOrder(x.band) < bandOrder(y.band); });
+    return out;
 }
 
 bool spotMatches(const SpotFilter &f, const Spot &s, long long now, const CountryTable *countries, const PotaParks *parks) {

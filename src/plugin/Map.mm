@@ -15,6 +15,7 @@
 #import "ToolWindow.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include "adif_detail.h"
+#include "adif_edit.h"
 #include "adif_geo.h"
 #include "adif_worked.h"
 #include "adif_regions.h"
@@ -142,6 +143,7 @@ static NSAttributedString *treeMark(NSColor *color) {
 @property(nonatomic) CGFloat gap;          // between neighbours; the line runs down its middle
 @property(nonatomic) BOOL trailingLast;    // the last one at the right end of its line
 @property(nonatomic) BOOL centred;         // each centred in its line's height (else at its top)
+@property(nonatomic) BOOL plain;           // no lines between them
 @end
 
 @implementation ADIFFlowView {
@@ -194,6 +196,7 @@ static NSAttributedString *treeMark(NSColor *color) {
     }
 }
 - (void)drawRect:(NSRect)dirty {
+    if (_plain) return;
     [[NSColor.separatorColor colorWithAlphaComponent:0.9] setFill];
     for (const NSRect &r : _rules) NSRectFill(r);
 }
@@ -348,6 +351,12 @@ struct ADIFQuickRow {
 - (BOOL)splitView:(NSSplitView *)s canCollapseSubview:(NSView *)v {
     return NO;
 }
+// The window resized: the map (and its list) take the change, the sidebar and the selected panel
+// keep their widths and the list its height (scaled with the rest, they went under their least).
+- (BOOL)splitView:(NSSplitView *)s shouldAdjustSizeOfSubview:(NSView *)v {
+    if (!s.vertical) return v != s.arrangedSubviews.lastObject;
+    return v != s.arrangedSubviews.firstObject && v != s.arrangedSubviews.lastObject;
+}
 - (void)splitViewDidResizeSubviews:(NSNotification *)n {
     if (self.onMoved) self.onMoved(n.object);
 }
@@ -379,6 +388,18 @@ struct ADIFQuickRow {
 
 namespace worldmap {
 namespace {
+
+// What the list under the map lists.
+enum ListKind { kListSelected, kListContacts, kListParks, kListSpots, kListRecent, kListIssues, kListDxcc };
+const int kListKinds = 7;
+
+// A problem Check Log finds in one of the QSOs the map shows (the list's Issues).
+struct ADIFIssue {
+    size_t qso = 0;     // into MapData::qsos
+    bool error = true;  // else a warning
+    std::string field, message;
+    size_t start = 0;   // where it is in the log (bytes)
+};
 
 // A station on your watch list, spotted (the bell lists them).
 struct ADIFWatchedSpot {
@@ -434,8 +455,11 @@ struct {
     NSTextField *chosenBadge = nil, *chosenSubtitle = nil;
     NSGridView *chosenFacts = nil;
     NSButton *viewQso = nil;         // the one QSO chosen, in the log
+    NSView *actions = nil;           // Center, View QSO, Watch: laid out again as they show and hide
     NSView *recentHost = nil;        // Live's newest spots, a row each (made afresh)
     NSView *recentSection = nil;     // their caption and View all spots
+    NSView *bandHost = nil, *bandSection = nil;  // Band conditions (Live): a table a band (made afresh), its line, its caption
+    NSTextField *bandLine = nil;
     NSView *whyBox = nil;
     NSStackView *whyList = nil;
     int spotLens = 0;          // Live's Quick View: which of the spots show
@@ -479,13 +503,16 @@ struct {
     NSTextField *listTitle = nil, *listHint = nil, *listGrid = nil, *listPageLabel = nil;
     NSPopUpButton *listFrom = nil, *listPageSize = nil, *listColumnsMenu = nil, *listWithin = nil, *listSortMenu = nil;
     NSMenu *listRowMenu = nil;  // a row's own: New QSO, View QSO, Center, Zoom to It
+    NSStackView *listTop = nil, *listFooter = nil;  // the list's bars: what gives way when narrow (fitListBars)
+    NSView *nearestTo = nil;
     NSSearchField *listSearch = nil;
     NSButton *listPrev = nil, *listNext = nil;
     NSTableView *listTable = nil;
     ADIFViewList *listRows = nil;
     bool listQueued = false;
     int listColumnsFor = -1;          // the kind the table's columns are for
-    size_t listPage[5] = {};          // each kind's page
+    size_t listPage[kListKinds] = {};  // each kind's page
+    std::vector<ADIFIssue> issues;     // Check Log's errors and warnings in the QSOs shown
     bool choosingFromList = false;    // a row chose it: the list stays as it is
     // POTA parks in: the park filter's button and popover.
     NSButton *parkPlacesButton = nil;
@@ -505,6 +532,7 @@ struct {
 // Saved choices, in ADIFLint.ini.
 void revealSection(NSString *name);
 void fillRecentSpots();
+void fillBandConditions();
 void switchWorkflow(int to);
 std::string grouped(size_t n);
 int workflow();
@@ -1180,7 +1208,7 @@ void showList(const std::vector<size_t> &qsos, ADIFMapHit::Kind kind = ADIFMapHi
     mw.listPage[0] = 0;
     NSInteger shown = mw.listKind.selectedSegment;
     bool same = (shown == 2 && kind == ADIFMapHit::Pota) || (shown == 3 && (kind == ADIFMapHit::Spot || kind == ADIFMapHit::Spotter)) ||
-                (shown == 1 && (kind == ADIFMapHit::Contact || kind == ADIFMapHit::Square));
+                (shown == 1 && (kind == ADIFMapHit::Contact || kind == ADIFMapHit::Square)) || (shown == kListDxcc && kind == ADIFMapHit::Dxcc);
     if (!qsos.empty() && !mw.choosingFromList && !same) showListKind(0);
     else fillViewList();
 }
@@ -1327,8 +1355,10 @@ void selected(const ADIFMapHit &h) {
     mw.useSpot.hidden = h.kind != ADIFMapHit::Spot;
     mw.viewQso.hidden = qsos.size() != 1;  // one QSO chosen: its record, a click away
     showWatchButton(h);
+    fillBandConditions();  // the chosen spot's band
     mw.centerButton.enabled = h.kind != ADIFMapHit::None;
     mw.centerButton.hidden = h.kind == ADIFMapHit::None;
+    mw.actions.needsLayout = YES;
     [mw.view setInfo:h.kind == ADIFMapHit::Spot || h.kind == ADIFMapHit::Spotter ? spotInfo(h) : std::vector<ADIFInfoRow>{}];
     mw.chosen = h.kind == ADIFMapHit::None ? "" : describe(h) + (qsos.empty() ? "" : " " + tr("Double-click a QSO to go to it in the log."));
     mw.chosenHit = h;
@@ -1740,6 +1770,12 @@ void refresh() {
             for (const std::string &i : items) [p addItemWithTitle:ADIFString(i)];
             if (keep && [p itemWithTitle:keep]) [p selectItemWithTitle:keep];
         };
+        for (const adif::Spot &sp : spotfeeds::spots().spots())  // the spots' bands too: the filter applies to them
+            if (!sp.band.empty() && !sp.heardMe) {
+                std::string b = sp.band;
+                for (char &c : b) c = (char)tolower((unsigned char)c);
+                if (!std::any_of(bands.begin(), bands.end(), [&](const std::string &x) { return strcasecmp(x.c_str(), b.c_str()) == 0; })) bands.insert(b);
+            }
         fill(mw.band, @[ N(@"All bands") ], std::vector<std::string>(bands.begin(), bands.end()));
         fill(mw.mode, @[ N(@"All modes") ], std::vector<std::string>(modes.begin(), modes.end()));
         bool customDates = mw.dates.indexOfSelectedItem == 4;  // its title is the range: kept by place, not title
@@ -1785,6 +1821,21 @@ void refresh() {
         context.countries = &ADIFCountries();
         context.parks = &ADIFPotaParks();
         mw.data = adif::mapData(text, r.model, f, context);
+        // Check Log's errors and warnings in the QSOs shown, for the list's Issues.
+        mw.issues.clear();
+        {
+            std::map<int, size_t> qsoOf;
+            for (size_t i = 0; i < mw.data.qsos.size(); ++i) qsoOf[mw.data.qsos[i].group] = i;
+            for (const adif::Diagnostic &d : r.diagnostics) {
+                if (d.severity != adif::Severity::Error && d.severity != adif::Severity::Warning) continue;
+                auto at = qsoOf.find(adif::groupAt(r.model, d.start));
+                if (at == qsoOf.end()) continue;
+                ADIFIssue issue;
+                issue.qso = at->second, issue.error = d.severity == adif::Severity::Error, issue.field = d.field, issue.message = d.message,
+                issue.start = d.start;
+                mw.issues.push_back(issue);
+            }
+        }
         [mw.view setParkFilter:places on:flag("mapFilterParks", false)];
         updateFilterButton();
         // DXCC from the calls, by country data.
@@ -1851,6 +1902,7 @@ void refresh() {
         mw.centerButton.hidden = YES;
         mw.viewQso.hidden = YES;
         showWatchButton(ADIFMapHit());
+        mw.actions.needsLayout = YES;
         std::string call = setting("stationCall");
         mw.summaryLabel.stringValue = ADIFString((call.empty() ? "" : call + "  \u00B7  ") + documentName() + "  \u00B7  " + plural(mw.data.qsos.size(), "QSO"));
         if (workflow() == 0) {
@@ -1886,6 +1938,17 @@ void goToQso(size_t qi) {
     NppHandle h = scintilla();
     const adif::LintResult &r = lint(h);
     if (q.group >= 0 && (size_t)q.group < r.model.groups.size()) goTo(h, adif::groupStart(r.model, r.model.groups[(size_t)q.group]), true);
+}
+
+// A problem in the list's Issues: the caret on it in the log.
+void goToIssue(size_t i) {
+    if (i >= mw.issues.size()) return;
+    if (buffer() != mw.buffer) {
+        setStatus("Switch back to the map's log to go to the record.");
+        return;
+    }
+    NppHandle h = scintilla();
+    if (mw.issues[i].start < adifhost::text(h).size()) goTo(h, mw.issues[i].start, true);
 }
 
 void exportPng() {
@@ -2579,6 +2642,7 @@ void refreshSpots() {
     mw.view.legendSpotBands = spotBands;
     [mw.view setSpots:marks now:now maxAge:f.maxAge];
     fillRecentSpots();
+    fillBandConditions();
     queueViewList();
     showSituation();
     mw.refreshSpotsButton.enabled = show;
@@ -2587,6 +2651,105 @@ void refreshSpots() {
     if (chosen.kind == ADIFMapHit::Spot || chosen.kind == ADIFMapHit::Spotter) [mw.view setInfo:spotInfo(chosen)];
     else if (!mw.view.info.empty()) [mw.view setInfo:std::vector<ADIFInfoRow>()];
     fillSpotsPopover();
+}
+
+// Live's Band conditions, from the spots (as the Spots filters keep them, on every band): a row a
+// band, its stations spotted and those heard within 1,500 km of you, with the best report; and a
+// line for the band in focus (the band filter's, else the chosen spot's, else the one most heard
+// near you). A band's name sets the band filter (or clears it).
+void fillBandConditions() {
+    if (!mw.bandHost) return;
+    for (NSView *v in [mw.bandHost.subviews copy]) [v removeFromSuperview];
+    bool show = workflow() == 1 && mw.view.style[kLayerSpots].show;
+    std::vector<adif::BandActivity> act;
+    double hlat = 0, hlon = 0;
+    bool home = !mw.home.empty() && adif::gridToLatLon(mw.home, &hlat, &hlon);
+    if (show) {
+        adif::SpotFilter f = spotFilter();
+        f.map.band.clear();  // every band, the filter's in focus
+        long long now = (long long)time(nullptr);
+        const adif::CountryTable *countries = &ADIFCountries();
+        std::vector<adif::Spot> kept;
+        for (const adif::Spot &sp : spotfeeds::spots().spots())
+            if (adif::spotMatches(f, sp, now, countries, &ADIFPotaParks())) kept.push_back(sp);
+        act = adif::bandActivity(kept, home, hlat, hlon, 1500, countries);
+    }
+    mw.bandSection.hidden = act.empty();
+    if (act.empty()) return;
+    std::string focus = mw.band.indexOfSelectedItem > 0 ? ADIFStd(mw.band.titleOfSelectedItem) : "";
+    for (char &c : focus) c = (char)tolower((unsigned char)c);
+    ADIFMapHit h = mw.view.selectedHit;
+    if (focus.empty() && h.kind == ADIFMapHit::Spot && h.index < mw.view.spots.size()) {
+        focus = mw.view.spots[h.index].spot.band;
+        for (char &c : focus) c = (char)tolower((unsigned char)c);
+    }
+    const adif::BandActivity *in = nullptr;
+    for (const adif::BandActivity &a : act)
+        if (a.band == focus) in = &a;
+    if (!in)
+        for (const adif::BandActivity &a : act)
+            if (!in || a.nearStations > in->nearStations || (a.nearStations == in->nearStations && a.stations > in->stations)) in = &a;
+    // The band in focus, in words.
+    std::string conts;
+    for (size_t i = 0; i < in->continents.size() && i < 4; ++i)
+        conts += (conts.empty() ? "" : ", ") + in->continents[i].first + " " + std::to_string(in->continents[i].second);
+    std::string line = trp("{band}: {n} station spotted", "{band}: {n} stations spotted", (long long)in->stations, {{"band", in->band}});
+    if (!conts.empty()) line += " (" + conts + ")";
+    if (home && in->nearStations)
+        line += "; " + trp("heard near you: {n} station", "heard near you: {n} stations", (long long)in->nearStations) + ", " +
+                trp("by {n} spotter within 1,500 km", "by {n} spotters within 1,500 km", (long long)in->nearSpotters) +
+                (in->nearSnr ? ", " + trf("best {snr} dB", {{"snr", (in->bestNearSnr > 0 ? "+" : "") + std::to_string(in->bestNearSnr)}}) : "");
+    else if (home) line += "; " + tr("none heard within 1,500 km of you yet");
+    if (in->newest > 0) line += "; " + trf("newest {age}", {{"age", adif::spotAge(in->newest, (long long)time(nullptr))}});
+    mw.bandLine.stringValue = ADIFString(line + ".");
+    // A row a band.
+    NSGridView *g = [NSGridView gridViewWithNumberOfColumns:4 rows:0];
+    g.rowSpacing = 2;
+    g.columnSpacing = 12;
+    g.identifier = @"map.bands";
+    auto cell = [](const std::string &text, bool head, bool bold) {
+        NSTextField *f = [NSTextField labelWithString:ADIFString(text)];
+        f.font = head ? [NSFont systemFontOfSize:NSFont.smallSystemFontSize - 1 weight:NSFontWeightMedium]
+                      : [NSFont monospacedDigitSystemFontOfSize:NSFont.smallSystemFontSize weight:bold ? NSFontWeightSemibold : NSFontWeightRegular];
+        f.textColor = head ? NSColor.secondaryLabelColor : NSColor.labelColor;
+        f.alignment = NSTextAlignmentRight;
+        return f;
+    };
+    [g addRowWithViews:@[ [NSGridCell emptyContentView], cell(tr("Stations##band"), true, false), cell(tr("Near you"), true, false), cell(tr("Best"), true, false) ]];
+    for (const adif::BandActivity &a : act) {
+        bool focused = &a == in;
+        std::string band = a.band;
+        NSButton *b = [NSButton buttonWithTitle:@"" target:nil action:nil];
+        b.bordered = NO;
+        b.alignment = NSTextAlignmentLeft;
+        b.attributedTitle = [[NSAttributedString alloc]
+            initWithString:ADIFString(band)
+                attributes:@{NSFontAttributeName : [NSFont systemFontOfSize:NSFont.smallSystemFontSize weight:focused ? NSFontWeightSemibold : NSFontWeightRegular],
+                             NSForegroundColorAttributeName : NSColor.linkColor}];
+        b.toolTip = T(@"Show only this band (the band filter); again, every band");
+        b.identifier = [@"map.band." stringByAppendingString:ADIFString(band)];
+        ADIFOnAction(b, ^{
+            NSInteger at = -1;
+            for (NSInteger i = 1; i < mw.band.numberOfItems; ++i)
+                if ([[mw.band itemAtIndex:i].title caseInsensitiveCompare:ADIFString(band)] == NSOrderedSame) at = i;
+            if (at < 0) {  // a band spotted that the menu doesn't have yet
+                [mw.band addItemWithTitle:ADIFString(band)];
+                at = mw.band.numberOfItems - 1;
+            }
+            [mw.band selectItemAtIndex:mw.band.indexOfSelectedItem != at ? at : 0];
+            [mw.band sendAction:mw.band.action to:mw.band.target];
+        });
+        std::string best = home && a.nearSnr ? (a.bestNearSnr > 0 ? "+" : "") + std::to_string(a.bestNearSnr) + " dB" : "";
+        [g addRowWithViews:@[ b, cell(grouped(a.stations), false, focused), cell(home ? grouped(a.nearStations) : "", false, focused), cell(best, false, focused) ]];
+    }
+    for (NSInteger r = 0; r < g.numberOfRows; ++r) [g rowAtIndex:r].yPlacement = NSGridCellPlacementCenter;
+    g.translatesAutoresizingMaskIntoConstraints = NO;
+    [mw.bandHost addSubview:g];
+    [NSLayoutConstraint activateConstraints:@[
+        [g.topAnchor constraintEqualToAnchor:mw.bandHost.topAnchor], [g.bottomAnchor constraintEqualToAnchor:mw.bandHost.bottomAnchor],
+        [g.leadingAnchor constraintEqualToAnchor:mw.bandHost.leadingAnchor],
+        [g.trailingAnchor constraintLessThanOrEqualToAnchor:mw.bandHost.trailingAnchor]
+    ]];
 }
 
 // Live's newest spots, a row each (fainter after 15 minutes), each call a link that chooses its
@@ -2944,8 +3107,6 @@ void showParkPlaces() {
 
 // ── The list beside the map: the QSOs chosen; the contacts, parks or spots in view ──
 
-enum ListKind { kListSelected, kListContacts, kListParks, kListSpots, kListRecent };
-const int kListKinds = 5;
 
 bool qsoList(int kind) { return kind == kListSelected || kind == kListContacts || kind == kListRecent; }  // a QSO a row
 
@@ -2997,11 +3158,28 @@ const std::vector<ListColumn> &listColumns(int kind) {
         }
         return c;
     }();
+    static const std::vector<ListColumn> kIssues = {
+        {"record", N_("Record"), 66, 2, true, true},      {"call", N_("Call"), 76, 0, true, false},  {"date", N_("Date"), 76, 1, true, false},
+        {"band", N_("Band"), 42, 1, false, false},         {"severity", N_("Kind"), 66, 0, true, false}, {"field", N_("Field"), 110, 0, true, false},
+        {"problem", N_("Problem"), 420, 0, true, false},   {"distance", N_("Distance"), 64, 2, false, true},
+    };
+    // DXCC Progress: each entity worked, its bands from 160m to 6m and its modes, ● confirmed, ○ worked.
+    static const std::vector<ListColumn> kDxcc = {
+        {"entity", N_("DXCC entity"), 160, 0, true, false}, {"dxcc", "DXCC", 44, 2, false, true},        {"cont", N_("Continent"), 64, 1, false, false},
+        {"qsos", N_("QSOs"), 48, 2, true, true},           {"bands", N_("Bands"), 48, 2, true, true},    {"confirmedBands", N_("Confirmed"), 70, 2, true, true},
+        {"b160m", "160", 30, 1, true, true}, {"b80m", "80", 26, 1, true, true}, {"b60m", "60", 26, 1, false, true}, {"b40m", "40", 26, 1, true, true},
+        {"b30m", "30", 26, 1, true, true},   {"b20m", "20", 26, 1, true, true}, {"b17m", "17", 26, 1, true, true},  {"b15m", "15", 26, 1, true, true},
+        {"b12m", "12", 26, 1, true, true},   {"b10m", "10", 26, 1, true, true}, {"b6m", "6", 26, 1, true, true},    {"cw", "CW", 32, 1, true, true},
+        {"phone", N_("Phone"), 48, 1, true, true},         {"data", N_("Data"), 42, 1, true, true},      {"distance", N_("Distance"), 64, 2, false, true},
+        {"bearing", N_("Bearing"), 54, 2, false, true},
+    };
     switch (kind) {
         case kListSelected: return kSelected;
         case kListContacts: return kContacts;
         case kListParks: return kParks;
         case kListRecent: return kRecent;
+        case kListIssues: return kIssues;
+        case kListDxcc: return kDxcc;
         default: return kSpots;
     }
 }
@@ -3038,7 +3216,7 @@ std::pair<std::string, bool> listSort(int kind) {
     bool ascending = v.empty() || v[0] != '-';
     std::string id = ascending ? v : v.substr(1);
     if (!listColumn(kind, id)) {  // the QSOs chosen in the log's order, the newest first, the best spots first, else the nearest
-        id = kind == kListSelected ? "record" : kind == kListRecent ? "date" : kind == kListSpots ? "need" : "distance";
+        id = kind == kListSelected || kind == kListIssues ? "record" : kind == kListRecent ? "date" : kind == kListSpots ? "need" : kind == kListDxcc ? "entity" : "distance";
         ascending = kind != kListRecent;
     }
     return {id, ascending};
@@ -3056,7 +3234,12 @@ const std::vector<SortChoice> &sortChoices(int kind) {
     static const std::vector<SortChoice> kQsos = {{N_("Newest"), "date", false}, {N_("Oldest"), "date", true},   {N_("Call"), "call", true},
                                                   {N_("Band"), "band", true},    {N_("Nearest"), "distance", true}, {N_("Log order"), "record", true}};
     static const std::vector<SortChoice> kParks = {{N_("Nearest"), "distance", true}, {N_("Reference"), "ref", true}, {N_("Name"), "name", true}};
-    return kind == kListSpots ? kSpots : kind == kListParks ? kParks : kQsos;
+    static const std::vector<SortChoice> kIssues = {{N_("Log order"), "record", true}, {N_("Errors first"), "severity", true}, {N_("Field"), "field", true},
+                                                    {N_("Call"), "call", true}};
+    static const std::vector<SortChoice> kDxcc = {{N_("Name"), "entity", true},           {N_("Most bands"), "bands", false},
+                                                  {N_("Most confirmed"), "confirmedBands", false}, {N_("Fewest confirmed"), "confirmedBands", true},
+                                                  {N_("Most QSOs"), "qsos", false},       {N_("Nearest"), "distance", true}};
+    return kind == kListSpots ? kSpots : kind == kListParks ? kParks : kind == kListIssues ? kIssues : kind == kListDxcc ? kDxcc : kQsos;
 }
 
 // The Sort menu for the list shown, its sort chosen ("By a column" when a column's title chose another).
@@ -3261,6 +3444,62 @@ std::vector<ADIFViewRow> spotRows(double lat, double lon) {
     return rows;
 }
 
+// The rows for Check Log's problems: one a problem, at its QSO's contact or square.
+std::vector<ADIFViewRow> issueRows(double lat, double lon) {
+    std::map<size_t, ADIFViewRow> byQso;
+    for (const ADIFViewRow &r : qsoRows(kListRecent, lat, lon)) byQso[r.item] = r;
+    std::vector<ADIFViewRow> rows;
+    for (size_t i = 0; i < mw.issues.size(); ++i) {
+        auto at = byQso.find(mw.issues[i].qso);
+        ADIFViewRow r = at != byQso.end() ? at->second : ADIFViewRow();
+        r.item = i;
+        r.color = mw.issues[i].error ? NSColor.systemRedColor : NSColor.systemOrangeColor;
+        rows.push_back(r);
+    }
+    return rows;
+}
+
+// The rows for DXCC Progress: each entity worked (as the filters keep the QSOs).
+std::vector<ADIFViewRow> dxccRows(double lat, double lon) {
+    std::vector<ADIFViewRow> rows;
+    for (size_t i = 0; i < mw.dxcc.size(); ++i) {
+        const ADIFMapEntity &e = mw.dxcc[i];
+        ADIFViewRow r;
+        r.item = i;
+        r.hit.kind = ADIFMapHit::Dxcc, r.hit.index = i, r.hit.square = adif::squareAt(e.lon, e.lat);
+        r.lat = e.lat, r.lon = e.lon, r.span = 8;
+        r.km = adif::greatCircleKm(lat, lon, e.lat, e.lon), r.bearing = adif::initialBearing(lat, lon, e.lat, e.lon);
+        r.color = [mw.view colorFor:[mw.view aggregate:e.qsos] entity:YES];
+        rows.push_back(r);
+    }
+    return rows;
+}
+
+// A DXCC entity's state on a band ("20m") or in a mode group (0 CW, 1 phone, 2 data): 2
+// confirmed, 1 worked, 0 not.
+int entitySlot(int dxcc, const std::string &band, int mode) {
+    const adif::WorkedIndex &w = mw.view.worked;
+    auto it = w.entities.find(dxcc);
+    if (it == w.entities.end()) return 0;
+    const adif::WorkedIndex::Entity &e = it->second;
+    if (!band.empty()) return e.confirmedBands.count(band) ? 2 : e.bands.count(band) ? 1 : 0;
+    return e.confirmedModes.count(mode) ? 2 : e.modes.count(mode) ? 1 : 0;
+}
+
+// A DXCC entity's continent, from the country data.
+std::string entityContinent(int dxcc) {
+    static std::map<int, std::string> conts;
+    static size_t contsFor = 0;
+    const adif::CountryTable &countries = ADIFCountries();
+    if (contsFor != countries.entities()) {
+        conts.clear();
+        for (const adif::CountryInfo &c : countries.all()) conts.emplace(c.dxcc, c.continent);
+        contsFor = countries.entities();
+    }
+    auto it = conts.find(dxcc);
+    return it == conts.end() ? "" : it->second;
+}
+
 // A DXCC entity's name, from the country data.
 std::string entityName(int dxcc, const std::string &call) {
     static std::map<int, std::string> names;
@@ -3284,6 +3523,31 @@ std::string cellText(int kind, const ADIFViewRow &r, const std::string &id) {
         char deg[16];
         snprintf(deg, sizeof deg, "%.0f°", std::fmod(std::round(r.bearing) + 360, 360));
         return deg;
+    }
+    if (kind == kListIssues) {
+        if (r.item >= mw.issues.size()) return "";
+        const ADIFIssue &is = mw.issues[r.item];
+        if (id == "severity") return is.error ? tr("Error") : tr("Warning");
+        if (id == "field") return is.field;
+        if (id == "problem") return is.message;
+        ADIFViewRow q = r;
+        q.item = is.qso;
+        return cellText(kListRecent, q, id);
+    }
+    if (kind == kListDxcc) {
+        if (r.item >= mw.dxcc.size()) return "";
+        const ADIFMapEntity &e = mw.dxcc[r.item];
+        auto mark = [](int slot) { return slot == 2 ? std::string("\u25CF") : slot == 1 ? std::string("\u25CB") : std::string(); };
+        if (id == "entity") return e.name.empty() ? std::to_string(e.dxcc) : e.name;
+        if (id == "dxcc") return std::to_string(e.dxcc);
+        if (id == "cont") return entityContinent(e.dxcc);
+        if (id == "qsos") return grouped(e.qsos.size());
+        if (id.size() > 1 && id[0] == 'b' && id.back() == 'm') return mark(entitySlot(e.dxcc, id.substr(1), 0));
+        if (id == "cw" || id == "phone" || id == "data") return mark(entitySlot(e.dxcc, "", id == "cw" ? 0 : id == "phone" ? 1 : 2));
+        auto it = mw.view.worked.entities.find(e.dxcc);
+        if (id == "bands") return it == mw.view.worked.entities.end() ? "" : std::to_string(it->second.bands.size());
+        if (id == "confirmedBands") return it == mw.view.worked.entities.end() ? "" : std::to_string(it->second.confirmedBands.size());
+        return "";
     }
     if (qsoList(kind)) {
         if (r.item >= mw.data.qsos.size()) return "";
@@ -3384,6 +3648,20 @@ std::string cellText(int kind, const ADIFViewRow &r, const std::string &id) {
 double cellNumber(int kind, const ADIFViewRow &r, const std::string &id) {
     if (id == "distance") return r.km < 0 ? 1e12 : r.km;
     if (id == "bearing") return r.km < 0 ? 1e12 : std::fmod(r.bearing + 360, 360);
+    if (kind == kListIssues && id == "record" && r.item < mw.issues.size() && mw.issues[r.item].qso < mw.data.qsos.size())
+        return mw.data.qsos[mw.issues[r.item].qso].record;
+    if (kind == kListDxcc && r.item < mw.dxcc.size()) {
+        const ADIFMapEntity &e = mw.dxcc[r.item];
+        if (id == "dxcc") return e.dxcc;
+        if (id == "qsos") return e.qsos.size();
+        if (id.size() > 1 && id[0] == 'b' && id.back() == 'm') return entitySlot(e.dxcc, id.substr(1), 0);
+        if (id == "cw" || id == "phone" || id == "data") return entitySlot(e.dxcc, "", id == "cw" ? 0 : id == "phone" ? 1 : 2);
+        auto it = mw.view.worked.entities.find(e.dxcc);
+        if (it == mw.view.worked.entities.end()) return 0;
+        if (id == "bands") return it->second.bands.size();
+        if (id == "confirmedBands") return it->second.confirmedBands.size();
+        return 0;
+    }
     if (kind == kListSpots && r.item < mw.view.spots.size()) {
         const adif::Spot &sp = mw.view.spots[r.item].spot;
         if (id == "khz") return std::atof(sp.khz.c_str());
@@ -3405,6 +3683,8 @@ double cellNumber(int kind, const ADIFViewRow &r, const std::string &id) {
 }
 
 std::string sortText(int kind, const ADIFViewRow &r, const std::string &id) {
+    if (kind == kListIssues && id == "date" && r.item < mw.issues.size() && mw.issues[r.item].qso < mw.data.qsos.size())
+        return mw.data.qsos[mw.issues[r.item].qso].date8 + mw.data.qsos[mw.issues[r.item].qso].time;
     if (qsoList(kind) && id == "date" && r.item < mw.data.qsos.size())
         return mw.data.qsos[r.item].date8 + mw.data.qsos[r.item].time;
     std::string t = cellText(kind, r, id);
@@ -3413,6 +3693,27 @@ std::string sortText(int kind, const ADIFViewRow &r, const std::string &id) {
 }
 
 void showListRow(const ADIFMapHit &h);
+
+// The list's bars in the room the list has: narrow, the page size goes first, then Columns (a
+// column title's right-click has them), "Nearest to:", the distance; above, Sort (a column's title
+// sorts too). The tabs shorten rather than squeeze the map.
+void fitListBars() {
+    if (!mw.listPanel || !mw.listFooter) return;
+    CGFloat room = NSWidth(mw.listPanel.bounds) - 20;
+    auto need = [](NSStackView *bar, NSView *skip) {
+        CGFloat w = 0;
+        NSInteger n = 0;
+        for (NSView *v in bar.views)
+            if (!v.hidden && v != skip) w += v.fittingSize.width, ++n;
+        return w + bar.spacing * std::max<NSInteger>(0, n - 1) + 20;  // and the wider gaps
+    };
+    NSArray<NSView *> *optional = @[ mw.listPageSize, mw.listColumnsMenu, mw.nearestTo, mw.listWithin ];
+    for (NSView *v in optional) v.hidden = NO;
+    for (NSView *v in optional)
+        if (need(mw.listFooter, mw.listHint) > room && !(v == mw.listWithin && mw.listWithin.selectedTag > 0)) v.hidden = YES;  // a distance chosen stays
+    mw.listSortMenu.hidden = NO;
+    mw.listSortMenu.hidden = need(mw.listTop, nil) - mw.listSearch.fittingSize.width + 120 > room;  // the search field at its least
+}
 
 // The list again, for the kind chosen: its rows, sorted, the page shown, the title, the pager.
 void fillViewList() {
@@ -3427,7 +3728,11 @@ void fillViewList() {
     double lat = 0, lon = 0;
     std::string from;
     bool chosenPlace = listFromPlace(&lat, &lon, &from);
-    std::vector<ADIFViewRow> rows = kind == kListParks ? parkRows(lat, lon) : kind == kListSpots ? spotRows(lat, lon) : qsoRows(kind, lat, lon);
+    std::vector<ADIFViewRow> rows = kind == kListParks    ? parkRows(lat, lon)
+                                    : kind == kListSpots  ? spotRows(lat, lon)
+                                    : kind == kListIssues ? issueRows(lat, lon)
+                                    : kind == kListDxcc   ? dxccRows(lat, lon)
+                                                          : qsoRows(kind, lat, lon);
     // Narrowed by the search (a call, reference, name... in any column shown, or the list's own
     // key columns) and the distance limit (in the units chosen).
     bool miles = mw.listUnits.selectedSegment == 0;
@@ -3497,18 +3802,32 @@ void fillViewList() {
         case kListContacts: mw.listTitle.stringValue = TF(@"Contacts in View ({n})", counts); break;
         case kListParks: mw.listTitle.stringValue = TF(@"Parks in View ({n})", counts); break;
         case kListRecent: mw.listTitle.stringValue = TF(@"Recent QSOs ({n})", counts); break;
+        case kListIssues: mw.listTitle.stringValue = TF(@"Log Issues ({n})", counts); break;
+        case kListDxcc: mw.listTitle.stringValue = TF(@"DXCC Progress ({n})", counts); break;
         default: mw.listTitle.stringValue = TF(@"Spots in View ({n})", counts); break;
     }
     // Each tab says how many it has: the QSOs chosen, the contacts, parks and spots in view, the log.
-    size_t tabCounts[kListKinds] = {mw.listed.size(), 0, 0, mw.view.spots.size(), mw.data.qsos.size()};
+    size_t tabCounts[kListKinds] = {mw.listed.size(), 0, 0, mw.view.spots.size(), mw.data.qsos.size(), mw.issues.size(), mw.dxcc.size()};
     tabCounts[kListContacts] = kind == kListContacts ? found : qsoRows(kListContacts, lat, lon).size();
     tabCounts[kListParks] = kind == kListParks ? found : parkRows(lat, lon).size();
-    NSString *const tabTitles[kListKinds] = {N(@"Selected ({n})"), N(@"Contacts ({n})"), N(@"Parks ({n})"), N(@"Spots ({n})"), N(@"Recent ({n})")};
-    for (int k = 0; k < kListKinds; ++k) [mw.listKind setLabel:TF(tabTitles[k], @{@"n" : @(tabCounts[k])}) forSegment:k];
+    NSString *const tabTitles[kListKinds] = {N(@"Selected ({n})"), N(@"Contacts ({n})"), N(@"Parks ({n})"), N(@"Spots ({n})"),
+                                             N(@"Recent ({n})"),   N(@"Issues ({n})"),   N(@"DXCC ({n})")};
+    for (int k = 0; k < kListKinds; ++k) {
+        NSString *label = TF(tabTitles[k], @{@"n" : @(tabCounts[k])});
+        [mw.listKind setLabel:label forSegment:k];
+        [mw.listKind setToolTip:label forSegment:k];  // whole, when the tabs are shortened
+    }
     const ADIFMapStyle &st = mw.view.style;
     std::string hint;
     if (kind == kListRecent) hint = tr("The log's QSOs (as the filters keep them), the newest first. Click one to find it on the map; double-click to go "
                                        "to it in the log.");
+    else if (kind == kListIssues)
+        hint = rows.empty() ? tr("No errors or warnings from Check Log in the QSOs shown.")
+                            : tr("Check Log's errors and warnings in the QSOs shown. Click one to find its QSO on the map; double-click to go to the "
+                                 "problem in the log.");
+    else if (kind == kListDxcc)
+        hint = tr("The DXCC entities worked: \u25CF confirmed, \u25CB worked, on each band and in each mode (CW, phone, data). Click one to show it "
+                  "on the map.");
     else if (kind == kListSelected)
         hint = rows.empty() ? tr("Click a square, contact, park or area on the map for its QSOs.")
                             : tr("The QSOs of what you clicked on the map. Double-click one to go to it in the log.");
@@ -3532,6 +3851,7 @@ void fillViewList() {
                " " + hint;
     mw.listHint.stringValue = ADIFString(hint);
     mw.listHint.toolTip = mw.listHint.stringValue;
+    fitListBars();
 }
 
 // The situation panel: the log as the map shows it; today's QSOs; the spots you most want now (a
@@ -3670,7 +3990,7 @@ void showSituation() {
     }
     // The busiest bands (stations spotted on each), and the sun where you are.
     std::string air;
-    if (mw.view.style[kLayerSpots].show && !spots.empty()) {
+    if (mw.view.style[kLayerSpots].show && !spots.empty() && workflow() != 1) {  // Live has Band conditions
         std::map<std::string, std::set<std::string>> byBand;
         for (const ADIFMapSpot &ms : spots)
             if (!ms.spot.band.empty()) byBand[ms.spot.band].insert(ms.spot.activator);
@@ -3762,6 +4082,11 @@ void fillRowMenu(NSMenu *menu) {
             useSelectedSpot();
         });
     if (qsoList(kind) && r.item < mw.data.qsos.size()) add(@"View QSO", ^{ goToQso(r.item); });
+    if (kind == kListIssues && r.item < mw.issues.size()) {
+        add(@"Go to Problem", ^{ goToIssue(r.item); });
+        size_t qso = mw.issues[r.item].qso;
+        add(@"View QSO", ^{ goToQso(qso); });
+    }
     if (r.hit.kind != ADIFMapHit::None) {
         add(@"Center", ^{
             choose(r);
@@ -3782,6 +4107,7 @@ void fillRowMenu(NSMenu *menu) {
 // where downloaded, a square, else a little round it), chosen.
 void openRow(const ADIFViewRow &r) {
     if (mw.listKind.selectedSegment == kListSelected || mw.listKind.selectedSegment == kListRecent) return goToQso(r.item);
+    if (mw.listKind.selectedSegment == kListIssues) return goToIssue(r.item);
     double w, s, e, n;
     const adif::PotaParks &list = ADIFPotaParks();
     const adif::ParkOutline *o = r.hit.kind == ADIFMapHit::Pota && r.hit.index < list.size() ? parkoutlines::find(list.parks()[r.hit.index].ref) : nullptr;
@@ -4149,11 +4475,13 @@ void showWatchButton(const ADIFMapHit &h) {
     if (!mw.watchButton) return;
     std::string token = watchTokenFor(h);
     mw.watchButton.hidden = token.empty();
+    mw.actions.needsLayout = YES;
     if (token.empty()) return;
     bool on = onWatchList(token);
     mw.watchButton.title = on ? T(@"Watching") : T(@"Watch");
     mw.watchButton.image = [NSImage imageWithSystemSymbolName:on ? @"star.fill" : @"star" accessibilityDescription:nil];
     mw.watchButton.contentTintColor = on ? NSColor.systemYellowColor : nil;
+    mw.actions.needsLayout = YES;  // its title's width too
     mw.watchButton.toolTip = ADIFString(on ? trf("{what} is on your watch list; click to stop watching it", {{"what", token}})
                                            : trf("Watch {what}: when it is spotted, it shows in My watch list, first among the spots, and under the bell",
                                                  {{"what", token}}));
@@ -4429,6 +4757,10 @@ void cmdMap() {
         mw.programs.bordered = NO;
         ((NSPopUpButtonCell *)mw.programs.cell).arrowPosition = NSPopUpArrowAtBottom;
         mw.programs.identifier = @"map.programs";
+        {  // as wide as its title, not its longest item (which would widen the sidebar's least width)
+            CGFloat w = std::ceil([T(@"Other programs") sizeWithAttributes:@{NSFontAttributeName : mw.programs.font}].width) + 24;
+            [mw.programs.widthAnchor constraintEqualToConstant:w].active = YES;
+        }
         mw.otherBox = ADIFCheckbox(@"", true);
         mw.otherBox.identifier = @"map.show.others";
         mw.otherBox.toolTip = T(@"The references of other programs you worked (WWFF, SOTA, IOTA...), a colour each; the name chooses which");
@@ -4650,13 +4982,14 @@ void cmdMap() {
         // The list under the map: the QSOs of what you click, or the contacts, parks or spots in view.
         mw.listPanel = [[NSView alloc] initWithFrame:NSZeroRect];
         mw.listPanel.identifier = @"map.list";
-        mw.listKind = [NSSegmentedControl segmentedControlWithLabels:@[ T(@"Selected"), T(@"Contacts"), T(@"Parks"), T(@"Spots"), T(@"Recent") ]
+        mw.listKind = [NSSegmentedControl segmentedControlWithLabels:@[ T(@"Selected"), T(@"Contacts"), T(@"Parks"), T(@"Spots"), T(@"Recent"), T(@"Issues"), T(@"DXCC") ]
                                                          trackingMode:NSSegmentSwitchTrackingSelectOne
                                                                target:nil
                                                                action:nil];
         mw.listKind.selectedSegment = number("mapListKind", 0, kListKinds - 1);
         mw.listKind.toolTip = T(@"What the list shows: the QSOs of what you clicked on the map; the contacts (QSOs with a grid or a place), the POTA "
-                                @"parks or the spots in view; or the log's QSOs, the newest first");
+                                @"parks or the spots in view; the log's QSOs, the newest first; Check Log's problems in them; or the DXCC "
+                                @"entities worked, by band and mode");
         mw.listKind.identifier = @"map.list.kind";
         ADIFOnAction(mw.listKind, ^{
             setSetting("mapListKind", std::to_string(mw.listKind.selectedSegment));
@@ -4681,6 +5014,8 @@ void cmdMap() {
             fillViewList();
         });
         mw.listFrom = ADIFPopup(@[ @"Your station", @"Map centre", @"Grid square:" ]);
+        mw.listFrom.controlSize = NSControlSizeSmall;
+        mw.listFrom.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
         mw.listFrom.autoenablesItems = NO;
         [mw.listFrom selectItemAtIndex:number("mapListFrom", 0, 2)];
         mw.listFrom.toolTip = T(@"Where the distances and bearings are from, and so what comes first: your station's grid (Settings, Your "
@@ -4872,6 +5207,7 @@ void cmdMap() {
         // table: the pages, where it measures from, the hint, how many a page and the columns.
         NSStackView *listTop = [[NSStackView alloc] initWithFrame:NSZeroRect];
         listTop.spacing = 8;
+        listTop.identifier = @"map.list.top";
         for (NSView *v in @[ mw.listKind, mw.listTitle ]) [listTop addView:v inGravity:NSStackViewGravityLeading];
         mw.listSortMenu = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
         mw.listSortMenu.controlSize = NSControlSizeSmall;
@@ -4891,16 +5227,24 @@ void cmdMap() {
             fillViewList();
         });
         [mw.listSortMenu setContentCompressionResistancePriority:NSLayoutPriorityDefaultHigh + 1 forOrientation:NSLayoutConstraintOrientationHorizontal];
-        for (NSView *v in @[ mw.listSortMenu, mw.listSearch, mw.listWithin ]) [listTop addView:v inGravity:NSStackViewGravityTrailing];
+        for (NSView *v in @[ mw.listSortMenu, mw.listSearch ]) [listTop addView:v inGravity:NSStackViewGravityTrailing];
+        mw.listTop = listTop;
+        listTop.detachesHiddenViews = YES;
+        mw.listKind.controlSize = NSControlSizeSmall;
+        mw.listKind.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        [mw.listKind setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
         NSLayoutConstraint *searchWidth = [mw.listSearch.widthAnchor constraintEqualToConstant:220];
-        searchWidth.priority = NSLayoutPriorityDefaultLow + 1;
+        searchWidth.priority = NSLayoutPriorityDefaultLow - 1;  // the tabs whole first
         searchWidth.active = YES;
         [mw.listSearch.widthAnchor constraintGreaterThanOrEqualToConstant:120].active = YES;
         [mw.listWithin setContentCompressionResistancePriority:NSLayoutPriorityDefaultHigh + 1 forOrientation:NSLayoutConstraintOrientationHorizontal];
         NSStackView *listFooter = [[NSStackView alloc] initWithFrame:NSZeroRect];
         listFooter.spacing = 6;
-        for (NSView *v in @[ mw.listPrev, mw.listPageLabel, mw.listNext, ADIFLabel(@"Nearest to:"), mw.listFrom, mw.listGrid, mw.listUnits, mw.listHint ])
-            [listFooter addView:v inGravity:NSStackViewGravityLeading];
+        listFooter.identifier = @"map.list.footer";
+        NSTextField *nearestTo = ADIFLabel(@"Nearest to:");
+        nearestTo.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        for (NSView *v in @[ mw.listPrev, mw.listPageLabel, mw.listNext, nearestTo, mw.listFrom, mw.listGrid, mw.listUnits, mw.listWithin, mw.listHint ])
+            [listFooter addView:v inGravity:NSStackViewGravityLeading];  // how far: beside where from and the units
         [listFooter setCustomSpacing:14 afterView:mw.listNext];
         // In a narrow window "Nearest to" gives way before the page size and the columns.
         [mw.listFrom setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
@@ -4908,6 +5252,9 @@ void cmdMap() {
             [v setContentCompressionResistancePriority:NSLayoutPriorityDefaultHigh + 1 forOrientation:NSLayoutConstraintOrientationHorizontal];
         [listFooter setCustomSpacing:14 afterView:mw.listUnits];
         for (NSView *v in @[ mw.listPageSize, mw.listColumnsMenu ]) [listFooter addView:v inGravity:NSStackViewGravityTrailing];
+        mw.listFooter = listFooter;
+        mw.nearestTo = nearestTo;
+        listFooter.detachesHiddenViews = YES;
         for (NSView *v in @[ listTop, listScroll, listFooter ]) {
             v.translatesAutoresizingMaskIntoConstraints = NO;
             [mw.listPanel addSubview:v];
@@ -5297,8 +5644,13 @@ void cmdMap() {
         mw.watchButton.imagePosition = NSImageLeading;
         mw.watchButton.identifier = @"map.watch";
         mw.watchButton.hidden = YES;
-        NSStackView *actions = line(@[ mw.centerButton, mw.viewQso, mw.watchButton ]);
-        actions.detachesHiddenViews = YES;
+        ADIFFlowView *actions = [[ADIFFlowView alloc] initWithFrame:NSZeroRect];  // a second line when the panel is narrow
+        actions.gap = 8;
+        actions.plain = YES;
+        actions.centred = YES;
+        actions.identifier = @"map.actions";
+        for (NSView *v in @[ mw.centerButton, mw.viewQso, mw.watchButton ]) [actions addSubview:v];
+        mw.actions = actions;
         mw.useSpot.bordered = NO;  // green, the panel's one main action
         mw.useSpot.wantsLayer = YES;
         mw.useSpot.layer.backgroundColor = NSColor.systemGreenColor.CGColor;
@@ -5381,11 +5733,43 @@ void cmdMap() {
         recentSection.identifier = @"map.recent.section";
         recentSection.hidden = YES;
         mw.recentSection = recentSection;
+        // Live's Band conditions: closed with its triangle (remembered).
+        NSButton *bandTriangle = [NSButton buttonWithTitle:@"" target:nil action:nil];
+        bandTriangle.bezelStyle = NSBezelStyleDisclosure;
+        [bandTriangle setButtonType:NSButtonTypePushOnPushOff];
+        bandTriangle.identifier = @"map.bands.toggle";
+        bandTriangle.accessibilityLabel = T(@"Band conditions");
+        mw.bandLine = [NSTextField wrappingLabelWithString:@""];
+        mw.bandLine.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        mw.bandLine.identifier = @"map.bands.line";
+        mw.bandHost = [[NSView alloc] initWithFrame:NSZeroRect];
+        NSStackView *bandBody = rows(@[ mw.bandLine, mw.bandHost ], 6);
+        bandBody.identifier = @"map.bands.body";
+        [mw.bandLine.widthAnchor constraintEqualToAnchor:bandBody.widthAnchor].active = YES;
+        [mw.bandHost.widthAnchor constraintEqualToAnchor:bandBody.widthAnchor].active = YES;
+        NSStackView *bandHead = [NSStackView stackViewWithViews:@[ bandTriangle, caption(N(@"Band conditions")) ]];
+        bandHead.spacing = 2;
+        NSStackView *bandSection = rows(@[ bandHead, bandBody ], 6);
+        [bandBody.widthAnchor constraintEqualToAnchor:bandSection.widthAnchor].active = YES;
+        bandSection.identifier = @"map.bands.section";
+        bandSection.hidden = YES;
+        bandSection.toolTip = T(@"How the bands are doing, from the spots: the stations spotted on each, those heard by spotters within 1,500 km of "
+                                @"your station, and the best report they gave");
+        mw.bandSection = bandSection;
+        bool bandsOpen = !flag("mapBandsClosed", false);
+        bandTriangle.state = bandsOpen ? NSControlStateValueOn : NSControlStateValueOff;
+        bandBody.hidden = !bandsOpen;
+        __weak NSButton *weakBands = bandTriangle;
+        ADIFOnAction(bandTriangle, ^{
+            bool open = weakBands.state == NSControlStateValueOn;
+            bandBody.hidden = !open;
+            saveFlag("mapBandsClosed", !open);
+        });
         NSStackView *selectedColumn = rows(@[ chosenHead, titleRow, mw.chosenSubtitle, mw.chosenFacts, mw.whyBox, mw.useSpot, actions, mw.status, mw.slots,
-                                              between, situationCaption, mw.statHost, mw.situation, mw.today, mw.wanted, mw.air, recentSection ],
+                                              between, situationCaption, mw.statHost, mw.situation, mw.today, mw.wanted, mw.air, bandSection, recentSection ],
                                            6);
         selectedColumn.edgeInsets = NSEdgeInsetsMake(12, 12, 16, 12);
-        for (NSView *v in @[ chosenHead, titleRow, mw.chosenSubtitle, mw.chosenFacts, mw.whyBox, mw.useSpot, mw.status, mw.slots, between, mw.statHost,
+        for (NSView *v in @[ chosenHead, titleRow, mw.chosenSubtitle, mw.chosenFacts, mw.whyBox, mw.useSpot, actions, mw.status, mw.slots, between, mw.statHost, bandSection,
                              mw.situation, mw.today, mw.wanted, mw.air, recentSection ])
             [v.widthAnchor constraintEqualToAnchor:selectedColumn.widthAnchor constant:-24].active = YES;
         [selectedColumn setCustomSpacing:2 afterView:titleRow];
@@ -5468,6 +5852,7 @@ void cmdMap() {
             CGFloat least = 280;
             for (NSView *v in @[ layers, mw.colorBy, mw.projection, mw.region ]) least = std::max(least, std::ceil(v.fittingSize.width) + 24 + 16);
             mw.splitKeeper.leastSidebar = least;
+
         }
         auto split = [](NSString *ident, BOOL vertical, NSArray<NSView *> *views) {
             NSSplitView *sv = [[NSSplitView alloc] initWithFrame:NSMakeRect(0, 0, 1200, 700)];
@@ -5487,6 +5872,7 @@ void cmdMap() {
         [mw.bodySplit setHoldingPriority:NSLayoutPriorityDefaultLow - 10 forSubviewAtIndex:1];
         [mw.bodySplit setHoldingPriority:NSLayoutPriorityDefaultLow + 20 forSubviewAtIndex:2];
         mw.splitKeeper.onMoved = ^(NSSplitView *sv) {
+            fitListBars();
             if (!mw.splitsRestored) return;
             if (sv == mw.bodySplit && !mw.sidebar.hidden) setSetting("mapSidebarWidth", std::to_string(std::lround(mw.sidebar.frame.size.width)));
             if (sv == mw.bodySplit && !mw.selectedPanel.hidden) setSetting("mapSelectedWidth", std::to_string(std::lround(mw.selectedPanel.frame.size.width)));

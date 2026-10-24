@@ -4426,9 +4426,52 @@ int main(int argc, char **argv) {
                 NSTextField *hint = (NSTextField *)viewWithIdentifier(mapw.contentView, @"map.list.hint");
                 kind.selectedSegment = 2;  // Parks
                 [kind sendAction:kind.action to:kind.target];
-                CHECK(panel && !panel.hidden && toggle.state == NSControlStateValueOn && rowsTable && kind.segmentCount == 5 && from && grid && units &&
-                          [[kind labelForSegment:4] hasPrefix:@"Recent ("],
-                      "the list under the map shows: Selected, Contacts, Parks, Spots, Recent (%s)", [kind labelForSegment:4].UTF8String);
+                CHECK(panel && !panel.hidden && toggle.state == NSControlStateValueOn && rowsTable && kind.segmentCount == 7 && from && grid && units &&
+                          [[kind labelForSegment:4] hasPrefix:@"Recent ("] && [[kind labelForSegment:5] hasPrefix:@"Issues ("] &&
+                          [[kind labelForSegment:6] hasPrefix:@"DXCC ("],
+                      "the list under the map shows: Selected, Contacts, Parks, Spots, Recent, Issues, DXCC (%s, %s)", [kind labelForSegment:5].UTF8String,
+                      [kind labelForSegment:6].UTF8String);
+                {  // DXCC Progress: the entities worked, by band and mode (● confirmed, ○ worked); Issues: Check Log's problems in
+                   // the QSOs shown, a double-click on one going to it in the log.
+                    auto showKind = [&](NSInteger k) {
+                        kind.selectedSegment = k;
+                        [kind sendAction:kind.action to:kind.target];
+                        pump(0.3);
+                    };
+                    showKind(6);
+                    NSInteger entities = [rowsTable.dataSource numberOfRowsInTableView:rowsTable];
+                    bool slots = entities == 1 && [cell(rowsTable, 0, @"entity") isEqualToString:@"Sov Mil Order of Malta"] &&
+                                 [cell(rowsTable, 0, @"b20m") isEqualToString:@"\u25CF"] && [cell(rowsTable, 0, @"cw") isEqualToString:@"\u25CF"] &&
+                                 cell(rowsTable, 0, @"b40m").length == 0 && [[kind labelForSegment:6] isEqualToString:@"DXCC (1)"];
+                    [rowsTable selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
+                    [rowsTable.delegate tableViewSelectionDidChange:[NSNotification notificationWithName:NSTableViewSelectionDidChangeNotification object:rowsTable]];
+                    NSString *chosenTitle = ((NSTextField *)viewWithIdentifier(mapw.contentView, @"map.contact.title")).stringValue;
+                    CHECK(slots && [chosenTitle hasPrefix:@"Sov Mil Order of Malta"] && kind.selectedSegment == 6,
+                          "DXCC Progress: %ld entity, 20m and CW confirmed, chosen on the map (%s)", (long)entities, chosenTitle.UTF8String);
+                    std::string was = H.doc;
+                    H.doc += "<CALL:5>K1BAD<QSO_DATE:8>20261341<TIME_ON:4>1200<BAND:3>20m<MODE:2>CW<GRIDSQUARE:4>FN31<EOR>\n";
+                    notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+                    pump(0.3);
+                    showKind(5);
+                    NSInteger bad = -1;
+                    for (NSInteger k = 0; k < [rowsTable.dataSource numberOfRowsInTableView:rowsTable]; ++k)
+                        if ([cell(rowsTable, k, @"call") isEqualToString:@"K1BAD"] && [cell(rowsTable, k, @"field") isEqualToString:@"QSO_DATE"]) bad = k;
+                    NSString *problem = bad >= 0 ? cell(rowsTable, bad, @"problem") : @"";
+                    if (bad >= 0) {
+                        [rowsTable selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)bad] byExtendingSelection:NO];
+                        H.pos = 0;
+                        [NSApp sendAction:rowsTable.doubleAction to:rowsTable.target from:rowsTable];
+                        pump(0.2);
+                    }
+                    size_t record = H.doc.find("<CALL:5>K1BAD");
+                    CHECK(bad >= 0 && problem.length > 0 && [[kind labelForSegment:5] hasPrefix:@"Issues ("] && H.pos >= (intptr_t)record,
+                          "Issues: K1BAD's QSO_DATE (%s); a double-click goes to it (%ld, the record at %zu)", problem.UTF8String, (long)H.pos, record);
+                    H.doc = was;
+                    H.pos = 0;
+                    notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+                    pump(0.3);
+                    showKind(2);  // Parks again
+                }
                 showBox(-75.6, 40.2, -73.8, 41.5);
                 [from selectItemAtIndex:2];
                 [from sendAction:from.action to:from.target];
@@ -4921,10 +4964,14 @@ int main(int argc, char **argv) {
                        display:YES];
                 [mapw.contentView layoutSubtreeIfNeeded];
                 NSRect toggle = inWindow(@"map.selected.toggle");
+                NSRect watchAt = inWindow(@"map.watch"), panelAt = inWindow(@"map.selected");
                 CHECK(overlaps(mapw.contentView) == 0 && NSMaxX(toggle) <= NSWidth(mapw.contentView.bounds) + 0.5 && mapView.frame.size.width >= 419.5 &&
-                          shown(@"map.sidebar") && shown(@"map.selected"),
-                      "the smallest Map window: nothing overlaps (%d), the panes' buttons within it (%.0f of %.0f), the map %.0f wide",
-                      overlaps(mapw.contentView), NSMaxX(toggle), NSWidth(mapw.contentView.bounds), mapView.frame.size.width);
+                          shown(@"map.sidebar") && shown(@"map.selected") && inWindow(@"map.sidebar").size.width >= 279.5 && panelAt.size.width >= 239.5 &&
+                          (NSIsEmptyRect(watchAt) || NSMaxX(watchAt) <= NSMaxX(panelAt)),
+                      "the smallest Map window: nothing overlaps (%d), the panes' buttons within it (%.0f of %.0f), the map %.0f wide, the sidebar %.0f "
+                      "and the selected panel %.0f at their least, Watch within it",
+                      overlaps(mapw.contentView), NSMaxX(toggle), NSWidth(mapw.contentView.bounds), mapView.frame.size.width,
+                      inWindow(@"map.sidebar").size.width, panelAt.size.width);
                 snapshot(mapw, "map-narrow");
                 [mapw setFrame:was display:YES];
                 [mapw.contentView layoutSubtreeIfNeeded];
@@ -5291,9 +5338,22 @@ int main(int argc, char **argv) {
                     NSButton *wantedLink = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.wanted.0");
                     NSString *air = ((NSTextField *)viewWithIdentifier(mapw.contentView, @"map.air")).stringValue;
                     NSString *today = ((NSTextField *)viewWithIdentifier(mapw.contentView, @"map.today")).stringValue;
-                    CHECK(wantedLink && [wantedLink.attributedTitle.string isEqualToString:@"1A0KM 40m new band"] && [air containsString:@"On the air: "] &&
-                              [air containsString:@"Sun at EN52WA: "] && [today hasPrefix:@"Today (UTC): "],
-                          "the situation: %s; %s; %s", wantedLink.attributedTitle.string.UTF8String, today.UTF8String, air.UTF8String);
+                    NSString *bands = ((NSTextField *)viewWithIdentifier(mapw.contentView, @"map.bands.line")).stringValue;
+                    CHECK(wantedLink && [wantedLink.attributedTitle.string isEqualToString:@"1A0KM 40m new band"] && ![air containsString:@"On the air: "] &&
+                              [air containsString:@"Sun at EN52WA: "] && [today hasPrefix:@"Today (UTC): "] && shown(@"map.bands.section") &&
+                              [bands rangeOfString:@" spotted"].location != NSNotFound && viewWithIdentifier(mapw.contentView, @"map.band.40m"),
+                          "the situation: %s; %s; %s; band conditions: %s", wantedLink.attributedTitle.string.UTF8String, today.UTF8String, air.UTF8String,
+                          bands.UTF8String);
+                    {  // A band's name in Band conditions sets the band filter, and clears it again.
+                        NSButton *forty = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.band.40m");
+                        NSPopUpButton *bandMenu = findPopupWith(mapw.contentView, @"All bands");
+                        [forty performClick:nil];
+                        NSString *chosenBand = bandMenu.titleOfSelectedItem;
+                        bool focused = [((NSTextField *)viewWithIdentifier(mapw.contentView, @"map.bands.line")).stringValue hasPrefix:@"40m: "];
+                        [(NSButton *)viewWithIdentifier(mapw.contentView, @"map.band.40m") performClick:nil];
+                        CHECK([chosenBand isEqualToString:@"40m"] && focused && bandMenu.indexOfSelectedItem == 0,
+                              "Band conditions: 40m chosen sets the band filter and its line (%s), again clears it", chosenBand.UTF8String);
+                    }
                     [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, berlin, 1)];
                     [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, berlin, 1)];
                     [wantedLink performClick:nil];

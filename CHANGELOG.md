@@ -52,6 +52,12 @@ Versions before 0.8.0 were development builds and were not published.
   **Needed on its band** (a new DXCC or a new band), **New DXCC**, **New band**, **New
   mode**, **New POTA parks**, **POTA activators**, **My watch list** and **Worked before**,
   each with its count; choosing one shows only those.
+- **Map → List: Issues and DXCC.** **Issues** lists Check Log's errors and warnings in the QSOs
+  shown (double-click goes to the problem); **DXCC** is DXCC Progress, each entity worked with
+  ● confirmed or ○ worked on each band from 160m to 6m and in CW, phone and data.
+- **Map → Band conditions** (Live, in the selected panel): from the spots, each band's stations
+  spotted, those heard by spotters within 1,500 km of you and the best report they gave, and
+  a line for the band in focus; a band's name sets the band filter.
 - **Map → the map.** Spot labels are tags beside their markers, edged in each spot's colour;
   the chosen spot's always shows, edged in the accent colour, with a dashed path from your
   station to it and its distance and bearing (a chosen contact too). The legend is at the top
@@ -167,6 +173,10 @@ Versions before 0.8.0 were development builds and were not published.
 ### Fixed
 
 - **Map → Colour by** now colours the spots too; they were always in their band's colour.
+- **Map:** a smaller window no longer squeezes the sidebar and the selected panel under their
+  least widths (the layers' column titles and the Watch button were cut); the map and its list
+  take the change, the list's bars give way, and the panel's buttons wrap.
+- **Map:** the band filter lists the bands spotted too, not only the log's.
 - **Map:** your station's grid, when it comes from the log's MY_GRIDSQUARE, is taken from the
   whole log, not only the QSOs the filters keep (with none kept, the map lost its home).
 
