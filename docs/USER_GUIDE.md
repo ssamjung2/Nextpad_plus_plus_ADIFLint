@@ -534,20 +534,26 @@ The Map has two ways of working, chosen at the left of its toolbar:
   and planning.
 - **Live** shows the stations spotted now, and which of them your log needs: a new DXCC, a
   new band or mode for an entity, a new park.
+- **DX Chase** is Live for the DXCC entities and bands you need: it opens on **Needed on its
+  band**, with plain DX spots (no programs), no parks, and the grey line.
+- **POTA** is Live for the parks: it opens on **POTA activators**, with every park (those you
+  worked badged) and no DXCC shading.
 
-Each keeps its own layers, colours, list and Quick View: switch and come back, and each is
-as you left it. The first time, Live shows the spots and their list, with the countries and
-parks you worked shaded and the grey line on.
+Each keeps its own layers, colours, list, Quick View and spot program: switch and come back,
+and each is as you left it. The first time, Live shows the spots and their list, with the
+countries and parks you worked shaded and the grey line on.
 
 The window, from the top:
 
-- **The header**: your callsign, the log and its QSOs; at the right, the **bell** (see
+- **The header**: your callsign, the log and its QSOs; at the right, **Find** (a call, a grid
+  square, a DXCC entity or a POTA park: Return chooses it on the map, or offers a menu when
+  several match; a call chooses your QSOs with it, or its spot), the **bell** (see
   [The watch list](#the-watch-list)), **Log Table** (the
   table), **Style Options** (the palette), **Export PNG** (the arrow out of a box),
   **Settings** (the gear), **Help** (this guide, in your browser), and three buttons that
   show or hide the sidebar, the list and the selected panel. The window's title names the
   log too.
-- **The toolbar**: **History** or **Live**; what the map shows (in History, the QSOs and the
+- **The toolbar**: **History**, **Live**, **DX Chase** or **POTA**; what the map shows (in History, the QSOs and the
   dates they span; in Live, the stations spotted); the filters (band, mode, in History the
   dates and confirmation, and the continent), **More Filters…**, and **Clear**. A filter the
   toolbar can't show (a place chosen in More Filters; in Live, the dates and confirmation,

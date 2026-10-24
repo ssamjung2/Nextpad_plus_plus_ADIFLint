@@ -52,6 +52,11 @@ Versions before 0.8.0 were development builds and were not published.
   **Needed on its band** (a new DXCC or a new band), **New DXCC**, **New band**, **New
   mode**, **New POTA parks**, **POTA activators**, **My watch list** and **Worked before**,
   each with its count; choosing one shows only those.
+- **Map → DX Chase and POTA**, beside History and Live: Live with its own settings for chasing
+  what you need (Needed on its band, plain DX spots, the grey line) or for hunting parks (POTA
+  activators, every park).
+- **Map → Find**, in the header: a call (your QSOs with it, or its spot), a grid square, a DXCC
+  entity or a POTA park, chosen on the map; a menu when several match.
 - **Map → List: Issues and DXCC.** **Issues** lists Check Log's errors and warnings in the QSOs
   shown (double-click goes to the problem); **DXCC** is DXCC Progress, each entity worked with
   ● confirmed or ○ worked on each band from 160m to 6m and in CW, phone and data.

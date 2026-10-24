@@ -445,6 +445,8 @@
   "County lines (Natural Earth, public domain), from 2.5x zoom": "카운티 경계(Natural Earth, 퍼블릭 도메인), 2.5배 확대부터",
   "Crosshairs": "십자선",
   "Custom Range...": "기간 지정...",
+  "DX Chase": "DX 추적",
+  "DX Chase: Live for the DXCC entities and bands you need: their spots first (Needed on its band), plain DX spots, the grey line. It keeps its own settings": "DX 추적: 필요한 DXCC 엔티티와 밴드를 위한 라이브: 그 스팟을 먼저(그 밴드에서 필요), 일반 DX 스팟, 그레이라인. 자체 설정을 따로 기억합니다",
   "DX cluster": "DX 클러스터",
   "DX cluster: choose a node in Settings (Spots).": "DX 클러스터: 설정(스팟)에서 노드를 고르세요.",
   "DX cluster: connected to {node} as {call}.": "DX 클러스터: {node}에 {call}(으)로 연결되었습니다.",
@@ -614,6 +616,8 @@
   "Filters": "필터",
   "Find Data": "데이터 찾기",
   "Find Duplicates": "중복 찾기",
+  "Find a call, grid, DXCC entity or park": "호출부호, 그리드, DXCC 엔티티, 공원 찾기",
+  "Find on the map: a call (your QSOs with it, or its spot), a grid square, a DXCC entity you worked, a POTA park (by reference or name). Return chooses it; more than one, a menu of them": "지도에서 찾기: 호출부호(그 국과의 QSO 또는 스팟), 그리드 스퀘어, 교신한 DXCC 엔티티, POTA 공원(참조 번호나 이름). Return으로 선택하고, 여러 개면 메뉴로 보입니다",
   "Find:": "찾기:",
   "Finish...": "완료...",
   "Finished {refs}. Repair anything Check Log lists, save the files in Export, then {next}. Upload... sends the QSOs to QRZ.com, LoTW, Club Log or eQSL.": "{refs}을(를) 마쳤습니다. 로그 검사에 나오는 문제를 고치고, 내보내기에서 파일을 저장한 뒤 {next}. 업로드...는 QSO를 QRZ.com, LoTW, Club Log, eQSL로 보냅니다.",
@@ -646,6 +650,7 @@
   "Grey line": "그레이 라인",
   "Grid": "그리드",
   "Grid square": "그리드 스퀘어",
+  "Grid square {grid}": "그리드 스퀘어 {grid}",
   "Grid square, not worked": "교신하지 않은 그리드 스퀘어",
   "Grid square:": "그리드 스퀘어:",
   "Grid squares": "그리드 스퀘어",
@@ -961,6 +966,8 @@
   "Notes": "메모",
   "Nothing is sent until you press Upload; afterwards each one sent gets {status} Y and {date}.": "업로드를 누르기 전에는 아무것도 보내지 않습니다. 보낸 뒤에는 각각 {status} Y와 {date}을(를) 받습니다.",
   "Nothing is ticked.": "선택한 것이 없습니다.",
+  "Nothing on the map matches": "지도에 맞는 것이 없습니다",
+  "Nothing on the map matches “{text}”.": "지도에 “{text}”에 맞는 것이 없습니다.",
   "Nothing saved yet.": "아직 저장한 것이 없습니다.",
   "Nothing ticked to apply.": "적용할 항목이 선택되지 않았습니다.",
   "Nothing to add: those records already have these fields.": "추가할 것이 없습니다. 그 레코드에는 이미 이 필드가 있습니다.",
@@ -1042,6 +1049,7 @@
   "POTA sent something other than a list of spots": "POTA가 스팟 목록이 아닌 것을 보냈습니다",
   "POTA {ref} {name} ({location}): {what}.": "POTA {ref} {name}({location}): {what}.",
   "POTA {ref} {name} ({location}, inactive): {what}.": "POTA {ref} {name}({location}, 비활성): {what}.",
+  "POTA: Live for the parks: the POTA activators spotted, every park with those you worked, no DXCC shading. It keeps its own settings": "POTA: 공원을 위한 라이브: 스팟된 POTA 액티베이터, 교신한 공원과 모든 공원, DXCC 음영 없음. 자체 설정을 따로 기억합니다",
   "POTA: download POTA's park list first, in Settings (POTA Parks). Until then, the parks you hunted show at the QSO's grid.": "POTA: 먼저 설정(POTA 공원)에서 POTA 공원 목록을 내려받으세요. 그 전까지는 헌트한 공원이 QSO의 그리드 위치에 표시됩니다.",
   "PROP_MODE is SAT but SAT_NAME is missing; LoTW needs both for a satellite QSO.": "PROP_MODE는 SAT인데 SAT_NAME이 없습니다. 위성 QSO에는 LoTW가 둘 다 필요로 합니다.",
   "PSKReporter": "PSKReporter",
@@ -2124,6 +2132,7 @@
    "other": "{call}, 스포터: 국 {n}곳을 들었습니다: {list}."
   },
   "{call}: not in the other logs.": "{call}: 다른 로그에 없음.",
+  "{call}: spotted on {band} {mode}": "{call}: {band} {mode}에서 스팟됨",
   "{call}: your signal": "{call}: 내 신호",
   "{call}: {n} QSO|{call}: {n} QSOs": {
    "other": "{call}: QSO {n}건"
@@ -2141,6 +2150,9 @@
   "{distance} from {home}.": "{home}에서 {distance}.",
   "{entity} confirmed on {band}": "{band}에서 {entity} 확인됨",
   "{entity} worked on {band}, not confirmed": "{band}에서 {entity} 교신함, 미확인",
+  "{entity}: DXCC entity, {n} QSO|{entity}: DXCC entity, {n} QSOs": {
+   "other": "{entity}: DXCC 엔티티, QSO {n}"
+  },
   "{field} '{value}' is usually written in upper case.": "{field} '{value}'은(는) 보통 대문자로 씁니다.",
   "{field} (application-defined)": "{field}(응용 프로그램 정의)",
   "{field} (application-defined, {type})": "{field}(응용 프로그램 정의, {type})",

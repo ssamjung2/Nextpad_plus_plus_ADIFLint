@@ -471,6 +471,8 @@ struct {
     NSButton *watchButton = nil, *watchEdit = nil, *bell = nil;
     NSMenu *bellMenu = nil;
     NSMenu *homeMenu = nil;  // the Home button's own: set or forget the Home view
+    NSSearchField *findField = nil;  // the header's search: a call, grid square, DXCC entity or park, found on the map
+    NSMenu *findMenu = nil;          // what it found, when more than one
     NSPopover *watchPopover = nil;
     NSTokenField *watchTokens = nil;
     std::vector<ADIFWatchedSpot> watchedSpots;  // newest first, whichever Quick View is chosen
@@ -536,6 +538,7 @@ void fillBandConditions();
 void switchWorkflow(int to);
 std::string grouped(size_t n);
 int workflow();
+bool live();
 int quickView();
 void fillQuickViews();
 void showHover(const std::string &text);
@@ -552,6 +555,7 @@ void showWatchList(NSView *anchor);
 void fillBell();
 void fillBellMenu(NSMenu *menu);
 void fillHomeMenu(NSMenu *menu);
+void fillFindMenu(NSMenu *menu);
 void goHomeView();
 
 bool flag(const char *key, bool fallback) {
@@ -1905,7 +1909,7 @@ void refresh() {
         mw.actions.needsLayout = YES;
         std::string call = setting("stationCall");
         mw.summaryLabel.stringValue = ADIFString((call.empty() ? "" : call + "  \u00B7  ") + documentName() + "  \u00B7  " + plural(mw.data.qsos.size(), "QSO"));
-        if (workflow() == 0) {
+        if (!live()) {
             // History: the QSOs the map shows, and the dates they span.
             std::string first, last;
             for (const adif::MapQso &q : mw.data.qsos)
@@ -2146,7 +2150,7 @@ void fillFilterChips() {
             if (mw.filterPopover) fillPlaceControls();
             refresh();
         });
-    if (workflow() == 1) {
+    if (live()) {
         for (NSPopUpButton *p : {mw.dates, mw.confirmed})
             if (p.indexOfSelectedItem > 0) {
                 NSPopUpButton *popup = p;
@@ -2167,7 +2171,7 @@ void updateFilterButton() {
     // How many filters are on, on the bar too: the QSOs shown are not all of them, card open or not.
     size_t on = n + (mw.band.indexOfSelectedItem > 0) + (mw.mode.indexOfSelectedItem > 0) + (mw.dates.indexOfSelectedItem > 0) +
                 (mw.confirmed.indexOfSelectedItem > 0);
-    mw.clearFilters.enabled = on > 0 || (workflow() == 1 && mw.spotLens > 0);
+    mw.clearFilters.enabled = on > 0 || (live() && mw.spotLens > 0);
     fillContinentPopup();
     fillFilterChips();
 }
@@ -2622,7 +2626,7 @@ void refreshSpots() {
     fillBell();
     long long newest = 0;
     for (const ADIFMapSpot &m : marks) newest = std::max(newest, m.spot.epoch);
-    if (workflow() == 1) {
+    if (live()) {
         std::string live = show ? trp("{n} station on the map", "{n} stations on the map", (long long)marks.size()) : tr("Spots off");
         if (show && newest > 0) {
             char hhmm[8];
@@ -2660,7 +2664,7 @@ void refreshSpots() {
 void fillBandConditions() {
     if (!mw.bandHost) return;
     for (NSView *v in [mw.bandHost.subviews copy]) [v removeFromSuperview];
-    bool show = workflow() == 1 && mw.view.style[kLayerSpots].show;
+    bool show = live() && mw.view.style[kLayerSpots].show;
     std::vector<adif::BandActivity> act;
     double hlat = 0, hlon = 0;
     bool home = !mw.home.empty() && adif::gridToLatLon(mw.home, &hlat, &hlon);
@@ -2758,7 +2762,7 @@ void fillRecentSpots() {
     if (!mw.recentHost) return;
     for (NSView *v in [mw.recentHost.subviews copy]) [v removeFromSuperview];
     const std::vector<ADIFMapSpot> &spots = mw.view.spots;
-    bool show = workflow() == 1 && mw.view.style[kLayerSpots].show && !spots.empty();
+    bool show = live() && mw.view.style[kLayerSpots].show && !spots.empty();
     mw.recentSection.hidden = !show;
     if (!show) return;
     std::vector<size_t> order(spots.size());
@@ -2929,7 +2933,7 @@ void layerChanged(MapLayerId id, int which) {
     if (on && id == kLayerIota && ADIFIotaGroups().empty()) setStatus("IOTA: download IOTA's group list first, in Settings (IOTA Groups).");
     if (on && id == kLayerPota && !ADIFPotaParks().size())
         setStatus("POTA: download POTA's park list first, in Settings (POTA Parks). Until then, the parks you hunted show at the QSO's grid.");
-    if (!mw.applyingView && workflow() == 0 && quickView() != -1) {  // History's layers as you set them: no Quick View
+    if (!mw.applyingView && !live() && quickView() != -1) {  // History's layers as you set them: no Quick View
         setSetting("mapQuickView", "-1");
         fillQuickViews();
     }
@@ -3886,7 +3890,7 @@ void showSituation() {
         b.identifier = [NSString stringWithFormat:@"map.stat.%ld", (long)stats.numberOfRows - 1];
         b.toolTip = view >= 0 ? T(@"Show this layer in History") : mw.situation.stringValue;
         if (view >= 0) ADIFOnAction(b, ^{
-            if (workflow() != 0) switchWorkflow(0);
+            if (live()) switchWorkflow(0);
             chooseQuickView(view);
         });
         else b.enabled = NO;
@@ -3945,7 +3949,7 @@ void showSituation() {
         return pa != pb ? pa < pb : spots[a].spot.epoch > spots[b].spot.epoch;
     });
     if (!mw.view.style[kLayerSpots].show)
-        mw.wantedLabel.stringValue = workflow() == 0 ? T(@"Spots: Live shows who is on the air now, and which of them you need.")
+        mw.wantedLabel.stringValue = !live() ? T(@"Spots: Live shows who is on the air now, and which of them you need.")
                                                      : T(@"Spots: tick the Spots layer's Show for who is on the air, and which you need.");
     else if (wanted.empty())
         mw.wantedLabel.stringValue = TP(@"Wanted now: none of the {n} station spotted.", @"Wanted now: none of the {n} stations spotted.", (long long)spots.size());
@@ -3990,7 +3994,7 @@ void showSituation() {
     }
     // The busiest bands (stations spotted on each), and the sun where you are.
     std::string air;
-    if (mw.view.style[kLayerSpots].show && !spots.empty() && workflow() != 1) {  // Live has Band conditions
+    if (mw.view.style[kLayerSpots].show && !spots.empty() && !live()) {  // Live has Band conditions
         std::map<std::string, std::set<std::string>> byBand;
         for (const ADIFMapSpot &ms : spots)
             if (!ms.spot.band.empty()) byBand[ms.spot.band].insert(ms.spot.activator);
@@ -4193,7 +4197,7 @@ void switchWorkflow(int to);
 // A section's control asked for (its popover; or a test): the sidebar shown and the section open;
 // the Spots section is Live's.
 void revealSection(NSString *name) {
-    if ([name isEqualToString:@"spots"] && workflow() != 1) switchWorkflow(1);
+    if ([name isEqualToString:@"spots"] && !live()) switchWorkflow(1);
     if (mw.sidebar.hidden) showPane(0, true);
     if (mw.sections[name].hidden) setSectionOpen(name, true);
     [mw.window layoutIfNeeded];
@@ -4201,9 +4205,10 @@ void revealSection(NSString *name) {
 }
 
 // ── The workflows: History (the log, what it reached on each layer) and Live (the spots, and
-// which of them to work) ──
+// which of them to work), with Live's two presets, DX Chase and POTA ──
 
-int workflow() { return number("mapWorkflow", 0, 1); }
+int workflow() { return number("mapWorkflow", 0, 3); }
+bool live() { return workflow() >= 1; }  // Live, DX Chase or POTA: the spots
 
 // The Quick View chosen; -1 when the layers were changed since (History).
 int quickView() {
@@ -4214,7 +4219,8 @@ int quickView() {
 // What each workflow keeps for itself: its layers, contacts and lines, colours, list, Quick
 // View, and the sun's shading.
 std::vector<std::string> workflowKeys() {
-    std::vector<std::string> keys = {"mapContacts", "mapPaths", "mapMine", "mapColorBy", "mapListKind", "mapQuickView", "mapGreyLine", "mapDayNight"};
+    std::vector<std::string> keys = {"mapContacts", "mapPaths", "mapMine", "mapColorBy", "mapListKind", "mapQuickView", "mapGreyLine", "mapDayNight",
+                                     "mapSpotsProgram"};
     for (const LayerUi &l : kLayerUi) {
         if (l.showKey) keys.push_back(l.showKey);
         keys.push_back(l.overlayKey);
@@ -4236,6 +4242,19 @@ std::string liveDefault(const std::string &key) {
     return it == kLive.end() ? "" : it->second;
 }
 
+// A workflow's first time: History as the settings were; Live as above; DX Chase, Live for the
+// DXCC entities and bands you need (Needed on its band, plain DX spots, no parks, the grey line);
+// POTA, Live for the parks (POTA activators, every park, no DXCC shading).
+std::string workflowDefault(const std::string &key, int wf) {
+    static const std::map<std::string, std::string> kDxChase = {{"mapQuickView", "1"}, {"mapShowPota", "0"}, {"mapSpotsProgram", "-"}};
+    static const std::map<std::string, std::string> kPota = {{"mapQuickView", "6"}, {"mapShowPota", "1"}, {"mapPota", "1"}, {"mapPotaLabels", "1"},
+                                                             {"mapDxcc", "0"},       {"mapGreyLine", "0"}, {"mapSpotsProgram", "POTA"}};
+    if (wf <= 0) return "";
+    if (wf >= 2)
+        if (auto it = (wf == 2 ? kDxChase : kPota).find(key); it != (wf == 2 ? kDxChase : kPota).end()) return it->second;
+    return liveDefault(key);
+}
+
 void syncControls();
 
 // To the other workflow: this one's settings kept, the other's back (Live's first time, its own).
@@ -4246,7 +4265,7 @@ void switchWorkflow(int to) {
     for (const std::string &k : workflowKeys()) setSetting((fromKey + k).c_str(), setting(k.c_str()));
     setSetting((fromKey + "Saved").c_str(), "1");
     bool saved = setting((toKey + "Saved").c_str()) == "1";
-    for (const std::string &k : workflowKeys()) setSetting(k.c_str(), saved ? setting((toKey + k).c_str()) : to == 1 ? liveDefault(k) : "");
+    for (const std::string &k : workflowKeys()) setSetting(k.c_str(), saved ? setting((toKey + k).c_str()) : workflowDefault(k, to));
     setSetting("mapWorkflow", std::to_string(to));
     syncControls();
 }
@@ -4268,10 +4287,10 @@ void syncControls() {
     mw.listKind.selectedSegment = number("mapListKind", 0, kListKinds - 1);
     int wf = workflow();
     mw.workflow.selectedSegment = wf;
-    mw.spotsSection.hidden = wf != 1;
-    mw.dates.hidden = mw.confirmed.hidden = wf == 1;  // the spots don't follow them (a tag says when they're on)
+    mw.spotsSection.hidden = wf < 1;
+    mw.dates.hidden = mw.confirmed.hidden = wf >= 1;  // the spots don't follow them (a tag says when they're on)
 
-    mw.spotLens = wf == 1 ? std::max(0, std::min(quickView(), (int)std::size(mw.lensCounts) - 1)) : 0;
+    mw.spotLens = wf >= 1 ? std::max(0, std::min(quickView(), (int)std::size(mw.lensCounts) - 1)) : 0;
     applyViewFilters();
     refresh();       // the data and the style, the Quick Views' counts
     refreshSpots();  // the feeds start or stop with the Spots layer
@@ -4348,7 +4367,7 @@ int historyViewOf(int layer) {
 // puts it back as it was.
 void applyViewFilters() {
     int v = quickView();
-    bool needs = workflow() == 0 && v >= 0 && (size_t)v < std::size(kHistoryViews) && kHistoryViews[v].layer == -3;
+    bool needs = !live() && v >= 0 && (size_t)v < std::size(kHistoryViews) && kHistoryViews[v].layer == -3;
     if (needs && !mw.viewSetConfirmed) {
         [mw.confirmed selectItemAtIndex:2];
         mw.viewSetConfirmed = true;
@@ -4365,7 +4384,7 @@ void fillQuickViews() {
     if (!mw.quickTable) return;
     std::vector<ADIFQuickRow> rows;
     const MapPalette &pal = paletteAt(mw.view.style.palette);
-    if (workflow() == 0) {
+    if (!live()) {
         for (const HistoryView &v : kHistoryViews) {
             ADIFQuickRow r;
             r.title = tr(v.title), r.symbol = v.symbol;
@@ -4414,7 +4433,7 @@ void fillQuickViews() {
 // named, the other layers' worked shading off; All QSOs: squares, countries and parks as at first.
 void chooseQuickView(NSInteger row) {
     setSetting("mapQuickView", std::to_string(row));
-    if (workflow() == 1) {
+    if (live()) {
         mw.spotLens = (int)std::min<NSInteger>(row, (NSInteger)kLiveViewCount - 1);
         refreshSpots();
         return;
@@ -4569,7 +4588,7 @@ void showWatchList(NSView *anchor) {
 
 // A spotted station chosen on the map, in Live (My watch list, when the Quick View hides it).
 void chooseSpot(const std::string &call, const std::string &band) {
-    if (workflow() != 1) switchWorkflow(1);
+    if (!live()) switchWorkflow(1);
     for (int pass = 0; pass < 2; ++pass) {
         const std::vector<ADIFMapSpot> &spots = mw.view.spots;
         for (size_t k = 0; k < spots.size(); ++k)
@@ -4666,6 +4685,126 @@ void fillHomeMenu(NSMenu *menu) {
     NSMenuItem *reset = [menu addItemWithTitle:T(@"Forget Home View (Your Station)") action:nil keyEquivalent:@""];
     reset.enabled = !setting("mapHomeView").empty();
     ADIFBlockMenuItem(reset, ^{ setSetting("mapHomeView", ""); });
+}
+
+// ── Search: a call (your QSOs, a spot), a grid square, a DXCC entity, a POTA park ──
+
+struct ADIFFound {
+    std::string title;
+    NSString *symbol;
+    void (^choose)(void);
+};
+
+// What the map has for the search, the most exact first: a grid square typed; the calls in the
+// log, then spotted; the DXCC entities worked; POTA's parks (by reference or name). At most 20.
+std::vector<ADIFFound> findOnMap(const std::string &typed) {
+    std::string q;
+    for (char c : typed)
+        if (!isspace((unsigned char)c)) q += (char)toupper((unsigned char)c);
+    std::vector<ADIFFound> out;
+    if (q.empty()) return out;
+    auto contains = [&](const std::string &text) {
+        std::string t = text;
+        for (char &c : t) c = (char)toupper((unsigned char)c);
+        return t.find(q) != std::string::npos;
+    };
+    double lat, lon;
+    if ((q.size() == 4 || q.size() == 6 || q.size() == 8) && isalpha((unsigned char)q[0]) && adif::gridToLatLon(q, &lat, &lon)) {
+        std::string grid = q.substr(0, 4);
+        out.push_back({trf("Grid square {grid}", {{"grid", q}}), @"square.grid.3x3", ^{
+                           double w, s, e, n;
+                           if (adif::squareBounds(grid, &w, &s, &e, &n)) [mw.view showPlaceWest:w south:s east:e north:n];
+                           ADIFMapHit h;
+                           h.kind = ADIFMapHit::Empty, h.square = grid;
+                           for (size_t i = 0; i < mw.data.squares.size(); ++i)
+                               if (mw.data.squares[i].grid == grid) h.kind = ADIFMapHit::Square, h.index = i;
+                           [mw.view selectHit:h];
+                       }});
+    }
+    std::map<std::string, std::vector<size_t>> calls;  // the log's, as the filters keep them
+    for (size_t i = 0; i < mw.data.qsos.size(); ++i)
+        if (contains(mw.data.qsos[i].call)) calls[mw.data.qsos[i].call].push_back(i);
+    std::vector<std::pair<std::string, std::vector<size_t>>> byCall(calls.begin(), calls.end());
+    std::stable_sort(byCall.begin(), byCall.end(), [&](const auto &a, const auto &b) { return (a.first == q) > (b.first == q); });  // the very call first
+    for (size_t k = 0; k < byCall.size() && k < 8; ++k) {
+        std::vector<size_t> qsos = byCall[k].second;
+        out.push_back({trp("{call}: {n} QSO", "{call}: {n} QSOs", (long long)qsos.size(), {{"call", byCall[k].first}}), @"person.crop.circle", ^{
+                           // Chosen on the map at its square, else its entity; its QSOs in the list.
+                           const adif::MapQso &first = mw.data.qsos[qsos[0]];
+                           std::string grid4 = first.grid.substr(0, std::min<size_t>(4, first.grid.size()));
+                           for (char &c : grid4) c = (char)toupper((unsigned char)c);
+                           ADIFMapHit h;
+                           for (size_t i = 0; i < mw.data.squares.size() && h.kind == ADIFMapHit::None; ++i)
+                               if (mw.data.squares[i].grid == grid4) h.kind = ADIFMapHit::Square, h.index = i, h.square = grid4;
+                           for (size_t i = 0; i < mw.dxcc.size() && h.kind == ADIFMapHit::None; ++i)
+                               if (std::find(mw.dxcc[i].qsos.begin(), mw.dxcc[i].qsos.end(), qsos[0]) != mw.dxcc[i].qsos.end())
+                                   h.kind = ADIFMapHit::Dxcc, h.index = i, h.square = adif::squareAt(mw.dxcc[i].lon, mw.dxcc[i].lat);
+                           if (h.kind != ADIFMapHit::None) {
+                               [mw.view selectHit:h];
+                               centerChosen();
+                           }
+                           showList(qsos);
+                       }});
+    }
+    std::set<std::string> spotted;
+    for (const ADIFMapSpot &ms : mw.view.spots)
+        if (out.size() < 20 && contains(ms.spot.activator) && spotted.insert(ms.spot.activator + "|" + ms.spot.band).second) {
+            std::string call = ms.spot.activator, band = ms.spot.band;
+            out.push_back({trf("{call}: spotted on {band} {mode}", {{"call", call}, {"band", band}, {"mode", ms.spot.mode}}),
+                           @"antenna.radiowaves.left.and.right", ^{ chooseSpot(call, band); }});
+        }
+    for (size_t i = 0; i < mw.dxcc.size() && out.size() < 20; ++i)
+        if (q.size() >= 3 && contains(mw.dxcc[i].name)) {
+            size_t at = i;
+            out.push_back({trp("{entity}: DXCC entity, {n} QSO", "{entity}: DXCC entity, {n} QSOs", (long long)mw.dxcc[i].qsos.size(),
+                               {{"entity", mw.dxcc[i].name}}),
+                           @"globe", ^{
+                               ADIFMapHit h;
+                               h.kind = ADIFMapHit::Dxcc, h.index = at, h.square = adif::squareAt(mw.dxcc[at].lon, mw.dxcc[at].lat);
+                               [mw.view selectHit:h];
+                               centerChosen();
+                           }});
+        }
+    const adif::PotaParks &parks = ADIFPotaParks();
+    for (size_t i = 0; i < parks.size() && out.size() < 20 && q.size() >= 3; ++i) {
+        const adif::PotaPark &p = parks.parks()[i];
+        if (!p.placed || (!contains(p.ref) && !contains(p.name))) continue;
+        size_t at = i;
+        out.push_back({p.ref + "  " + p.name, @"leaf", ^{
+                           const adif::PotaPark &park = ADIFPotaParks().parks()[at];
+                           [mw.view showPlaceWest:park.lon - 0.3 south:park.lat - 0.2 east:park.lon + 0.3 north:park.lat + 0.2];
+                           ADIFMapHit h;
+                           h.kind = ADIFMapHit::Pota, h.index = at, h.square = adif::squareAt(park.lon, park.lat);
+                           [mw.view selectHit:h];
+                       }});
+    }
+    return out;
+}
+
+// The search's results, as a menu: each chooses its thing on the map.
+void fillFindMenu(NSMenu *menu) {
+    [menu removeAllItems];
+    std::vector<ADIFFound> found = findOnMap(ADIFStd(mw.findField.stringValue));
+    if (found.empty()) {
+        [menu addItemWithTitle:T(@"Nothing on the map matches") action:nil keyEquivalent:@""].enabled = NO;
+        return;
+    }
+    for (const ADIFFound &f : found) {
+        NSMenuItem *item = [menu addItemWithTitle:ADIFString(f.title) action:nil keyEquivalent:@""];
+        item.image = [NSImage imageWithSystemSymbolName:f.symbol accessibilityDescription:nil];
+        ADIFBlockMenuItem(item, f.choose);
+    }
+}
+
+// Return in the search: one thing found, it is chosen; more, a menu of them.
+void findTyped() {
+    std::vector<ADIFFound> found = findOnMap(ADIFStd(mw.findField.stringValue));
+    if (found.empty()) {
+        if (mw.findField.stringValue.length) setStatus(trf("Nothing on the map matches “{text}”.", {{"text", ADIFStd(mw.findField.stringValue)}}));
+        return;
+    }
+    if (found.size() == 1) return found[0].choose();
+    [mw.findMenu popUpMenuPositioningItem:nil atLocation:NSMakePoint(0, NSMaxY(mw.findField.bounds) + 4) inView:mw.findField];
 }
 
 // ── The footer: what is under the pointer, and the workflow's state ──
@@ -4898,7 +5037,7 @@ void cmdMap() {
         NSButton *out = smallButton(@"−", @"Zoom out (−)", ^{ [mw.view zoomBy:1 / 1.5]; });
         NSButton *in = smallButton(@"+", @"Zoom in (+, or double-click the map)", ^{ [mw.view zoomBy:1.5]; });
         NSButton *fit = smallButton(@"Fit Log", @"Zoom to the log's QSOs (in Live, to the spots shown)", ^{
-            if (workflow() == 1) [mw.view fitSpots];
+            if (live()) [mw.view fitSpots];
             else [mw.view fitLog];
         });
         NSButton *home = smallButton(@"Home", @"Your station in the middle of the map, at the zoom it has (Settings, Your Station's grid); or "
@@ -4967,7 +5106,7 @@ void cmdMap() {
         mw.moreFilters.identifier = @"map.filter.more";
         mw.clearFilters = smallButton(@"Clear", @"Show every QSO again: all bands, modes, dates and places (and in Live, every spot)", ^{
             for (NSPopUpButton *p in @[ mw.band, mw.mode, mw.dates, mw.confirmed ]) [p selectItemAtIndex:0];
-            if (workflow() == 1 && mw.spotLens > 0) chooseQuickView(0);
+            if (live() && mw.spotLens > 0) chooseQuickView(0);
             if (mw.viewSetConfirmed) {  // Needs confirmation's filter gone: All QSOs
                 mw.viewSetConfirmed = false;
                 setSetting("mapQuickView", "0");
@@ -5173,6 +5312,7 @@ void cmdMap() {
                 if (menu == mw.listRowMenu) fillRowMenu(menu);
                 else if (menu == mw.bellMenu) fillBellMenu(menu);
                 else if (menu == mw.homeMenu) fillHomeMenu(menu);
+                else if (menu == mw.findMenu) fillFindMenu(menu);
                 else fillColumnsMenu(menu, menu == columnsMenu);
             };
             mw.homeMenu.delegate = mw.listRows;
@@ -5298,7 +5438,7 @@ void cmdMap() {
             if (b.image) b.imagePosition = NSImageOnly;
         };
         // The workflows: History, the log; Live, the spots.
-        mw.workflow = [NSSegmentedControl segmentedControlWithLabels:@[ T(@"History"), T(@"Live") ]
+        mw.workflow = [NSSegmentedControl segmentedControlWithLabels:@[ T(@"History"), T(@"Live"), T(@"DX Chase"), T(@"POTA") ]
                                                          trackingMode:NSSegmentSwitchTrackingSelectOne
                                                                target:nil
                                                                action:nil];
@@ -5309,6 +5449,14 @@ void cmdMap() {
                      forSegment:0];
         [mw.workflow setToolTip:T(@"Live: the stations spotted now, and which of them your log needs (a new DXCC, band, mode or park)")
                      forSegment:1];
+        [mw.workflow setImage:[NSImage imageWithSystemSymbolName:@"scope" accessibilityDescription:nil] forSegment:2];
+        [mw.workflow setImage:[NSImage imageWithSystemSymbolName:@"leaf" accessibilityDescription:nil] forSegment:3];
+        [mw.workflow setToolTip:T(@"DX Chase: Live for the DXCC entities and bands you need: their spots first (Needed on its band), plain DX "
+                                  @"spots, the grey line. It keeps its own settings")
+                     forSegment:2];
+        [mw.workflow setToolTip:T(@"POTA: Live for the parks: the POTA activators spotted, every park with those you worked, no DXCC shading. "
+                                  @"It keeps its own settings")
+                     forSegment:3];
         mw.workflow.selectedSegment = workflow();
         mw.workflow.identifier = @"map.workflow";
         ADIFOnAction(mw.workflow, ^{ switchWorkflow((int)mw.workflow.selectedSegment); });
@@ -5363,8 +5511,24 @@ void cmdMap() {
         mw.bell.menu = mw.bellMenu;  // right-click too
         ADIFOnAction(mw.bell, ^{ [mw.bellMenu popUpMenuPositioningItem:nil atLocation:NSMakePoint(0, NSMaxY(mw.bell.bounds) + 4) inView:mw.bell]; });
         fillBell();
-        for (NSView *v in @[ mw.bell, logTable, styleButton, save, settings, help, mw.paneToggle[0], mw.paneToggle[1], mw.paneToggle[2] ])
+        mw.findField = [[NSSearchField alloc] initWithFrame:NSZeroRect];
+        mw.findField.placeholderString = T(@"Find a call, grid, DXCC entity or park");
+        mw.findField.toolTip = T(@"Find on the map: a call (your QSOs with it, or its spot), a grid square, a DXCC entity you worked, a POTA park "
+                                 @"(by reference or name). Return chooses it; more than one, a menu of them");
+        mw.findField.identifier = @"map.find";
+        mw.findField.sendsWholeSearchString = YES;
+        mw.findField.controlSize = NSControlSizeSmall;
+        NSLayoutConstraint *findWidth = [mw.findField.widthAnchor constraintEqualToConstant:230];
+        findWidth.priority = NSLayoutPriorityDefaultLow;
+        findWidth.active = YES;
+        [mw.findField.widthAnchor constraintGreaterThanOrEqualToConstant:140].active = YES;
+        mw.findMenu = [[NSMenu alloc] init];
+        mw.findMenu.delegate = mw.listRows;
+        mw.findField.menu = mw.findMenu;  // right-click: the results too
+        ADIFOnAction(mw.findField, ^{ findTyped(); });
+        for (NSView *v in @[ mw.findField, mw.bell, logTable, styleButton, save, settings, help, mw.paneToggle[0], mw.paneToggle[1], mw.paneToggle[2] ])
             [header addView:v inGravity:NSStackViewGravityTrailing];
+        [header setCustomSpacing:14 afterView:mw.findField];
         [header setCustomSpacing:20 afterView:mw.bell];
         [header setCustomSpacing:6 afterView:logTable];
         [header setCustomSpacing:6 afterView:styleButton];
@@ -5553,7 +5717,7 @@ void cmdMap() {
             section(@"views", N(@"Quick Views"), quickScroll), mw.spotsSection = section(@"spots", N(@"Spots"), rows(@[ spotLayer, spotsLine, onlyLine, mw.watchEdit ], 8)),
             section(@"layers", N(@"Layers"), layerSection), section(@"map", N(@"Map"), mapRows), section(@"filters", N(@"Filters"), filterRows)
         ];
-        mw.spotsSection.hidden = workflow() != 1;
+        mw.spotsSection.hidden = !live();
         NSStackView *sideColumn = rows(sectionViews, 18);
         sideColumn.edgeInsets = NSEdgeInsetsMake(12, 12, 16, 12);
         for (NSView *v in sectionViews) [v.widthAnchor constraintEqualToAnchor:sideColumn.widthAnchor constant:-24].active = YES;
@@ -5829,7 +5993,7 @@ void cmdMap() {
 
         // The footer: the workflow's state, then what is under the pointer.
         mw.liveLabel = smallButton(@"", @"", ^{  // in Live, what each feed is doing (Sources and Filters)
-            if (workflow() == 1) showSpotsPopover();
+            if (live()) showSpotsPopover();
         });
         mw.liveLabel.bordered = NO;
         mw.liveLabel.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightMedium];
@@ -5915,7 +6079,7 @@ void cmdMap() {
             [mw.selectedPanel.widthAnchor constraintGreaterThanOrEqualToConstant:240],
         ]];
         for (int i = 0; i < 3; ++i) showPane(i, flag(kPaneKeys[i], true));
-        mw.spotLens = workflow() == 1 ? std::max(0, std::min(quickView(), (int)std::size(mw.lensCounts) - 1)) : 0;
+        mw.spotLens = live() ? std::max(0, std::min(quickView(), (int)std::size(mw.lensCounts) - 1)) : 0;
         [mw.window center];
         // New spots redraw the layer; closing the window stops the feeds.
         [[NSNotificationCenter defaultCenter] addObserverForName:ADIFParkOutlinesChangedNotification

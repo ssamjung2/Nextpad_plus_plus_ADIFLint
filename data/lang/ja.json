@@ -445,6 +445,8 @@
   "County lines (Natural Earth, public domain), from 2.5x zoom": "郡の境界 (Natural Earth、パブリックドメイン)。2.5 倍以上の拡大で表示",
   "Crosshairs": "十字",
   "Custom Range...": "期間を指定...",
+  "DX Chase": "DXハント",
+  "DX Chase: Live for the DXCC entities and bands you need: their spots first (Needed on its band), plain DX spots, the grey line. It keeps its own settings": "DXハント: 必要なDXCCエンティティとバンドのためのライブ: そのスポットを先に(そのバンドで必要)、通常のDXスポット、グレーライン。独自の設定を保持します",
   "DX cluster": "DX クラスター",
   "DX cluster: choose a node in Settings (Spots).": "DX クラスター: 設定 (スポット) でノードを選んでください。",
   "DX cluster: connected to {node} as {call}.": "DX クラスター: {node} に {call} で接続しました。",
@@ -614,6 +616,8 @@
   "Filters": "フィルター",
   "Find Data": "データを検索",
   "Find Duplicates": "重複を検索",
+  "Find a call, grid, DXCC entity or park": "コールサイン、グリッド、DXCCエンティティ、公園を検索",
+  "Find on the map: a call (your QSOs with it, or its spot), a grid square, a DXCC entity you worked, a POTA park (by reference or name). Return chooses it; more than one, a menu of them": "マップで検索: コールサイン(その局とのQSOやスポット)、グリッドスクエア、交信済みDXCCエンティティ、POTA公園(リファレンスか名前)。Returnで選択、複数ならメニュー",
   "Find:": "検索:",
   "Finish...": "終了...",
   "Finished {refs}. Repair anything Check Log lists, save the files in Export, then {next}. Upload... sends the QSOs to QRZ.com, LoTW, Club Log or eQSL.": "{refs} を終了しました。「ログをチェック」に出る問題を直し、「エクスポート」でファイルを保存してから、{next}。「アップロード...」で QSO を QRZ.com、LoTW、Club Log、eQSL に送ります。",
@@ -646,6 +650,7 @@
   "Grey line": "グレイライン",
   "Grid": "グリッド",
   "Grid square": "グリッドスクエア",
+  "Grid square {grid}": "グリッドスクエア {grid}",
   "Grid square, not worked": "未交信のグリッドスクエア",
   "Grid square:": "グリッドスクエア:",
   "Grid squares": "グリッドスクエア",
@@ -961,6 +966,8 @@
   "Notes": "メモ",
   "Nothing is sent until you press Upload; afterwards each one sent gets {status} Y and {date}.": "「アップロード」を押すまで何も送信しません。送信した QSO には {status} Y と {date} が付きます。",
   "Nothing is ticked.": "何もチェックされていません。",
+  "Nothing on the map matches": "マップに該当なし",
+  "Nothing on the map matches “{text}”.": "マップに「{text}」に該当するものはありません。",
   "Nothing saved yet.": "まだ何も保存していません。",
   "Nothing ticked to apply.": "適用する項目がチェックされていません。",
   "Nothing to add: those records already have these fields.": "追加するものはありません。それらのレコードにはすでにこれらのフィールドがあります。",
@@ -1042,6 +1049,7 @@
   "POTA sent something other than a list of spots": "POTA からスポットの一覧ではないものが返されました",
   "POTA {ref} {name} ({location}): {what}.": "POTA {ref} {name} ({location}): {what}。",
   "POTA {ref} {name} ({location}, inactive): {what}.": "POTA {ref} {name} ({location}、無効): {what}。",
+  "POTA: Live for the parks: the POTA activators spotted, every park with those you worked, no DXCC shading. It keeps its own settings": "POTA: 公園のためのライブ: スポットされたPOTAアクティベーター、交信済みを含むすべての公園、DXCCの塗りなし。独自の設定を保持します",
   "POTA: download POTA's park list first, in Settings (POTA Parks). Until then, the parks you hunted show at the QSO's grid.": "POTA: 先に設定 (POTA の公園) で POTA の公園一覧をダウンロードしてください。それまでは、ハントした公園は QSO のグリッドの位置に表示されます。",
   "PROP_MODE is SAT but SAT_NAME is missing; LoTW needs both for a satellite QSO.": "PROP_MODE が SAT なのに SAT_NAME がありません。衛星 QSO では LoTW が両方を必要とします。",
   "PSKReporter": "PSKReporter",
@@ -2124,6 +2132,7 @@
    "other": "{call} (スポッター): {n} 局を受信: {list}。"
   },
   "{call}: not in the other logs.": "{call}: 他のログにはありません。",
+  "{call}: spotted on {band} {mode}": "{call}: {band} {mode}でスポット",
   "{call}: your signal": "{call}: あなたの信号",
   "{call}: {n} QSO|{call}: {n} QSOs": {
    "other": "{call}: QSO {n} 件"
@@ -2141,6 +2150,9 @@
   "{distance} from {home}.": "{home} から {distance}。",
   "{entity} confirmed on {band}": "{band} で {entity} 確認済み",
   "{entity} worked on {band}, not confirmed": "{band} で {entity} 交信済み、未確認",
+  "{entity}: DXCC entity, {n} QSO|{entity}: DXCC entity, {n} QSOs": {
+   "other": "{entity}: DXCCエンティティ、QSO {n}件"
+  },
   "{field} '{value}' is usually written in upper case.": "{field} '{value}' は通常は大文字で書きます。",
   "{field} (application-defined)": "{field} (アプリケーション定義)",
   "{field} (application-defined, {type})": "{field} (アプリケーション定義、{type})",

@@ -4448,6 +4448,23 @@ int main(int argc, char **argv) {
                     NSString *chosenTitle = ((NSTextField *)viewWithIdentifier(mapw.contentView, @"map.contact.title")).stringValue;
                     CHECK(slots && [chosenTitle hasPrefix:@"Sov Mil Order of Malta"] && kind.selectedSegment == 6,
                           "DXCC Progress: %ld entity, 20m and CW confirmed, chosen on the map (%s)", (long)entities, chosenTitle.UTF8String);
+                    {  // The header's search: a call found chooses its QSOs (1A0C, without a grid: its entity on the map); a grid square
+                       // and the rest in its menu.
+                        NSSearchField *find = (NSSearchField *)viewWithIdentifier(mapw.contentView, @"map.find");
+                        find.stringValue = @"1a0c";
+                        [find sendAction:find.action to:find.target];
+                        pump(0.3);
+                        bool callFound = kind.selectedSegment == 0 && [rowsTable.dataSource numberOfRowsInTableView:rowsTable] == 1 &&
+                                         [cell(rowsTable, 0, @"call") isEqualToString:@"1A0C"] &&
+                                         [((NSTextField *)viewWithIdentifier(mapw.contentView, @"map.contact.title")).stringValue hasPrefix:@"Sov Mil Order"];
+                        find.stringValue = @"EN52";
+                        [find.menu.delegate menuNeedsUpdate:find.menu];
+                        NSString *first = find.menu.numberOfItems ? [find.menu itemAtIndex:0].title : @"";
+                        find.stringValue = @"";
+                        CHECK(find && callFound && [first isEqualToString:@"Grid square EN52"], "the search: 1A0C's QSO chosen (%d); EN52 offers %s", callFound,
+                              first.UTF8String);
+                        showKind(5);
+                    }
                     std::string was = H.doc;
                     H.doc += "<CALL:5>K1BAD<QSO_DATE:8>20261341<TIME_ON:4>1200<BAND:3>20m<MODE:2>CW<GRIDSQUARE:4>FN31<EOR>\n";
                     notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
@@ -5782,6 +5799,25 @@ int main(int argc, char **argv) {
                     toWorkflow(1);
                     CHECK(!isOn(@"labels", @"spots") && views.selectedRow == 0 && listKind.selectedSegment == 3 && shown(@"map.group.spots"),
                           "Live again as it was left: spot labels off, All spots chosen, the spots' list");
+                    {  // Live's presets: DX Chase (the entities and bands you need, plain DX spots) and POTA (the activators), each its
+                       // own; Live as it was after them.
+                        auto listedCalls = [&]() {
+                            pump(0.3);
+                            std::string calls;
+                            for (NSInteger k = 0; k < [rowsTable.dataSource numberOfRowsInTableView:rowsTable]; ++k)
+                                calls += std::string(calls.empty() ? "" : " ") + cell(rowsTable, k, @"call").UTF8String;
+                            return calls;
+                        };
+                        toWorkflow(2);
+                        std::string dxChase = listedCalls();
+                        bool dxView = views.selectedRow == 1 && !isOn(@"show", @"pota") && shown(@"map.group.spots");
+                        toWorkflow(3);
+                        std::string pota = listedCalls();
+                        bool potaView = views.selectedRow == 6 && isOn(@"show", @"pota") && isOn(@"overlay", @"pota") && !isOn(@"show", @"countries");
+                        toWorkflow(1);
+                        CHECK(wf.segmentCount == 4 && dxView && dxChase == "1A0KM" && potaView && pota == "K9ABC" && views.selectedRow == 0 && isOn(@"show", @"countries"),
+                              "DX Chase lists %s (Needed on its band, plain DX), POTA lists %s (the activators), Live as it was", dxChase.c_str(), pota.c_str());
+                    }
                     setBox(mapBox(@"labels", @"spots"), true);
                     [views selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
                 }
