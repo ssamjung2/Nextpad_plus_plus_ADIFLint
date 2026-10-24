@@ -9,6 +9,8 @@ Versions before 0.8.0 were development builds and were not published.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-24
+
 ### Added
 
 - **Map → POTA: park outlines** (Settings → POTA Parks → Park Outlines). For one POTA location
@@ -755,7 +757,8 @@ First public release.
 - **Fix Lengths**, as one undo step, and **Count Lengths in Characters**.
 - The `adiflint` command-line tool.
 
-[Unreleased]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.0.1...v1.1.0
