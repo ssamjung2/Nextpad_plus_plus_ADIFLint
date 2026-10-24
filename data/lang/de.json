@@ -90,6 +90,7 @@
   "A Quick View of your own, in this workflow: the layers, colours and filters as they are now, and in Live which spots show.": "Eine eigene Schnellansicht in diesem Arbeitsbereich: die Ebenen, Farben und Filter, wie sie jetzt sind, und in Live, welche Spots erscheinen.",
   "A Reverse Beacon Network skimmer.": "Ein Skimmer des Reverse Beacon Network.",
   "A callbook gives a station's home address. For /P calls and records with SIG_INFO, POTA_REF, SOTA_REF or WWFF_REF the station was elsewhere, so only the name is added. LoTW data describes each QSO, so it is always used.": "Ein Callbook liefert die Heimatadresse einer Station. Bei /P-Rufzeichen und Datensätzen mit SIG_INFO, POTA_REF, SOTA_REF oder WWFF_REF war die Station woanders, daher wird nur der Name ergänzt. LoTW-Daten beschreiben jedes QSO und werden daher immer verwendet.",
+  "A click on the map showed its QSOs here; back to what the list showed": "Ein Klick auf die Karte hat hier seine QSOs gezeigt; zurück zu dem, was die Liste zeigte",
   "A download is under way; stop it first.": "Ein Download läuft; halten Sie ihn zuerst an.",
   "A great-circle line from your station to each contact, in its marker's colour; Style Options chooses their look": "Eine Großkreislinie von Ihrer Station zu jedem Kontakt, in der Farbe seiner Markierung; ihr Aussehen wählen Sie in den Stiloptionen",
   "A grid is a 4, 6 or 8 character Maidenhead locator, such as EN52 or EN52wa.": "Ein Locator ist ein Maidenhead-Locator mit 4, 6 oder 8 Zeichen, etwa EN52 oder EN52wa.",
@@ -191,6 +192,7 @@
   "All problems": "Alle Probleme",
   "All programs": "Alle Programme",
   "All records": "Alle Datensätze",
+  "All sources": "Alle Quellen",
   "All spots": "Alle Spots",
   "All squares": "Alle Felder",
   "All your QSOs": "Alle Ihre QSOs",
@@ -244,6 +246,7 @@
   "Badge and outline": "Abzeichen und Umriss",
   "Band": "Band",
   "Band conditions": "Bandbedingungen",
+  "Band:": "Band:",
   "Bands": "Bänder",
   "Bands 160, 80, 40, 20, 15 and 10 m and 6 m up (2026 rules).": "Bänder 160, 80, 40, 20, 15 und 10 m sowie ab 6 m (Regeln 2026).",
   "Bands: {list}.": "Bänder: {list}.",
@@ -698,6 +701,7 @@
   "Home station": "Meine Station",
   "Hover a squiggle for details, or use Next Problem.": "Zeigen Sie auf eine Wellenlinie für Details, oder nehmen Sie Nächstes Problem.",
   "How many rows a page shows": "Wie viele Zeilen eine Seite zeigt",
+  "How new the spots are (as in Sources and Filters)": "Wie neu die Spots sind (wie in Quellen und Filter)",
   "How strongly the grid, the overlays' lines and names, and the distance rings show: subtle or faint, your QSOs, parks and spots stand out from them": "Wie kräftig das Raster, die Linien und Namen der Überlagerungen und die Entfernungsringe erscheinen: dezent oder schwach heben sich Ihre QSOs, Parks und Spots davon ab",
   "How strongly worked countries, states, counties and zones are shaded": "Wie kräftig gearbeitete Länder, Staaten, Countys und Zonen schattiert werden",
   "How the bands are doing near you (Band conditions)": "Wie die Bänder in Ihrer Nähe gehen (Bandbedingungen)",
@@ -760,10 +764,13 @@
   "Language:": "Sprache:",
   "Large": "Groß",
   "Last": "Letzter",
+  "Last 10 minutes": "Letzte 10 Minuten",
   "Last 12 months": "Letzte 12 Monate",
   "Last 30 days": "Letzte 30 Tage",
+  "Last 30 minutes": "Letzte 30 Minuten",
   "Last QSO": "Letztes QSO",
   "Last download": "Letzter Download",
+  "Last hour": "Letzte Stunde",
   "Last upload": "Letzter Upload",
   "Latitude and longitude": "Breite und Länge",
   "Layers": "Ebenen",
@@ -850,6 +857,7 @@
   "Midwest": "Midwest",
   "Midwest Division": "Midwest Division",
   "Mode": "Betriebsart",
+  "Mode:": "Betriebsart:",
   "Modes": "Betriebsarten",
   "Modes (SUBMODE where given)": "Betriebsarten (SUBMODE, wo angegeben)",
   "Modes: {list}.": "Betriebsarten: {list}.",
@@ -1748,6 +1756,7 @@
   "Which QSOs to download: those on the dates this log covers (all of them for an empty log), or every QSO the site holds for you": "Welche QSOs geladen werden: die an den Tagen dieses Logs (alle bei einem leeren Log) oder jedes QSO, das die Seite für Sie hat",
   "Which columns show (also: right-click a column's title); drag a title to move its column, its edge to size it": "Welche Spalten erscheinen (auch: Rechtsklick auf einen Spaltentitel); ziehen Sie einen Titel, um seine Spalte zu verschieben, seinen Rand für die Breite",
   "Which records: those without a grid square (to look up), a contact logged more than once (two minutes apart, same band and mode), or those Check Log finds an error or warning in": "Welche Datensätze: ohne Locator-Feld (zum Nachschlagen), ein Kontakt mehr als einmal geloggt (zwei Minuten auseinander, gleiches Band und gleicher Modus), oder die, in denen Log prüfen einen Fehler oder eine Warnung findet",
+  "Which source's spots show: all, or one of them (Sources and Filters can choose two)": "Welche Quelle ihre Spots zeigt: alle oder eine (Quellen und Filter kann zwei wählen)",
   "Why it matters": "Warum wichtig",
   "Why it's interesting": "Warum interessant",
   "Width:": "Breite:",
@@ -2136,6 +2145,7 @@
   "unknown error": "unbekannter Fehler",
   "update": "Aktualisierung",
   "updated {records}": "{records} aktualisiert",
+  "updated {time} UTC": "aktualisiert {time} UTC",
   "upload each park's file on pota.app (My Log Uploads)": "laden Sie die Datei jedes Parks auf pota.app hoch (My Log Uploads)",
   "upload the file to the SOTA database": "laden Sie die Datei in die SOTA-Datenbank hoch",
   "uploaded": "hochgeladen",
@@ -2460,6 +2470,10 @@
    "one": "{n} Zeile",
    "other": "{n} Zeilen"
   },
+  "{n} source|{n} sources": {
+   "one": "{n} Quelle",
+   "other": "{n} Quellen"
+  },
   "{n} spot|{n} spots": {
    "one": "{n} Spot",
    "other": "{n} Spots"
@@ -2551,6 +2565,7 @@
   "{time} didn't happen in {zone} (the clocks went forward)": "{time} gab es in {zone} nicht (die Uhren wurden vorgestellt)",
   "{time} happened twice in {zone} (the clocks went back); shift it by a fixed amount": "{time} gab es in {zone} zweimal (die Uhren wurden zurückgestellt); verschieben Sie es um einen festen Betrag",
   "{what} is on your watch list; click to stop watching it": "{what} steht auf Ihrer Beobachtungsliste; klicken, um es nicht mehr zu beobachten",
-  "{worked} worked, {confirmed} confirmed": "{worked} gearbeitet, {confirmed} bestätigt"
+  "{worked} worked, {confirmed} confirmed": "{worked} gearbeitet, {confirmed} bestätigt",
+  "← Back to {list}": "← Zurück zu {list}"
  }
 }

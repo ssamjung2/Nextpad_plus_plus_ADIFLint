@@ -89,6 +89,7 @@
   "A Quick View of your own, in this workflow: the layers, colours and filters as they are now, and in Live which spots show.": "이 워크플로의 내 빠른 보기: 지금의 레이어, 색, 필터, 그리고 라이브에서는 어떤 스팟을 보일지.",
   "A Reverse Beacon Network skimmer.": "RBN(Reverse Beacon Network) 스키머입니다.",
   "A callbook gives a station's home address. For /P calls and records with SIG_INFO, POTA_REF, SOTA_REF or WWFF_REF the station was elsewhere, so only the name is added. LoTW data describes each QSO, so it is always used.": "콜북은 국의 집 주소를 알려 줍니다. /P 호출부호나 SIG_INFO, POTA_REF, SOTA_REF, WWFF_REF가 있는 레코드는 국이 다른 곳에 있었으므로 이름만 추가합니다. LoTW 데이터는 QSO마다의 정보이므로 항상 사용합니다.",
+  "A click on the map showed its QSOs here; back to what the list showed": "지도에서 클릭한 것의 QSO를 여기에 보였습니다. 목록이 보이던 것으로 돌아갑니다",
   "A download is under way; stop it first.": "다운로드가 진행 중입니다. 먼저 중지하세요.",
   "A great-circle line from your station to each contact, in its marker's colour; Style Options chooses their look": "내 국에서 각 교신 상대까지의 대권 경로 선(마커와 같은 색). 모양은 스타일 옵션에서 선택",
   "A grid is a 4, 6 or 8 character Maidenhead locator, such as EN52 or EN52wa.": "그리드는 EN52나 EN52wa 같은 4·6·8자 메이든헤드 로케이터입니다.",
@@ -190,6 +191,7 @@
   "All problems": "모든 문제",
   "All programs": "모든 프로그램",
   "All records": "모든 레코드",
+  "All sources": "모든 소스",
   "All spots": "모든 스팟",
   "All squares": "모든 스퀘어",
   "All your QSOs": "내 모든 QSO",
@@ -242,6 +244,7 @@
   "Badge and outline": "배지와 윤곽",
   "Band": "밴드",
   "Band conditions": "밴드 상황",
+  "Band:": "밴드:",
   "Bands": "밴드",
   "Bands 160, 80, 40, 20, 15 and 10 m and 6 m up (2026 rules).": "밴드 160, 80, 40, 20, 15, 10 m와 6 m 이상(2026년 규칙).",
   "Bands: {list}.": "밴드: {list}.",
@@ -694,6 +697,7 @@
   "Home station": "내 국",
   "Hover a squiggle for details, or use Next Problem.": "물결 밑줄에 포인터를 올리면 자세한 내용이 보입니다. 또는 다음 문제를 사용하세요.",
   "How many rows a page shows": "한 페이지에 보일 행 수",
+  "How new the spots are (as in Sources and Filters)": "스팟이 얼마나 최근인지(소스와 필터와 같음)",
   "How strongly the grid, the overlays' lines and names, and the distance rings show: subtle or faint, your QSOs, parks and spots stand out from them": "그리드, 오버레이의 선과 이름, 거리 고리를 얼마나 진하게 보일지: 은은하게나 흐리게 하면 내 QSO, 공원, 스팟이 돋보입니다",
   "How strongly worked countries, states, counties and zones are shaded": "교신한 나라, 주, 카운티, 존을 얼마나 진하게 칠할지",
   "How the bands are doing near you (Band conditions)": "내 근처의 밴드 상황(밴드 상황)",
@@ -756,10 +760,13 @@
   "Language:": "언어:",
   "Large": "크게",
   "Last": "마지막",
+  "Last 10 minutes": "최근 10분",
   "Last 12 months": "최근 12개월",
   "Last 30 days": "최근 30일",
+  "Last 30 minutes": "최근 30분",
   "Last QSO": "마지막 QSO",
   "Last download": "마지막 다운로드",
+  "Last hour": "최근 1시간",
   "Last upload": "마지막 업로드",
   "Latitude and longitude": "위도와 경도",
   "Layers": "레이어",
@@ -845,6 +852,7 @@
   "Midwest": "Midwest",
   "Midwest Division": "Midwest Division",
   "Mode": "모드",
+  "Mode:": "모드:",
   "Modes": "모드",
   "Modes (SUBMODE where given)": "모드(있으면 SUBMODE)",
   "Modes: {list}.": "모드: {list}.",
@@ -1735,6 +1743,7 @@
   "Which QSOs to download: those on the dates this log covers (all of them for an empty log), or every QSO the site holds for you": "내려받을 QSO: 이 로그에 있는 날짜의 QSO(빈 로그면 전부), 또는 사이트에 있는 내 QSO 전부",
   "Which columns show (also: right-click a column's title); drag a title to move its column, its edge to size it": "표시할 열(열 제목을 오른쪽 클릭해도 됨). 제목을 드래그하면 열이 이동하고, 가장자리를 드래그하면 크기가 바뀝니다",
   "Which records: those without a grid square (to look up), a contact logged more than once (two minutes apart, same band and mode), or those Check Log finds an error or warning in": "어떤 레코드: 그리드 스퀘어가 없는 것(찾아볼 것), 두 번 이상 기록된 교신(2분 이내, 같은 밴드와 모드), 또는 로그 검사가 오류나 경고를 찾은 것",
+  "Which source's spots show: all, or one of them (Sources and Filters can choose two)": "어느 소스의 스팟을 보일지: 모두 또는 하나(소스와 필터에서는 둘도 고를 수 있음)",
   "Why it matters": "중요한 이유",
   "Why it's interesting": "흥미로운 이유",
   "Width:": "굵기:",
@@ -2118,6 +2127,7 @@
   "unknown error": "알 수 없는 오류",
   "update": "업데이트",
   "updated {records}": "{records} 업데이트함",
+  "updated {time} UTC": "{time} UTC 갱신",
   "upload each park's file on pota.app (My Log Uploads)": "공원마다 파일을 pota.app(My Log Uploads)에 업로드하세요",
   "upload the file to the SOTA database": "파일을 SOTA 데이터베이스에 업로드하세요",
   "uploaded": "업로드됨",
@@ -2391,6 +2401,9 @@
   "{n} row|{n} rows": {
    "other": "{n}행"
   },
+  "{n} source|{n} sources": {
+   "other": "소스 {n}개"
+  },
   "{n} spot|{n} spots": {
    "other": "스팟 {n}개"
   },
@@ -2472,6 +2485,7 @@
   "{time} didn't happen in {zone} (the clocks went forward)": "{zone}에서 {time}은(는) 없던 시각입니다(시계를 앞당김)",
   "{time} happened twice in {zone} (the clocks went back); shift it by a fixed amount": "{zone}에서 {time}은(는) 두 번 있었습니다(시계를 늦춤). 일정한 양만큼 이동하세요",
   "{what} is on your watch list; click to stop watching it": "{what}은(는) 관심 목록에 있습니다. 클릭하면 관심을 해제합니다",
-  "{worked} worked, {confirmed} confirmed": "교신 {worked}, 확인 {confirmed}"
+  "{worked} worked, {confirmed} confirmed": "교신 {worked}, 확인 {confirmed}",
+  "← Back to {list}": "← {list}(으)로 돌아가기"
  }
 }

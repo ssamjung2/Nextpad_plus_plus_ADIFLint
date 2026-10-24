@@ -127,6 +127,7 @@ struct {
     long long receivedSince = 0;
     std::vector<std::string> programs;
     std::string spotholeStatus;
+    long long updated = 0;  // when a feed last brought spots (lastUpdate)
     // DX cluster
     nw_connection_t conn = nil;
     int generation = 0;
@@ -194,6 +195,7 @@ void spotholeFetch() {
             }
             f.spotholeStatus = trp("Spothole: {n} new spot at {time} UTC (every 2 minutes)", "Spothole: {n} new spots at {time} UTC (every 2 minutes)",
                                    (long long)n, {{"time", utcNow("%H:%M")}});
+            f.updated = (long long)time(nullptr);
             changed();
         });
     };
@@ -324,6 +326,7 @@ void clusterRead(const std::string &bytes) {
     }
     if (added) {
         f.clusterSpots += added;
+        f.updated = (long long)time(nullptr);
         changed();
     }
 }
@@ -443,6 +446,7 @@ void pskFetch() {
         }
         size_t n = reports.size();
         f.list.replace(adif::SpotSource::PskReporter, std::move(reports));
+        f.updated = (long long)time(nullptr);
         f.pskStatus = around ? trp("PSKReporter: {n} report around {grid} in the last half hour, at {time} UTC (every 5 minutes)",
                                    "PSKReporter: {n} reports around {grid} in the last half hour, at {time} UTC (every 5 minutes)", (long long)n,
                                    {{"grid", square}, {"time", utcNow("%H:%M")}})
@@ -604,6 +608,8 @@ std::string refreshNow() {
         if (!s.empty()) out += (out.empty() ? "" : " ") + s;
     return out;
 }
+
+long long lastUpdate() { return f.updated; }
 
 std::string status() {
     std::string out;

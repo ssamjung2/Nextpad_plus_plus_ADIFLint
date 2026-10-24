@@ -52,6 +52,10 @@ Versions before 0.8.0 were development builds and were not published.
   **Needed on its band** (a new DXCC or a new band), **New DXCC**, **New band**, **New
   mode**, **New POTA parks**, **POTA activators**, **My watch list** and **Worked before**,
   each with its count; choosing one shows only those.
+- **Map → toolbar**: in Live, when a feed last brought spots ("updated 14:32 UTC"), and menus
+  for how new the spots are and from which source; the band and mode menus say **Band:** and
+  **Mode:** while they filter. When a click on the map switches the list to Selected, **← Back
+  to** returns to what it listed.
 - **Map → your own Quick Views**: **Save View…** keeps the layers, colours and filters (and in
   Live which spots show) as a Quick View in that workflow; right-click one to remove it.
 - **Map → selected panel**: a reason that can show more has an arrow (a band or mode: the

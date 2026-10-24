@@ -555,8 +555,10 @@ The window, from the top:
   show or hide the sidebar, the list and the selected panel. The window's title names the
   log too.
 - **The toolbar**: **History**, **Live**, **DX Chase** or **POTA**; what the map shows (in History, the QSOs and the
-  dates they span; in Live, the stations spotted); the filters (band, mode, in History the
-  dates and confirmation, and the continent), **More Filters…**, and **Clear**. A filter the
+  dates they span; in Live, the stations spotted and when a feed last brought spots); the
+  filters (band and mode, which say **Band:** and **Mode:** while they filter; in History the
+  dates and confirmation; in Live how new the spots are and from which source, as in
+  Sources and Filters; and the continent), **More Filters…**, and **Clear**. A filter the
   toolbar can't show (a place chosen in More Filters; in Live, the dates and confirmation,
   which spots don't follow, and the Quick View) is a tag beside it: click the tag to remove
   that filter.
@@ -1003,7 +1005,8 @@ how many it has, as the filters leave them:
 - **Selected**: the QSOs of what you clicked on the map: a square, a contact, a DXCC
   entity's dot, a state, county or zone, a park, an IOTA group. **Double-click** a QSO to go
   to it in the log. A click on the map shows this list, unless the list shows that kind of
-  thing already (a park clicked while it lists parks just chooses its row).
+  thing already (a park clicked while it lists parks just chooses its row); **← Back to**
+  beside the tabs goes back to what it listed.
 - **Contacts**: the QSOs in view, by their LAT and LON, else their GRIDSQUARE, in the map's
   colours. Choosing one chooses its marker (with Contacts ticked) or its grid square.
 - **Parks**: the POTA parks the map marks (with Worked, the parks you worked; with All,

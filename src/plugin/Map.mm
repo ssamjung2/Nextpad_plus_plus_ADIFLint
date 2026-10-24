@@ -139,6 +139,31 @@ static NSAttributedString *treeMark(NSColor *color) {
 
 // The Map's control groups: laid out left to right at their own sizes, a new line when the next
 // doesn't fit, with a thin line between neighbours and between lines; as tall as its lines.
+// A filter's popup that names what it filters while it filters ("Band: 20m"; "All bands" as it is).
+@interface ADIFPrefixPopUpCell : NSPopUpButtonCell
+@property(nonatomic, copy) NSString *prefix;
+@end
+
+@implementation ADIFPrefixPopUpCell
+- (NSAttributedString *)shown:(NSAttributedString *)title {
+    if (!self.prefix.length || self.indexOfSelectedItem <= 0 || !title.length) return title;
+    NSMutableAttributedString *t = [title mutableCopy];
+    [t insertAttributedString:[[NSAttributedString alloc] initWithString:[self.prefix stringByAppendingString:@" "]
+                                                              attributes:[title attributesAtIndex:0 effectiveRange:nil]]
+                      atIndex:0];
+    return t;
+}
+- (NSRect)drawTitle:(NSAttributedString *)title withFrame:(NSRect)frame inView:(NSView *)view {
+    return [super drawTitle:[self shown:title] withFrame:frame inView:view];
+}
+- (NSSize)cellSize {
+    NSSize size = [super cellSize];
+    if (self.prefix.length && self.indexOfSelectedItem > 0)
+        size.width += std::ceil([[self.prefix stringByAppendingString:@" "] sizeWithAttributes:@{NSFontAttributeName : self.font ?: [NSFont systemFontOfSize:0]}].width);
+    return size;
+}
+@end
+
 @interface ADIFFlowView : NSView
 @property(nonatomic) CGFloat gap;          // between neighbours; the line runs down its middle
 @property(nonatomic) BOOL trailingLast;    // the last one at the right end of its line
@@ -450,6 +475,7 @@ struct {
     NSTextField *hover = nil, *summaryLabel = nil, *scopeLabel = nil;
     NSButton *liveLabel = nil;  // the footer's live status, a dot of its colour; clicked, the feeds' state
     NSPopUpButton *continentPopup = nil;  // the toolbar's continent (one of More Filters' continents)
+    NSPopUpButton *spotAgeBar = nil, *spotSourceBar = nil;  // Live's: how new the spots, from which source (as Sources and Filters)
     NSStackView *chips = nil;             // the filters on that the toolbar doesn't show, each a tag that removes it
     NSButton *centerButton = nil;
     NSButton *greyLineBox = nil, *dayNightBox = nil;  // the sidebar's Sun boxes (Style Options has them too)
@@ -514,6 +540,8 @@ struct {
     NSPopUpButton *listFrom = nil, *listPageSize = nil, *listColumnsMenu = nil, *listWithin = nil, *listSortMenu = nil;
     NSMenu *listRowMenu = nil;  // a row's own: New QSO, View QSO, Center, Zoom to It
     NSStackView *listTop = nil, *listFooter = nil;  // the list's bars: what gives way when narrow (fitListBars)
+    NSButton *listBack = nil;  // after a click on the map switched the list to Selected: back to what it listed
+    int listBackKind = -1;
     NSView *nearestTo = nil;
     NSSearchField *listSearch = nil;
     NSButton *listPrev = nil, *listNext = nil;
@@ -1336,8 +1364,12 @@ void showList(const std::vector<size_t> &qsos, ADIFMapHit::Kind kind = ADIFMapHi
     NSInteger shown = mw.listKind.selectedSegment;
     bool same = (shown == 2 && kind == ADIFMapHit::Pota) || (shown == 3 && (kind == ADIFMapHit::Spot || kind == ADIFMapHit::Spotter)) ||
                 (shown == 1 && (kind == ADIFMapHit::Contact || kind == ADIFMapHit::Square)) || (shown == kListDxcc && kind == ADIFMapHit::Dxcc);
-    if (!qsos.empty() && !mw.choosingFromList && !same) showListKind(0);
-    else fillViewList();
+    if (!qsos.empty() && !mw.choosingFromList && !same) {
+        if (shown != kListSelected) mw.listBackKind = (int)shown;  // Back to it
+        showListKind(0);
+    } else {
+        fillViewList();
+    }
 }
 
 // What a spot means for the log, in words: "new DXCC: Japan", "new band for Germany (17m)",
@@ -1965,6 +1997,9 @@ void refresh() {
             }
         }
         [mw.view setParkFilter:places on:flag("mapFilterParks", false)];
+        for (NSPopUpButton *p in @[ mw.band, mw.mode ]) [p invalidateIntrinsicContentSize];  // "Band: 20m" is wider than "20m"
+        for (NSView *v = mw.band.superview; v; v = v.superview)
+            if ([v isKindOfClass:ADIFFlowView.class]) v.needsLayout = YES;
         updateFilterButton();
         // DXCC from the calls, by country data.
         std::map<int, ADIFMapEntity> byDxcc;
@@ -2752,11 +2787,11 @@ void refreshSpots() {
     for (const ADIFMapSpot &m : marks) newest = std::max(newest, m.spot.epoch);
     if (live()) {
         std::string live = show ? trp("{n} station on the map", "{n} stations on the map", (long long)marks.size()) : tr("Spots off");
-        if (show && newest > 0) {
+        if (show && (spotfeeds::lastUpdate() > 0 || newest > 0)) {  // when a feed last brought spots, else the newest spot's time
             char hhmm[8];
-            time_t t = (time_t)newest;
+            time_t t = (time_t)(spotfeeds::lastUpdate() > 0 ? spotfeeds::lastUpdate() : newest);
             strftime(hhmm, sizeof hhmm, "%H:%M", gmtime(&t));
-            live += "  \u00B7  " + trf("newest {time} UTC", {{"time", hhmm}});
+            live += "  \u00B7  " + (spotfeeds::lastUpdate() > 0 ? trf("updated {time} UTC", {{"time", hhmm}}) : trf("newest {time} UTC", {{"time", hhmm}}));
         }
         // The feeds' health as a dot: green with a spot in the last 15 minutes, orange when older, grey off.
         NSColor *dot = !show ? NSColor.tertiaryLabelColor : newest > 0 && now - newest < 900 ? NSColor.systemGreenColor : NSColor.systemOrangeColor;
@@ -2764,6 +2799,20 @@ void refreshSpots() {
         mw.liveLabel.attributedTitle = dotted(show ? tr("Live data") + (newest > 0 ? "  \u00B7  " + utcAt(newest, "%Y-%m-%d %H:%M UTC") : "") : tr("Live: spots off"), dot,
                                               mw.liveLabel.font);
         mw.liveLabel.toolTip = show ? ADIFString(spotfeeds::status()) : nil;  // each feed: what it did, and when
+        [mw.spotAgeBar selectItemAtIndex:number("mapSpotsAge", 1, 2)];
+        {  // the source: all, one, or "2 sources"
+            std::string hidden = setting("mapSpotsHidden");
+            std::vector<NSInteger> shown;
+            for (size_t k = 0; k < 3; ++k)
+                if (hidden.find(adif::spotSourceName(kSpotSources[k])) == std::string::npos) shown.push_back((NSInteger)k + 1);
+            while (mw.spotSourceBar.numberOfItems > 4) [mw.spotSourceBar removeItemAtIndex:4];
+            if (shown.size() == 3) [mw.spotSourceBar selectItemAtIndex:0];
+            else if (shown.size() == 1) [mw.spotSourceBar selectItemAtIndex:shown[0]];
+            else {
+                [mw.spotSourceBar addItemWithTitle:TP(@"{n} source", @"{n} sources", (long long)shown.size())];
+                [mw.spotSourceBar selectItemAtIndex:4];
+            }
+        }
         fillQuickViews();
         fillFilterChips();
     }
@@ -3990,6 +4039,11 @@ void fillViewList() {
                " " + hint;
     mw.listHint.stringValue = ADIFString(hint);
     mw.listHint.toolTip = mw.listHint.stringValue;
+    // A click on the map switched the list to Selected: back to what it listed.
+    static NSString *const kTabNames[kListKinds] = {N(@"Selected"), N(@"Contacts"), N(@"Parks"), N(@"Spots"), N(@"Recent"), N(@"Issues"), N(@"DXCC")};
+    bool back = kind == kListSelected && mw.listBackKind > 0 && mw.listBackKind < kListKinds;
+    mw.listBack.hidden = !back;
+    if (back) mw.listBack.title = TF(@"\u2190 Back to {list}", @{@"list" : T(kTabNames[mw.listBackKind])});
     fitListBars();
 }
 
@@ -4448,6 +4502,7 @@ void syncControls() {
     mw.workflow.selectedSegment = wf;
     mw.spotsSection.hidden = wf < 1;
     mw.dates.hidden = mw.confirmed.hidden = wf >= 1;  // the spots don't follow them (a tag says when they're on)
+    mw.spotAgeBar.hidden = mw.spotSourceBar.hidden = wf < 1;
 
     mw.spotLens = wf >= 1 ? lensOfView(quickView()) : 0;
     applyViewFilters();
@@ -5307,6 +5362,37 @@ void cmdMap() {
         // Filters: which QSOs.
         mw.band = ADIFPopup(@[ @"All bands" ]);
         mw.mode = ADIFPopup(@[ @"All modes" ]);
+        for (NSPopUpButton *p in @[ mw.band, mw.mode ]) {  // "Band: 20m" while it filters
+            NSMenu *items = p.menu;
+            ADIFPrefixPopUpCell *c = [[ADIFPrefixPopUpCell alloc] initTextCell:@"" pullsDown:NO];
+            p.cell = c;
+            c.menu = items;
+            c.prefix = p == mw.band ? T(@"Band:") : T(@"Mode:");
+            [c selectItemAtIndex:0];
+        }
+        // Live's spot filters, in the toolbar too: how new, from which source.
+        mw.spotAgeBar = ADIFPopup(@[ @"Last 10 minutes", @"Last 30 minutes", @"Last hour" ]);
+        mw.spotAgeBar.identifier = @"map.filter.age";
+        mw.spotAgeBar.toolTip = T(@"How new the spots are (as in Sources and Filters)");
+        ADIFOnAction(mw.spotAgeBar, ^{
+            setSetting("mapSpotsAge", std::to_string(mw.spotAgeBar.indexOfSelectedItem));
+            if (mw.spotAge) [mw.spotAge selectItemAtIndex:mw.spotAgeBar.indexOfSelectedItem];
+            refreshSpots();
+        });
+        mw.spotSourceBar = ADIFPopup(@[ @"All sources" ]);
+        for (adif::SpotSource src : kSpotSources) [mw.spotSourceBar addItemWithTitle:ADIFString(tr(adif::spotSourceName(src)))];
+        mw.spotSourceBar.identifier = @"map.filter.source";
+        mw.spotSourceBar.toolTip = T(@"Which source's spots show: all, or one of them (Sources and Filters can choose two)");
+        ADIFOnAction(mw.spotSourceBar, ^{
+            NSInteger i = mw.spotSourceBar.indexOfSelectedItem;
+            if (i < 0 || i > 3) return;  // "2 sources": as Sources and Filters left them
+            std::string hidden;
+            for (size_t k = 0; k < 3 && i > 0; ++k)
+                if ((NSInteger)k != i - 1) hidden += std::string(hidden.empty() ? "" : ",") + adif::spotSourceName(kSpotSources[k]);
+            setSetting("mapSpotsHidden", hidden);
+            fillSpotsPopover();
+            refreshSpots();
+        });
         mw.dates = ADIFPopup(@[ @"All dates", @"Last 30 days", @"Last 12 months", @"This year" ]);
         mw.confirmed = ADIFPopup(@[ @"All QSOs", @"Confirmed", @"Not confirmed", @"Confirmed on LoTW", @"Confirmed by eQSL", @"Confirmed by card",
                                     @"Not confirmed on LoTW" ]);
@@ -5463,6 +5549,7 @@ void cmdMap() {
         mw.listKind.identifier = @"map.list.kind";
         ADIFOnAction(mw.listKind, ^{
             mw.markedDxcc = 0;
+            mw.listBackKind = -1;
             setSetting("mapListKind", std::to_string(mw.listKind.selectedSegment));
             fillViewList();
         });
@@ -5703,6 +5790,19 @@ void cmdMap() {
         for (NSView *v in @[ mw.listSortMenu, mw.listSearch ]) [listTop addView:v inGravity:NSStackViewGravityTrailing];
         mw.listTop = listTop;
         listTop.detachesHiddenViews = YES;
+        mw.listBack = [NSButton buttonWithTitle:@"" target:nil action:nil];
+        mw.listBack.bordered = NO;
+        mw.listBack.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        mw.listBack.contentTintColor = NSColor.linkColor;
+        mw.listBack.toolTip = T(@"A click on the map showed its QSOs here; back to what the list showed");
+        mw.listBack.identifier = @"map.list.back";
+        mw.listBack.hidden = YES;
+        ADIFOnAction(mw.listBack, ^{
+            int kind = mw.listBackKind;
+            mw.listBackKind = -1;
+            if (kind > 0 && kind < kListKinds) showListKind(kind);
+        });
+        [listTop insertView:mw.listBack atIndex:1 inGravity:NSStackViewGravityLeading];
         mw.listKind.controlSize = NSControlSizeSmall;
         mw.listKind.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
         [mw.listKind setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
@@ -5890,7 +5990,7 @@ void cmdMap() {
         mw.chips = [[NSStackView alloc] initWithFrame:NSZeroRect];
         mw.chips.spacing = 4;
         mw.chips.identifier = @"map.chips";
-        for (NSControl *c in @[ mw.band, mw.mode, mw.dates, mw.confirmed, mw.continentPopup, mw.moreFilters, mw.clearFilters ]) {
+        for (NSControl *c in @[ mw.band, mw.mode, mw.dates, mw.confirmed, mw.spotAgeBar, mw.spotSourceBar, mw.continentPopup, mw.moreFilters, mw.clearFilters ]) {
             c.controlSize = NSControlSizeSmall;
             c.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
         }
@@ -5904,7 +6004,7 @@ void cmdMap() {
         toolbar.gap = 15;
         toolbar.centred = YES;
         toolbar.identifier = @"map.toolbar";
-        for (NSView *v in @[ mw.workflow, mw.scopeLabel, cluster(@[ mw.band, mw.mode, mw.dates, mw.confirmed, mw.continentPopup, mw.moreFilters ]),
+        for (NSView *v in @[ mw.workflow, mw.scopeLabel, cluster(@[ mw.band, mw.mode, mw.dates, mw.confirmed, mw.spotAgeBar, mw.spotSourceBar, mw.continentPopup, mw.moreFilters ]),
                              cluster(@[ mw.chips, mw.clearFilters ]) ])
             [toolbar addSubview:v];
 

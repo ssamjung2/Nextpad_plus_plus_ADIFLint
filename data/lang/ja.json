@@ -89,6 +89,7 @@
   "A Quick View of your own, in this workflow: the layers, colours and filters as they are now, and in Live which spots show.": "このワークフローの自分のクイックビュー: 今のレイヤー、色、フィルター、そしてライブではどのスポットを表示するか。",
   "A Reverse Beacon Network skimmer.": "RBN (Reverse Beacon Network) のスキマーです。",
   "A callbook gives a station's home address. For /P calls and records with SIG_INFO, POTA_REF, SOTA_REF or WWFF_REF the station was elsewhere, so only the name is added. LoTW data describes each QSO, so it is always used.": "コールブックが示すのは局の自宅住所です。/P のコールサインや、SIG_INFO、POTA_REF、SOTA_REF、WWFF_REF のあるレコードでは局は別の場所にいたので、名前だけを追加します。LoTW のデータは QSO ごとの情報なので、常に使います。",
+  "A click on the map showed its QSOs here; back to what the list showed": "マップのクリックでそのQSOをここに表示しました。一覧の元の表示に戻ります",
   "A download is under way; stop it first.": "ダウンロード中です。先に停止してください。",
   "A great-circle line from your station to each contact, in its marker's colour; Style Options chooses their look": "自局から各交信相手への大円の線 (マーカーと同じ色)。見た目はスタイルオプションで選択",
   "A grid is a 4, 6 or 8 character Maidenhead locator, such as EN52 or EN52wa.": "グリッドは EN52 や EN52wa のような 4、6、8 文字のメイデンヘッドロケーターです。",
@@ -190,6 +191,7 @@
   "All problems": "すべての問題",
   "All programs": "すべてのプログラム",
   "All records": "すべてのレコード",
+  "All sources": "すべてのソース",
   "All spots": "すべてのスポット",
   "All squares": "すべてのスクエア",
   "All your QSOs": "自分のすべての QSO",
@@ -242,6 +244,7 @@
   "Badge and outline": "バッジと輪郭",
   "Band": "バンド",
   "Band conditions": "バンドコンディション",
+  "Band:": "バンド:",
   "Bands": "バンド",
   "Bands 160, 80, 40, 20, 15 and 10 m and 6 m up (2026 rules).": "バンドは 160、80、40、20、15、10 m と 6 m 以上 (2026 年のルール)。",
   "Bands: {list}.": "バンド: {list}。",
@@ -694,6 +697,7 @@
   "Home station": "自局",
   "Hover a squiggle for details, or use Next Problem.": "波線にポインタを合わせると詳細が表示されます。「次の問題」も使えます。",
   "How many rows a page shows": "1 ページに表示する行数",
+  "How new the spots are (as in Sources and Filters)": "スポットの新しさ(ソースとフィルターと同じ)",
   "How strongly the grid, the overlays' lines and names, and the distance rings show: subtle or faint, your QSOs, parks and spots stand out from them": "グリッド、オーバーレイの線と名前、距離の輪をどれだけ濃く表示するか: 控えめか薄くすると、QSO、公園、スポットが引き立ちます",
   "How strongly worked countries, states, counties and zones are shaded": "交信した国、州、郡、ゾーンを塗る濃さ",
   "How the bands are doing near you (Band conditions)": "近くのバンドの状況(バンドコンディション)",
@@ -756,10 +760,13 @@
   "Language:": "言語:",
   "Large": "大",
   "Last": "最後",
+  "Last 10 minutes": "直近10分",
   "Last 12 months": "過去 12 か月",
   "Last 30 days": "過去 30 日",
+  "Last 30 minutes": "直近30分",
   "Last QSO": "最後の QSO",
   "Last download": "最後のダウンロード",
+  "Last hour": "直近1時間",
   "Last upload": "最後のアップロード",
   "Latitude and longitude": "緯度と経度",
   "Layers": "レイヤー",
@@ -845,6 +852,7 @@
   "Midwest": "Midwest",
   "Midwest Division": "Midwest Division",
   "Mode": "モード",
+  "Mode:": "モード:",
   "Modes": "モード",
   "Modes (SUBMODE where given)": "モード (あれば SUBMODE)",
   "Modes: {list}.": "モード: {list}。",
@@ -1735,6 +1743,7 @@
   "Which QSOs to download: those on the dates this log covers (all of them for an empty log), or every QSO the site holds for you": "ダウンロードする QSO: このログにある日付の QSO (空のログならすべて)、またはサイトにある自分の QSO すべて",
   "Which columns show (also: right-click a column's title); drag a title to move its column, its edge to size it": "表示する列 (列の見出しを右クリックしても可)。見出しをドラッグすると列を移動、端をドラッグすると幅を変えます",
   "Which records: those without a grid square (to look up), a contact logged more than once (two minutes apart, same band and mode), or those Check Log finds an error or warning in": "どのレコード: グリッドスクエアのないもの(調べるため)、2回以上記録された交信(2分以内、同じバンドとモード)、またはログをチェックがエラーや警告を見つけたもの",
+  "Which source's spots show: all, or one of them (Sources and Filters can choose two)": "どのソースのスポットを表示するか: すべて、または一つ(ソースとフィルターでは二つも選べます)",
   "Why it matters": "重要な理由",
   "Why it's interesting": "注目の理由",
   "Width:": "太さ:",
@@ -2118,6 +2127,7 @@
   "unknown error": "不明なエラー",
   "update": "更新",
   "updated {records}": "{records} を更新",
+  "updated {time} UTC": "{time} UTC 更新",
   "upload each park's file on pota.app (My Log Uploads)": "公園ごとのファイルを pota.app (My Log Uploads) にアップロードしてください",
   "upload the file to the SOTA database": "ファイルを SOTA のデータベースにアップロードしてください",
   "uploaded": "アップロード済み",
@@ -2391,6 +2401,9 @@
   "{n} row|{n} rows": {
    "other": "{n} 行"
   },
+  "{n} source|{n} sources": {
+   "other": "ソース{n}件"
+  },
   "{n} spot|{n} spots": {
    "other": "スポット {n} 件"
   },
@@ -2472,6 +2485,7 @@
   "{time} didn't happen in {zone} (the clocks went forward)": "{zone} では {time} は存在しない時刻です (時計を進めたため)",
   "{time} happened twice in {zone} (the clocks went back); shift it by a fixed amount": "{zone} では {time} が 2 回ありました (時計を戻したため)。一定量でずらしてください",
   "{what} is on your watch list; click to stop watching it": "{what}は注目リストにあります。クリックで注目を解除します",
-  "{worked} worked, {confirmed} confirmed": "交信 {worked}、確認 {confirmed}"
+  "{worked} worked, {confirmed} confirmed": "交信 {worked}、確認 {confirmed}",
+  "← Back to {list}": "← {list}に戻る"
  }
 }

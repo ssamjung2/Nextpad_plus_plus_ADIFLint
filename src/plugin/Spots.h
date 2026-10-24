@@ -44,6 +44,9 @@ bool wanted();
 const adif::SpotList &spots();
 // What each feed is doing, one line each, for the Map ("DX cluster: connected to ...").
 std::string status();
+// When a feed last brought spots (Unix seconds; 0 none yet): Spothole or PSKReporter answering,
+// or the DX cluster sending one.
+long long lastUpdate();
 // The Map's Refresh: each feed turned on asks again now, within its limits. Spothole is asked
 // unless it was asked in the last minute (and its 2-minute round starts again); PSKReporter only
 // when 5 minutes have passed since it was last asked, as it asks; a DX cluster waiting to

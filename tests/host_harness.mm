@@ -4457,6 +4457,12 @@ int main(int argc, char **argv) {
                         bool callFound = kind.selectedSegment == 0 && [rowsTable.dataSource numberOfRowsInTableView:rowsTable] == 1 &&
                                          [cell(rowsTable, 0, @"call") isEqualToString:@"1A0C"] &&
                                          [((NSTextField *)viewWithIdentifier(mapw.contentView, @"map.contact.title")).stringValue hasPrefix:@"Sov Mil Order"];
+                        NSButton *backButton = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.list.back");
+                        bool backShown = !backButton.hidden && [backButton.title isEqualToString:@"\u2190 Back to DXCC"];
+                        [backButton performClick:nil];
+                        pump(0.2);
+                        CHECK(backShown && kind.selectedSegment == 6 && backButton.hidden, "a click choosing QSOs switched the list: Back to DXCC (%s)",
+                              backButton.title.UTF8String);
                         find.stringValue = @"EN52";
                         [find.menu.delegate menuNeedsUpdate:find.menu];
                         NSString *first = find.menu.numberOfItems ? [find.menu itemAtIndex:0].title : @"";
@@ -4884,8 +4890,12 @@ int main(int argc, char **argv) {
                 NSButton *clearButton = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.filter.clear");
                 NSTextField *scope = (NSTextField *)viewWithIdentifier(mapw.contentView, @"map.scope");
                 CHECK([scope.stringValue hasPrefix:@"5 QSOs on the map"] && !clearButton.enabled, "the toolbar says what the map shows: %s", scope.stringValue.UTF8String);
+                CGFloat allWide = bands.cell.cellSize.width;
                 [bands selectItemWithTitle:@"15m"];
                 [bands sendAction:bands.action to:bands.target];
+                CHECK([bands.cell respondsToSelector:@selector(prefix)] && [[(id)bands.cell prefix] isEqualToString:@"Band:"] &&
+                          bands.cell.cellSize.width > allWide,
+                      "the band menu says Band: while it filters (%.0f, was %.0f)", bands.cell.cellSize.width, allWide);
                 CHECK(clearButton.enabled && [scope.stringValue hasPrefix:@"1 QSO on the map"], "one filter on: Clear enabled, %s", scope.stringValue.UTF8String);
                 [bands selectItemAtIndex:0];
                 [bands sendAction:bands.action to:bands.target];
@@ -5663,6 +5673,23 @@ int main(int argc, char **argv) {
                     };
                     listKind.selectedSegment = 3;  // the spots' list
                     [listKind sendAction:listKind.action to:listKind.target];
+                    {  // Live's toolbar: when the feeds last brought spots; how new and from which source.
+                        NSPopUpButton *age = (NSPopUpButton *)viewWithIdentifier(mapw.contentView, @"map.filter.age");
+                        NSPopUpButton *source = (NSPopUpButton *)viewWithIdentifier(mapw.contentView, @"map.filter.source");
+                        NSString *scopeNow = ((NSTextField *)viewWithIdentifier(mapw.contentView, @"map.scope")).stringValue;
+                        bool shownInLive = !age.hidden && !source.hidden && source.numberOfItems == 4;
+                        [source selectItemAtIndex:1];  // Spothole only
+                        [source sendAction:source.action to:source.target];
+                        pump(0.2);
+                        NSInteger onlySpothole = [rowsTable.dataSource numberOfRowsInTableView:rowsTable];
+                        [source selectItemAtIndex:0];
+                        [source sendAction:source.action to:source.target];
+                        pump(0.2);
+                        NSInteger all = [rowsTable.dataSource numberOfRowsInTableView:rowsTable];
+                        CHECK(shownInLive && [scopeNow containsString:@"updated"] && onlySpothole <= all && source.indexOfSelectedItem == 0 &&
+                                  age.indexOfSelectedItem == 1,
+                              "Live's toolbar: %s; age and source menus (%ld of %ld rows from Spothole)", scopeNow.UTF8String, (long)onlySpothole, (long)all);
+                    }
                     CHECK(wf.selectedSegment == 1 && [views.dataSource numberOfRowsInTableView:views] == 9 && [viewCount(3) isEqualToString:@"1"] &&
                               viewCount(1).integerValue == viewCount(2).integerValue + 1 && [viewCount(7) isEqualToString:@"0"],
                           "Live's Quick Views: Needed on its band %s (New DXCC %s), New band %s, My watch list %s", viewCount(1).UTF8String,
