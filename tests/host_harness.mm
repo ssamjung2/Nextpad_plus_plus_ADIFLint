@@ -4894,8 +4894,22 @@ int main(int argc, char **argv) {
                 [bands selectItemWithTitle:@"15m"];
                 [bands sendAction:bands.action to:bands.target];
                 CHECK([bands.cell respondsToSelector:@selector(prefix)] && [[(id)bands.cell prefix] isEqualToString:@"Band:"] &&
-                          bands.cell.cellSize.width > allWide,
-                      "the band menu says Band: while it filters (%.0f, was %.0f)", bands.cell.cellSize.width, allWide);
+                          bands.cell.cellSize.width > allWide && [clearButton.title isEqualToString:@"Clear (1)"] &&
+                          [clearButton.toolTip isEqualToString:@"Clear: 15m"],
+                      "the band menu says Band: while it filters (%.0f, was %.0f); %s, %s", bands.cell.cellSize.width, allWide, clearButton.title.UTF8String,
+                      clearButton.toolTip.UTF8String);
+                {  // The header's title line, and when QSL Sync last downloaded (a click opens it).
+                    NSTextField *title = (NSTextField *)viewWithIdentifier(mapw.contentView, @"map.summary");
+                    NSButton *synced = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.synced");
+                    [synced performClick:nil];
+                    pump(0.2);
+                    NSWindow *sync = nil;
+                    for (NSWindow *w in NSApp.windows)
+                        if (w.visible && [w.title isEqualToString:@"QSL Sync"]) sync = w;
+                    CHECK([title.stringValue hasPrefix:@"Operating Map"] && [synced.title hasPrefix:@"QSL"] && sync, "the header: %s; %s opens QSL Sync",
+                          title.stringValue.UTF8String, synced.title.UTF8String);
+                    [sync orderOut:nil];
+                }
                 CHECK(clearButton.enabled && [scope.stringValue hasPrefix:@"1 QSO on the map"], "one filter on: Clear enabled, %s", scope.stringValue.UTF8String);
                 [bands selectItemAtIndex:0];
                 [bands sendAction:bands.action to:bands.target];
@@ -5673,6 +5687,27 @@ int main(int argc, char **argv) {
                     };
                     listKind.selectedSegment = 3;  // the spots' list
                     [listKind sendAction:listKind.action to:listKind.target];
+                    {  // Live's toolbar: its DXCC menu chooses the Quick View; its program menu keeps POTA's spots, or none.
+                        NSPopUpButton *dxccMenu = (NSPopUpButton *)viewWithIdentifier(mapw.contentView, @"map.filter.dxccNeed");
+                        NSPopUpButton *potaMenu = (NSPopUpButton *)viewWithIdentifier(mapw.contentView, @"map.filter.pota");
+                        [dxccMenu selectItemWithTitle:@"New band"];
+                        [dxccMenu sendAction:dxccMenu.action to:dxccMenu.target];
+                        pump(0.3);
+                        bool newBand = views.selectedRow == 3 && [rowsTable.dataSource numberOfRowsInTableView:rowsTable] == 1;
+                        [dxccMenu selectItemAtIndex:0];
+                        [dxccMenu sendAction:dxccMenu.action to:dxccMenu.target];
+                        [potaMenu selectItemWithTitle:@"POTA only"];
+                        [potaMenu sendAction:potaMenu.action to:potaMenu.target];
+                        pump(0.3);
+                        bool potaOnly = [rowsTable.dataSource numberOfRowsInTableView:rowsTable] == 1 && [cell(rowsTable, 0, @"call") isEqualToString:@"K9ABC"];
+                        NSString *clearTitle = ((NSButton *)viewWithIdentifier(mapw.contentView, @"map.filter.clear")).title;
+                        [potaMenu selectItemAtIndex:0];
+                        [potaMenu sendAction:potaMenu.action to:potaMenu.target];
+                        pump(0.3);
+                        CHECK(!dxccMenu.hidden && newBand && potaOnly && [clearTitle isEqualToString:@"Clear (1)"] && views.selectedRow == 0 &&
+                                  [rowsTable.dataSource numberOfRowsInTableView:rowsTable] > 1,
+                              "Live's DXCC menu (New band: %d) and program menu (POTA only: %d; %s)", newBand, potaOnly, clearTitle.UTF8String);
+                    }
                     {  // Live's toolbar: when the feeds last brought spots; how new and from which source.
                         NSPopUpButton *age = (NSPopUpButton *)viewWithIdentifier(mapw.contentView, @"map.filter.age");
                         NSPopUpButton *source = (NSPopUpButton *)viewWithIdentifier(mapw.contentView, @"map.filter.source");

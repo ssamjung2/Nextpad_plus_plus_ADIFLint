@@ -12,6 +12,7 @@
 #import "PotaParks.h"
 #import "PluginHost.h"
 #import "Spots.h"
+#import "Uploads.h"
 #import "ToolWindow.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include "adif_detail.h"
@@ -154,6 +155,8 @@ static NSAttributedString *treeMark(NSColor *color) {
     return t;
 }
 - (NSRect)drawTitle:(NSAttributedString *)title withFrame:(NSRect)frame inView:(NSView *)view {
+    // The frame is the item's own title's width: the prefix needs the room the popup has (less its arrows).
+    if (self.prefix.length && self.indexOfSelectedItem > 0) frame.size.width = std::max(frame.size.width, NSWidth(view.bounds) - frame.origin.x - 18);
     return [super drawTitle:[self shown:title] withFrame:frame inView:view];
 }
 - (NSSize)cellSize {
@@ -476,6 +479,8 @@ struct {
     NSButton *liveLabel = nil;  // the footer's live status, a dot of its colour; clicked, the feeds' state
     NSPopUpButton *continentPopup = nil;  // the toolbar's continent (one of More Filters' continents)
     NSPopUpButton *spotAgeBar = nil, *spotSourceBar = nil;  // Live's: how new the spots, from which source (as Sources and Filters)
+    NSPopUpButton *dxccBar = nil, *potaBar = nil;          // Live's: which DXCC needs (the Quick View), which program
+    NSButton *synced = nil;                                 // the header's last QSL Sync download, a click opens it
     NSStackView *chips = nil;             // the filters on that the toolbar doesn't show, each a tag that removes it
     NSButton *centerButton = nil;
     NSButton *greyLineBox = nil, *dayNightBox = nil;  // the sidebar's Sun boxes (Style Options has them too)
@@ -592,6 +597,8 @@ void fillBell();
 void fillBellMenu(NSMenu *menu);
 void fillHomeMenu(NSMenu *menu);
 void fillViewsMenu(NSMenu *menu);
+void fillSynced();
+void fillDxccPotaBars();
 int lensOfView(int view);
 void showList(const std::vector<size_t> &qsos, ADIFMapHit::Kind kind);
 void showListKind(int kind);
@@ -2067,7 +2074,19 @@ void refresh() {
         showWatchButton(ADIFMapHit());
         mw.actions.needsLayout = YES;
         std::string call = setting("stationCall");
-        mw.summaryLabel.stringValue = ADIFString((call.empty() ? "" : call + "  \u00B7  ") + documentName() + "  \u00B7  " + plural(mw.data.qsos.size(), "QSO"));
+        {  // the title line: what this is, then the station, the log and its QSOs
+            NSMutableAttributedString *line = [[NSMutableAttributedString alloc]
+                initWithString:T(@"Operating Map")
+                    attributes:@{NSFontAttributeName : [NSFont systemFontOfSize:NSFont.systemFontSize + 1 weight:NSFontWeightBold]}];
+            [line appendAttributedString:[[NSAttributedString alloc]
+                                             initWithString:ADIFString("   " + (call.empty() ? "" : call + "  \u00B7  ") + documentName() + "  \u00B7  " +
+                                                                       plural(mw.data.qsos.size(), "QSO"))
+                                                 attributes:@{NSFontAttributeName : [NSFont systemFontOfSize:NSFont.systemFontSize weight:NSFontWeightMedium],
+                                                              NSForegroundColorAttributeName : NSColor.secondaryLabelColor}]];
+            mw.summaryLabel.attributedStringValue = line;
+            mw.summaryLabel.toolTip = line.string;
+        }
+        fillSynced();
         if (!live()) {
             // History: the QSOs the map shows, and the dates they span.
             std::string first, last;
@@ -2327,10 +2346,26 @@ void fillFilterChips() {
 void updateFilterButton() {
     size_t n = placeKinds(savedPlaceFilter());
     mw.moreFilters.title = n ? [NSString stringWithFormat:T(@"More Filters (%zu)..."), n] : T(@"More Filters...");
-    // How many filters are on, on the bar too: the QSOs shown are not all of them, card open or not.
-    size_t on = n + (mw.band.indexOfSelectedItem > 0) + (mw.mode.indexOfSelectedItem > 0) + (mw.dates.indexOfSelectedItem > 0) +
-                (mw.confirmed.indexOfSelectedItem > 0);
-    mw.clearFilters.enabled = on > 0 || (live() && mw.spotLens > 0);
+    // Clear says how many filters are on, and its tooltip which, in a line ("20m · FT8 · New band").
+    std::vector<std::string> active;
+    for (NSPopUpButton *p : {mw.band, mw.mode})
+        if (p.indexOfSelectedItem > 0) active.push_back(ADIFStd(p.titleOfSelectedItem));
+    if (!live()) {
+        for (NSPopUpButton *p : {mw.dates, mw.confirmed})
+            if (p.indexOfSelectedItem > 0) active.push_back(ADIFStd(p.titleOfSelectedItem));
+    } else {
+        if (mw.spotLens > 0 && mw.quickRows && (size_t)mw.spotLens < mw.quickRows.rows.size()) active.push_back(mw.quickRows.rows[(size_t)mw.spotLens].title);
+        std::string program = setting("mapSpotsProgram");
+        if (!program.empty()) active.push_back(program == "-" ? tr("Plain DX only") : program);
+        if (!setting("mapSpotsHidden").empty() && mw.spotSourceBar.indexOfSelectedItem > 0) active.push_back(ADIFStd(mw.spotSourceBar.titleOfSelectedItem));
+    }
+    if (n) active.push_back(trp("{n} more filter", "{n} more filters", (long long)n));
+    std::string list;
+    for (const std::string &a : active) list += (list.empty() ? "" : "  \u00B7  ") + a;
+    mw.clearFilters.enabled = !active.empty();
+    mw.clearFilters.title = active.empty() ? T(@"Clear") : TF(@"Clear ({n})", @{@"n" : @(active.size())});
+    mw.clearFilters.toolTip = active.empty() ? T(@"Show every QSO again: all bands, modes, dates and places (and in Live, every spot)")
+                                             : ADIFString(trf("Clear: {filters}", {{"filters", list}}));
     fillContinentPopup();
     fillFilterChips();
 }
@@ -2800,6 +2835,7 @@ void refreshSpots() {
                                               mw.liveLabel.font);
         mw.liveLabel.toolTip = show ? ADIFString(spotfeeds::status()) : nil;  // each feed: what it did, and when
         [mw.spotAgeBar selectItemAtIndex:number("mapSpotsAge", 1, 2)];
+        fillDxccPotaBars();
         {  // the source: all, one, or "2 sources"
             std::string hidden = setting("mapSpotsHidden");
             std::vector<NSInteger> shown;
@@ -2814,7 +2850,7 @@ void refreshSpots() {
             }
         }
         fillQuickViews();
-        fillFilterChips();
+        updateFilterButton();  // Clear and the tags, as the spots' filters are
     }
     mw.view.legendSpotBands = spotBands;
     [mw.view setSpots:marks now:now maxAge:f.maxAge];
@@ -4502,7 +4538,7 @@ void syncControls() {
     mw.workflow.selectedSegment = wf;
     mw.spotsSection.hidden = wf < 1;
     mw.dates.hidden = mw.confirmed.hidden = wf >= 1;  // the spots don't follow them (a tag says when they're on)
-    mw.spotAgeBar.hidden = mw.spotSourceBar.hidden = wf < 1;
+    mw.spotAgeBar.hidden = mw.spotSourceBar.hidden = mw.dxccBar.hidden = mw.potaBar.hidden = wf < 1;
 
     mw.spotLens = wf >= 1 ? lensOfView(quickView()) : 0;
     applyViewFilters();
@@ -5193,6 +5229,36 @@ void findTyped() {
     [mw.findMenu popUpMenuPositioningItem:nil atLocation:NSMakePoint(0, NSMaxY(mw.findField.bounds) + 4) inView:mw.findField];
 }
 
+// The header's QSL Sync: when confirmations were last downloaded (the latest of the services),
+// a click opening QSL Sync.
+void fillSynced() {
+    if (!mw.synced) return;
+    std::string latest, tip;
+    for (const auto &[key, name] : std::vector<std::pair<const char *, const char *>>{
+             {"lastDownloadLoTW", "LoTW"}, {"lastDownloadQRZ", "QRZ.com"}, {"lastDownloadEQSL", "eQSL"}}) {
+        std::string at = setting(key);  // "YYYY-MM-DD HH:MM UTC"
+        latest = std::max(latest, at);
+        tip += std::string(tip.empty() ? "" : "\n") + name + ": " + (at.empty() ? tr("never") : at);
+    }
+    mw.synced.title = latest.empty() ? T(@"QSL: never synced") : TF(@"QSL synced {when}", @{@"when" : ADIFString(latest.substr(0, 10))});
+    mw.synced.toolTip = ADIFString(tr("Confirmations last downloaded (QSL Sync); click to open it") + "\n" + tip);
+}
+
+// Live's DXCC and POTA menus, as the Quick View and the spots' program are.
+void fillDxccPotaBars() {
+    if (!mw.dxccBar) return;
+    static const int kDxccLens[] = {0, 1, 2, 3, 4, 8};  // the menu's items: the Quick View each chooses
+    NSInteger at = 0;
+    for (NSInteger i = 0; i < (NSInteger)std::size(kDxccLens); ++i)
+        if (kDxccLens[i] == mw.spotLens) at = i;
+    [mw.dxccBar selectItemAtIndex:at];
+    std::string program = setting("mapSpotsProgram");
+    [mw.potaBar selectItemAtIndex:program == "-" ? 3 : program == "POTA" ? (mw.spotLens == 5 ? 2 : 1) : 0];
+    for (NSPopUpButton *p in @[ mw.dxccBar, mw.potaBar ]) [p invalidateIntrinsicContentSize];  // "DXCC: New band" is wider than "New band"
+    for (NSView *v = mw.dxccBar.superview; v; v = v.superview)
+        if ([v isKindOfClass:ADIFFlowView.class]) v.needsLayout = YES;
+}
+
 // ── The footer: what is under the pointer, and the workflow's state ──
 
 void showHover(const std::string &text) {
@@ -5379,6 +5445,35 @@ void cmdMap() {
             if (mw.spotAge) [mw.spotAge selectItemAtIndex:mw.spotAgeBar.indexOfSelectedItem];
             refreshSpots();
         });
+        mw.dxccBar = ADIFPopup(@[ @"Any DXCC", @"Needed on its band", @"New DXCC", @"New band", @"New mode", @"Worked before" ]);
+        mw.potaBar = ADIFPopup(@[ @"Any program", @"POTA only", @"New POTA parks", @"Plain DX only" ]);
+        for (NSPopUpButton *p in @[ mw.dxccBar, mw.potaBar ]) {  // "DXCC: New band", "Spots: POTA only" while they filter (before
+                                                                  // their actions: a control's action is its cell's)
+            NSMenu *items = p.menu;
+            ADIFPrefixPopUpCell *c = [[ADIFPrefixPopUpCell alloc] initTextCell:@"" pullsDown:NO];
+            p.cell = c;
+            c.menu = items;
+            c.prefix = p == mw.dxccBar ? T(@"DXCC:") : T(@"Spots:");
+            [c selectItemAtIndex:0];
+        }
+        mw.dxccBar.identifier = @"map.filter.dxccNeed";
+        mw.dxccBar.toolTip = T(@"The spots by what they mean for your DXCC (the Quick Views have them too)");
+        ADIFOnAction(mw.dxccBar, ^{
+            static const int kLens[] = {0, 1, 2, 3, 4, 8};
+            NSInteger i = std::clamp<NSInteger>(mw.dxccBar.indexOfSelectedItem, 0, 5);
+            chooseQuickView(kLens[i]);
+        });
+        mw.potaBar.identifier = @"map.filter.pota";
+        mw.potaBar.toolTip = T(@"POTA's spots: all of them with the rest, only POTA's, only parks you haven't worked, or none (plain DX spots, "
+                               @"no program); as Sources and Filters' program");
+        ADIFOnAction(mw.potaBar, ^{
+            NSInteger i = mw.potaBar.indexOfSelectedItem;
+            setSetting("mapSpotsProgram", i == 1 || i == 2 ? "POTA" : i == 3 ? "-" : "");
+            fillSpotsPopover();
+            if (i == 2) chooseQuickView(5);  // New POTA parks
+            else if (mw.spotLens == 5 || mw.spotLens == 6) chooseQuickView(0);
+            else refreshSpots();
+        });
         mw.spotSourceBar = ADIFPopup(@[ @"All sources" ]);
         for (adif::SpotSource src : kSpotSources) [mw.spotSourceBar addItemWithTitle:ADIFString(tr(adif::spotSourceName(src)))];
         mw.spotSourceBar.identifier = @"map.filter.source";
@@ -5523,7 +5618,13 @@ void cmdMap() {
         mw.moreFilters.identifier = @"map.filter.more";
         mw.clearFilters = smallButton(@"Clear", @"Show every QSO again: all bands, modes, dates and places (and in Live, every spot)", ^{
             for (NSPopUpButton *p in @[ mw.band, mw.mode, mw.dates, mw.confirmed ]) [p selectItemAtIndex:0];
-            if (live() && mw.spotLens > 0) chooseQuickView(0);
+            if (live()) {  // every spot again: any program and source too
+                setSetting("mapSpotsProgram", "");
+                setSetting("mapSpotsHidden", "");
+                fillSpotsPopover();
+                if (mw.spotLens > 0) chooseQuickView(0);
+                else refreshSpots();
+            }
             if (mw.viewSetConfirmed) {  // Needs confirmation's filter gone: All QSOs
                 mw.viewSetConfirmed = false;
                 setSetting("mapQuickView", "0");
@@ -5944,6 +6045,15 @@ void cmdMap() {
         mw.bell.menu = mw.bellMenu;  // right-click too
         ADIFOnAction(mw.bell, ^{ [mw.bellMenu popUpMenuPositioningItem:nil atLocation:NSMakePoint(0, NSMaxY(mw.bell.bounds) + 4) inView:mw.bell]; });
         fillBell();
+        mw.synced = [NSButton buttonWithTitle:@"" target:nil action:nil];
+        mw.synced.bordered = NO;
+        mw.synced.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        mw.synced.contentTintColor = NSColor.secondaryLabelColor;
+        mw.synced.image = [NSImage imageWithSystemSymbolName:@"arrow.triangle.2.circlepath" accessibilityDescription:nil];
+        mw.synced.imagePosition = NSImageLeading;
+        mw.synced.identifier = @"map.synced";
+        ADIFOnAction(mw.synced, ^{ uploads::cmdQslSync(); });
+        [mw.synced setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
         mw.findField = [[NSSearchField alloc] initWithFrame:NSZeroRect];
         mw.findField.placeholderString = T(@"Find a call, grid, DXCC entity or park");
         mw.findField.toolTip = T(@"Find on the map: a call (your QSOs with it, or its spot), a grid square, a DXCC entity you worked, a POTA park "
@@ -5959,8 +6069,11 @@ void cmdMap() {
         mw.findMenu.delegate = mw.listRows;
         mw.findField.menu = mw.findMenu;  // right-click: the results too
         ADIFOnAction(mw.findField, ^{ findTyped(); });
-        for (NSView *v in @[ mw.findField, mw.bell, logTable, styleButton, save, settings, help, mw.paneToggle[0], mw.paneToggle[1], mw.paneToggle[2] ])
+        for (NSView *v in @[ mw.synced, mw.findField, mw.bell, logTable, styleButton, save, settings, help, mw.paneToggle[0], mw.paneToggle[1],
+                             mw.paneToggle[2] ])
             [header addView:v inGravity:NSStackViewGravityTrailing];
+        [header setVisibilityPriority:NSStackViewVisibilityPriorityDetachOnlyIfNecessary forView:mw.synced];  // the first to go when narrow
+        fillSynced();
         [header setCustomSpacing:14 afterView:mw.findField];
         [header setCustomSpacing:20 afterView:mw.bell];
         [header setCustomSpacing:6 afterView:logTable];
@@ -5990,7 +6103,8 @@ void cmdMap() {
         mw.chips = [[NSStackView alloc] initWithFrame:NSZeroRect];
         mw.chips.spacing = 4;
         mw.chips.identifier = @"map.chips";
-        for (NSControl *c in @[ mw.band, mw.mode, mw.dates, mw.confirmed, mw.spotAgeBar, mw.spotSourceBar, mw.continentPopup, mw.moreFilters, mw.clearFilters ]) {
+        for (NSControl *c in @[ mw.band, mw.mode, mw.dates, mw.confirmed, mw.dxccBar, mw.potaBar, mw.spotAgeBar, mw.spotSourceBar, mw.continentPopup, mw.moreFilters,
+                                mw.clearFilters ]) {
             c.controlSize = NSControlSizeSmall;
             c.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
         }
@@ -6004,7 +6118,7 @@ void cmdMap() {
         toolbar.gap = 15;
         toolbar.centred = YES;
         toolbar.identifier = @"map.toolbar";
-        for (NSView *v in @[ mw.workflow, mw.scopeLabel, cluster(@[ mw.band, mw.mode, mw.dates, mw.confirmed, mw.spotAgeBar, mw.spotSourceBar, mw.continentPopup, mw.moreFilters ]),
+        for (NSView *v in @[ mw.workflow, mw.scopeLabel, cluster(@[ mw.band, mw.mode, mw.dates, mw.confirmed, mw.dxccBar, mw.potaBar, mw.spotAgeBar, mw.spotSourceBar, mw.continentPopup, mw.moreFilters ]),
                              cluster(@[ mw.chips, mw.clearFilters ]) ])
             [toolbar addSubview:v];
 

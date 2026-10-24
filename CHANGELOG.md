@@ -52,6 +52,10 @@ Versions before 0.8.0 were development builds and were not published.
   **Needed on its band** (a new DXCC or a new band), **New DXCC**, **New band**, **New
   mode**, **New POTA parks**, **POTA activators**, **My watch list** and **Worked before**,
   each with its count; choosing one shows only those.
+- **Map → header and toolbar**: the header says **Operating Map** and when confirmations were
+  last downloaded (a click opens QSL Sync). Live's toolbar adds a **DXCC** menu (the spots by
+  what they mean for your DXCC) and a **Spots** menu (any program, POTA only, new POTA parks,
+  plain DX only). **Clear** counts the filters that are on and lists them in its tooltip.
 - **Map → toolbar**: in Live, when a feed last brought spots ("updated 14:32 UTC"), and menus
   for how new the spots are and from which source; the band and mode menus say **Band:** and
   **Mode:** while they filter. When a click on the map switches the list to Selected, **← Back

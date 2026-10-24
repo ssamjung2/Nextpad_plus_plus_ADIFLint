@@ -546,7 +546,9 @@ countries and parks you worked shaded and the grey line on.
 
 The window, from the top:
 
-- **The header**: your callsign, the log and its QSOs; at the right, **Find** (a call, a grid
+- **The header**: **Operating Map**, your callsign, the log and its QSOs; at the right, when
+  you last downloaded confirmations (**QSL synced**, the latest of LoTW, QRZ.com and eQSL; a
+  click opens QSL Sync), **Find** (a call, a grid
   square, a DXCC entity or a POTA park: Return chooses it on the map, or offers a menu when
   several match; a call chooses your QSOs with it, or its spot), the **bell** (see
   [The watch list](#the-watch-list)), **Log Table** (the
@@ -557,8 +559,11 @@ The window, from the top:
 - **The toolbar**: **History**, **Live**, **DX Chase** or **POTA**; what the map shows (in History, the QSOs and the
   dates they span; in Live, the stations spotted and when a feed last brought spots); the
   filters (band and mode, which say **Band:** and **Mode:** while they filter; in History the
-  dates and confirmation; in Live how new the spots are and from which source, as in
-  Sources and Filters; and the continent), **More Filters…**, and **Clear**. A filter the
+  dates and confirmation; in Live **DXCC** (which spots by what they mean for your DXCC, as
+  the Quick Views), **Spots** (any program, POTA only, new POTA parks, or plain DX only), how
+  new the spots are and from which source, as in Sources and Filters; and the continent),
+  **More Filters…**, and **Clear**, which says how many filters are on and lists them in its
+  tooltip. A filter the
   toolbar can't show (a place chosen in More Filters; in Live, the dates and confirmation,
   which spots don't follow, and the Quick View) is a tag beside it: click the tag to remove
   that filter.
