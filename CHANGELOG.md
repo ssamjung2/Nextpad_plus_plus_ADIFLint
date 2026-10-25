@@ -11,6 +11,9 @@ Versions before 0.8.0 were development builds and were not published.
 
 ### Changed
 
+- **Map:** the selected panel gives the operator's **Name** for a spot or a QSO: the NAME of
+  your latest QSO with the call, else the callbook New QSO looks calls up in (QRZ.com or
+  HamQTH, when chosen there), asked once per call.
 - **New QSO:** spotting is two boxes under **Spot when logging**, in place of the Spot This
   QSO panel after each QSO: **The station, on the DX cluster** and **Myself, on pota.app**.
   Each stays as you leave it (off at first), and Log QSO spots what is ticked, with the same

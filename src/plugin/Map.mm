@@ -8,6 +8,7 @@
 #import "IotaGroups.h"
 #import "LotwUsers.h"
 #import "LogTools.h"
+#import "Lookup.h"
 #import "Network.h"
 #import "PotaParks.h"
 #import "PluginHost.h"
@@ -19,6 +20,7 @@
 #include "adif_detail.h"
 #include "adif_beacons.h"
 #include "adif_edit.h"
+#include "adif_enrich.h"
 #include "adif_flags.h"
 #include "adif_geo.h"
 #include "adif_worked.h"
@@ -596,6 +598,12 @@ struct {
     std::string summary, chosen;  // what the status line says when nothing is under the pointer
     std::string home;             // the grid the globe, rings and paths start from
     intptr_t buffer = 0;
+    // Operators' names from the callbook New QSO looks calls up in (QRZ.com or HamQTH), by call,
+    // each asked once: "" while asking or when it had none.
+    std::map<std::string, std::string> callbookNames;
+    std::set<std::string> callbookAsking;
+    ADIFCallbookClient *callbook = nil;
+    NSInteger callbookSource = -1;
 } mw;
 
 // Saved choices, in ADIFLint.ini.
@@ -940,6 +948,50 @@ std::string beaconMHz(size_t band) {
     return m;
 }
 
+void showChosenFacts(const ADIFMapHit &h);
+
+// The operator of a call, for the selected panel: the NAME of your latest QSO with it, else the
+// callbook's that New QSO looks calls up in (QRZ.com or HamQTH, when chosen there and signed in,
+// not in Offline Mode), asked once per call; the panel fills in when it answers.
+std::string operatorName(const std::string &call) {
+    std::string key = adif::lookupCall(call);
+    if (key.empty()) return "";
+    const adif::MapQso *latest = nullptr;
+    for (const adif::MapQso &q : mw.data.qsos)
+        if (!q.name.empty() && adif::lookupCall(q.call) == key && (!latest || q.date8 + q.time > latest->date8 + latest->time)) latest = &q;
+    if (latest) return latest->name;
+    std::string lookup = setting("qsoLookup");
+    NSInteger source = lookup == "qrz" ? ADIFSourceQRZ : lookup == "hamqth" ? ADIFSourceHamQTH : -1;
+    std::string service = source < 0 ? "" : ADIFSourceName((ADIFSource)source).UTF8String;
+    if (auto it = mw.callbookNames.find(key); it != mw.callbookNames.end()) {
+        if (!it->second.empty()) return it->second;
+        return mw.callbookAsking.count(key) ? trf("asking {service}...", {{"service", service}})
+                                            : trf("not in your log or {service}", {{"service", service}});
+    }
+    if (source < 0 || ADIFOffline() || !ADIFSavedAccount((ADIFSource)source) || !ADIFHasSecret((ADIFSource)source))
+        return tr("not in your log");
+    if (!mw.callbook || mw.callbookSource != source) {
+        mw.callbook = [[ADIFCallbookClient alloc] initWithSource:(ADIFSource)source agent:@"ADIFLint-" ADIFLINT_VERSION];
+        mw.callbookSource = source;
+    }
+    mw.callbookNames[key] = "";
+    mw.callbookAsking.insert(key);
+    [mw.callbook lookup:ADIFString(key)
+             completion:^(BOOL found, const std::map<std::string, std::string> &raw, NSString *, BOOL fatal) {
+                 mw.callbookAsking.erase(key);
+                 if (found) {
+                     adif::FieldMap f = source == ADIFSourceQRZ ? adif::mapQrz(raw) : adif::mapHamQth(raw);
+                     mw.callbookNames[key] = f["NAME"];
+                 } else if (fatal) {
+                     mw.callbook = nil;  // sign in again, and ask this call again, next time
+                     mw.callbookNames.erase(key);
+                 }
+                 ADIFMapHit::Kind shown = mw.view.selectedHit.kind;
+                 if (shown == ADIFMapHit::Spot || shown == ADIFMapHit::Contact) showChosenFacts(mw.view.selectedHit);
+             }];
+    return trf("asking {service}...", {{"service", service}});
+}
+
 // The selected panel's badge, the line under the name, the facts (a label and a value a row), and
 // for a spot the reasons to work it: what is chosen, at a glance; the description stays under them.
 void showChosenFacts(const ADIFMapHit &h) {
@@ -995,6 +1047,7 @@ void showChosenFacts(const ADIFMapHit &h) {
                 facts.push_back({@"waveform", tr("Frequency"), std::string(mhz) + (sp.band.empty() ? "" : " (" + sp.band + ")")});
             }
             facts.push_back({@"radio", tr("Mode"), sp.mode});
+            facts.push_back({@"person.text.rectangle", tr("Name"), operatorName(sp.activator)});
             std::string signal;
             if (sp.hasSnr)
                 signal = trf("{snr} dB SNR", {{"snr", (sp.snr > 0 ? "+" : "") + std::to_string(sp.snr)}}) + "  \u00B7  " +
@@ -1124,9 +1177,13 @@ void showChosenFacts(const ADIFMapHit &h) {
             if (std::string d = homeDistance(mw.view.contacts[h.index].lat, mw.view.contacts[h.index].lon); !d.empty()) subtitle = d;
             if (qsos.size() > 1) {
                 subtitle = plural(qsos.size(), "QSO") + (subtitle.empty() ? "" : "  \u00B7  " + subtitle);
+                std::string key = adif::lookupCall(mw.data.qsos[qsos[0]].call);  // one station's QSOs: its operator
+                if (std::all_of(qsos.begin(), qsos.end(), [&](size_t i) { return adif::lookupCall(mw.data.qsos[i].call) == key; }))
+                    facts.push_back({@"person.text.rectangle", tr("Name"), operatorName(key)});
                 break;
             }
             const adif::MapQso &q = mw.data.qsos[qsos[0]];
+            facts.push_back({@"person.text.rectangle", tr("Name"), q.name.empty() ? operatorName(q.call) : q.name});
             std::string when = q.date + (q.time.size() >= 4 ? " " + q.time.substr(0, 2) + ":" + q.time.substr(2, 2) + " UTC" : "");
             facts.push_back({@"clock", tr("Date"), when});
             facts.push_back({@"waveform", tr("Band"), q.band});

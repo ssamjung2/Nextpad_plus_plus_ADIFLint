@@ -1119,12 +1119,19 @@ The panel on the right shows what you clicked (pointing only describes it, in th
   A station's call or an entity's name has its country's flag before it (Style Options →
   Country flags).
 - **Its facts**, each with its symbol. For a spot: the frequency in MHz with its band, the
-  mode, the signal (in dB, and who measured it: an RBN skimmer or PSKReporter), the spotter
+  mode, the operator's **Name**, the signal (in dB, and who measured it: an RBN skimmer or PSKReporter), the spotter
   and how long ago (and how many others heard it), the DXCC entity, the grid, the program's
   reference and park, the source, continent, zones and distance. A fact the spot doesn't
-  give says **Unavailable**. For a QSO: its date and time, band, mode, grid, entity,
-  whether it is confirmed, and its record. For a beacon:
-  when it next sends on each of its five frequencies.
+  give says **Unavailable**. For a QSO: the operator's **Name**, its date and time, band,
+  mode, grid, entity, whether it is confirmed, and its record (for several QSOs with one
+  station at one place, the name only). For a beacon: when it next sends on each of its five
+  frequencies.
+
+  The **Name** is the NAME of your latest QSO with the call. A call not in your log is looked
+  up in the callbook New QSO uses (**Look up**: QRZ.com or HamQTH, with its account in
+  Settings), once per call while the Map is open: the panel says "asking QRZ.com..." and fills
+  in when it answers. With **Look up** off or on country data, or in Offline Mode, nothing is
+  asked and the Name says "not in your log".
 - **Why it's interesting**, for a spot: a new DXCC entity, a band or mode new for the
   entity, a park you haven't worked; whether the station uses LoTW (with the LoTW users list
   on, in Settings); how many of the stations that heard it are within 1,500 km of you; and

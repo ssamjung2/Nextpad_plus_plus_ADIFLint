@@ -2938,9 +2938,9 @@ static void testWorld() {
     CHECK(squareAt(-72.5, 41.5) == "FN31" && squareAt(-89.5, 42.5) == "EN52" && squareAt(-87.9, 42.9) == "EN62" && squareAt(200, 0).empty(), "the square at a point");
     std::string log = std::string(kHeader) +
                       "<CALL:4>K1AB <QSO_DATE:8>20261009 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <GRIDSQUARE:6>FN31pr <MY_GRIDSQUARE:6>EN52wa "
-                      "<LOTW_QSL_RCVD:1>Y <EOR>\n"
+                      "<LOTW_QSL_RCVD:1>Y <NAME:3>Ann <EOR>\n"
                       "<CALL:4>W2CD <QSO_DATE:8>20261009 <TIME_ON:4>1210 <BAND:3>20m <MODE:3>SSB <GRIDSQUARE:4>FN31 <POTA_REF:7>US-1234 "
-                      "<MY_GRIDSQUARE:4>EN52 <EOR>\n"
+                      "<MY_GRIDSQUARE:4>EN52 <NAME:4>Jose <EOR>\n"
                       "<CALL:4>W3EF <QSO_DATE:8>20261009 <TIME_ON:4>1220 <BAND:2>6m <MODE:3>FT8 <VUCC_GRIDS:9>FN20,FN21 <EOR>\n"
                       "<CALL:4>W4GH <QSO_DATE:8>20261009 <TIME_ON:4>1230 <BAND:3>20m <MODE:2>CW <EOR>\n";
     LintResult r = lintModel(log);
@@ -2950,6 +2950,8 @@ static void testWorld() {
               all.calls.size() == 4,
           "map data: %zu squares, %zu parks", all.squares.size(), all.parks.size());
     CHECK(twenty.records == 2 && twenty.squares.size() == 1 && twenty.squares[0].qsos == 1, "band and mode filters");
+    CHECK(all.qsos.size() == 4 && all.qsos[0].name == "Ann" && all.qsos[1].name == "Jose" && all.qsos[2].name.empty(),
+          "each QSO's operator, from NAME");
     {
         std::string dated = std::string(kHeader) +
                             "<CALL:4>K1AB <QSO_DATE:8>20241231 <TIME_ON:4>1200 <BAND:3>20m <MODE:3>SSB <GRIDSQUARE:4>FN31 <QSL_RCVD:1>Y <EOR>\n"

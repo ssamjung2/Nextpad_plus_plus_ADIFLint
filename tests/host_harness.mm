@@ -3728,7 +3728,7 @@ int main(int argc, char **argv) {
         {
             H.doc = "map\n<ADIF_VER:5>3.1.7\n<EOH>\n"
                     "<CALL:4>K1AB <QSO_DATE:8>20261009 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <GRIDSQUARE:6>FN31pr <MY_GRIDSQUARE:6>EN52wa "
-                    "<LOTW_QSL_RCVD:1>Y <EOR>\n"
+                    "<LOTW_QSL_RCVD:1>Y <NAME:3>Ann <EOR>\n"
                     "<CALL:5>G4ABC <QSO_DATE:8>20261009 <TIME_ON:4>1210 <BAND:3>20m <MODE:3>SSB <GRIDSQUARE:4>IO91 <IOTA:6>EU-005 <EOR>\n"
                     "<CALL:5>JA1XY <QSO_DATE:8>20261009 <TIME_ON:4>1220 <BAND:3>15m <MODE:3>FT8 <GRIDSQUARE:4>PM95 <EOR>\n"
                     "<CALL:4>W2CD <QSO_DATE:8>20261009 <TIME_ON:4>1230 <BAND:3>20m <MODE:3>SSB <GRIDSQUARE:4>FN20 <POTA_REF:7>US-1234 <EOR>\n"
@@ -3913,6 +3913,14 @@ int main(int argc, char **argv) {
                       [labelContaining(mapw.contentView, @"K1AB:") hasPrefix:@"K1AB: 1 QSO at 41.7292 N, 72.7083 W (from FN31pr)."] &&
                       [labelContaining(mapw.contentView, @"K1AB:") containsString:@"from EN52WA."],
                   "a click on the contact's pin: %s", labelContaining(mapw.contentView, @"K1AB:").UTF8String);
+            {
+                NSMutableArray *labels = [NSMutableArray array];
+                collect(viewWithIdentifier(mapw.contentView, @"map.chosen.facts"), NSTextField.class, labels);
+                NSMutableArray *texts = [NSMutableArray array];
+                for (NSTextField *f in labels) [texts addObject:f.stringValue];
+                NSString *facts = [texts componentsJoinedByString:@"|"];
+                CHECK([facts containsString:@"Name|Ann|"], "the contact's operator, from the QSO's NAME: %s", facts.UTF8String);
+            }
             snapshot(mapw, "map-contacts");
             contactsBox.state = NSControlStateValueOff;
             [contactsBox sendAction:contactsBox.action to:contactsBox.target];
@@ -5995,8 +6003,31 @@ int main(int argc, char **argv) {
                     NSMutableArray *factTexts = [NSMutableArray array];
                     for (NSTextField *f in factLabels) [factTexts addObject:f.stringValue];
                     NSString *facts = [factTexts componentsJoinedByString:@"|"];
-                    CHECK([facts containsString:@"Frequency|7.010 MHz (40m)"] && [facts containsString:@"Spotter|IK0XYZ"] && [facts containsString:@"Grid|Unavailable"],
+                    CHECK([facts containsString:@"Frequency|7.010 MHz (40m)"] && [facts containsString:@"Spotter|IK0XYZ"] && [facts containsString:@"Grid|Unavailable"] &&
+                              [facts containsString:@"Name|not in your log"],
                           "the spot's facts: %s", facts.UTF8String);
+                    // With QRZ.com as New QSO's Look up, the name of a call not in the log is asked of it, once.
+                    {
+                        NSWindow *qwName = qsoWindow();
+                        NSStackView *lr = qwName ? lookupRow(qwName) : nil;
+                        NSPopUpButton *lookupPop = lr ? (NSPopUpButton *)lr.arrangedSubviews[1] : nil;
+                        [lookupPop selectItemWithTitle:@"QRZ.com"];
+                        [lookupPop sendAction:lookupPop.action to:lookupPop.target];
+                        auto nameFact = [&]() -> std::string {
+                            NSMutableArray *labels = [NSMutableArray array];
+                            collect(viewWithIdentifier(mapw.contentView, @"map.chosen.facts"), NSTextField.class, labels);
+                            for (NSUInteger i = 0; i + 1 < labels.count; ++i)
+                                if ([((NSTextField *)labels[i]).stringValue isEqualToString:@"Name"]) return ((NSTextField *)labels[i + 1]).stringValue.UTF8String;
+                            return "(none)";
+                        };
+                        [rowsTable.delegate tableViewSelectionDidChange:[NSNotification notificationWithName:NSTableViewSelectionDidChangeNotification object:rowsTable]];
+                        std::string first = nameFact();
+                        for (int k = 0; k < 30 && nameFact().find("asking") != std::string::npos; ++k) pump(0.1);
+                        CHECK(lookupPop && first == "asking QRZ.com..." && nameFact() == "not in your log or QRZ.com",
+                              "a spot's name from QRZ.com: '%s', then '%s'", first.c_str(), nameFact().c_str());
+                        [lookupPop selectItemWithTitle:@"Country data"];
+                        [lookupPop sendAction:lookupPop.action to:lookupPop.target];
+                    }
                     NSMenu *rowMenu = rowsTable.menu;
                     [rowMenu.delegate menuNeedsUpdate:rowMenu];
                     NSMutableArray *menuTitles = [NSMutableArray array];

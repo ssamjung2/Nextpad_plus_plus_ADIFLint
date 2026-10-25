@@ -95,6 +95,7 @@ struct MapQso {
     std::string call, date, time, band, mode, grid;
     std::string date8;   // QSO_DATE as written (YYYYMMDD)
     std::string myGrid;  // MY_GRIDSQUARE
+    std::string name;    // NAME: the other station's operator
     int modeGroup = 2;   // 0 CW, 1 phone, 2 data (from MODE, as modeGroup() in adif_enrich.h)
     bool confirmed = false;
     bool byCard = false, byLotw = false, byEqsl = false;  // confirmed by each: QSL_RCVD, LOTW_QSL_RCVD, EQSL_QSL_RCVD (Y or V)
