@@ -117,6 +117,7 @@ struct ADIFMapSpot {
     adif::Spot spot;  // the newest spot of this station on this band
     double lat = 0, lon = 0;
     bool exact = false;  // at its 6-character grid; else its grid square or country
+    bool rough = false;  // no grid and no exact place: at its country's (from the country data or Spothole), so its distance is rough
     std::vector<ADIFSpotHeard> heard;  // newest first, one per spotter, at most 12, each where it is
     adif::SpotStatus status;           // what it means for the log (set by the view)
     std::string watched;               // what on your watch list it is for (adif::watchedFor), "" when nothing

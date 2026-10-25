@@ -9,6 +9,20 @@ Versions before 0.8.0 were development builds and were not published.
 
 ## [Unreleased]
 
+### Changed
+
+- **Map:** the live dot turns orange when any spot source you turned on fails, not only when the
+  spots grow old, and the toolbar names it ("DX cluster not answering") or says Offline Mode is
+  on.
+- **Map:** the toolbar says how many the filters keep ("40 of 257 QSOs on the map", "5 of 18
+  stations on the map").
+- **Map:** a spot without a grid or an exact place, drawn at its country's centre, says its
+  distance is rough (**≈** in the list, "about …" in its description, and its Grid says where
+  it is drawn).
+- **Map → Band conditions** says it shows every band while the band filter is on.
+- **Map:** the layers' Worked, All and Labels headings have tooltips, the toolbar's live time
+  explains itself beside QSL synced, and the footer's hint follows the workflow.
+
 ## [1.4.1] - 2026-10-24
 
 ### Changed

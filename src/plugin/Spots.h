@@ -10,6 +10,7 @@
 #include "adif_spots.h"
 
 #include <string>
+#include <vector>
 
 extern NSString *const ADIFSpotsChangedNotification;
 
@@ -44,6 +45,9 @@ bool wanted();
 const adif::SpotList &spots();
 // What each feed is doing, one line each, for the Map ("DX cluster: connected to ...").
 std::string status();
+// The sources turned on whose last request failed (or the cluster that is down, or Offline Mode),
+// by name: the Map's live dot is orange while any is, however fresh the others' spots are.
+std::vector<std::string> troubled();
 // When a feed last brought spots (Unix seconds; 0 none yet): Spothole or PSKReporter answering,
 // or the DX cluster sending one.
 long long lastUpdate();

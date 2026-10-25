@@ -55,6 +55,7 @@ struct ADIFViewRow {
     double span = 0.03;             // how far round it a double-click shows (degrees)
     NSColor *color = nil;
     bool tree = false;              // its mark POTA's tree (a POTA activator's spot), else a dot
+    bool rough = false;             // placed at its country's centre: its distance only roughly
 };
 
 // A list row's mark: POTA's tree in a colour, as text (an attachment), for a POTA activator's spot.
@@ -516,6 +517,7 @@ struct {
     NSView *recentHost = nil;        // Live's newest spots, a row each (made afresh)
     NSView *recentSection = nil;     // their caption and View all spots
     NSView *bandHost = nil, *bandSection = nil;  // Band conditions (Live): a table a band (made afresh), its line, its caption
+    NSTextField *bandCaption = nil;               // its heading, which says it shows every band while the band filter is on
     NSView *awardsHost = nil, *awardsSection = nil;  // Awards (History): a row an award, made afresh
     NSTextField *bandLine = nil;
     NSView *whyBox = nil;
@@ -801,8 +803,20 @@ std::string utcAt(long long epoch, const char *format) {
 
 // The contact panel with nothing under the pointer or chosen: how to use the map.
 std::string idleStatus() {
-    return tr("Point at the map for what is there; click a square, dot, pin, park or spot for its QSOs and what it means for your log. Scroll or "
-              "pinch to zoom, drag to move (on the globe, to turn it); the legend shows the colours.");
+    switch (workflow()) {
+        case 1:
+            return tr("Click a spot for what it means for your log, then New QSO (\u2318\u21A9); the list's Spots ranks them, the best first. "
+                      "Scroll or pinch to zoom, drag to move; the legend shows the colours.");
+        case 2:
+            return tr("DX Chase: the DXCC entities and bands you need come first. Click a spot for why, then New QSO (\u2318\u21A9); the grey line "
+                      "shows where openings are likely. Scroll or pinch to zoom, drag to move.");
+        case 3:
+            return tr("POTA: the activators of parks you haven't hunted come first. Click an activator's badge for its park, then New QSO "
+                      "(\u2318\u21A9). Scroll or pinch to zoom, drag to move.");
+        default:
+            return tr("Point at the map for what is there; click a square, dot, pin, park or spot for its QSOs and what it means for your log. Scroll or "
+                      "pinch to zoom, drag to move (on the globe, to turn it); the legend shows the colours.");
+    }
 }
 
 void showSituation();
@@ -971,7 +985,7 @@ void showChosenFacts(const ADIFMapHit &h) {
             kind = {sp.heardMe ? N_("Your signal") : N_("Live spot"), NSColor.systemGreenColor};
             std::string where = st.entity;
             if (!sp.grid.empty()) where += (where.empty() ? "" : "  \u00B7  ") + sp.grid;
-            if (std::string d = homeDistance(ms.lat, ms.lon); !d.empty()) where += (where.empty() ? "" : "  \u00B7  ") + d;
+            if (std::string d = homeDistance(ms.lat, ms.lon); !d.empty()) where += (where.empty() ? "" : "  \u00B7  ") + std::string(ms.rough ? "\u2248 " : "") + d;
             subtitle = where;
             // What an operator needs first, as the station's own facts; then the rest as the map's
             // information box has them.
@@ -994,7 +1008,7 @@ void showChosenFacts(const ADIFMapHit &h) {
                 facts.push_back({@"person", tr("Spotter"), by});
             }
             facts.push_back({@"globe", tr("DXCC"), st.entity.empty() ? "" : st.entity + (st.dxcc > 0 ? " (" + std::to_string(st.dxcc) + ")" : "")});
-            facts.push_back({@"square.grid.3x3", tr("Grid"), sp.grid});
+            facts.push_back({@"square.grid.3x3", tr("Grid"), sp.grid.empty() && ms.rough ? tr("none in the spot: on the map at its country's centre") : sp.grid});
             if (!sp.reference.empty())
                 facts.push_back({@"leaf", sp.program.empty() ? tr("Reference") : sp.program, sp.reference + (sp.park.empty() ? "" : "  \u00B7  " + sp.park)});
             facts.push_back({@"tray.and.arrow.down", tr("Source"), adif::spotSourceName(sp.source)});
@@ -1511,13 +1525,15 @@ std::vector<ADIFInfoRow> spotInfo(const ADIFMapHit &h) {
         row(N_("Continent"), ci.continent);
         row(N_("Zones"), trf("CQ {cq}, ITU {itu}", {{"cq", std::to_string(ci.cq)}, {"itu", std::to_string(ci.itu)}}));
     };
-    auto distance = [&](double lat, double lon) {
+    auto distance = [&](double lat, double lon, bool rough) {  // rough: from the country's centre, the spot giving no place
         double hlat, hlon;
         if (mw.home.empty() || !adif::gridToLatLon(mw.home, &hlat, &hlon)) return;
         char bearing[16];
         snprintf(bearing, sizeof bearing, "%.0f", adif::initialBearing(hlat, hlon, lat, lon));
-        row(N_("Distance"), trf("{km} km at {bearing}\u00B0 from {home}", {{"km", std::to_string(std::lround(adif::greatCircleKm(hlat, hlon, lat, lon)))},
-                                                                       {"bearing", bearing}, {"home", mw.home}}));
+        std::string km = std::to_string(std::lround(adif::greatCircleKm(hlat, hlon, lat, lon)));
+        row(N_("Distance"), rough ? trf("about {km} km at {bearing}\u00B0 from {home} (to its country's centre: the spot gives no grid)",
+                                        {{"km", km}, {"bearing", bearing}, {"home", mw.home}})
+                                  : trf("{km} km at {bearing}\u00B0 from {home}", {{"km", km}, {"bearing", bearing}, {"home", mw.home}}));
     };
     auto heard = [&](const std::string &call, bool hasSnr, int snr, long long epoch) {
         std::string s = call;
@@ -1556,7 +1572,7 @@ std::vector<ADIFInfoRow> spotInfo(const ADIFMapHit &h) {
         row(N_("Grid"), sp.grid);
         position(ms.lat, ms.lon, adif::spotPlace(sp, countries).from);
         country(sp.activator);
-        distance(ms.lat, ms.lon);
+        distance(ms.lat, ms.lon, ms.rough);
         if (!sp.heardMe) row(N_("In this log"), inLog(sp));
         if (!sp.heardMe) row(N_("For this log"), spotNeedLine(ms.status, sp.band));
         row(N_("Comment"), sp.comments);
@@ -1585,7 +1601,7 @@ std::vector<ADIFInfoRow> spotInfo(const ADIFMapHit &h) {
         row(N_("Grid"), grid);
         position(st.lat, st.lon, from);
         country(st.call);
-        distance(st.lat, st.lon);
+        distance(st.lat, st.lon, grid.empty());
         list(N_("Heard"), items);
     }
     return rows;
@@ -2182,7 +2198,9 @@ void refresh() {
         // The bands, modes and years in the log, for the filters.
         std::set<std::string> bands, modes, years;
         std::map<std::string, size_t> qsosPerBand, myGrids;
+        size_t logQsos = 0;  // every QSO in the log, as the filters see them before keeping some
         for (const adif::Record &rec : adif::records(text, r.model)) {
+            ++logQsos;
             std::string my;
             for (char c : rec.get("MY_GRIDSQUARE"))
                 if (!isspace((unsigned char)c)) my += (char)toupper((unsigned char)c);
@@ -2360,9 +2378,13 @@ void refresh() {
                     if (last.empty() || q.date > last) last = q.date;
                 }
             auto day = [](const std::string &d) { return d.substr(0, 4) + "-" + d.substr(4, 2) + "-" + d.substr(6, 2); };
-            std::string scope = trp("{n} QSO on the map", "{n} QSOs on the map", (long long)mw.data.qsos.size());
+            std::string scope = mw.data.qsos.size() < logQsos
+                                    ? trp("{shown} of {n} QSO on the map", "{shown} of {n} QSOs on the map", (long long)logQsos,
+                                          {{"shown", std::to_string(mw.data.qsos.size())}})
+                                    : trp("{n} QSO on the map", "{n} QSOs on the map", (long long)mw.data.qsos.size());
             if (!first.empty()) scope += "  \u00B7  " + (first == last ? day(first) : day(first) + " \u2013 " + day(last));
             mw.scopeLabel.stringValue = ADIFString(scope);
+            mw.scopeLabel.toolTip = mw.data.qsos.size() < logQsos ? T(@"The filters keep these QSOs; Clear shows them all") : nil;
             mw.liveLabel.attributedTitle = dotted(tr("History") + "  \u00B7  " + documentName(), NSColor.secondaryLabelColor, mw.liveLabel.font);
             mw.liveLabel.toolTip = nil;
         }
@@ -3075,7 +3097,7 @@ void refreshSpots() {
             adif::SpotPlace at = adif::spotPlace(sp, countries);
             if (!at.ok) continue;
             ADIFMapSpot m;
-            m.lat = at.lat, m.lon = at.lon, m.exact = at.exact;
+            m.lat = at.lat, m.lon = at.lon, m.exact = at.exact, m.rough = !at.exact && sp.grid.empty();  // no grid: the country's place
             std::set<std::string> seen;
             // Up to 12 spotters a station; your own signal (PSKReporter) keeps up to 100: who heard you.
             size_t most = sp.heardMe || !f.onlyCall.empty() ? 100 : 12;
@@ -3136,19 +3158,38 @@ void refreshSpots() {
     long long newest = 0;
     for (const ADIFMapSpot &m : marks) newest = std::max(newest, m.spot.epoch);
     if (live()) {
-        std::string live = show ? trp("{n} station on the map", "{n} stations on the map", (long long)marks.size()) : tr("Spots off");
+        // How many stations the feeds have (one a band) when the filters keep fewer.
+        size_t spotted = show ? adif::latestPerStation(spotfeeds::spots().spots()).size() : 0;
+        std::string live = !show                     ? tr("Spots off")
+                           : spotted > marks.size() ? trp("{shown} of {n} station on the map", "{shown} of {n} stations on the map", (long long)spotted,
+                                                          {{"shown", std::to_string(marks.size())}})
+                                                    : trp("{n} station on the map", "{n} stations on the map", (long long)marks.size());
         if (show && (spotfeeds::lastUpdate() > 0 || newest > 0)) {  // when a feed last brought spots, else the newest spot's time
             char hhmm[8];
             time_t t = (time_t)(spotfeeds::lastUpdate() > 0 ? spotfeeds::lastUpdate() : newest);
             strftime(hhmm, sizeof hhmm, "%H:%M", gmtime(&t));
             live += "  \u00B7  " + (spotfeeds::lastUpdate() > 0 ? trf("updated {time} UTC", {{"time", hhmm}}) : trf("newest {time} UTC", {{"time", hhmm}}));
         }
-        // The feeds' health as a dot: green with a spot in the last 15 minutes, orange when older, grey off.
-        NSColor *dot = !show ? NSColor.tertiaryLabelColor : newest > 0 && now - newest < 900 ? NSColor.systemGreenColor : NSColor.systemOrangeColor;
+        // The feeds' health as a dot: green with a spot in the last 15 minutes and every source turned
+        // on answering; orange when the spots are older or a source is failing (named after it); grey off.
+        std::vector<std::string> trouble = show ? spotfeeds::troubled() : std::vector<std::string>{};
+        NSColor *dot = !show ? NSColor.tertiaryLabelColor
+                       : newest > 0 && now - newest < 900 && trouble.empty() ? NSColor.systemGreenColor
+                                                                             : NSColor.systemOrangeColor;
+        if (ADIFOffline() && !trouble.empty()) live += "  \u00B7  " + tr("Offline Mode: nothing is fetched");
+        else if (!trouble.empty()) {
+            std::string names;
+            for (const std::string &t : trouble) names += (names.empty() ? "" : ", ") + t;
+            live += "  \u00B7  " + trf("{sources} not answering", {{"sources", names}});
+        }
         mw.scopeLabel.attributedStringValue = dotted(live, dot, mw.scopeLabel.font);
         mw.liveLabel.attributedTitle = dotted(show ? tr("Live data") + (newest > 0 ? "  \u00B7  " + utcAt(newest, "%Y-%m-%d %H:%M UTC") : "") : tr("Live: spots off"), dot,
                                               mw.liveLabel.font);
         mw.liveLabel.toolTip = show ? ADIFString(spotfeeds::status()) : nil;  // each feed: what it did, and when
+        mw.scopeLabel.toolTip = show ? ADIFString(tr("Live data: when a spot source last brought spots, and each source's state (the header's "
+                                                     "QSL synced is when your log's confirmations were last downloaded):") +
+                                                  "\n" + spotfeeds::status())
+                                     : nil;
         [mw.spotAgeBar selectItemAtIndex:number("mapSpotsAge", 1, 2)];
         fillDxccPotaBars();
         {  // the source: all, one, or "2 sources"
@@ -3322,6 +3363,10 @@ void fillBandConditions() {
     if (act.empty()) return;
     std::string focus = mw.band.indexOfSelectedItem > 0 ? ADIFStd(mw.band.titleOfSelectedItem) : "";
     for (char &c : focus) c = (char)tolower((unsigned char)c);
+    // Every band, whatever the band filter: say so while it is on (the other filters apply).
+    mw.bandCaption.stringValue = (focus.empty() ? T(@"Band conditions") : TF(@"Band conditions: every band, {band} in focus", @{@"band" : ADIFString(focus)}))
+                                     .localizedUppercaseString;
+    mw.bandCaption.toolTip = focus.empty() ? nil : T(@"Band conditions compares every band, so it ignores the band filter; the other filters apply");
     ADIFMapHit h = mw.view.selectedHit;
     if (focus.empty() && h.kind == ADIFMapHit::Spot && h.index < mw.view.spots.size()) {
         focus = mw.view.spots[h.index].spot.band;
@@ -4092,7 +4137,7 @@ std::vector<ADIFViewRow> spotRows(double lat, double lon) {
         ADIFViewRow r;
         r.item = k;
         r.hit.kind = ADIFMapHit::Spot, r.hit.index = k, r.hit.square = adif::squareAt(ms.lon, ms.lat);
-        r.lat = ms.lat, r.lon = ms.lon, r.span = ms.exact ? 0.1 : 1;
+        r.lat = ms.lat, r.lon = ms.lon, r.span = ms.exact ? 0.1 : 1, r.rough = ms.rough;
         r.km = adif::greatCircleKm(lat, lon, ms.lat, ms.lon), r.bearing = adif::initialBearing(lat, lon, ms.lat, ms.lon);
         r.color = [mw.view spotColor:ms];
         r.tree = potaSpot(ms.spot);
@@ -4188,7 +4233,7 @@ std::string entityName(int dxcc, const std::string &call) {
 int cellDxcc(int kind, const ADIFViewRow &r);
 
 std::string cellText(int kind, const ADIFViewRow &r, const std::string &id) {
-    if (id == "distance") return r.km < 0 ? "" : adif::distanceText(r.km, mw.listUnits.selectedSegment == 0);
+    if (id == "distance") return r.km < 0 ? "" : (r.rough ? "\u2248 " : "") + adif::distanceText(r.km, mw.listUnits.selectedSegment == 0);
     if (id == "bearing") {
         if (r.km < 0) return "";
         char deg[16];
@@ -5916,10 +5961,14 @@ void cmdMap() {
         mw.otherBox.toolTip = T(@"The references of other programs you worked (WWFF, SOTA, IOTA...), a colour each; the name chooses which");
         mw.otherBox.accessibilityLabel = T(@"Show other programs");
         ADIFOnAction(mw.otherBox, ^{ otherProgramsChanged(); });
-        NSMutableArray *layerRows = [NSMutableArray arrayWithObject:@[
-            groupHead(@"areas", N(@"Worked areas")), heading(N(@"Worked"), NSFontWeightMedium), heading(N(@"All"), NSFontWeightMedium),
-            heading(N(@"Labels"), NSFontWeightMedium)
-        ]];
+        // The three columns, each said in full on its heading.
+        NSTextField *workedHead = heading(N(@"Worked"), NSFontWeightMedium), *allHead = heading(N(@"All"), NSFontWeightMedium),
+                    *labelsHead = heading(N(@"Labels"), NSFontWeightMedium);
+        workedHead.toolTip = T(@"Worked: mark what you worked on the layer: squares, countries, states, counties and zones shaded in the map's "
+                               @"colours, parks badged, IOTA groups filled in");
+        allHead.toolTip = T(@"All: draw the whole layer, every square, country, state, county, zone, park or group, worked or not");
+        labelsHead.toolTip = T(@"Labels: write their names or numbers (while the layer shows)");
+        NSMutableArray *layerRows = [NSMutableArray arrayWithObject:@[ groupHead(@"areas", N(@"Worked areas")), workedHead, allHead, labelsHead ]];
         std::vector<NSInteger> sections;
         std::map<std::string, std::vector<NSInteger>> groupRows;  // a group's rows in the grid
         std::string group = "areas";
@@ -7146,7 +7195,9 @@ void cmdMap() {
         bandBody.identifier = @"map.bands.body";
         [mw.bandLine.widthAnchor constraintEqualToAnchor:bandBody.widthAnchor].active = YES;
         [mw.bandHost.widthAnchor constraintEqualToAnchor:bandBody.widthAnchor].active = YES;
-        NSStackView *bandHead = [NSStackView stackViewWithViews:@[ bandTriangle, caption(N(@"Band conditions")) ]];
+        mw.bandCaption = caption(N(@"Band conditions"));
+        mw.bandCaption.identifier = @"map.bands.caption";
+        NSStackView *bandHead = [NSStackView stackViewWithViews:@[ bandTriangle, mw.bandCaption ]];
         bandHead.spacing = 2;
         NSStackView *bandSection = rows(@[ bandHead, bandBody ], 6);
         [bandBody.widthAnchor constraintEqualToAnchor:bandSection.widthAnchor].active = YES;

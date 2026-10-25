@@ -5099,13 +5099,13 @@ int main(int argc, char **argv) {
                           title.stringValue.UTF8String, synced.title.UTF8String);
                     [sync orderOut:nil];
                 }
-                CHECK(clearButton.enabled && [scope.stringValue hasPrefix:@"1 QSO on the map"], "one filter on: Clear enabled, %s", scope.stringValue.UTF8String);
+                CHECK(clearButton.enabled && [scope.stringValue hasPrefix:@"1 of 5 QSOs on the map"], "one filter on: Clear enabled, %s", scope.stringValue.UTF8String);
                 [bands selectItemAtIndex:0];
                 [bands sendAction:bands.action to:bands.target];
                 NSPopUpButton *continents = (NSPopUpButton *)viewWithIdentifier(mapw.contentView, @"map.filter.continent");
                 [continents selectItemWithTitle:@"Europe"];
                 [continents sendAction:continents.action to:continents.target];
-                CHECK([scope.stringValue hasPrefix:@"1 QSO on the map"] && clearButton.enabled, "the continent menu: Europe's QSO (%s)", scope.stringValue.UTF8String);
+                CHECK([scope.stringValue hasPrefix:@"1 of 5 QSOs on the map"] && clearButton.enabled, "the continent menu: Europe's QSO (%s)", scope.stringValue.UTF8String);
                 [continents selectItemAtIndex:0];
                 [continents sendAction:continents.action to:continents.target];
                 // Confirmation by service: on LoTW and not on LoTW split the log.
@@ -5631,6 +5631,14 @@ int main(int argc, char **argv) {
                     std::string smInfo = ((NSString *)[mapView performSelector:@selector(infoText)]).UTF8String;
                     CHECK(smInfo.find("For this log: new band for Sov Mil Order of Malta (40m)") != std::string::npos,
                           "the spot says what it means for the log: %s", smInfo.c_str());
+                    {  // JA1XYZ's spot gives no grid and no good place: at its country's centre, its distance rough; 1A0KM's place is good
+                        NSInteger ja = -1;
+                        for (NSInteger r = 0; r < [rowsTable.dataSource numberOfRowsInTableView:rowsTable]; ++r)
+                            if ([cell(rowsTable, r, @"call") isEqualToString:@"JA1XYZ"]) ja = r;
+                        CHECK(ja >= 0 && [cell(rowsTable, ja, @"distance") hasPrefix:@"\u2248 "] && ![cell(rowsTable, sm, @"distance") hasPrefix:@"\u2248"],
+                              "a spot at its country's centre: a rough distance (%s), one with a good place not (%s)",
+                              ja >= 0 ? cell(rowsTable, ja, @"distance").UTF8String : "", cell(rowsTable, sm, @"distance").UTF8String);
+                    }
                     // The status bar: the contact (the station's DXCC entity's bands and modes, and your QSOs with the call), and
                     // the situation (today, the spots most wanted as links, the bands on the air, the sun at home).
                     [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(12.43, 41.9), 0)];
@@ -5653,9 +5661,16 @@ int main(int argc, char **argv) {
                         [forty performClick:nil];
                         NSString *chosenBand = bandMenu.titleOfSelectedItem;
                         bool focused = [((NSTextField *)viewWithIdentifier(mapw.contentView, @"map.bands.line")).stringValue hasPrefix:@"40m: "];
+                        NSString *bandHeading = ((NSTextField *)viewWithIdentifier(mapw.contentView, @"map.bands.caption")).stringValue;
+                        NSString *fewer = ((NSTextField *)viewWithIdentifier(mapw.contentView, @"map.scope")).stringValue;
                         [(NSButton *)viewWithIdentifier(mapw.contentView, @"map.band.40m") performClick:nil];
+                        NSString *allHeading = ((NSTextField *)viewWithIdentifier(mapw.contentView, @"map.bands.caption")).stringValue;
                         CHECK([chosenBand isEqualToString:@"40m"] && focused && bandMenu.indexOfSelectedItem == 0,
                               "Band conditions: 40m chosen sets the band filter and its line (%s), again clears it", chosenBand.UTF8String);
+                        CHECK([bandHeading isEqualToString:@"BAND CONDITIONS: EVERY BAND, 40M IN FOCUS"] && [allHeading isEqualToString:@"BAND CONDITIONS"] &&
+                                  [fewer rangeOfString:@" of "].location != NSNotFound && [fewer containsString:@"stations on the map"],
+                              "the band filter: Band conditions says it shows every band (%s, then %s); the toolbar says how many the filters keep (%s)",
+                              bandHeading.UTF8String, allHeading.UTF8String, fewer.UTF8String);
                     }
                     [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, berlin, 1)];
                     [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, berlin, 1)];
@@ -6160,7 +6175,8 @@ int main(int argc, char **argv) {
                     bool nearestFirst = true;
                     double was = -1;
                     for (NSInteger k = 0; k < [rowsTable.dataSource numberOfRowsInTableView:rowsTable]; ++k) {
-                        double km = [cell(rowsTable, k, @"distance") stringByReplacingOccurrencesOfString:@"," withString:@""].doubleValue;
+                        double km = [[cell(rowsTable, k, @"distance") stringByReplacingOccurrencesOfString:@"," withString:@""]
+                                        stringByReplacingOccurrencesOfString:@"\u2248 " withString:@""].doubleValue;
                         nearestFirst &= km >= was;
                         was = km;
                         order += std::string(cell(rowsTable, k, @"call").UTF8String) + "/" + cell(rowsTable, k, @"distance").UTF8String + " ";
@@ -6213,6 +6229,8 @@ int main(int argc, char **argv) {
                 spotStatus = (NSTextField *)popoverView(@"map.spots.status");
                 CHECK([spotStatus.stringValue containsString:@"Offline mode is on"] && count(requests(), "SPOTHOLE ") == 1,
                       "offline: no feed runs (%s)", spotStatus.stringValue.UTF8String);
+                NSString *offScope = ((NSTextField *)viewWithIdentifier(mapw.contentView, @"map.scope")).stringValue;
+                CHECK([offScope containsString:@"Offline Mode: nothing is fetched"], "offline: the toolbar says so (%s)", offScope.UTF8String);
                 for (NSWindow *w in [NSApp.windows copy])
                     if (viewWithIdentifier(w.contentView, @"map.spots")) [w orderOut:nil];
                 run("Offline Mode");

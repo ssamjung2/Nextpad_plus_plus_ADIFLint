@@ -128,6 +128,8 @@ struct {
     std::vector<std::string> programs;
     std::string spotholeStatus;
     long long updated = 0;  // when a feed last brought spots (lastUpdate)
+    // A source in trouble (troubled()): its last request failed, or the cluster is down.
+    bool spotholeTrouble = false, clusterTrouble = false, pskTrouble = false;
     // DX cluster
     nw_connection_t conn = nil;
     int generation = 0;
@@ -181,6 +183,8 @@ void spotholeFetch() {
             if (!f.wanted) return;
             if (error) {
                 f.spotholeStatus = trf("Spothole: {why}", {{"why", ADIFStd(error)}});
+            f.spotholeTrouble = true;
+                f.spotholeTrouble = true;
                 changed();
                 return;
             }
@@ -193,6 +197,7 @@ void spotholeFetch() {
                 f.list.add(std::move(sp));
                 ++n;
             }
+            f.spotholeTrouble = false;
             f.spotholeStatus = trp("Spothole: {n} new spot at {time} UTC (every 2 minutes)", "Spothole: {n} new spots at {time} UTC (every 2 minutes)",
                                    (long long)n, {{"time", utcNow("%H:%M")}});
             f.updated = (long long)time(nullptr);
@@ -248,6 +253,7 @@ void clusterLost(const std::string &why) {
     int wait = kRetry[std::min<size_t>((size_t)f.failures, sizeof kRetry / sizeof kRetry[0] - 1)];
     ++f.failures;
     f.clusterStatus = trf("DX cluster: {why}; trying again in {n} s.", {{"why", why}, {"n", std::to_string(wait)}});
+    f.clusterTrouble = true;
     changed();
     f.retry = [NSTimer scheduledTimerWithTimeInterval:wait repeats:NO block:^(NSTimer *) {
         f.retry = nil;
@@ -260,6 +266,7 @@ void clusterStop(const std::string &why) {
     clusterClose();
     f.stopped = true;
     f.clusterStatus = why;
+    f.clusterTrouble = true;
     changed();
 }
 
@@ -282,6 +289,7 @@ void clusterLogin() {
         b = e + 1;
     }
     f.clusterStatus = trf("DX cluster: connected to {node} as {call}.", {{"node", c.host + ":" + std::to_string(c.port)}, {"call", call}});
+    f.clusterTrouble = false;
     changed();
 }
 
@@ -357,10 +365,12 @@ void clusterConnect() {
     std::string call = myCall(c);
     if (c.host.empty() || c.port <= 0 || c.port > 65535) {
         f.clusterStatus = tr("DX cluster: choose a node in Settings (Spots).");
+        f.clusterTrouble = true;
         return changed();
     }
     if (call.empty()) {
         f.clusterStatus = tr("DX cluster: it logs in with your callsign: add it in Settings (Your Station).");
+        f.clusterTrouble = true;
         return changed();
     }
     clusterClose();
@@ -418,10 +428,12 @@ void pskFetch() {
     double lat, lon;
     if (around && (square.size() < 4 || !adif::gridToLatLon(square, &lat, &lon))) {
         f.pskStatus = tr("PSKReporter: it asks around your grid square: add your grid in Settings (Your Station).");
+        f.pskTrouble = true;
         return changed();
     }
     if (!around && call.empty()) {
         f.pskStatus = tr("PSKReporter: it asks who hears your callsign: add it in Settings (Your Station).");
+        f.pskTrouble = true;
         return changed();
     }
     long long now = (long long)time(nullptr), last = std::atoll(setting("spotsPskLast").c_str());
@@ -442,9 +454,11 @@ void pskFetch() {
         if (!error && !adif::parsePskReports(std::string_view((const char *)xml.bytes, xml.length), &reports, &why, 2000, call)) error = @"";
         if (error) {
             f.pskStatus = trf("PSKReporter: {why}", {{"why", why}});
+            f.pskTrouble = true;
             return changed();
         }
         size_t n = reports.size();
+        f.pskTrouble = false;
         f.list.replace(adif::SpotSource::PskReporter, std::move(reports));
         f.updated = (long long)time(nullptr);
         f.pskStatus = around ? trp("PSKReporter: {n} report around {grid} in the last half hour, at {time} UTC (every 5 minutes)",
@@ -610,6 +624,20 @@ std::string refreshNow() {
 }
 
 long long lastUpdate() { return f.updated; }
+
+std::vector<std::string> troubled() {
+    std::vector<std::string> out;
+    if (!f.wanted) return out;
+    Config c = config();
+    if (ADIFOffline()) {
+        if (c.spothole || c.cluster || c.psk) out.push_back(tr("Offline Mode"));
+        return out;
+    }
+    if (c.spothole && f.spotholeTrouble) out.push_back("Spothole");
+    if (c.cluster && f.clusterTrouble) out.push_back(tr("DX cluster"));
+    if (c.psk && f.pskTrouble) out.push_back("PSKReporter");
+    return out;
+}
 
 std::string status() {
     std::string out;

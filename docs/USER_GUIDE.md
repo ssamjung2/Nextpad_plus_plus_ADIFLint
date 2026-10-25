@@ -562,7 +562,8 @@ The window, from the top:
   show or hide the sidebar, the list and the selected panel. The window's title names the
   log too.
 - **The toolbar**: **History**, **Live**, **DX Chase** or **POTA**; what the map shows (in History, the QSOs and the
-  dates they span; in Live, the stations spotted and when a feed last brought spots); the
+  dates they span; in Live, the stations spotted and when a feed last brought spots; while
+  the filters keep fewer, how many of how many, such as "40 of 257 QSOs on the map"); the
   filters (band and mode, which say **Band:** and **Mode:** while they filter; in History the
   dates and confirmation; in Live **DXCC** (which spots by what they mean for your DXCC, as
   the Quick Views), **Spots** (any program, POTA only, new POTA parks, or plain DX only), how
@@ -608,9 +609,13 @@ The window, from the top:
   saying how many each has.
 - **On the right**, [the selected panel and the situation](#the-selected-panel-and-the-situation).
 - **The footer**: whether the spots are live and how fresh, as a dot (green when the newest
-  is less than 15 minutes old, orange when older, grey with spots off; the toolbar has it
-  too), and what is under the pointer. Point at the live status for what each feed did and
-  when; click it for Sources and Filters.
+  is less than 15 minutes old and every source you turned on is answering; orange when the
+  spots are older or a source's last request failed, the toolbar then naming it, such as
+  "DX cluster not answering", or saying Offline Mode is on; grey with spots off; the toolbar
+  has it too), and what is under the pointer, or a hint for the workflow you're in. Point at
+  the live status for what each feed did and when; click it for Sources and Filters. The
+  live time is when a spot source last brought spots; the header's **QSL synced** is when
+  your log's confirmations were last downloaded.
 
 Drag the dividers to give the sidebar, the list or the selected panel more room. Every
 choice, the sections closed and where the dividers were left are remembered.
@@ -762,7 +767,10 @@ Show, stops the polling and closes the cluster's connection. Nothing at all is f
 A station is placed where the spot says it is: Spothole's place for it, or a grid in the
 spot (a cluster node's, or the locator a PSKReporter receiver gives). Otherwise it is at the
 country data's place for its call, often the middle of the country. A spotter is placed the
-same way.
+same way. A station without a grid or an exact place (Spothole's place is then its
+country's too) has a rough distance: **≈** before it in the list, "about … (to its country's
+centre: the spot gives no grid)" in its description, and the selected panel's **Grid** says
+it is at its country's centre.
 
 The sidebar's **Spots** section (in Live) holds the layer's three boxes (**Show**, **Spotter lines**, **Labels**),
 **Heat map**, **Sources and Filters…**, the refresh arrow, **Only spots of** and **Watch List…**.
@@ -1166,7 +1174,8 @@ A name shows its layer in History. The sponsors' rules have more (dates, bands, 
 operated from): check them before you apply.
 
 **Band conditions** (in Live, closed with its triangle) tells how the bands are doing, from
-the spots the Spots filters keep: a line for the band in focus (the band filter's, else the
+the spots the Spots filters keep. It compares every band, so it ignores the band filter, and
+says so while that is on ("Band conditions: every band, 20m in focus"). A line for the band in focus (the band filter's, else the
 chosen spot's, else the one most heard near you), such as "20m: 23 stations spotted (EU 12, NA
 8); heard near you: 7 stations, by 4 spotters within 1,500 km, best +18 dB; newest 2 min",
 and a row for each band with its stations spotted, those heard within 1,500 km of you, and
