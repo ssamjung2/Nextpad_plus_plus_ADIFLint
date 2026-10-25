@@ -33,6 +33,16 @@ struct ADIFQsoRow {
 // then "Edit Profiles..." (onStationChosen gets -1 for that).
 @property(nonatomic, copy) void (^onStationChosen)(NSInteger index);
 - (void)setStations:(NSArray<NSString *> *)names selected:(NSInteger)index;
+// Spot when logging: the station worked on the DX cluster, yourself on pota.app. The boxes stay as
+// you leave them; onSpotChanged when either is ticked or unticked.
+@property(nonatomic) BOOL spotCluster;
+@property(nonatomic) BOOL spotPota;
+@property(nonatomic, copy) void (^onSpotChanged)(void);
+// Whether each box can spot now (dimmed when not), and what its tooltip says.
+- (void)setSpotReady:(BOOL)cluster clusterTip:(NSString *)clusterTip pota:(BOOL)pota potaTip:(NSString *)potaTip;
+@property(nonatomic, readonly) BOOL spotClusterReady;
+@property(nonatomic, readonly) BOOL spotPotaReady;
+- (void)setSpotStatus:(NSString *)text;  // what spotting the last QSO did; "" hides the line
 @property(nonatomic, readonly) BOOL useCurrentTime; // fill QSO_DATE/TIME_ON at the moment of logging
 @property(nonatomic) NSInteger timeDigits;          // 4 (HHMM) or 6 (HHMMSS)
 

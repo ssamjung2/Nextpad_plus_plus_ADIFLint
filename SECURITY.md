@@ -30,7 +30,8 @@ supported.
 - **A DX cluster** (Settings → Spots, off at first) is the one connection that isn't
   HTTPS: plain telnet to the node you choose, as DX clusters work, logged in with your
   callsign and never a password. It posts a spot (`dx`, of the station you worked, never your
-  own callsign) only when you press Send in Spot This QSO. It is open only while the Map's
+  own callsign) only when you log a QSO in New QSO with its "The station, on the DX cluster" box
+  ticked (off at first). It is open only while the Map's
   Spots layer shows. Every
   telnet option the node offers is refused, lines are cut at 1,024 characters, at most
   3,000 spots are kept, and what it sends is parsed by code covered by the fuzz tests.

@@ -285,27 +285,29 @@ without reports, class and section as separate words (`W1AW 2A CT K1ABC 3A EMA`)
 
 ### Spotting a QSO
 
-After **Log QSO**, a small **Spot This QSO** panel can offer to spot it. Nothing is sent
-until you press **Send**; **Skip** (or Escape) sends nothing.
+**Spot when logging**, above New QSO's buttons, has two boxes. Both are off at first, and
+each stays as you leave it: while one is ticked, every QSO you log is spotted that way when
+you press **Log QSO**. The line under them says what was done.
 
-- **The station you worked, on the DX cluster**, when ADIF Lint is connected to one (Settings
-  → Spots, while the Map shows spots): `dx 14074.0 K1ABC FT8`, with a comment you can edit
-  (at first the program and reference and the mode, such as `POTA US-1234 USB`; at most 30
-  characters). The panel then says whether the node took it (it echoes the spot back) or
-  refused it. Many nodes only take spots from registered users; G1FEF's node, for one, says
-  so when you log in.
-- **Yourself, while activating a park for POTA** (a QSO with MY_POTA_REF): **Send** opens
-  pota.app in your browser, where POTA lets activators spot themselves ([POTA activator
+- **The station, on the DX cluster**, when ADIF Lint is connected to one (Settings → Spots,
+  while the Map shows spots): `dx 14074.0 K1ABC FT8`, with the QSO's program and reference
+  and its mode as the comment (such as `POTA US-1234 USB`; at most 30 characters). The line
+  then says whether the node took it (it echoes the spot back) or refused it. Many nodes
+  only take spots from registered users; G1FEF's node, for one, says so when you log in.
+- **Myself, on pota.app**, while activating a park for POTA (Start Activation, or a QSO with
+  MY_POTA_REF): Log QSO opens pota.app in your browser, where POTA lets activators spot
+  themselves ([POTA activator
   guide](https://docs.pota.app/docs/activator_reference/activator_guide-english.html), read
-  2026-10-20). POTA documents no way for programs to post spots, so the spot is yours to
-  enter there.
+  2026-10-20), and the line gives your call, park, frequency and mode to enter. POTA
+  documents no way for programs to post spots, so the spot is yours to make there.
 
-It never spots your own callsign on a cluster: DXSpider's user manual asks for "the
-station you have worked or heard, (ie not your own callsign!)" ([dxcluster.org user
-manual](https://dxcluster.org/usermanual_en-4.html), read 2026-10-20). It isn't offered
-during a contest (contests limit spotting), in Offline Mode, or for a station you already
-spotted on that band in the last 10 minutes. **Offer to spot after each QSO** turns it off;
-Settings → Spots turns it on again.
+A box is dimmed when it can't spot, and its tooltip says why: no cluster connected, no
+activation. It never spots your own callsign on a cluster: DXSpider's user manual asks for
+"the station you have worked or heard, (ie not your own callsign!)" ([dxcluster.org user
+manual](https://dxcluster.org/usermanual_en-4.html), read 2026-10-20). Nothing is spotted
+during a contest (contests limit spotting) or in Offline Mode, nor a station you already
+spotted on that band in the last 10 minutes. pota.app opens when you start an activation's
+QSOs, and again when the band or mode changes or 10 minutes have passed.
 
 PSKReporter: reception reports of the stations you log by hand (your station as the
 receiver, marked as taken from your log) would need PSKReporter's author to welcome them,
@@ -1737,8 +1739,6 @@ Rules for every source:
     such as a club station's or a portable call. **Your email** is optional: PSKReporter
     asks the programs that query it for a contact address (its `appcontact`), and ADIF Lint
     sends one only if you enter it.
-  - **After New QSO logs a QSO, offer to spot it** (on at first): the **Spot This QSO**
-    panel (see [Spotting a QSO](#spotting-a-qso)).
   - **Save** applies the changes; the line under it says what each source is doing.
 - **IOTA Groups:** **Download** fetches IOTA's list of island groups (`iota-world.org`,
   about 290 KB) for the Map's IOTA overlay; download again to update it. The list is
@@ -1779,7 +1779,7 @@ nothing is sent:
 - callbook lookups (New QSO, Enrich) and sign-in tests;
 - the Spots window, and the Map's spots (Spothole, the DX cluster and PSKReporter), space
   weather and aurora (NOAA SWPC);
-- Spot This QSO (it isn't offered);
+- New QSO's Spot when logging (its boxes are dimmed);
 - uploads, TQSL included, and imports from LoTW, QRZ.com Logbook and eQSL;
 - the downloads in Settings (country data, LoTW users, POTA parks and their outlines, IOTA
   groups, Map Detail),

@@ -34,7 +34,8 @@
 
 #import "CheckLog.h"
 #import "Night.h"
-#import "SpotOffer.h"
+#import "LogSpot.h"
+#import "Spots.h"
 #import "L10n.h"
 #import "Families.h"
 #import "MapDetail.h"
@@ -163,6 +164,7 @@ static struct {
     std::string pendingOpen;  // a file asked to open; New QSO opens on it when it becomes active
     std::vector<std::string> qsoFieldList;  // New QSO fields; empty: the log's own fields
     bool qsoCarryHidden = true;             // copy station fields that are not listed
+    adif::FieldList qsoSpotFields;          // New QSO's fields at its last check, for its spot boxes
     std::map<std::string, std::string> extra;  // other key=value settings (PluginHost setting())
 
     // Places you edited by hand: once the log reads cleanly again, an uploaded
@@ -1690,9 +1692,29 @@ static QsoCheck checkQso(NppHandle h) {
     return c;
 }
 
+// New QSO's spot boxes: what each can do for the QSO being entered (its fields, then the station's
+// and those carried from the last record), or why it can't.
+static void refreshSpotBoxes(const adif::FieldList &shown) {
+    if (!g.qso) return;
+    g.qsoSpotFields = shown;
+    adif::FieldList fields = shown;
+    for (const auto &f : station::stationFields()) fields.push_back(f);
+    try {
+        NppHandle h = currentScintilla();
+        std::vector<std::string> names;
+        for (const auto &f : shown) names.push_back(f.first);
+        if (g.qsoCarryHidden)
+            for (auto &f : adif::hiddenStationFields(docText(h), freshLint(h).model, names)) fields.push_back(std::move(f));
+    } catch (...) {
+    }
+    logspot::Ready r = logspot::ready(fields, contest::setup().preset != adif::ContestPreset::None);
+    [g.qso setSpotReady:r.cluster clusterTip:ADIFString(r.clusterTip) pota:r.pota potaTip:ADIFString(r.potaTip)];
+}
+
 static void showQsoCheck(const QsoCheck &c) {
     [g.qso setRowStatus:c.rows];
     [g.qso setSummary:c.summary severity:c.severity];
+    refreshSpotBoxes(c.fields);
 }
 
 static void scheduleQsoCheck() {
@@ -1790,8 +1812,10 @@ static void logQso() {
         [g.qso setSummary:done severity:c.severity == 1 ? 1 : -1];
         refreshQsoTarget();
         [g.qso focusField:"CALL"];
-        // Spot it: the station worked on the DX cluster, yourself on pota.app when activating (only on Send).
-        spotoffer::afterLog(c.fields, contestNow.preset != adif::ContestPreset::None);
+        // Spot it, as its boxes say: the station worked on the DX cluster, yourself on pota.app when activating.
+        [g.qso setSpotStatus:@""];
+        logspot::afterLog(c.fields, contestNow.preset != adif::ContestPreset::None, g.qso.spotCluster && g.qso.spotClusterReady,
+                          g.qso.spotPota && g.qso.spotPotaReady, ^(const std::string &said) { [g.qso setSpotStatus:ADIFString(said)]; });
     } catch (...) {
     }
 }
@@ -1906,6 +1930,14 @@ static void showQsoRows(NppHandle h, const adif::LintResult &r) {
         g.qso.onCustomize = ^{ openQsoFields(); };
         g.qso.onSpots = ^{ logtools::cmdPotaSpots(); };
         g.qso.onContest = ^{ contest::cmdContest(); };
+        g.qso.spotCluster = logspot::clusterWanted();
+        g.qso.spotPota = logspot::potaWanted();
+        g.qso.onSpotChanged = ^{ logspot::setWanted(g.qso.spotCluster, g.qso.spotPota); };
+        // The cluster connecting or dropping changes what its box can do.
+        [[NSNotificationCenter defaultCenter] addObserverForName:ADIFSpotsChangedNotification
+                                                          object:nil
+                                                           queue:nil
+                                                      usingBlock:^(NSNotification *) { refreshSpotBoxes(g.qsoSpotFields); }];
     }
     g.qso.timeDigits = timeDigits;
     g.qsoMode = mode;

@@ -11,6 +11,12 @@ Versions before 0.8.0 were development builds and were not published.
 
 ### Changed
 
+- **New QSO:** spotting is two boxes under **Spot when logging**, in place of the Spot This
+  QSO panel after each QSO: **The station, on the DX cluster** and **Myself, on pota.app**.
+  Each stays as you leave it (off at first), and Log QSO spots what is ticked, with the same
+  rules as before; the line under them says what was done. A box is dimmed, its tooltip saying
+  why, when it can't spot. Settings → Spots' "offer to spot" box is gone.
+
 - **Map:** the live dot turns orange when any spot source you turned on fails, not only when the
   spots grow old, and the toolbar names it ("DX cluster not answering") or says Offline Mode is
   on.

@@ -303,7 +303,7 @@ your Mac.
 | WWFF | `spots.wwff.co` | The Spots window (WWFF), every minute while it is open | Nothing but the request |
 | Spothole | `spothole.app` | The Spots window (More programs), every 2 minutes while it is open | The programs asked for (never a login) |
 | Spothole, for the Map | `spothole.app` | Map → Spots → Show, with Spothole ticked in Settings → Spots (it is at first): every 2 minutes while the Map is open | The programs asked for and the time of the last spot received (never a login) |
-| A DX cluster | The node you choose in Settings → Spots (none at first) | Map → Spots → Show, with DX cluster ticked: one telnet connection while the Map is open | Your callsign as the login, then the commands you set; and, only when you press Send in Spot This QSO, a spot of the station you worked (unencrypted) |
+| A DX cluster | The node you choose in Settings → Spots (none at first) | Map → Spots → Show, with DX cluster ticked: one telnet connection while the Map is open | Your callsign as the login, then the commands you set; and, only when you log a QSO with New QSO's "The station, on the DX cluster" box ticked (off at first), a spot of the station you worked (unencrypted) |
 | PSKReporter | `retrieve.pskreporter.info` | Map → Spots → Show, with PSKReporter ticked: no more than every 5 minutes while the Map is open | Your callsign, or your 4-character grid square (Around my grid square), and your email if you give one |
 | Country files | `www.country-files.com` | Settings → Country Data → Update | Nothing but the request |
 | LoTW user list | `lotw.arrl.org` | Settings → LoTW Users → Update, and weekly while it is on | Nothing but the request |

@@ -25,6 +25,10 @@ static NSColor *severityColor(int severity) { return severity < 0 ? NSColor.seco
     NSGridView *_grid;
     NSLayoutConstraint *_scrollHeight;
     NSButton *_currentTime, *_log, *_close, *_fields, *_spots, *_contest;
+    NSButton *_spotCluster, *_spotPota;
+    NSTextField *_spotStatus;
+    NSGridView *_spotGrid;
+    NSLayoutConstraint *_logAfterGrid, *_logAfterStatus;  // one is active: the status line shown or not
     NSTextField *_lookupInfo;
     NSStackView *_lookupRow;
     NSPopUpButton *_lookup, *_station;
@@ -134,9 +138,34 @@ static NSColor *severityColor(int severity) { return severity < 0 ? NSColor.seco
     _lookupRow.alignment = NSLayoutAttributeCenterY;
     _lookupRow.translatesAutoresizingMaskIntoConstraints = NO;
 
-    for (NSView *v in @[ _target, _scroll, _currentTime, _lookupRow, _lookupInfo, _note, _summary, _log, _close, _fields, _spots, _contest ])
+    // Spot when logging, beside Log QSO: two boxes that stay as they are left, then what the last spots did.
+    _spotCluster = [NSButton checkboxWithTitle:T(@"The station, on the DX cluster") target:self action:@selector(spotChanged:)];
+    _spotCluster.identifier = @"qso.spot.cluster";
+    _spotPota = [NSButton checkboxWithTitle:T(@"Myself, on pota.app") target:self action:@selector(spotChanged:)];
+    _spotPota.identifier = @"qso.spot.pota";
+    _spotGrid = [NSGridView gridViewWithViews:@[
+        @[ [NSTextField labelWithString:T(@"Spot when logging:")], _spotCluster ], @[ [NSGridCell emptyContentView], _spotPota ]
+    ]];
+    _spotGrid.rowSpacing = 4;
+    _spotGrid.columnSpacing = 8;
+    _spotGrid.rowAlignment = NSGridRowAlignmentFirstBaseline;
+    _spotGrid.translatesAutoresizingMaskIntoConstraints = NO;
+    _spotStatus = [NSTextField wrappingLabelWithString:@""];
+    _spotStatus.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    _spotStatus.textColor = NSColor.secondaryLabelColor;
+    _spotStatus.maximumNumberOfLines = 2;
+    _spotStatus.cell.truncatesLastVisibleLine = YES;
+    _spotStatus.identifier = @"qso.spot.status";
+    _spotStatus.hidden = YES;
+    _spotStatus.translatesAutoresizingMaskIntoConstraints = NO;
+    [_spotStatus setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+                                          forOrientation:NSLayoutConstraintOrientationHorizontal];
+
+    for (NSView *v in @[ _target, _scroll, _currentTime, _lookupRow, _lookupInfo, _note, _summary, _spotGrid, _spotStatus, _log, _close, _fields, _spots, _contest ])
         [root addSubview:v];
     const CGFloat m = 12;
+    _logAfterGrid = [_log.topAnchor constraintEqualToAnchor:_spotGrid.bottomAnchor constant:8];
+    _logAfterStatus = [_log.topAnchor constraintEqualToAnchor:_spotStatus.bottomAnchor constant:8];
     _scrollHeight = [_scroll.heightAnchor constraintEqualToConstant:300];
     _scrollHeight.priority = NSLayoutPriorityDefaultHigh - 1;
     [NSLayoutConstraint activateConstraints:@[
@@ -166,7 +195,13 @@ static NSColor *severityColor(int severity) { return severity < 0 ? NSColor.seco
         [_summary.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
         [_summary.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-m],
         [_summary.heightAnchor constraintGreaterThanOrEqualToConstant:34],  // room for a two-line message
-        [_log.topAnchor constraintEqualToAnchor:_summary.bottomAnchor constant:8],
+        [_spotGrid.topAnchor constraintEqualToAnchor:_summary.bottomAnchor constant:6],
+        [_spotGrid.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
+        [_spotGrid.trailingAnchor constraintLessThanOrEqualToAnchor:root.trailingAnchor constant:-m],
+        [_spotStatus.topAnchor constraintEqualToAnchor:_spotGrid.bottomAnchor constant:4],
+        [_spotStatus.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
+        [_spotStatus.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-m],
+        _logAfterGrid,
         [_log.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-m],
         [_log.bottomAnchor constraintEqualToAnchor:root.bottomAnchor constant:-m],
         [_close.trailingAnchor constraintEqualToAnchor:_log.leadingAnchor constant:-8],
@@ -302,6 +337,49 @@ static NSColor *severityColor(int severity) { return severity < 0 ? NSColor.seco
 - (void)setSummary:(const std::string &)text severity:(int)severity {
     _summary.stringValue = ADIFString(tr(text));  // a fixed text in the user's language
     _summary.textColor = severityColor(severity);
+}
+
+- (BOOL)spotCluster {
+    return _spotCluster.state == NSControlStateValueOn;
+}
+
+- (void)setSpotCluster:(BOOL)on {
+    _spotCluster.state = on ? NSControlStateValueOn : NSControlStateValueOff;
+}
+
+- (BOOL)spotPota {
+    return _spotPota.state == NSControlStateValueOn;
+}
+
+- (void)setSpotPota:(BOOL)on {
+    _spotPota.state = on ? NSControlStateValueOn : NSControlStateValueOff;
+}
+
+- (void)spotChanged:(id)sender {
+    if (self.onSpotChanged) self.onSpotChanged();
+}
+
+- (void)setSpotReady:(BOOL)cluster clusterTip:(NSString *)clusterTip pota:(BOOL)pota potaTip:(NSString *)potaTip {
+    _spotCluster.enabled = cluster;
+    _spotCluster.toolTip = clusterTip;
+    _spotPota.enabled = pota;
+    _spotPota.toolTip = potaTip;
+}
+
+- (BOOL)spotClusterReady {
+    return _spotCluster.enabled;
+}
+
+- (BOOL)spotPotaReady {
+    return _spotPota.enabled;
+}
+
+- (void)setSpotStatus:(NSString *)text {
+    _spotStatus.stringValue = text ?: @"";
+    _spotStatus.toolTip = text;
+    _spotStatus.hidden = _spotStatus.stringValue.length == 0;
+    _logAfterGrid.active = _spotStatus.hidden;
+    _logAfterStatus.active = !_spotStatus.hidden;
 }
 
 - (void)setNote:(NSString *)note {

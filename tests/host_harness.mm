@@ -5859,7 +5859,8 @@ int main(int argc, char **argv) {
                 for (NSWindow *w in [NSApp.windows copy])
                     if (viewWithIdentifier(w.contentView, @"map.spots")) [w orderOut:nil];
 
-                // Spot This QSO: DL1ABC logged from its spot; the offer to spot it on the cluster; Send posts a dx command the node echoes.
+                // Spot when logging: DL1ABC logged from its spot. New QSO's two boxes, off at first; ticked, Log QSO posts a
+                // dx command the node echoes, and the box stays ticked; the same station on the same band within 10 minutes isn't.
                 [findButton(mapw.contentView, @"World") performClick:nil];
                 pump(0.1);
                 [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, berlin, 1)];
@@ -5867,10 +5868,13 @@ int main(int argc, char **argv) {
                 [useSpot performClick:nil];
                 pump(0.3);
                 NSWindow *qwLog = qsoWindow();
-                auto offerWindow = []() -> NSWindow * {
-                    for (NSWindow *w in NSApp.windows)
-                        if ([w.identifier isEqualToString:@"spot.offer"] && w.visible) return w;
-                    return nil;
+                NSButton *spotCluster = (NSButton *)viewWithIdentifier(qwLog.contentView, @"qso.spot.cluster");
+                NSButton *spotPota = (NSButton *)viewWithIdentifier(qwLog.contentView, @"qso.spot.pota");
+                NSTextField *spotLine = (NSTextField *)viewWithIdentifier(qwLog.contentView, @"qso.spot.status");
+                size_t (^dxSent)(void) = ^size_t {  // a block: heard is __block
+                    size_t n = 0;
+                    for (size_t at = heard.find("\r\ndx 7012.0 DL1ABC"); at != std::string::npos; at = heard.find("\r\ndx 7012.0 DL1ABC", at + 1)) ++n;
+                    return n;
                 };
                 auto logIt = [&]() {
                     qsoControl(qwLog, @"CALL").stringValue = @"DL1ABC";
@@ -5879,27 +5883,29 @@ int main(int argc, char **argv) {
                     [findButton(qwLog.contentView, @"Log QSO") performClick:nil];
                     pump(0.3);
                 };
+                pump(0.6);  // the spots' change notice: the cluster is connected
+                CHECK(spotCluster && spotPota && spotCluster.state == NSControlStateValueOff && spotPota.state == NSControlStateValueOff &&
+                          spotCluster.enabled && [spotCluster.toolTip containsString:@"(127.0.0.1:"] && !spotPota.enabled &&
+                          [spotPota.toolTip containsString:@"POTA activation"] && spotLine.hidden,
+                      "New QSO's spot boxes: off at first; the cluster's can (connected), pota.app's can't (not activating): '%s'",
+                      spotPota.toolTip.UTF8String);
                 logIt();
-                NSWindow *offer = offerWindow();
-                NSButton *offerCluster = offer ? (NSButton *)viewWithIdentifier(offer.contentView, @"spot.offer.cluster") : nil;
-                NSTextField *offerComment = offer ? (NSTextField *)viewWithIdentifier(offer.contentView, @"spot.offer.comment") : nil;
-                CHECK(offer && [offerCluster.title hasPrefix:@"DL1ABC on the DX cluster (127.0.0.1:"] && !offerCluster.hidden &&
-                          [offerComment.stringValue isEqualToString:@"CW"] && viewWithIdentifier(offer.contentView, @"spot.offer.pota").hidden,
-                      "logged: the offer to spot DL1ABC on the cluster (no pota.app: not activating)");
-                if (offer) {
-                    CHECK(overlaps(offer.contentView) == 0, "the Spot This QSO panel does not overlap");
-                    snapshot(offer, "spot-offer");
-                }
-                offerComment.stringValue = @"CW tnx QSO";
-                [(NSButton *)viewWithIdentifier(offer.contentView, @"spot.offer.send") performClick:nil];
-                NSTextField *offerStatus = (NSTextField *)viewWithIdentifier(offer.contentView, @"spot.offer.status");
-                for (int k = 0; k < 30 && ![offerStatus.stringValue containsString:@"spotted"]; ++k) pump(0.1);
-                CHECK(heard.find("\r\ndx 7012.0 DL1ABC CW tnx QSO\r\n") != std::string::npos &&
-                          [offerStatus.stringValue hasPrefix:@"DX cluster: spotted (DX de K9TST:"],
-                      "Send: the dx command on the cluster, and the node's echo (%s)", offerStatus.stringValue.UTF8String);
-                [(NSButton *)viewWithIdentifier(offer.contentView, @"spot.offer.skip") performClick:nil];
+                CHECK(dxSent() == 0 && spotLine.hidden, "logged with the boxes off: nothing spotted, nothing said");
+                setBox(spotCluster, true);
                 logIt();
-                CHECK(!offerWindow(), "the same station on the same band again within 10 minutes: no offer");
+                for (int k = 0; k < 30 && ![spotLine.stringValue containsString:@"spotted"]; ++k) pump(0.1);
+                CHECK(heard.find("\r\ndx 7012.0 DL1ABC CW\r\n") != std::string::npos && dxSent() == 1 && !spotLine.hidden &&
+                          [spotLine.stringValue hasPrefix:@"DX cluster: spotted (DX de K9TST:"],
+                      "ticked: Log QSO spots DL1ABC on the cluster, the mode as its comment, and says the node's echo (%s)",
+                      spotLine.stringValue.UTF8String);
+                CHECK(overlaps(qwLog.contentView) == 0, "New QSO with the spot line does not overlap");
+                snapshot(qwLog, "new-qso-spotted");
+                logIt();
+                CHECK(dxSent() == 1 && spotCluster.state == NSControlStateValueOn &&
+                          [spotLine.stringValue isEqualToString:@"DX cluster: DL1ABC was spotted on 40m in the last 10 minutes."],
+                      "the box stays ticked; the same station on the same band again within 10 minutes isn't spotted (%s)",
+                      spotLine.stringValue.UTF8String);
+                setBox(spotCluster, false);
                 [qwLog orderOut:nil];
 
                 // Off and on again: PSKReporter isn't asked again within five minutes; the cluster closes and reconnects.
