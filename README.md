@@ -169,7 +169,8 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
   review every change.
 - **Enrich** missing fields from QRZ.com, HamQTH or offline country data.
 - **QSL Sync** and **Upload** to QRZ.com Logbook, LoTW (through TQSL, with a pre-flight
-  check against your Station Location), Club Log and eQSL, keeping the ADIF upload-status
+  check against your Station Location, and the certificate each station profile signs
+  with), Club Log and eQSL, keeping the ADIF upload-status
   fields up to date.
 
 **Languages**
@@ -321,7 +322,9 @@ your Mac.
   and eQSL's DownloadInBox take the login in the HTTPS address, as those services document
   it.
 - **TQSL** runs on your Mac for LoTW uploads. A certificate password you save is passed on
-  its command line, where other programs on your Mac could see it while TQSL runs.
+  its command line, where other programs on your Mac could see it while TQSL runs. To offer
+  your certificates' callsigns, ADIF Lint reads TQSL's certificate file (`certs/user`, public
+  certificates only), never its private keys.
 - **A DX cluster** is plain telnet, as DX clusters are: your callsign and everything the
   node sends travel unencrypted. ADIF Lint never logs in to one with a password, and closes
   the connection when the Map is closed or Show is unticked.

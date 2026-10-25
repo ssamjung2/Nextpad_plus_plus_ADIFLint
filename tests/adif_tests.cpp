@@ -4048,6 +4048,28 @@ static void testJson() {
 }
 
 // Flags: each current entity has one, but for the four without; as emoji.
+static void testTqslCertificates() {
+    // Made-up certificate fragments: a subject attribute OID 1.3.6.1.4.1.12348.1.1 with a callsign each
+    // (a PrintableString, a UTF8String; KW9D twice).
+    std::string pem = "-----BEGIN CERTIFICATE-----\nMAMCAQEwEQYJKwYBBAHgPAEBEwRLVzlE\n-----END CERTIFICATE-----\n-----BEGIN CERTIFICATE-----\nMAMCAQEwEgYJKwYBBAHgPAEBDAVrOXh5eg==\n-----END CERTIFICATE-----\n-----BEGIN CERTIFICATE-----\nMAMCAQEwEQYJKwYBBAHgPAEBEwRLVzlE\n-----END CERTIFICATE-----\n";
+    std::vector<std::string> calls = tqslCertificateCalls(pem);
+    CHECK(calls == std::vector<std::string>({"K9XYZ", "KW9D"}) && tqslCertificateCalls("no certificates").empty(),
+          "the certificates' callsigns (%zu)", calls.size());
+    // A profile's certificate callsign is kept; -c is checked in place of the location's CALL.
+    StationProfile prof;
+    prof.name = "Club", prof.tqslLocation = "Club station", prof.tqslCall = "W9CLB";
+    std::vector<StationProfile> back = parseProfiles(profilesText({prof}, "1.5", "20261025 120000"));
+    CHECK(back.size() == 1 && back[0].tqslCall == "W9CLB" && back[0].tqslLocation == "Club station", "a profile's certificate callsign is kept");
+    TqslLocation loc;
+    loc.name = "Home", loc.fields = {{"CALL", "KW9D"}, {"DXCC", "291"}};
+    Record q;
+    q.fields = {{"STATION_CALLSIGN", "W9CLB"}};
+    CHECK(!lotwLocationProblem(q, loc).empty() && lotwLocationProblem(q, loc, "W9CLB").empty() &&
+              lotwLocationProblem(q, loc, "k9xyz") == "STATION_CALLSIGN W9CLB (the certificate: K9XYZ)",
+          "the QSO's call against -c's certificate, not the location's CALL: %s", lotwLocationProblem(q, loc, "k9xyz").c_str());
+    CHECK(tqslExitMeaning(15) == "wrong certificate password" && tqslExitMeaning(13).find("busy") != std::string::npos, "TQSL's exit codes 12 to 15");
+}
+
 static void testContestDefs() {
     using F = std::vector<std::pair<std::string, std::string>>;
     auto find = [](const F &f, const char *name) {
@@ -4421,6 +4443,7 @@ int main(int argc, char **argv) {
     testBeacons();
     testStats();
     testContestDefs();
+    testTqslCertificates();
     testSolar();
     testProjections();
     testPalettes();

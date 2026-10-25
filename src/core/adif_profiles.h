@@ -22,6 +22,7 @@ struct StationProfile {
     std::string name;
     FieldList fields;          // upper-case names, in the order given
     std::string tqslLocation;  // the TQSL Station Location its LoTW uploads use, or empty
+    std::string tqslCall;      // the callsign certificate they sign with (TQSL -c), or empty: the location's own
     std::string get(std::string_view field) const;
     void set(std::string_view field, std::string value);  // an empty value removes the field
 };

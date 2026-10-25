@@ -2478,6 +2478,47 @@ int main(int argc, char **argv) {
                 [loc sendAction:loc.action to:loc.target];
                 CHECK(status(lw).find("TQSL has no Station Location named Nowhere (2 locations in") != std::string::npos,
                       "an unknown location: %s", status(lw).c_str());
+                // A certificate callsign (TQSL's -c): offered from certs/user and the locations' calls, checked in place
+                // of the location's CALL, and passed to TQSL.
+                [[NSFileManager defaultManager] createDirectoryAtPath:[tqslDir stringByAppendingPathComponent:@"certs"]
+                                          withIntermediateDirectories:YES
+                                                           attributes:nil
+                                                                error:nil];
+                [@"-----BEGIN CERTIFICATE-----\nMAMCAQEwEgYJKwYBBAHgPAEBEwVXOUNMQg==\n-----END CERTIFICATE-----\n"
+                    writeToFile:[tqslDir stringByAppendingPathComponent:@"certs/user"]
+                     atomically:YES
+                       encoding:NSUTF8StringEncoding
+                          error:nil];
+                NSComboBox *cert = (NSComboBox *)viewWithIdentifier(lw.contentView, @"lotw.certificate");
+                loc.stringValue = @"Home QTH";
+                cert.stringValue = @"w9clb";
+                [cert sendAction:cert.action to:cert.target];
+                CHECK(([cert.objectValues isEqualToArray:@[ @"KW9D", @"W9CLB" ]]), "the certificates offered: %s",
+                      [cert.objectValues componentsJoinedByString:@" "].UTF8String);
+                std::string certRows;
+                NSTableView *lt3 = findTable(lw.contentView);
+                for (NSInteger row = 0; row < [lt3.dataSource numberOfRowsInTableView:lt3]; ++row)
+                    certRows += std::string(cell(lt3, row, @"6").UTF8String) + "\n";
+                CHECK(certRows.find("can't send: TQSL would refuse it: STATION_CALLSIGN KW9D (the certificate: W9CLB)") == 0 &&
+                          status(lw).find("3 QSOs disagree with the certificate W9CLB or the Station Location Home QTH") != std::string::npos &&
+                          status(lw).find("TQSL has no certificate") == std::string::npos,
+                      "checked against the certificate:\n%s%s", certRows.c_str(), status(lw).c_str());
+                cert.stringValue = @"N0CALL";
+                [cert sendAction:cert.action to:cert.target];
+                CHECK(status(lw).find("TQSL has no certificate for N0CALL (1 certificate in") != std::string::npos,
+                      "an unknown certificate: %s", status(lw).c_str());
+                cert.stringValue = @"KW9D";
+                [cert sendAction:cert.action to:cert.target];
+                setenv("ADIFLINT_TEST_OPEN_FILE", script.UTF8String, 1);
+                [findButton(lw.contentView, @"Choose...") performClick:nil];
+                [findButton(lw.contentView, @"Upload 1 QSO") performClick:nil];
+                waitDone(lw);
+                NSString *certArgs = [NSString stringWithContentsOfFile:argsFile encoding:NSUTF8StringEncoding error:nil];
+                CHECK([certArgs hasPrefix:@"-x\n-d\n-u\n-a\ncompliant\n-l\nHome QTH\n-c\nKW9D\n"], "TQSL signs with -c:\n%s",
+                      certArgs.UTF8String);
+                [lw.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(lw.contentView) == 0, "LoTW controls with a certificate do not overlap (%d)", overlaps(lw.contentView));
+                cert.stringValue = @"";
                 H.doc = savedDoc;
                 notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
                 pump(0.3);
@@ -3286,6 +3327,9 @@ int main(int argc, char **argv) {
                 editCell(0, 8, @"5");
                 editCell(0, 6, @"Elecraft T1");
                 editCell(0, 9, @"Portable");  // its TQSL Station Location
+                editCell(0, 10, @"kw9d/p!");
+                CHECK([labelWithLines(pw.contentView, 4) containsString:@"named by its callsign"], "a certificate that is no callsign is refused");
+                editCell(0, 10, @"w9clb");  // and the certificate it signs with
             }
             NSString *saved = [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint-profiles.adi"]
                                                         encoding:NSUTF8StringEncoding
@@ -3293,6 +3337,7 @@ int main(int argc, char **argv) {
             CHECK([saved containsString:@"<APP_ADIFLINT_PROFILE:8>Portable <STATION_CALLSIGN:4>KW9D <MY_GRIDSQUARE:6>EN52wa"] &&
                       [saved containsString:@"<TX_PWR:1>5"] && [saved containsString:@"<MY_RIG:11>Elecraft T1"],
                   "the profile saved: %s", saved.UTF8String);
+            CHECK([saved containsString:@"<APP_ADIFLINT_TQSL_CALL:5>W9CLB"], "the profile's TQSL certificate saved");
             if (pw) {
                 [pw.contentView layoutSubtreeIfNeeded];
                 snapshot(pw, "station-profiles");
@@ -3364,6 +3409,8 @@ int main(int argc, char **argv) {
                 collect(lw2.contentView, NSComboBox.class, combos);
                 CHECK([((NSComboBox *)combos.firstObject).stringValue isEqualToString:@"Portable"],
                       "LoTW offers the profile's Station Location: %s", ((NSComboBox *)combos.firstObject).stringValue.UTF8String);
+                NSComboBox *cert2 = (NSComboBox *)viewWithIdentifier(lw2.contentView, @"lotw.certificate");
+                CHECK([cert2.stringValue isEqualToString:@"W9CLB"], "and its certificate: %s", cert2.stringValue.UTF8String);
                 [lw2 orderOut:nil];
             } else {
                 CHECK(false, "Upload to LoTW opens");

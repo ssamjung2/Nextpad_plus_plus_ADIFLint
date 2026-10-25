@@ -6680,12 +6680,6 @@ void cmdMap() {
             c.spacing = spacing;
             return c;
         };
-        auto caption = [](NSString *text) {
-            NSTextField *t = [NSTextField labelWithString:T(text).localizedUppercaseString];
-            t.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize - 1 weight:NSFontWeightSemibold];
-            t.textColor = NSColor.secondaryLabelColor;
-            return t;
-        };
         auto iconOnly = [](NSButton *b, NSString *symbol) {  // the title stays, for VoiceOver (and the tests)
             b.image = [NSImage imageWithSystemSymbolName:symbol accessibilityDescription:nil];
             if (b.image) b.imagePosition = NSImageOnly;

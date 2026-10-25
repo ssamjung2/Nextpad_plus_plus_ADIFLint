@@ -41,8 +41,17 @@ struct TqslLocation {
 std::vector<TqslLocation> parseStationData(std::string_view xml);
 
 // Why TQSL would not sign this QSO with this location ("" when it would), naming
-// the first field that disagrees: "MY_GRIDSQUARE EN61 (the location: EN52wa)".
-std::string lotwLocationProblem(const Record &qso, const TqslLocation &loc);
+// the first field that disagrees: "MY_GRIDSQUARE EN61 (the location: EN52wa)". With a
+// certificate callsign (TQSL's -c), the QSO's call is checked against it in place of the
+// location's CALL: -c overrides that for the run (TQSL 2.1 and later; lotw.arrl.org/lotw-help/cmdline,
+// read 2026-10-25).
+std::string lotwLocationProblem(const Record &qso, const TqslLocation &loc, std::string_view certificateCall = "");
+
+// The callsigns of the certificates in TQSL's certificate file (certs/user under its folder: PEM
+// X.509 certificates only, the private keys being kept apart in keys/). Each certificate's
+// callsign is its subject's AROcallsign attribute, OID 1.3.6.1.4.1.12348.1.1 (tqsllib's
+// tqsllib.cpp, read 2026-10-25), sorted, without repeats.
+std::vector<std::string> tqslCertificateCalls(std::string_view pem);
 
 // For QSL Sync: one service in one log.
 struct ServiceSummary {

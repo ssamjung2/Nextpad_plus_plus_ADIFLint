@@ -22,9 +22,15 @@ Versions before 0.8.0 were development builds and were not published.
   by UTC hour and weekday, and the DXCC entities, US states and grid squares reached over
   time; each mark's number in its tooltip; Copy and Export PNG. One series a chart, in one
   blue checked against the window in light and dark mode.
+- **TQSL certificate per station profile:** a **TQSL Certificate** column in Station
+  Profiles and a **Certificate** box in Upload to LoTW, offering the callsigns of TQSL's
+  certificates. When set, TQSL signs with `-c <call>` (that call's certificate, the Station
+  Location's DXCC entity), and the pre-flight checks each QSO's call against it.
 
 ### Changed
 
+- **Upload to LoTW:** TQSL's exit codes 12 to 15 are explained (unknown error, busy, already
+  uploaded, wrong certificate password), and code 4 says it may mean no valid certificate.
 - **New QSO:** the lookup's line becomes the station's facts, a row each: Operator (name and
   QTH), Country (entity, continent, zones, DXCC), Grid, Distance with the short-path and
   long-path bearings (km or miles, as the Map), the station's Local time (the country file's

@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <set>
 
 namespace adif {
 using i18n::tr;
@@ -162,13 +163,15 @@ std::vector<TqslLocation> parseStationData(std::string_view xml) {
     return out;
 }
 
-std::string lotwLocationProblem(const Record &qso, const TqslLocation &loc) {
+std::string lotwLocationProblem(const Record &qso, const TqslLocation &loc, std::string_view certificateCall) {
     auto mine = [&](const char *f) { return trimmed(qso.get(f)); };
-    // The call: STATION_CALLSIGN, else OPERATOR, against the certificate's.
+    // The call: STATION_CALLSIGN, else OPERATOR, against the certificate's (-c's, else the location's).
     std::string call = upper(mine("STATION_CALLSIGN")), callField = "STATION_CALLSIGN";
     if (call.empty()) call = upper(mine("OPERATOR")), callField = "OPERATOR";
-    std::string locCall = upper(trimmed(loc.get("CALL")));
-    if (!call.empty() && !locCall.empty() && locCall != "NONE" && call != locCall) return mismatch(callField.c_str(), call, locCall);
+    std::string locCall = upper(trimmed(certificateCall.empty() ? std::string_view(loc.get("CALL")) : certificateCall));
+    if (!call.empty() && !locCall.empty() && locCall != "NONE" && call != locCall)
+        return certificateCall.empty() ? mismatch(callField.c_str(), call, locCall)
+                                       : trf("{field} {value} (the certificate: {theirs})", {{"field", callField}, {"value", call}, {"theirs", locCall}});
     int dxcc = std::atoi(loc.get("DXCC").c_str()), myDxcc = std::atoi(mine("MY_DXCC").c_str());
     if (dxcc && myDxcc && dxcc != myDxcc) return mismatch("MY_DXCC", std::to_string(myDxcc), std::to_string(dxcc));
     std::string grid = mine("MY_GRIDSQUARE"), locGrid = trimmed(loc.get("GRIDSQUARE"));
@@ -288,6 +291,50 @@ ServiceSummary serviceSummary(std::string_view text, const DocModel &m, UploadSe
         }
     }
     return out;
+}
+
+namespace {
+
+// RFC 4648 base64, skipping whitespace; stops at the first character that isn't base64.
+std::string fromBase64(std::string_view text) {
+    std::string out;
+    unsigned buffer = 0;
+    int bits = 0;
+    for (char c : text) {
+        int v = c >= 'A' && c <= 'Z' ? c - 'A' : c >= 'a' && c <= 'z' ? c - 'a' + 26 : c >= '0' && c <= '9' ? c - '0' + 52 : c == '+' ? 62 : c == '/' ? 63 : -1;
+        if (c == '=') break;
+        if (v < 0) {
+            if (c == '\n' || c == '\r' || c == ' ' || c == '\t') continue;
+            break;
+        }
+        buffer = (buffer << 6) | (unsigned)v, bits += 6;
+        if (bits >= 8) bits -= 8, out.push_back((char)((buffer >> bits) & 0xFF));
+    }
+    return out;
+}
+
+}  // namespace
+
+std::vector<std::string> tqslCertificateCalls(std::string_view pem) {
+    // The OID 1.3.6.1.4.1.12348.1.1 as DER writes it, then its value: a string (Printable, UTF8 or IA5).
+    static const unsigned char kOid[] = {0x06, 0x09, 0x2B, 0x06, 0x01, 0x04, 0x01, 0xE0, 0x3C, 0x01, 0x01};
+    std::set<std::string> calls;
+    const std::string_view begin = "-----BEGIN CERTIFICATE-----", end = "-----END CERTIFICATE-----";
+    for (size_t at = pem.find(begin); at != std::string_view::npos; at = pem.find(begin, at + begin.size())) {
+        size_t from = at + begin.size(), to = pem.find(end, from);
+        if (to == std::string_view::npos) break;
+        std::string der = fromBase64(pem.substr(from, to - from));
+        for (size_t i = 0; i + sizeof kOid + 2 <= der.size(); ++i) {
+            if (std::memcmp(der.data() + i, kOid, sizeof kOid) != 0) continue;
+            size_t v = i + sizeof kOid;
+            unsigned char tag = (unsigned char)der[v], len = (unsigned char)der[v + 1];
+            if ((tag != 0x13 && tag != 0x0C && tag != 0x16) || len == 0 || len > 32 || v + 2 + len > der.size()) continue;
+            std::string call = upper(der.substr(v + 2, len));
+            if (std::all_of(call.begin(), call.end(), [](char c) { return (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '/'; }))
+                calls.insert(call);
+        }
+    }
+    return std::vector<std::string>(calls.begin(), calls.end());
 }
 
 }  // namespace adif

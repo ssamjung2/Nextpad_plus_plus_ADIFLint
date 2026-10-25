@@ -369,10 +369,12 @@ since its developer page is unclear about them; ADIF Lint doesn't send any yet.
 ## Station profiles and activations
 
 **Station profiles** are named sets of your station's own fields: callsign, operator,
-grid, state, county, rig, antenna, power and the TQSL Station Location its LoTW uploads
-use. Open them from Settings (Your Station → **Station Profiles…**), New QSO's
+grid, state, county, rig, antenna, power, and the TQSL Station Location and certificate its
+LoTW uploads use. Open them from Settings (Your Station → **Station Profiles…**), New QSO's
 **Station** popup, or Start Activation. Double-click a cell to edit it; the grid must be
-a Maidenhead locator and the power a number of watts. They are kept in
+a Maidenhead locator, the power a number of watts and the certificate a callsign. Leave
+**TQSL Certificate** empty to sign with the Station Location's own callsign; fill it in when
+one location serves several calls (a club call, a special-event call, your old call). They are kept in
 `ADIFLint-profiles.adi` in the plugin config folder.
 
 New QSO's first row, **Station**, chooses what it writes for your station: **From the log**
@@ -1669,15 +1671,21 @@ unticked while you edit the log.
   logbook already has counts as sent; a key error stops the run.
 - **LoTW:** runs TQSL (`/Applications/TrustedQSL/tqsl.app`, or choose it) as
   `tqsl -x -d -u -a compliant -l "<Station Location>" file`, which signs with that Station
-  Location's certificate and uploads. A certificate password saved in Settings is passed
-  with `-p`. Only exit code 0 marks records: for 8 or 9 TQSL doesn't say which QSOs it
+  Location's certificate and uploads. With a **Certificate** chosen it adds `-c <call>`, so
+  TQSL signs with that callsign's certificate for the location's DXCC entity in place of
+  the location's own callsign (TQSL 2.1 and later; TQSL ends with exit code 4 when it has no
+  valid certificate for that call and entity). A certificate password saved in Settings is
+  passed with `-p`. Only exit code 0 marks records: for 8 or 9 TQSL doesn't say which QSOs it
   skipped, so nothing is marked and its report is shown. TQSL is stopped if it hasn't
   finished in 10 minutes.
 - **LoTW pre-flight:** the Station Location popup lists the locations in TQSL's
   `station_data` (in `~/.tqsl`, TQSL's folder on a Mac, or `$TQSLDIR`); a station profile's
-  TQSL location is used when none is chosen. Each QSO's station fields are compared with
-  the location the way TQSL compares them, and TQSL refuses one that disagrees: the call
-  (STATION_CALLSIGN, else OPERATOR), MY_DXCC, MY_GRIDSQUARE (a 4-character grid matches a
+  TQSL location and certificate are used when none is chosen. The **Certificate** box lists
+  the callsigns of the certificates in TQSL's `certs/user` file (its certificates only; the
+  private keys in `keys/` are never read) and those the locations name; a call TQSL holds no
+  certificate for is pointed out. Each QSO's station fields are compared with the location
+  the way TQSL compares them, and TQSL refuses one that disagrees: the call (STATION_CALLSIGN,
+  else OPERATOR, against the certificate's call when one is chosen), MY_DXCC, MY_GRIDSQUARE (a 4-character grid matches a
   longer one that starts with it), MY_STATE and MY_CNTY for the entities TQSL knows them
   for (US, Canada, Russia, China, Australia, Japan, Finland), and the zones. Those QSOs are
   listed as can't send, with the field that disagrees and another location they match, so

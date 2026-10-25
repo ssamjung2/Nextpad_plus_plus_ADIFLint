@@ -17,6 +17,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cstdlib>
 #include <map>
@@ -41,8 +42,8 @@ struct Upload {
     adif::UploadService service = adif::UploadService::QRZ;
     ADIFToolWindow *w = nil;
     NSTextField *account = nil, *callsign = nil, *nickname = nil, *tqsl = nil;
-    NSComboBox *location = nil;
-    std::string locationFor;  // LoTW: the profile (lastLocationKey) the Station Location was offered for
+    NSComboBox *location = nil, *certificate = nil;
+    std::string locationFor;  // LoTW: the profile (lastLocationKey) the Station Location and certificate were offered for
     NSButton *includeDone = nil, *selectionOnly = nil, *upload = nil, *stop = nil;
     intptr_t buffer = 0;
     std::vector<adif::UploadItem> items;  // model rows
@@ -75,9 +76,9 @@ std::string tqslPath() {
     return "";
 }
 
-// TQSL's Station Locations, from station_data in its folder: $TQSLDIR, else ~/.tqsl
-// (tqsllib's tqsl_init, see adif_qsl.h); older Mac builds used Application Support.
-std::vector<adif::TqslLocation> tqslStationData(std::string *file = nullptr) {
+// TQSL's folder: $TQSLDIR, else ~/.tqsl (tqsllib's tqsl_init, see adif_qsl.h); older Mac builds
+// used Application Support. The first of these holding `file` gives it.
+NSData *tqslFile(const char *file, std::string *path = nullptr) {
     std::vector<std::string> dirs;
     if (const char *test = getenv("ADIFLINT_TEST_TQSL_DIR")) dirs.push_back(test);
     else {
@@ -85,35 +86,64 @@ std::vector<adif::TqslLocation> tqslStationData(std::string *file = nullptr) {
         dirs.push_back(ADIFStd(NSHomeDirectory()) + "/.tqsl");
         dirs.push_back(ADIFStd(NSHomeDirectory()) + "/Library/Application Support/TrustedQSL");
     }
-    for (const std::string &d : dirs) {
-        NSData *data = [NSData dataWithContentsOfFile:ADIFString(d + "/station_data")];
-        if (!data) continue;
-        if (file) *file = d + "/station_data";
-        return adif::parseStationData(std::string((const char *)data.bytes, data.length));
-    }
-    return {};
+    for (const std::string &d : dirs)
+        if (NSData *data = [NSData dataWithContentsOfFile:ADIFString(d + "/" + file)]) {
+            if (path) *path = d + "/" + file;
+            return data;
+        }
+    return nil;
 }
 
-// The Station Location last used for LoTW with the chosen New QSO profile, or with none: a
-// setting per profile (its name in hex, as names may hold any character).
-std::string lastLocationKey() {
+// TQSL's Station Locations, from station_data in its folder.
+std::vector<adif::TqslLocation> tqslStationData(std::string *file = nullptr) {
+    NSData *data = tqslFile("station_data", file);
+    return data ? adif::parseStationData(std::string((const char *)data.bytes, data.length)) : std::vector<adif::TqslLocation>();
+}
+
+// The callsigns of TQSL's certificates, from certs/user in its folder (certificates only: the
+// private keys are in keys/, which is never read).
+std::vector<std::string> tqslCertificates(std::string *file = nullptr) {
+    NSData *data = tqslFile("certs/user", file);
+    return data ? adif::tqslCertificateCalls(std::string_view((const char *)data.bytes, data.length)) : std::vector<std::string>();
+}
+
+const adif::StationProfile *chosenProfile(std::vector<adif::StationProfile> &profiles) {
     NSInteger p = station::chosenProfile();
-    std::vector<adif::StationProfile> profiles = station::profiles();
-    if (p < 1 || (size_t)p > profiles.size()) return "tqslLocation";
-    std::string key = "tqslLocation.";
-    for (unsigned char c : profiles[(size_t)p - 1].name) {
+    profiles = station::profiles();
+    return p >= 1 && (size_t)p <= profiles.size() ? &profiles[(size_t)p - 1] : nullptr;
+}
+
+// What was last used for LoTW with the chosen New QSO profile, or with none: a setting per
+// profile (its name in hex, as names may hold any character). `what`: tqslLocation or tqslCall.
+std::string lastKey(const char *what) {
+    std::vector<adif::StationProfile> profiles;
+    const adif::StationProfile *p = chosenProfile(profiles);
+    if (!p) return what;
+    std::string key = std::string(what) + ".";
+    for (unsigned char c : p->name) {
         static const char kHex[] = "0123456789abcdef";
         key += kHex[c >> 4], key += kHex[c & 15];
     }
     return key;
 }
+std::string lastLocationKey() { return lastKey("tqslLocation"); }
 
-// The Station Location to offer: the chosen profile's own, else the one last used with it.
+// The Station Location and certificate callsign to offer: the chosen profile's own, else the ones last used with it.
 std::string offeredLocation() {
-    NSInteger p = station::chosenProfile();
-    std::vector<adif::StationProfile> profiles = station::profiles();
-    if (p >= 1 && (size_t)p <= profiles.size() && !profiles[(size_t)p - 1].tqslLocation.empty()) return profiles[(size_t)p - 1].tqslLocation;
-    return setting(lastLocationKey());
+    std::vector<adif::StationProfile> profiles;
+    const adif::StationProfile *p = chosenProfile(profiles);
+    return p && !p->tqslLocation.empty() ? p->tqslLocation : setting(lastLocationKey());
+}
+std::string offeredCertificate() {
+    std::vector<adif::StationProfile> profiles;
+    const adif::StationProfile *p = chosenProfile(profiles);
+    return p && !p->tqslCall.empty() ? p->tqslCall : setting(lastKey("tqslCall"));
+}
+
+std::string certificateCall(Upload &u) {
+    std::string c = ADIFStd([u.certificate.stringValue stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet]);
+    for (char &ch : c) ch = (char)std::toupper((unsigned char)ch);
+    return c;
 }
 
 NSArray<NSString *> *tqslLocations() {
@@ -237,16 +267,26 @@ void plan(Upload &u, bool keepTicks = false) {
         std::vector<adif::TqslLocation> locations;
         const adif::TqslLocation *location = nullptr;
         std::map<int, adif::Record> recordOf;
-        std::string stationData;
+        std::string stationData, certificateFile, certificate;
+        std::vector<std::string> certificates;
         if (u.service == adif::UploadService::LoTW) {
             locations = tqslStationData(&stationData);
+            certificates = tqslCertificates(&certificateFile);
             [u.location removeAllItems];
             for (const adif::TqslLocation &l : locations) [u.location addItemWithObjectValue:ADIFString(l.name)];
-            // Offered again when New QSO's profile changes, so each profile signs with its own location.
+            // The certificates TQSL holds, and the callsigns its locations name.
+            std::set<std::string> calls(certificates.begin(), certificates.end());
+            for (const adif::TqslLocation &l : locations)
+                if (std::string c = ADIFStd(ADIFString(l.get("CALL")).uppercaseString); !c.empty() && c != "NONE") calls.insert(c);
+            [u.certificate removeAllItems];
+            for (const std::string &c : calls) [u.certificate addItemWithObjectValue:ADIFString(c)];
+            // Offered again when New QSO's profile changes, so each profile signs with its own location and certificate.
             if (u.location.stringValue.length == 0 || u.locationFor != lastLocationKey()) {
                 u.location.stringValue = ADIFString(offeredLocation());
+                u.certificate.stringValue = ADIFString(offeredCertificate());
                 u.locationFor = lastLocationKey();
             }
+            certificate = certificateCall(u);
             std::string chosen = ADIFStd(u.location.stringValue);
             for (const adif::TqslLocation &l : locations)
                 if (adif::equalsNoCase(l.name, chosen)) location = &l;
@@ -262,12 +302,12 @@ void plan(Upload &u, bool keepTicks = false) {
         for (adif::UploadItem &i : adif::uploadItems(text, r.model, u.service)) {
             if (u.selectionOnly.state == NSControlStateValueOn && !sel.count(i.group)) continue;
             if (location && i.problem.empty() && !i.done && !i.skip) {
-                std::string why = adif::lotwLocationProblem(recordOf[i.group], *location);
+                std::string why = adif::lotwLocationProblem(recordOf[i.group], *location, certificate);
                 if (!why.empty()) {
                     ++refused;
                     i.problem = trf("TQSL would refuse it: {why}", {{"why", why}});
                     for (const adif::TqslLocation &l : locations)
-                        if (&l != location && adif::lotwLocationProblem(recordOf[i.group], l).empty()) {
+                        if (&l != location && adif::lotwLocationProblem(recordOf[i.group], l, certificate).empty()) {
                             i.problem += "; " + trf("it matches {location}", {{"location", l.name}});
                             ++elsewhere;
                             otherName = l.name;
@@ -320,12 +360,20 @@ void plan(Upload &u, bool keepTicks = false) {
                              {"file", ADIFStd(ADIFString(stationData).stringByAbbreviatingWithTildeInPath)}});
             severity = std::max(severity, 1);
         } else if (refused) {
-            st += " " + trf("{qsos} disagree with the Station Location {name} (call, grid, state, county or zones), so TQSL would refuse them",
-                            {{"qsos", plural(refused, "QSO")}, {"name", location->name}}) +
+            st += " " + trf(certificate.empty() ? "{qsos} disagree with the Station Location {name} (call, grid, state, county or zones), so TQSL would refuse them"
+                                                : "{qsos} disagree with the certificate {call} or the Station Location {name} (call, grid, state, county or zones), so TQSL would refuse them",
+                            {{"qsos", plural(refused, "QSO")}, {"name", location->name}, {"call", certificate}}) +
                   (elsewhere ? "; " + trf("{n} match {location}: upload those with that location",
                                           {{"n", std::to_string(elsewhere)}, {"location", elsewhere == refused ? otherName : tr("another location")}})
                              : "") +
                   ".";
+            severity = std::max(severity, 1);
+        }
+        if (u.service == adif::UploadService::LoTW && !certificate.empty() && !certificates.empty() &&
+            !std::binary_search(certificates.begin(), certificates.end(), certificate)) {
+            st += " " + trf("TQSL has no certificate for {call} ({certificates} in {file}).",
+                            {{"call", certificate}, {"certificates", plural(certificates.size(), "certificate")},
+                             {"file", ADIFStd(ADIFString(certificateFile).stringByAbbreviatingWithTildeInPath)}});
             severity = std::max(severity, 1);
         }
         [u.w setStatus:ADIFString(st) severity:severity];
@@ -561,6 +609,8 @@ void startUpload(Upload &u) {
                     return;
                 }
                 setSetting(lastLocationKey(), loc);
+                std::string call = certificateCall(u);
+                setSetting(lastKey("tqslCall"), call);
                 std::string file = adif::uploadFile(text, r.model, groups, ADIFLINT_VERSION, utcNow("%Y%m%d %H%M%S"));
                 NSString *tmp = [NSTemporaryDirectory()
                     stringByAppendingPathComponent:[NSString stringWithFormat:@"adiflint-lotw-%@.adi", [NSUUID UUID].UUIDString]];
@@ -573,6 +623,8 @@ void startUpload(Upload &u) {
                 [u.w setStatus:ADIFString(trf("TQSL is signing and uploading {qsos}...", {{"qsos", plural(groups.size(), "QSO")}})) severity:-1];
                 // -x batch, -d no date dialog, -u upload, -a compliant: sign valid QSOs, skip duplicates and out-of-range ones.
                 NSMutableArray *args = [@[ @"-x", @"-d", @"-u", @"-a", @"compliant", @"-l", ADIFString(loc) ] mutableCopy];
+                // -c: sign with this callsign's certificate (and the location's DXCC entity) in place of the location's callsign.
+                if (!call.empty()) [args addObjectsFromArray:@[ @"-c", ADIFString(call) ]];
                 if (NSString *pw = ADIFTqslPassword()) [args addObjectsFromArray:@[ @"-p", pw ]];  // TQSL's documented -p
                 [args addObject:tmp];
                 runTqsl(tq, args, &u,
@@ -655,9 +707,16 @@ void openUpload(adif::UploadService s) {
             u.location.stringValue = ADIFString(offeredLocation());
             u.locationFor = lastLocationKey();
             u.location.placeholderString = T(@"as named in TQSL");
+            u.location.identifier = @"lotw.location";
             ADIFOnAction(u.location, ^{ plan(*pu, true); });
-            [w addOptionRow:@[ ADIFLabel(@"Station Location:"), u.location,
-                               ADIFLabel(@"(TQSL signs with this location's callsign certificate)") ]];
+            [w addOptionRow:@[ ADIFLabel(@"Station Location:"), u.location ]];
+            u.certificate = ADIFComboBox(@[], 150);
+            u.certificate.stringValue = ADIFString(offeredCertificate());
+            u.certificate.placeholderString = T(@"the location's call");
+            u.certificate.identifier = @"lotw.certificate";
+            ADIFOnAction(u.certificate, ^{ plan(*pu, true); });
+            [w addOptionRow:@[ ADIFLabel(@"Certificate:"), u.certificate,
+                               ADIFLabel(@"(the callsign certificate TQSL signs with, if not the location's own)") ]];
         }
         u.includeDone = ADIFCheckbox(@"Also list QSOs already sent", NO);
         u.selectionOnly = ADIFCheckbox(@"Only the records in the editor selection", NO);

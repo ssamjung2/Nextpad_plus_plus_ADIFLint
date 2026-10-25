@@ -87,6 +87,7 @@ void editorShow() {
         std::vector<std::string> row{p.name};
         for (const char *f : kProfileColumns) row.push_back(p.get(f));
         row.push_back(p.tqslLocation);
+        row.push_back(p.tqslCall);
         rows.push_back(row);
         keys.push_back(p.name);
     }
@@ -108,6 +109,11 @@ void editorEdit(NSInteger row, size_t column, NSString *typed) {
         if (problem.empty()) p.name = v;
     } else if (column == 9) {
         p.tqslLocation = v;
+    } else if (column == 10) {
+        for (char &c : v) c = (char)std::toupper((unsigned char)c);
+        if (v.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/") != std::string::npos)
+            problem = tr("A certificate is named by its callsign, such as KW9D.");
+        else p.tqslCall = v;
     } else {
         std::string field = kProfileColumns[column - 1];
         if (field == "STATION_CALLSIGN" || field == "OPERATOR" || field == "MY_STATE")
@@ -156,12 +162,14 @@ std::vector<adif::StationProfile> profiles() {
 
 void cmdStationProfiles() {
     if (!ed.w) {
-        ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"Station Profiles" size:NSMakeSize(980, 420) headline:NO];
+        ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"Station Profiles" size:NSMakeSize(1170, 420) headline:NO];
         ed.w = w;
-        std::vector<ADIFToolColumn> cols{{"name", "Profile", 120}};
+        std::vector<ADIFToolColumn> cols{{"name", "Profile", 110}};
         const char *titles[] = {N_("Callsign"), N_("Operator"), N_("Grid"), N_("State"), N_("County"), N_("Rig"), N_("Antenna"), N_("Power (W)")};
-        for (size_t i = 0; i < 8; ++i) cols.push_back({kProfileColumns[i], titles[i], i >= 5 && i <= 6 ? 110.0 : 80.0});
-        cols.push_back({"tqsl", "TQSL Location", 120});
+        const CGFloat widths[] = {72, 72, 64, 48, 72, 100, 100, 72};  // each also gets the table's 17-point spacing
+        for (size_t i = 0; i < 8; ++i) cols.push_back({kProfileColumns[i], titles[i], widths[i]});
+        cols.push_back({"tqsl", "TQSL Location", 110});
+        cols.push_back({"tqslcall", "TQSL Certificate", 112});
         [w setColumns:cols checkboxes:NO sortable:NO];
         std::vector<size_t> editable;
         for (size_t i = 0; i < cols.size(); ++i) editable.push_back(i);

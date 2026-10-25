@@ -309,7 +309,7 @@ std::string tqslExitMeaning(int code) {
         case 1: return tr("cancelled");
         case 2: return tr("rejected by LoTW");
         case 3: return tr("unexpected response from the TQSL server");
-        case 4: return tr("TQSL error");
+        case 4: return tr("TQSL error (such as no valid certificate for that callsign and DXCC entity)");
         case 5: return tr("TQSLlib error");
         case 6: return tr("unable to open the input file");
         case 7: return tr("unable to open the output file");
@@ -317,6 +317,11 @@ std::string tqslExitMeaning(int code) {
         case 9: return tr("some QSOs were uploaded; others were ignored as duplicates or outside the date range");
         case 10: return tr("command syntax error");
         case 11: return tr("cannot reach LoTW (no network?)");
+        // 12 to 15: TQSL's tqslapp.h (master, read 2026-10-25); ARRL's help page lists 0 to 11.
+        case 12: return tr("unknown TQSL error");
+        case 13: return tr("TQSL is busy: its uploads database is in use");
+        case 14: return tr("the QSOs were already signed and uploaded");
+        case 15: return tr("wrong certificate password");
         default: return trf("TQSL exit code {code}", {{"code", std::to_string(code)}});
     }
 }

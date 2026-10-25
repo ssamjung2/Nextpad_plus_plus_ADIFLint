@@ -80,6 +80,7 @@ std::vector<StationProfile> parseProfiles(std::string_view text) {
             std::string n = upper(name);
             if (n == "APP_ADIFLINT_PROFILE") p.name = trimmed(value);
             else if (n == "APP_ADIFLINT_TQSL") p.tqslLocation = trimmed(value);
+            else if (n == "APP_ADIFLINT_TQSL_CALL") p.tqslCall = upper(trimmed(value));
             else if (!value.empty()) p.fields.emplace_back(n, value);
         }
         if (!p.name.empty()) out.push_back(std::move(p));
@@ -99,6 +100,7 @@ std::string profilesText(const std::vector<StationProfile> &profiles, std::strin
         FieldList fields{{"APP_ADIFLINT_PROFILE", p.name}};
         fields.insert(fields.end(), p.fields.begin(), p.fields.end());
         if (!p.tqslLocation.empty()) fields.emplace_back("APP_ADIFLINT_TQSL", p.tqslLocation);
+        if (!p.tqslCall.empty()) fields.emplace_back("APP_ADIFLINT_TQSL_CALL", p.tqslCall);
         out += buildRecord(fields, Layout::RecordPerLine, "\n", LengthUnit::Characters, true).text;
     }
     return out;
