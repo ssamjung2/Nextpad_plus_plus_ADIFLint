@@ -6,6 +6,8 @@
 
 #import <Cocoa/Cocoa.h>
 
+#import "ToolWindow.h"
+
 #include <string>
 #include <utility>
 #include <vector>
@@ -16,6 +18,7 @@ struct ADIFQsoRow {
     std::string description;           // tooltip
     std::vector<std::string> choices;  // values to offer (empty: free text)
     bool required = false;
+    ADIFSuggestBlock suggest = nil;    // values to offer as you type (a search), in place of `choices`
 };
 
 @interface ADIFNewQsoPanel : NSObject <NSWindowDelegate, NSTextFieldDelegate, NSComboBoxDelegate>
@@ -33,6 +36,8 @@ struct ADIFQsoRow {
 // then "Edit Profiles..." (onStationChosen gets -1 for that).
 @property(nonatomic, copy) void (^onStationChosen)(NSInteger index);
 - (void)setStations:(NSArray<NSString *> *)names selected:(NSInteger)index;
+// Beside the Station popup: what the station writes, its key fields ("KW9D · EN52wa · 5 W · KX2").
+- (void)setStationSummary:(NSString *)text;
 // Spot when logging: the station worked on the DX cluster, yourself on pota.app. The boxes stay as
 // you leave them; onSpotChanged when either is ticked or unticked.
 @property(nonatomic) BOOL spotCluster;
@@ -56,7 +61,9 @@ struct ADIFQsoRow {
 - (void)setSummary:(const std::string &)text severity:(int)severity;
 - (void)setTarget:(const std::string &)documentName;
 - (void)setNote:(NSString *)note;  // e.g. station fields copied from the last record
-- (void)setLookupInfo:(NSString *)text severity:(int)severity;   // what the lookup found, distance, park history
+// What the lookup says, a fact a row ([name, fact] or [name, fact, more for its tooltip]), and a
+// message under them (a callbook's notice or error; nil none) in its severity's colour.
+- (void)setLookupFacts:(NSArray<NSArray<NSString *> *> *)facts message:(NSString *)message severity:(int)severity;
 - (BOOL)hasField:(const std::string &)name;
 - (void)refreshTime;  // put the current UTC date and time in QSO_DATE/TIME_ON
 - (void)focusField:(const std::string &)name;

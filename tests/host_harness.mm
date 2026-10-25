@@ -378,9 +378,18 @@ static NSStackView *lookupRow(NSWindow *w) {
     }
     return nil;
 }
+// New QSO's lookup facts, "Name: fact" each, " | " between, then its message.
 static std::string lookupInfo(NSWindow *w) {
-    NSTextField *f = (NSTextField *)viewWithIdentifier(w.contentView, @"qso.lookupInfo");
-    return f ? std::string(f.stringValue.UTF8String) : std::string("(no lookup line)");
+    NSGridView *g = (NSGridView *)viewWithIdentifier(w.contentView, @"qso.facts");
+    if (!g) return "(no lookup facts)";
+    std::string out;
+    for (NSInteger r = 0; r < g.numberOfRows; ++r) {
+        NSTextField *name = (NSTextField *)[g cellAtColumnIndex:0 rowIndex:r].contentView, *value = (NSTextField *)[g cellAtColumnIndex:1 rowIndex:r].contentView;
+        std::string n = [name isKindOfClass:NSTextField.class] ? name.stringValue.UTF8String : "";
+        std::string v = [value isKindOfClass:NSTextField.class] ? value.stringValue.UTF8String : "";
+        out += (out.empty() ? "" : " | ") + (n.empty() ? v : n + ": " + v);
+    }
+    return out;
 }
 
 static std::string utcDate() {
@@ -1982,8 +1991,9 @@ int main(int argc, char **argv) {
                 callField.stringValue = @"K1AE";
                 [[NSNotificationCenter defaultCenter] postNotificationName:NSControlTextDidChangeNotification object:callField];
                 pump(0.4);
-                CHECK([summaryLabel(qw2.contentView).stringValue containsString:@"K1AE: 1 QSO in 1 other log"],
-                      "New QSO shows worked before: %s", summaryLabel(qw2.contentView).stringValue.UTF8String);
+                CHECK(lookupInfo(qw2).find("Worked before: ") != std::string::npos && lookupInfo(qw2).find("1 QSO in 1 other log") != std::string::npos &&
+                          ![summaryLabel(qw2.contentView).stringValue containsString:@"other log"],
+                      "New QSO shows worked before among its facts, not in its summary: %s", lookupInfo(qw2).c_str());
                 [qw2 orderOut:nil];
             }
             for (NSWindow *w in @[ tw ?: NSNull.null, sw2 ?: NSNull.null, aw ?: NSNull.null, dw ?: NSNull.null ])
@@ -2059,7 +2069,7 @@ int main(int argc, char **argv) {
                 if (qw4) {
                     pump(0.8);  // the lookup line (country, the park's history) fills in after a pause
                     std::string spotInfo = lookupInfo(qw4);
-                    CHECK(spotInfo.find("UNITED STATES OF AMERICA") == 0 && spotInfo.find("US-12593: a new park!") != std::string::npos,
+                    CHECK(spotInfo.find("Country: UNITED STATES OF AMERICA") == 0 && spotInfo.find("Reference: US-12593: a new park!") != std::string::npos,
                           "a spot runs the lookup: %s", spotInfo.c_str());
                     snapshot(qw4, "new-qso-spot");
                 }
@@ -2671,19 +2681,22 @@ int main(int argc, char **argv) {
                 [[NSNotificationCenter defaultCenter] postNotificationName:NSControlTextDidChangeNotification object:qsoControl(qw, @"CALL")];
                 for (int i = 0; i < 40 && lookupInfo(qw).find("km") == std::string::npos; ++i) pump(0.05);
                 std::string info = lookupInfo(qw);
-                CHECK(info.find("FEDERAL REPUBLIC OF GERMANY (DXCC 230, CQ 14, ITU 28)") != std::string::npos &&
-                          info.find(" km at ") != std::string::npos,
-                      "lookup line: %s", info.c_str());
+                CHECK(info.find("Country: FEDERAL REPUBLIC OF GERMANY \u00B7 EU \u00B7 CQ 14 \u00B7 ITU 28 \u00B7 DXCC 230") != std::string::npos &&
+                          info.find("Distance: ") != std::string::npos && info.find(" km at ") != std::string::npos &&
+                          info.find("(long path ") != std::string::npos && info.find("Local time: ") != std::string::npos && info.find("(UTC+1)") != std::string::npos,
+                      "the lookup's facts: %s", info.c_str());
                 CHECK([qsoControl(qw, @"DXCC").stringValue isEqualToString:@"230"] && [qsoControl(qw, @"CONT").stringValue isEqualToString:@"EU"],
                       "empty fields filled from the prefix");
                 [qw.contentView layoutSubtreeIfNeeded];
-                NSTextField *infoField = (NSTextField *)viewWithIdentifier(qw.contentView, @"qso.lookupInfo");
-                NSRect need = [infoField.cell titleRectForBounds:NSMakeRect(0, 0, NSWidth(infoField.bounds), 1000)];
-                NSSize text = [infoField.attributedStringValue boundingRectWithSize:NSMakeSize(NSWidth(need), 1000)
-                                                                            options:NSStringDrawingUsesLineFragmentOrigin]
-                                  .size;
-                CHECK(text.height <= NSHeight(infoField.bounds) + 1, "the lookup line is not cut off (%.0f of %.0f points)", text.height,
-                      NSHeight(infoField.bounds));
+                {  // each fact inside the window, whole in its tooltip
+                    bool inside = true, tips = true;
+                    int n = 0;
+                    for (NSTextField *f; (f = (NSTextField *)viewWithIdentifier(qw.contentView, [NSString stringWithFormat:@"qso.fact.%d", n])); ++n) {
+                        inside &= NSMaxX([f convertRect:f.bounds toView:nil]) <= NSWidth(qw.contentView.bounds) - 11;
+                        tips &= [f.toolTip hasPrefix:f.stringValue];
+                    }
+                    CHECK(n >= 4 && inside && tips, "the lookup's %d facts inside the window, each whole in its tooltip", n);
+                }
                 [qw.contentView layoutSubtreeIfNeeded];
                 CHECK(overlaps(qw.contentView) == 0, "New QSO with the lookup row does not overlap (%d)", overlaps(qw.contentView));
                 snapshot(qw, "new-qso-lookup");
@@ -3717,11 +3730,10 @@ int main(int argc, char **argv) {
                 qsoControl(qwl, @"CALL").stringValue = call;
                 [[NSNotificationCenter defaultCenter] postNotificationName:NSControlTextDidChangeNotification object:qsoControl(qwl, @"CALL")];
                 pump(0.9);  // the lookup runs 0.6 s after typing
-                NSView *info = viewWithIdentifier(qwl.contentView, @"qso.lookupInfo");
-                return std::string([info isKindOfClass:NSTextField.class] ? ((NSTextField *)info).stringValue.UTF8String : "");
+                return lookupInfo(qwl);
             };
             std::string recent = lookupLine(@"K1AB"), old = lookupLine(@"K1PRK"), none = lookupLine(@"W9ZZZ");
-            CHECK(recent.find("LoTW user (last upload 2026-09-30)") != std::string::npos &&
+            CHECK(recent.find("QSL: LoTW user (last upload 2026-09-30)") != std::string::npos &&
                       old.find("LoTW: last upload 2019-01-02") != std::string::npos && none.find("LoTW") == std::string::npos,
                   "LoTW in the lookup line: %s | %s | %s", recent.c_str(), old.c_str(), none.c_str());
             [qwl orderOut:nil];
@@ -4507,6 +4519,34 @@ int main(int argc, char **argv) {
                       [[NSFileManager defaultManager] fileExistsAtPath:[tmp stringByAppendingPathComponent:@"ADIFLint-pota-parks.csv"]],
                   "POTA's park list downloaded (the test file's 7 parks) into the config folder: %s", potaStatus.c_str());
             doneWithSettings();
+            {  // Start Activation finds a park by name as you type; choosing one puts its reference after those before it
+                run("Start Activation...");
+                NSWindow *aw = windowTitled(@"Start Activation");
+                NSComboBox *refs = aw ? (NSComboBox *)viewWithIdentifier(aw.contentView, @"activation.refs") : nil;
+                NSString *was = refs.stringValue;
+                auto type = [&](NSString *text) {
+                    refs.stringValue = text;
+                    [[NSNotificationCenter defaultCenter] postNotificationName:NSControlTextDidChangeNotification object:refs];
+                    pump(0.05);
+                    return [refs.dataSource numberOfItemsInComboBox:refs];
+                };
+                auto item = [&](NSInteger i) { return (NSString *)[refs.dataSource comboBox:refs objectValueForItemAtIndex:i]; };
+                NSInteger all = type(@"test park");
+                NSString *last = all ? item(all - 1) : @"";
+                NSString *completed = [refs.dataSource comboBox:refs completedString:@"us-200"];
+                NSInteger north = type(@"US-7929, north");
+                NSString *first = north ? item(0) : @"";
+                [refs selectItemAtIndex:0];
+                [[NSNotificationCenter defaultCenter] postNotificationName:NSComboBoxSelectionDidChangeNotification object:refs];
+                pump(0.1);
+                CHECK(refs && all == 7 && [last hasPrefix:@"US-2003  Test Park Closed"] && [last hasSuffix:@"(inactive)"] && north == 1 &&
+                          [first isEqualToString:@"US-2001  Test Park North (US-NJ)"] && [refs.stringValue isEqualToString:@"US-7929,US-2001"] &&
+                          [completed isEqualToString:@"US-2001"],
+                      "a park by name as you type: %ld for \"test park\" (the closed one last: %s), %s chosen: %s; \"us-200\" completes to %s",
+                      (long)all, last.UTF8String, first.UTF8String, refs.stringValue.UTF8String, completed.UTF8String);
+                type(was);
+                [aw orderOut:nil];
+            }
             std::string mapDoc = H.doc;  // and an activation of US-2004
             H.doc += "<CALL:5>W9ACT <QSO_DATE:8>20261010 <TIME_ON:4>1300 <BAND:3>40m <MODE:2>CW <MY_POTA_REF:7>US-2004 <EOR>\n";
             notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
@@ -5940,6 +5980,12 @@ int main(int argc, char **argv) {
                           [spotPota.toolTip containsString:@"POTA activation"] && spotLine.hidden,
                       "New QSO's spot boxes: off at first; the cluster's can (connected), pota.app's can't (not activating): '%s'",
                       spotPota.toolTip.UTF8String);
+                NSTextField *stationLine = (NSTextField *)viewWithIdentifier(qwLog.contentView, @"qso.station.summary");
+                NSView *stationPopup = viewWithIdentifier(qwLog.contentView, @"qso.station");
+                CHECK([stationLine.stringValue isEqualToString:@"KW9D \u00B7 EN52wa \u00B7 5 W \u00B7 Elecraft T1"] &&
+                          NSMinY([stationPopup convertRect:stationPopup.bounds toView:nil]) >
+                              NSMinY([qsoControl(qwLog, @"CALL") convertRect:qsoControl(qwLog, @"CALL").bounds toView:nil]),
+                      "New QSO's first row: the station's profile and what it writes (%s)", stationLine.stringValue.UTF8String);
                 logIt();
                 CHECK(dxSent() == 0 && spotLine.hidden, "logged with the boxes off: nothing spotted, nothing said");
                 setBox(spotCluster, true);

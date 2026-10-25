@@ -29,8 +29,9 @@ static NSColor *severityColor(int severity) { return severity < 0 ? NSColor.seco
     NSTextField *_spotStatus;
     NSGridView *_spotGrid;
     NSLayoutConstraint *_logAfterGrid, *_logAfterStatus;  // one is active: the status line shown or not
-    NSTextField *_lookupInfo;
-    NSStackView *_lookupRow;
+    NSGridView *_facts;  // what the lookup says, a fact a row
+    NSStackView *_lookupRow, *_stationRow;
+    NSTextField *_stationSummary;
     NSPopUpButton *_lookup, *_station;
     NSTimer *_timer;
     std::vector<ADIFQsoRow> _rows;
@@ -119,21 +120,32 @@ static NSColor *severityColor(int severity) { return severity < 0 ? NSColor.seco
     _lookup.action = @selector(lookupChanged:);
     _lookup.toolTip = T(@"Look the call up as you type and fill the fields that are still empty: country and zones from the "
                       @"call's prefix, or name, QTH, state, grid and more from a callbook (accounts in Settings)");
-    // Its own line under the popup, two lines at most: country, distance and the park's history fit.
-    _lookupInfo = [NSTextField wrappingLabelWithString:@""];
-    _lookupInfo.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
-    _lookupInfo.textColor = NSColor.secondaryLabelColor;
-    _lookupInfo.maximumNumberOfLines = 2;
-    _lookupInfo.cell.truncatesLastVisibleLine = YES;
-    _lookupInfo.identifier = @"qso.lookupInfo";
-    _lookupInfo.translatesAutoresizingMaskIntoConstraints = NO;
+    // Under the popup, what the lookup says, a fact a row: its name on the left, the fact (one line,
+    // whole in its tooltip) on the right.
+    _facts = [NSGridView gridViewWithNumberOfColumns:2 rows:0];
+    _facts.rowSpacing = 3;
+    _facts.columnSpacing = 8;
+    _facts.rowAlignment = NSGridRowAlignmentFirstBaseline;
+    [_facts columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
+    _facts.identifier = @"qso.facts";
+    _facts.translatesAutoresizingMaskIntoConstraints = NO;
     _station = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     _station.target = self;
     _station.action = @selector(stationChanged:);
     _station.toolTip = T(@"Your station's fields for the QSOs you log: from the log's last record, or a station profile");
     [self setStations:@[] selected:0];
-    _lookupRow = [NSStackView stackViewWithViews:@[ [NSTextField labelWithString:T(@"Look up:")], _lookup,
-                                                    [NSTextField labelWithString:T(@"Station:")], _station ]];
+    // The station first: its profile, and what it writes (your call, grid, power, rig, park).
+    _stationSummary = [NSTextField labelWithString:@""];
+    _stationSummary.textColor = NSColor.secondaryLabelColor;
+    _stationSummary.lineBreakMode = NSLineBreakByTruncatingTail;
+    _stationSummary.identifier = @"qso.station.summary";
+    [_stationSummary setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+    _station.identifier = @"qso.station";
+    _stationRow = [NSStackView stackViewWithViews:@[ [NSTextField labelWithString:T(@"Station:")], _station, _stationSummary ]];
+    _stationRow.spacing = 8;
+    _stationRow.alignment = NSLayoutAttributeCenterY;
+    _stationRow.translatesAutoresizingMaskIntoConstraints = NO;
+    _lookupRow = [NSStackView stackViewWithViews:@[ [NSTextField labelWithString:T(@"Look up:")], _lookup ]];
     _lookupRow.spacing = 8;
     _lookupRow.alignment = NSLayoutAttributeCenterY;
     _lookupRow.translatesAutoresizingMaskIntoConstraints = NO;
@@ -161,7 +173,7 @@ static NSColor *severityColor(int severity) { return severity < 0 ? NSColor.seco
     [_spotStatus setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
                                           forOrientation:NSLayoutConstraintOrientationHorizontal];
 
-    for (NSView *v in @[ _target, _scroll, _currentTime, _lookupRow, _lookupInfo, _note, _summary, _spotGrid, _spotStatus, _log, _close, _fields, _spots, _contest ])
+    for (NSView *v in @[ _target, _stationRow, _scroll, _currentTime, _lookupRow, _facts, _note, _summary, _spotGrid, _spotStatus, _log, _close, _fields, _spots, _contest ])
         [root addSubview:v];
     const CGFloat m = 12;
     _logAfterGrid = [_log.topAnchor constraintEqualToAnchor:_spotGrid.bottomAnchor constant:8];
@@ -172,7 +184,10 @@ static NSColor *severityColor(int severity) { return severity < 0 ? NSColor.seco
         [_target.topAnchor constraintEqualToAnchor:root.topAnchor constant:m],
         [_target.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
         [_target.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-m],
-        [_scroll.topAnchor constraintEqualToAnchor:_target.bottomAnchor constant:8],
+        [_stationRow.topAnchor constraintEqualToAnchor:_target.bottomAnchor constant:8],
+        [_stationRow.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
+        [_stationRow.trailingAnchor constraintLessThanOrEqualToAnchor:root.trailingAnchor constant:-m],
+        [_scroll.topAnchor constraintEqualToAnchor:_stationRow.bottomAnchor constant:8],
         [_scroll.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
         [_scroll.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-m],
         _scrollHeight,
@@ -185,10 +200,10 @@ static NSColor *severityColor(int severity) { return severity < 0 ? NSColor.seco
         [_lookupRow.topAnchor constraintEqualToAnchor:_currentTime.bottomAnchor constant:6],
         [_lookupRow.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
         [_lookupRow.trailingAnchor constraintLessThanOrEqualToAnchor:root.trailingAnchor constant:-m],
-        [_lookupInfo.topAnchor constraintEqualToAnchor:_lookupRow.bottomAnchor constant:4],
-        [_lookupInfo.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
-        [_lookupInfo.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-m],
-        [_note.topAnchor constraintEqualToAnchor:_lookupInfo.bottomAnchor constant:6],
+        [_facts.topAnchor constraintEqualToAnchor:_lookupRow.bottomAnchor constant:6],
+        [_facts.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
+        [_facts.trailingAnchor constraintLessThanOrEqualToAnchor:root.trailingAnchor constant:-m],
+        [_note.topAnchor constraintEqualToAnchor:_facts.bottomAnchor constant:6],
         [_note.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
         [_note.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-m],
         [_summary.topAnchor constraintEqualToAnchor:_note.bottomAnchor constant:6],
@@ -233,7 +248,12 @@ static NSColor *severityColor(int severity) { return severity < 0 ? NSColor.seco
 
 - (NSTextField *)makeControlForRow:(const ADIFQsoRow &)row {
     NSTextField *control;
-    if (!row.choices.empty()) {
+    if (row.suggest) {
+        NSComboBox *c = [[NSComboBox alloc] initWithFrame:NSZeroRect];
+        c.delegate = self;
+        ADIFSuggestAsYouType(c, row.suggest);
+        control = c;
+    } else if (!row.choices.empty()) {
         NSComboBox *c = [[NSComboBox alloc] initWithFrame:NSZeroRect];
         c.completes = YES;
         c.numberOfVisibleItems = 14;
@@ -382,6 +402,11 @@ static NSColor *severityColor(int severity) { return severity < 0 ? NSColor.seco
     _logAfterStatus.active = !_spotStatus.hidden;
 }
 
+- (void)setStationSummary:(NSString *)text {
+    _stationSummary.stringValue = text ?: @"";
+    _stationSummary.toolTip = text.length ? text : nil;
+}
+
 - (void)setNote:(NSString *)note {
     _note.stringValue = note ?: @"";
 }
@@ -410,10 +435,32 @@ static NSColor *severityColor(int severity) { return severity < 0 ? NSColor.seco
     [_lookup selectItemAtIndex:source >= 0 && source < 4 ? source : 0];
 }
 
-- (void)setLookupInfo:(NSString *)text severity:(int)severity {
-    _lookupInfo.stringValue = text ?: @"";
-    _lookupInfo.toolTip = text;
-    _lookupInfo.textColor = severityColor(severity);
+- (void)setLookupFacts:(NSArray<NSArray<NSString *> *> *)facts message:(NSString *)message severity:(int)severity {
+    for (NSView *v in [_facts.subviews copy]) [v removeFromSuperview];  // a row removed keeps its views
+    while (_facts.numberOfRows > 0) [_facts removeRowAtIndex:0];
+    auto label = [](NSString *text, NSColor *colour) {
+        NSTextField *t = [NSTextField labelWithString:text ?: @""];
+        t.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        t.textColor = colour;
+        t.lineBreakMode = NSLineBreakByTruncatingTail;
+        return t;
+    };
+    NSUInteger i = 0;
+    for (NSArray<NSString *> *f in facts) {
+        NSTextField *name = label(f[0], NSColor.secondaryLabelColor), *value = label(f.count > 1 ? f[1] : @"", NSColor.labelColor);
+        value.selectable = YES;
+        value.toolTip = f.count > 2 && f[2].length ? [NSString stringWithFormat:@"%@\n%@", value.stringValue, f[2]] : value.stringValue;
+        value.identifier = [NSString stringWithFormat:@"qso.fact.%lu", (unsigned long)i++];
+        [value setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+        [_facts addRowWithViews:@[ name, value ]];
+    }
+    if (message.length) {
+        NSTextField *note = label(message, severityColor(severity));
+        note.toolTip = message;
+        note.identifier = @"qso.fact.message";
+        [note setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+        [_facts addRowWithViews:@[ [NSGridCell emptyContentView], note ]];
+    }
 }
 
 - (BOOL)hasField:(const std::string &)name {

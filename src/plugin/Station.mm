@@ -6,6 +6,7 @@
 #import "Network.h"
 #import "PluginHost.h"
 #import "ToolWindow.h"
+#import "PotaParks.h"
 #include "adif_lint.h"
 #include "adif_programs.h"
 
@@ -425,7 +426,12 @@ void cmdStartActivation() {
         st.program = ADIFPopup(@[ @"POTA", @"WWFF", @"SOTA" ]);
         std::string last = setting("activationProgram");
         [st.program selectItemAtIndex:last == "WWFF" ? 1 : last == "SOTA" ? 2 : 0];
-        st.refs = ADIFTextField(@"e.g. US-7929, US-1234 for a two-fer", 260);
+        NSComboBox *refs = [[NSComboBox alloc] initWithFrame:NSZeroRect];  // POTA: a park found by name as you type
+        refs.placeholderString = T(@"e.g. US-7929, US-1234 for a two-fer, or a park's name");
+        [refs.widthAnchor constraintEqualToConstant:300].active = YES;
+        refs.identifier = @"activation.refs";
+        ADIFSuggestAsYouType(refs, ^(NSString *part) { return chosenProgram() == adif::Program::POTA ? ADIFParkSuggestions(part) : @[]; });
+        st.refs = refs;
         st.refs.stringValue = ADIFString(joined(activation().refs, ", "));
         [w addOptionRow:@[ ADIFLabel(@"Program:"), st.program, ADIFLabel(@"References:"), st.refs ]];
         st.profile = ADIFPopup(@[ @"Your Station (Settings)" ]);

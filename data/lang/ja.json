@@ -54,9 +54,10 @@
   "(choose a folder)": "(フォルダを選択)",
   "(choose a log)": "(ログを選択)",
   "(descending)": "(降順)",
-  "(home address; away now)": "(自宅住所。現在は移動中)",
+  "(from the callbook)": "(コールブックから)",
   "(import-only)": "(インポート専用)",
   "(in the file)": "(ファイル内)",
+  "(inactive)": "(無効)",
   "(more problems here)": "(ここに他の問題もあります)",
   "(none chosen)": "(未選択)",
   "(none)": "(なし)",
@@ -278,6 +279,7 @@
   "CQ zones": "CQ ゾーン",
   "CQ zones 1-40 (HB9HIL's hamradio-zones-geojson, MIT); approximate": "CQ ゾーン 1-40 (HB9HIL の hamradio-zones-geojson、MIT)。おおよその境界",
   "CQ zones:": "CQ ゾーン:",
+  "CQ {cq} · ITU {itu} · DXCC {dxcc}": "CQ {cq} · ITU {itu} · DXCC {dxcc}",
   "CQ {cq}, ITU {itu}": "CQ {cq}、ITU {itu}",
   "CREATED_TIMESTAMP must be 'YYYYMMDD HHMMSS' (15 characters, UTC).": "CREATED_TIMESTAMP は 'YYYYMMDD HHMMSS' (15 文字、UTC) でなければなりません。",
   "CSV": "CSV",
@@ -843,6 +845,7 @@
   "LoTW did not return a report. Check your LoTW username and password in Settings.": "LoTW から報告が返されませんでした。設定で LoTW のユーザー名とパスワードを確認してください。",
   "LoTW user (last upload {date})": "LoTW ユーザー (最後のアップロード {date})",
   "LoTW: last upload {date}": "LoTW: 最後のアップロード {date}",
+  "Local time": "現地時刻",
   "Location": "所在地",
   "Location:": "ロケーション:",
   "Locations:": "地域:",
@@ -1212,6 +1215,7 @@
   "QRZ.com returns only a few fields without an XML Logbook Data subscription.": "XML Logbook Data の購読がないと、QRZ.com が返すフィールドはわずかです。",
   "QRZ.com sent something unexpected": "QRZ.com から予期しないものが返されました",
   "QRZ.com: %s": "QRZ.com: %s",
+  "QSL": "QSL",
   "QSL Sync": "QSL 同期",
   "QSL Sync (Upload, Confirmations)...": "QSL 同期 (アップロード、確認)...",
   "QSL cards received": "受け取った QSL カード",
@@ -1381,6 +1385,7 @@
   "Sheet:": "シート:",
   "Shift by:": "ずらす量:",
   "Shift date and time": "日付と時刻をずらす",
+  "Short path {short}°, {distance}; long path {long}°, {far}. From {mine} to {theirs}.": "ショートパス {short}°、{distance}、ロングパス {long}°、{far}。{mine} から {theirs} まで。",
   "Show": "表示",
   "Show %@": "%@ を表示",
   "Show All": "すべて表示",
@@ -1595,6 +1600,7 @@
   "The aurora now, from NOAA SWPC's OVATION forecast (30 to 90 minutes ahead; fetched every 15 minutes while it shows): green where there is a chance of seeing it overhead, red where it is likely": "今のオーロラ、NOAA SWPCのOVATION予報(30〜90分先; 表示中は15分ごとに取得): 頭上に見える可能性がある所は緑、可能性が高い所は赤",
   "The band of dawn and dusk round the Earth, where low-band paths open (Style Options: when)": "地球を巡る夜明けと夕暮れの帯。ローバンドのパスが開く所 (スタイルオプション: 時刻)",
   "The build's directories didn't lead to the region's tiles.": "ビルドのディレクトリから、その地域のタイルにたどり着けませんでした。",
+  "The callbook's address is the station's home; it is away now (a portable call, or a park)": "コールブックの住所はその局の自宅です。今は移動中です (移動運用のコールサイン、またはパーク)",
   "The calls, references and DXCC entities you watch for: when one is spotted, it shows in My watch list, first among the spots, and under the bell": "注目しているコールサイン、リファレンス、DXCCエンティティ: いずれかがスポットされると、マイ注目リストに、スポットの先頭に、ベルの下に表示されます",
   "The calls, references and DXCC entities you watch, when spotted (Watch List... in Spots)": "注目しているコールサイン、リファレンス、DXCCエンティティのスポット(スポットの「注目リスト...」)",
   "The callsign whose reception reports PSKReporter gives: your own (Your Station) when empty, or another one: a club station, a portable call, or a friend's": "PSKReporter で受信レポートを取得するコールサイン: 空なら自分のもの (自局)、ほかにクラブ局、移動運用のコール、友人のコールなど",
@@ -1610,6 +1616,7 @@
   "The download wasn't POTA's park list.": "ダウンロードしたものは POTA の公園一覧ではありませんでした。",
   "The download wasn't POTA's park list; the old copy is kept.": "ダウンロードしたものは POTA の公園一覧ではなかったため、以前のものを残します。",
   "The email address of your Club Log account and an Application Password (Club Log: Settings > App Passwords), not your normal password. Club Log blocks programs that keep sending a wrong password, so uploads stop at the first sign-in error.": "Club Log アカウントのメールアドレスとアプリケーションパスワード (Club Log: Settings > App Passwords) で、通常のパスワードではありません。Club Log は誤ったパスワードを送り続けるプログラムを遮断するため、最初のサインインエラーでアップロードを止めます。",
+  "The entity's standard time from the country file: no daylight saving time, and a large country spans several zones": "国ファイルにあるそのエンティティの標準時: 夏時間は含まず、大きな国は複数のタイムゾーンにまたがります",
   "The file changed on the server (HTTP 412).": "サーバー上のファイルが変わりました (HTTP 412)。",
   "The file changed on the server while it was being read (HTTP 412).": "読み込み中にサーバー上のファイルが変わりました (HTTP 412)。",
   "The file declares ADIF {version}; these checks follow ADIF {spec}.": "ファイルは ADIF {version} を宣言していますが、このチェックは ADIF {spec} に従います。",
@@ -2007,7 +2014,7 @@
   "e.g. KW9D": "例: KW9D",
   "e.g. MY_GRIDSQUARE, or NAME, QTH": "例: MY_GRIDSQUARE、または NAME, QTH",
   "e.g. RST_SENT": "例: RST_SENT",
-  "e.g. US-7929, US-1234 for a two-fer": "例: US-7929, US-1234 (2 公園同時の場合)",
+  "e.g. US-7929, US-1234 for a two-fer, or a park's name": "例: ツーファーなら US-7929, US-1234、またはパークの名前",
   "e.g. ^73\\b": "例: ^73\\b",
   "eQSL": "eQSL",
   "eQSL built the file but its link was not found": "eQSL はファイルを作りましたが、そのリンクが見つかりませんでした",
@@ -2149,6 +2156,7 @@
   "not set": "未設定",
   "not worked": "未交信",
   "not worked, in {places}": "未交信、{places}",
+  "nothing set yet: Settings, Your Station, or a profile": "まだ未設定: 設定の自局、またはプロファイル",
   "nothing to add": "追加するものはありません",
   "nothing to listen to: tick a source or watch a file": "受信するものがありません: 送信元にチェックを入れるか、ファイルを監視してください",
   "now": "今",
@@ -2263,9 +2271,7 @@
   "{calls}: {qsos} at {place} (from {source}).": "{calls}: {place} で {qsos} ({source} より)。",
   "{call} is already in the contest on {band} {mode} (record {n}): a station counts once per band and mode.": "{call} はすでにコンテストで {band} {mode} に記録されています (レコード {n})。1 局はバンドとモードごとに 1 回数えます。",
   "{call} is already in this log on {band} {mode} this UTC day (record {n}).": "{call} はこの UTC 日にすでに {band} {mode} でこのログにあります (レコード {n})。",
-  "{call} is in this log {n} time on other bands, modes or days.|{call} is in this log {n} times on other bands, modes or days.": {
-   "other": "{call} はこのログに、別のバンド、モード、日付で {n} 回あります。"
-  },
+  "{call} not found": "{call} が見つかりません",
   "{call} not in this log": "{call} はこのログにありません",
   "{call} on {what}{ref}, spotted {when} {by}; {log}.": "{call}、{what}{ref}、{when} {by} がスポット。{log}。",
   "{call}, a spotter: heard {n} station: {list}.|{call}, a spotter: heard {n} stations: {list}.": {
@@ -2287,6 +2293,7 @@
   "{count} at {time} UTC from Spothole (spothole.app; refreshed every 2 minutes; SOTA left out).": "{time} UTC 時点の Spothole の {count} (spothole.app。2 分ごとに更新。SOTA は除外)。",
   "{date} is only valid when {status} is {allowed}; here it is N (the default: {status} is missing).": "{date} は {status} が {allowed} のときだけ有効ですが、ここでは N です (既定値。{status} がありません)。",
   "{date} is only valid when {status} is {allowed}; here it is {value}.": "{date} は {status} が {allowed} のときだけ有効ですが、ここでは {value} です。",
+  "{distance} at {short}° (long path {long}°)": "{distance}、{short}° (ロングパス {long}°)",
   "{distance} from you": "あなたから{distance}",
   "{distance} from {home}.": "{home} から {distance}。",
   "{entity} confirmed on {band}": "{band} で {entity} 確認済み",
@@ -2541,6 +2548,9 @@
   "{n} that can't be added": "追加できないもの {n}",
   "{n} ticked QSO|{n} ticked QSOs": {
    "other": "チェックした QSO {n} 件"
+  },
+  "{n} time in this log on other bands, modes or days|{n} times in this log on other bands, modes or days": {
+   "other": "このログに他のバンド、モード、日付で {n} 回"
   },
   "{n} warning|{n} warnings": {
    "other": "警告 {n} 件"

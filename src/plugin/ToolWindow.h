@@ -30,6 +30,13 @@ NSTextField *ADIFTextField(NSString *placeholder, CGFloat width);
 NSPopUpButton *ADIFPopup(NSArray<NSString *> *items);
 NSButton *ADIFCheckbox(NSString *title, BOOL on);
 NSComboBox *ADIFComboBox(NSArray<NSString *> *items, CGFloat width);
+// A combo box that suggests as you type: `suggest` gets the part after the last comma (what is
+// being typed) and gives [value, shown] pairs to list; choosing one puts its value in place of
+// that part, so a list ("US-1234,US-5678") is built one at a time, and typing the start of a
+// value completes it. The combo box keeps the source.
+typedef NSArray<NSArray<NSString *> *> * (^ADIFSuggestBlock)(NSString *part);
+void ADIFSuggestAsYouType(NSComboBox *box, ADIFSuggestBlock suggest);
+
 // Run `block` when the control sends its action (popup choice, checkbox click,
 // search text...). The control keeps the block alive.
 void ADIFOnAction(NSControl *control, void (^block)(void));

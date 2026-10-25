@@ -38,6 +38,7 @@
 #include "adif_flags.h"
 #include "adif_beacons.h"
 #include "adif_solar.h"
+#include "adif_facts.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1584,6 +1585,28 @@ static void testCountry() {
           "fields with ADIF's entity name");
     CountryTable bad;
     CHECK(!bad.load("not,a,country,file\n", &error) && !error.empty(), "a wrong file is refused");
+    // Standard time from the file's offset (hours west, as its longitudes): Japan +9, India +5:30, the US -5.
+    CountryInfo ja, vu, us;
+    CHECK(t.lookup("JA1XYZ", &ja) && ja.hasUtcOffset && ja.utcOffset == 9 && t.lookup("VU2ABC", &vu) && vu.utcOffset == 5.5 &&
+              t.lookup("K1AB", &us) && us.utcOffset == -5,
+          "UTC offsets: Japan %+.1f, India %+.1f, the US %+.1f", ja.utcOffset, vu.utcOffset, us.utcOffset);
+    const long long noon = 1792929600;  // 2026-10-25 12:00:00 UTC
+    CHECK(localTimeText(noon, 9) == "21:00 (UTC+9)" && localTimeText(noon, 5.5) == "17:30 (UTC+5:30)" &&
+              localTimeText(noon, -5) == "07:00 (UTC-5)" && localTimeText(noon, 0) == "12:00 (UTC)" && localTimeText(noon - 13 * 3600, -5) == "18:00 (UTC-5)" &&
+              localTimeText(0, 9).empty(),
+          "local times: %s, %s, %s", localTimeText(noon, 9).c_str(), localTimeText(noon, 5.5).c_str(), localTimeText(noon, -5).c_str());
+    LookupSubject s;
+    s.call = "JA1XYZ", s.name = "Taro", s.qth = "Tokyo", s.grid = "PM95", s.gridFromCallbook = true;
+    s.country = "JAPAN", s.entity = &ja, s.myGrid = "EN52wa", s.now = noon;
+    std::vector<LookupFact> facts = lookupFacts(s);
+    std::string all;
+    for (const LookupFact &fact : facts) all += fact.label + ": " + fact.value + "\n";
+    CHECK(facts.size() == 5 && facts[0].value == "Taro \u00B7 Tokyo" && facts[1].value == "JAPAN \u00B7 AS \u00B7 CQ 25 \u00B7 ITU 45 \u00B7 DXCC 339" &&
+              facts[2].value == "PM95 (from the callbook)" && facts[3].label == "Distance" && facts[3].value.find(" at 3") != std::string::npos &&
+              facts[3].value.find("(long path 1") != std::string::npos && facts[4].value == "21:00 (UTC+9)",
+          "lookup facts:\n%s", all.c_str());
+    s.myGrid.clear(), s.name.clear(), s.qth.clear(), s.entity = nullptr, s.country.clear(), s.grid.clear();
+    CHECK(lookupFacts(s).empty(), "no facts without their data");
 }
 
 static void testPrograms() {
@@ -3174,6 +3197,25 @@ static void testWorld() {
         CHECK(!pp.find("G-0001") && !pp.find("VE-0002"), "a renamed program's park not in the list isn't found");
         CHECK(!pp.find("FR-0001")->placed && !pp.find("US-0003")->placed && !pp.find("US-9999") && !pp.find("junk") && !pp.find(""),
               "parks without a place, and references not listed");
+        {  // what a few typed letters could mean
+            auto refs = [&](std::string_view q, size_t limit = 10, const double *lat = nullptr, const double *lon = nullptr) {
+                std::string out;
+                for (size_t i : pp.search(q, limit, lat, lon)) out += (out.empty() ? "" : " ") + pp.parks()[i].ref;
+                return out;
+            };
+            CHECK(refs("us-000") == "US-0002 US-0003 US-0001" && refs("US-0002") == "US-0002" && refs("us-0003", 1) == "US-0003",
+                  "by reference: the active parks first (%s)", refs("us-000").c_str());
+            PotaParks accented;
+            accented.load("\"reference\",\"name\",\"active\",\"entityId\",\"locationDesc\",\"latitude\",\"longitude\",\"grid\"\r\n"
+                          "\"FR-0002\",\"\xC3\x89tang de Berre\",\"1\",\"227\",\"FR-PAC\",\"43.5\",\"5.1\",\"JN23\"\r\n");
+            std::vector<size_t> etang = accented.search("etang", 5), berre = accented.search("BERRE \xC3\xA9tang", 5);
+            CHECK(refs("second") == "US-0002" && refs("north park") == "US-0002" && refs("parc") == "FR-0001" && etang.size() == 1 && berre.size() == 1,
+                  "by the words of a name, in any order, case and accents ignored (%s)", refs("north park").c_str());
+            CHECK(refs("us-wi") == "US-0002 US-0003" && refs("US-MD") == "US-0001", "by location (%s)", refs("us-wi").c_str());
+            double wiLat = 43.0, wiLon = -89.0;
+            CHECK(refs("park", 10, &wiLat, &wiLon) == "US-0002 US-0001" && refs("").empty() && refs("zzz").empty() && refs("us", 0).empty(),
+                  "nearest first among equals, inactive last; nothing for nothing (%s)", refs("park", 10, &wiLat, &wiLon).c_str());
+        }
         CHECK(potaListRef(" us-1234@us-wi ") == "US-1234" && potaListRef("VE-12345") == "VE-12345" && potaListRef("US-123").empty() &&
                   potaListRef("US-1234@").empty(),
               "park references as the list writes them");

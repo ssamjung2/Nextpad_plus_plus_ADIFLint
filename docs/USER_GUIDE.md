@@ -249,13 +249,32 @@ its description in the ADIF specification (hover a row for the full text).
 - **QRZ.com** or **HamQTH**: name, QTH, state, grid and more from your callbook account.
   For a portable or park station, the home address is shown but not written.
 
-The line under it shows what was found, the distance and bearing from MY_GRIDSQUARE to
-the station's grid ("7,086 km at 42°", also written to DISTANCE when the window has that
-field), and, for a park, reference or summit in SIG_INFO, POTA_REF, WWFF_REF or SOTA_REF,
-what your logs say about it ("US-1234: a new park!", "KFF-5255: worked 2 times before,
-last 2026-10-03 (a.adi)"). With **LoTW Users** on in Settings it also says whether the
-station uploads to LoTW ("LoTW user (last upload 2026-09-30)"). Changing the call takes back
-what the last lookup filled, unless you edited it.
+Under it, the station's facts, a row each (point at one for all of it):
+
+- **Operator**: the name, QTH and state (the window's, else the callbook's).
+- **Country**: the DXCC entity, continent, CQ and ITU zones and DXCC number.
+- **Grid**: the window's GRIDSQUARE, else the callbook's (said so).
+- **Distance**: from your grid, with the short-path and long-path bearings ("7086 km at
+  42° (long path 222°)"), in km or miles as the Map's list shows them; also written to
+  DISTANCE when the window has that field.
+- **Local time**: the time where the station is, from the country file's standard time for
+  its entity ("15:08 (UTC+1)": no daylight saving time, and a large country spans several
+  zones).
+- **QSL**: with **LoTW Users** on in Settings, whether the station uploads to LoTW ("LoTW user
+  (last upload 2026-09-30)").
+- **Worked before**: the call in this log on other bands, modes or days, and in the logs
+  folder Worked Before searches (when, band and mode).
+- **Reference**: for a park, reference or summit in SIG_INFO, POTA_REF, WWFF_REF or SOTA_REF,
+  what your logs say about it ("US-1234: a new park!", "KFF-5255: worked 2 times before,
+  last 2026-10-03 (a.adi)").
+
+A callbook's notice or error ("QRZ.com: K1ABC not found") shows under them. Changing the
+call takes back what the last lookup filled, unless you edited it.
+
+In **POTA_REF** and **MY_POTA_REF**, type part of a park's name or reference ("yellowstone",
+"us-12", "lake park") and the field's list offers the parks it could be, nearest your grid
+first and inactive parks last; choosing one puts its reference in. After a comma, the next
+park the same way (a two-fer). It needs POTA's park list (Settings → POTA Parks).
 
 ### Contests and Field Day
 
@@ -322,16 +341,18 @@ use. Open them from Settings (Your Station → **Station Profiles…**), New QSO
 a Maidenhead locator and the power a number of watts. They are kept in
 `ADIFLint-profiles.adi` in the plugin config folder.
 
-New QSO's **Station** popup chooses what it writes for your station: **From the log** (the
-log's last record, as before) or a profile, whose fields fill their rows and are written
-in every QSO even when not shown.
+New QSO's first row, **Station**, chooses what it writes for your station: **From the log**
+(the log's last record, as before) or a profile, whose fields fill their rows and are written
+in every QSO even when not shown. Beside it, what that means: your call, grid, power, rig and
+park ("KW9D · EN52wa · 5 W · Elecraft T1").
 
 ![Start Activation: POTA with two parks, the Portable profile, and the log file named as POTA asks](images/start-activation.png)
 
 **Start Activation…**:
 
 - **Program** POTA, WWFF or SOTA, and the **References**: one or more parks for POTA (a
-  two-fer: `US-7929, US-1234`), one WWFF reference, one summit. The table shows what your
+  two-fer: `US-7929, US-1234`), one WWFF reference, one summit. For POTA, type part of a
+  park's name and choose it from the list, as in New QSO. The table shows what your
   logs say about each.
 - **Station**: Your Station (Settings) or a profile.
 - **Log to** a new log file in the folder you choose, named as the program names logs

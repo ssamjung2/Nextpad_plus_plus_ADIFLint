@@ -86,6 +86,82 @@ const PotaPark *PotaParks::find(std::string_view ref) const {
     return nullptr;
 }
 
+namespace {
+
+// Lower case, Latin accents dropped (UTF-8 é, ü, ñ... as e, u, n), for matching what was typed.
+std::string folded(std::string_view s) {
+    std::string out;
+    out.reserve(s.size());
+    for (size_t i = 0; i < s.size(); ++i) {
+        unsigned char c = (unsigned char)s[i];
+        if (c < 0x80) {
+            out += (char)std::tolower(c);
+            continue;
+        }
+        if ((c == 0xC3) && i + 1 < s.size()) {  // U+00C0..U+00FF
+            unsigned char d = (unsigned char)s[++i];
+            static const char kLatin1[] = "aaaaaaaceeeeiiiidnooooo*ouuuuyts"  // C3 80..9F (upper case)
+                                          "aaaaaaaceeeeiiiidnooooo/ouuuuyty";  // C3 A0..BF (lower case)
+            if (d >= 0x80 && d <= 0xBF) out += kLatin1[d - 0x80];
+            continue;
+        }
+        out += (char)c;  // other scripts as they are
+    }
+    return out;
+}
+
+std::vector<std::string> words(const std::string &s) {
+    std::vector<std::string> out;
+    std::string w;
+    for (char c : s + " ")
+        if (c == ' ' || c == ',' || c == '-' || c == '(' || c == ')') {
+            if (!w.empty()) out.push_back(w);
+            w.clear();
+        } else {
+            w += c;
+        }
+    return out;
+}
+
+}  // namespace
+
+std::vector<size_t> PotaParks::search(std::string_view text, size_t limit, const double *lat, const double *lon) const {
+    std::string q = folded(trimmed(std::string(text)));
+    std::vector<size_t> out;
+    if (q.empty() || !limit) return out;
+    std::vector<std::string> qw = words(q);
+    struct Hit {
+        size_t index;
+        int rank;
+        double km;
+    };
+    std::vector<Hit> hits;
+    for (size_t i = 0; i < parks_.size(); ++i) {
+        const PotaPark &p = parks_[i];
+        std::string ref = folded(p.ref), name = folded(p.name), place = folded(p.location);
+        int rank = -1;
+        if (ref == q) rank = 0;
+        else if (ref.compare(0, q.size(), q) == 0) rank = 1;
+        else if (name.compare(0, q.size(), q) == 0) rank = 2;
+        else if (!place.empty() && (place == q || place.find(q + ",") == 0 || place.find("," + q) != std::string::npos)) rank = 4;
+        else {
+            bool all = !qw.empty();
+            for (const std::string &w : qw) all = all && name.find(w) != std::string::npos;
+            if (all) rank = 3;
+        }
+        if (rank < 0) continue;
+        double km = lat && lon && p.placed ? greatCircleKm(*lat, *lon, p.lat, p.lon) : 1e9;
+        hits.push_back({i, rank * 2 + (p.active ? 0 : 1), km});
+    }
+    std::sort(hits.begin(), hits.end(), [&](const Hit &a, const Hit &b) {
+        if (a.rank != b.rank) return a.rank < b.rank;
+        if (a.km != b.km) return a.km < b.km;
+        return parks_[a.index].ref < parks_[b.index].ref;
+    });
+    for (size_t i = 0; i < hits.size() && out.size() < limit; ++i) out.push_back(hits[i].index);
+    return out;
+}
+
 std::vector<ParkDistance> nearestParks(const std::vector<PotaPark> &parks, const std::vector<size_t> &candidates, double lat, double lon,
                                        size_t limit) {
     std::vector<ParkDistance> out;

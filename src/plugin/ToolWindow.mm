@@ -5,6 +5,8 @@
 
 #import <objc/runtime.h>
 
+static char kSuggestKey;  // a combo box's ADIFSuggestSource
+
 #include "adif_tools.h"
 
 #include <algorithm>
@@ -145,6 +147,97 @@ static bool containsNoCase(const std::string &hay, const std::string &upperNeedl
         if (k == upperNeedle.size()) return true;
     }
     return false;
+}
+
+// ADIFSuggestAsYouType: the list behind a combo box, asked again as the text changes.
+@interface ADIFSuggestSource : NSObject <NSComboBoxDataSource>
+@property(nonatomic, copy) ADIFSuggestBlock suggest;
+@property(nonatomic, weak) NSComboBox *box;
+@property(nonatomic, copy) NSArray<NSArray<NSString *> *> *items;
+@property(nonatomic, copy) NSString *head;  // what came before the part the items are for
+@end
+
+@implementation ADIFSuggestSource
+
+// The text before the part being typed ("US-1234," for "US-1234,yell"), and that part.
+- (NSString *)headOf:(NSString *)text {
+    NSRange comma = [text rangeOfString:@"," options:NSBackwardsSearch];
+    return comma.location == NSNotFound ? @"" : [text substringToIndex:comma.location + 1];
+}
+
+- (NSString *)partOf:(NSString *)text {
+    return [[text substringFromIndex:[self headOf:text].length] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+}
+
+- (void)refresh {
+    self.head = [self headOf:self.box.stringValue];
+    self.items = self.suggest ? self.suggest([self partOf:self.box.stringValue]) ?: @[] : @[];
+    [self.box reloadData];
+}
+
+- (NSInteger)numberOfItemsInComboBox:(NSComboBox *)box {
+    return (NSInteger)self.items.count;
+}
+
+- (id)comboBox:(NSComboBox *)box objectValueForItemAtIndex:(NSInteger)index {
+    return index >= 0 && index < (NSInteger)self.items.count ? self.items[(NSUInteger)index][1] : @"";
+}
+
+- (NSUInteger)comboBox:(NSComboBox *)box indexOfItemWithStringValue:(NSString *)string {
+    for (NSUInteger i = 0; i < self.items.count; ++i)
+        if ([self.items[i][1] isEqualToString:string]) return i;
+    return NSNotFound;
+}
+
+// Typing the start of a value: the rest of it, selected, as a combo box completes.
+- (NSString *)comboBox:(NSComboBox *)box completedString:(NSString *)string {
+    NSString *part = [self partOf:string];
+    if (part.length < 2) return nil;
+    for (NSArray<NSString *> *item in self.items)
+        if ([item[0] rangeOfString:part options:NSCaseInsensitiveSearch | NSAnchoredSearch].location == 0)
+            return [[self headOf:string] stringByAppendingString:item[0]];
+    return nil;
+}
+
+// A listed one chosen: its value in place of the part being typed.
+- (void)chose {
+    NSInteger i = self.box.indexOfSelectedItem;
+    if (i < 0 || i >= (NSInteger)self.items.count) return;
+    NSString *head = self.head ?: @"";  // the box shows the chosen item's text by now; ADIF lists have no spaces
+    NSString *value = self.items[(NSUInteger)i][0];
+    dispatch_async(dispatch_get_main_queue(), ^{  // after the combo box puts the shown text in
+        NSComboBox *b = self.box;
+        b.stringValue = [head stringByAppendingString:value];
+        [[NSNotificationCenter defaultCenter] postNotificationName:NSControlTextDidChangeNotification object:b];
+        if (b.target && b.action) [b sendAction:b.action to:b.target];
+    });
+}
+
+@end
+
+void ADIFSuggestAsYouType(NSComboBox *box, ADIFSuggestBlock suggest) {
+    ADIFSuggestSource *source = [ADIFSuggestSource new];
+    source.suggest = suggest;
+    source.box = box;
+    source.items = @[];
+    box.usesDataSource = YES;
+    box.dataSource = source;
+    box.completes = YES;
+    box.numberOfVisibleItems = 12;
+    objc_setAssociatedObject(box, &kSuggestKey, source, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    __weak ADIFSuggestSource *weak = source;
+    [[NSNotificationCenter defaultCenter] addObserverForName:NSControlTextDidChangeNotification
+                                                      object:box
+                                                       queue:nil
+                                                  usingBlock:^(NSNotification *) { [weak refresh]; }];
+    [[NSNotificationCenter defaultCenter] addObserverForName:NSComboBoxWillPopUpNotification
+                                                      object:box
+                                                       queue:nil
+                                                  usingBlock:^(NSNotification *) { [weak refresh]; }];
+    [[NSNotificationCenter defaultCenter] addObserverForName:NSComboBoxSelectionDidChangeNotification
+                                                      object:box
+                                                       queue:nil
+                                                  usingBlock:^(NSNotification *) { [weak chose]; }];
 }
 
 @implementation ADIFToolWindow {

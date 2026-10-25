@@ -74,6 +74,7 @@ bool CountryTable::load(std::string_view csv, std::string *error) {
         e.itu = std::atoi(std::string(f[5]).c_str());
         e.lat = std::atof(std::string(f[6]).c_str());
         e.lon = -std::atof(std::string(f[7]).c_str());
+        if (!f[8].empty()) e.utcOffset = -std::atof(std::string(f[8]).c_str()), e.hasUtcOffset = true;
         if (e.dxcc <= 0 || e.name.empty()) continue;
         size_t index = entities_.size();
         entities_.push_back(e);

@@ -54,9 +54,10 @@
   "(choose a folder)": "(폴더 선택)",
   "(choose a log)": "(로그 선택)",
   "(descending)": "(내림차순)",
-  "(home address; away now)": "(집 주소, 지금은 다른 곳)",
+  "(from the callbook)": "(콜북에서)",
   "(import-only)": "(가져오기 전용)",
   "(in the file)": "(파일 안)",
+  "(inactive)": "(비활성)",
   "(more problems here)": "(여기에 문제가 더 있음)",
   "(none chosen)": "(선택 안 함)",
   "(none)": "(없음)",
@@ -278,6 +279,7 @@
   "CQ zones": "CQ 존",
   "CQ zones 1-40 (HB9HIL's hamradio-zones-geojson, MIT); approximate": "CQ 존 1-40(HB9HIL의 hamradio-zones-geojson, MIT), 근사치",
   "CQ zones:": "CQ 존:",
+  "CQ {cq} · ITU {itu} · DXCC {dxcc}": "CQ {cq} · ITU {itu} · DXCC {dxcc}",
   "CQ {cq}, ITU {itu}": "CQ {cq}, ITU {itu}",
   "CREATED_TIMESTAMP must be 'YYYYMMDD HHMMSS' (15 characters, UTC).": "CREATED_TIMESTAMP는 'YYYYMMDD HHMMSS'(15자, UTC)여야 합니다.",
   "CSV": "CSV",
@@ -843,6 +845,7 @@
   "LoTW did not return a report. Check your LoTW username and password in Settings.": "LoTW가 보고서를 돌려주지 않았습니다. 설정에서 LoTW 사용자 이름과 비밀번호를 확인하세요.",
   "LoTW user (last upload {date})": "LoTW 사용자(마지막 업로드 {date})",
   "LoTW: last upload {date}": "LoTW: 마지막 업로드 {date}",
+  "Local time": "현지 시각",
   "Location": "위치",
   "Location:": "위치:",
   "Locations:": "위치:",
@@ -1212,6 +1215,7 @@
   "QRZ.com returns only a few fields without an XML Logbook Data subscription.": "XML Logbook Data 구독이 없으면 QRZ.com은 필드를 몇 개만 돌려줍니다.",
   "QRZ.com sent something unexpected": "QRZ.com이 예상하지 못한 것을 보냈습니다",
   "QRZ.com: %s": "QRZ.com: %s",
+  "QSL": "QSL",
   "QSL Sync": "QSL 동기화",
   "QSL Sync (Upload, Confirmations)...": "QSL 동기화(업로드, 확인)...",
   "QSL cards received": "받은 QSL 카드",
@@ -1381,6 +1385,7 @@
   "Sheet:": "시트:",
   "Shift by:": "이동량:",
   "Shift date and time": "날짜와 시각 이동",
+  "Short path {short}°, {distance}; long path {long}°, {far}. From {mine} to {theirs}.": "단경로 {short}°, {distance}; 장경로 {long}°, {far}. {mine}에서 {theirs}까지.",
   "Show": "표시",
   "Show %@": "%@ 표시",
   "Show All": "모두 보기",
@@ -1595,6 +1600,7 @@
   "The aurora now, from NOAA SWPC's OVATION forecast (30 to 90 minutes ahead; fetched every 15 minutes while it shows): green where there is a chance of seeing it overhead, red where it is likely": "지금의 오로라, NOAA SWPC의 OVATION 예보(30~90분 앞; 표시 중 15분마다 가져옴): 머리 위로 볼 가능성이 있는 곳은 초록, 가능성이 높은 곳은 빨강",
   "The band of dawn and dusk round the Earth, where low-band paths open (Style Options: when)": "새벽과 황혼의 띠, 저밴드 경로가 열리는 곳 (스타일 옵션: 시각)",
   "The build's directories didn't lead to the region's tiles.": "빌드의 디렉터리에서 그 지역의 타일을 찾지 못했습니다.",
+  "The callbook's address is the station's home; it is away now (a portable call, or a park)": "콜북의 주소는 그 국의 집 주소이며, 지금은 이동 중입니다(이동 호출부호 또는 파크).",
   "The calls, references and DXCC entities you watch for: when one is spotted, it shows in My watch list, first among the spots, and under the bell": "지켜보는 호출부호, 참조 번호, DXCC 엔티티: 하나가 스팟되면 내 관심 목록에, 스팟 중 맨 앞에, 그리고 종 아래에 나타납니다",
   "The calls, references and DXCC entities you watch, when spotted (Watch List... in Spots)": "지켜보는 호출부호, 참조 번호, DXCC 엔티티가 스팟되었을 때(스팟의 관심 목록...)",
   "The callsign whose reception reports PSKReporter gives: your own (Your Station) when empty, or another one: a club station, a portable call, or a friend's": "PSKReporter에서 수신 보고를 가져올 호출부호: 비워 두면 내 호출부호(내 국), 아니면 클럽국, 이동 호출부호, 친구의 호출부호 등",
@@ -1610,6 +1616,7 @@
   "The download wasn't POTA's park list.": "내려받은 것이 POTA 공원 목록이 아니었습니다.",
   "The download wasn't POTA's park list; the old copy is kept.": "내려받은 것이 POTA 공원 목록이 아니어서 이전 사본을 유지합니다.",
   "The email address of your Club Log account and an Application Password (Club Log: Settings > App Passwords), not your normal password. Club Log blocks programs that keep sending a wrong password, so uploads stop at the first sign-in error.": "Club Log 계정의 이메일 주소와 앱 비밀번호(Club Log: Settings > App Passwords)입니다. 평소 비밀번호가 아닙니다. Club Log는 틀린 비밀번호를 계속 보내는 프로그램을 차단하므로, 첫 로그인 오류에서 업로드를 멈춥니다.",
+  "The entity's standard time from the country file: no daylight saving time, and a large country spans several zones": "국가 파일에 있는 그 엔티티의 표준시: 일광 절약 시간은 반영하지 않으며, 큰 나라는 여러 시간대에 걸쳐 있습니다",
   "The file changed on the server (HTTP 412).": "서버의 파일이 바뀌었습니다(HTTP 412).",
   "The file changed on the server while it was being read (HTTP 412).": "읽는 동안 서버의 파일이 바뀌었습니다(HTTP 412).",
   "The file declares ADIF {version}; these checks follow ADIF {spec}.": "파일은 ADIF {version}을(를) 선언하지만, 이 검사는 ADIF {spec}을(를) 따릅니다.",
@@ -2007,7 +2014,7 @@
   "e.g. KW9D": "예: KW9D",
   "e.g. MY_GRIDSQUARE, or NAME, QTH": "예: MY_GRIDSQUARE, 또는 NAME, QTH",
   "e.g. RST_SENT": "예: RST_SENT",
-  "e.g. US-7929, US-1234 for a two-fer": "예: US-7929, 투퍼라면 US-1234",
+  "e.g. US-7929, US-1234 for a two-fer, or a park's name": "예: 투퍼는 US-7929, US-1234, 또는 파크 이름",
   "e.g. ^73\\b": "예: ^73\\b",
   "eQSL": "eQSL",
   "eQSL built the file but its link was not found": "eQSL이 파일을 만들었지만 링크를 찾지 못했습니다",
@@ -2149,6 +2156,7 @@
   "not set": "설정 안 됨",
   "not worked": "교신 안 함",
   "not worked, in {places}": "교신 안 함, {places}",
+  "nothing set yet: Settings, Your Station, or a profile": "아직 설정되지 않음: 설정의 내 국, 또는 프로필",
   "nothing to add": "추가할 것 없음",
   "nothing to listen to: tick a source or watch a file": "들을 것이 없음: 출처를 선택하거나 파일을 지켜보세요",
   "now": "지금",
@@ -2263,9 +2271,7 @@
   "{calls}: {qsos} at {place} (from {source}).": "{calls}: {place}에서 {qsos}({source} 기준).",
   "{call} is already in the contest on {band} {mode} (record {n}): a station counts once per band and mode.": "{call}은(는) 이미 콘테스트에서 {band} {mode}로 기록되어 있습니다(레코드 {n}). 한 국은 밴드와 모드마다 한 번 셉니다.",
   "{call} is already in this log on {band} {mode} this UTC day (record {n}).": "{call}은(는) 이미 이 로그에 오늘(UTC) {band} {mode}로 있습니다(레코드 {n}).",
-  "{call} is in this log {n} time on other bands, modes or days.|{call} is in this log {n} times on other bands, modes or days.": {
-   "other": "{call}은(는) 이 로그에 다른 밴드, 모드, 날짜로 {n}번 있습니다."
-  },
+  "{call} not found": "{call}을(를) 찾을 수 없음",
   "{call} not in this log": "{call}: 이 로그에 없음",
   "{call} on {what}{ref}, spotted {when} {by}; {log}.": "{call}, {what}{ref}, {when} {by} 스팟. {log}.",
   "{call}, a spotter: heard {n} station: {list}.|{call}, a spotter: heard {n} stations: {list}.": {
@@ -2287,6 +2293,7 @@
   "{count} at {time} UTC from Spothole (spothole.app; refreshed every 2 minutes; SOTA left out).": "{time} UTC 기준 Spothole의 {count}(spothole.app, 2분마다 새로 고침, SOTA 제외).",
   "{date} is only valid when {status} is {allowed}; here it is N (the default: {status} is missing).": "{date}은(는) {status}이(가) {allowed}일 때만 유효한데, 여기서는 N입니다(기본값: {status}이(가) 없음).",
   "{date} is only valid when {status} is {allowed}; here it is {value}.": "{date}은(는) {status}이(가) {allowed}일 때만 유효한데, 여기서는 {value}입니다.",
+  "{distance} at {short}° (long path {long}°)": "{distance}, {short}° (장경로 {long}°)",
   "{distance} from you": "나에게서 {distance}",
   "{distance} from {home}.": "{home}에서 {distance}.",
   "{entity} confirmed on {band}": "{band}에서 {entity} 확인됨",
@@ -2541,6 +2548,9 @@
   "{n} that can't be added": "추가할 수 없는 것 {n}",
   "{n} ticked QSO|{n} ticked QSOs": {
    "other": "선택한 QSO {n}건"
+  },
+  "{n} time in this log on other bands, modes or days|{n} times in this log on other bands, modes or days": {
+   "other": "이 로그에 다른 밴드, 모드 또는 날짜로 {n}회"
   },
   "{n} warning|{n} warnings": {
    "other": "경고 {n}개"

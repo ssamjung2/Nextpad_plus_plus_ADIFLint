@@ -60,6 +60,7 @@
 #import "ToolWindow.h"
 #import "Imports.h"
 #import "Uploads.h"
+#include "adif_facts.h"
 #include "adif_edit.h"
 #include "adif_enrich.h"
 #include "adif_lint.h"
@@ -250,8 +251,11 @@ static struct {
     struct {
         std::string call;                           // the call last looked up
         std::map<std::string, std::string> filled;  // fields the lookup filled, with what it put there
-        std::string found;                          // what the callbook or country data said, for the info line
         adif::FieldMap callbook;                    // the callbook's data for `call`
+        std::string service;                        // the callbook that answered ("QRZ.com"), "" none
+        bool away = false;                          // a portable or park station: the callbook's place is its home
+        std::string message;                        // the callbook's notice or error, for under the facts
+        std::string worked;                         // your QSOs with the call: this log's and the logs folder's (the check's)
         ADIFCallbookClient *client = nil;
         NSInteger clientSource = -1;
         int64_t token = 0;
@@ -1563,6 +1567,7 @@ struct QsoCheck {
     std::vector<std::pair<int, std::string>> rows;  // per row: severity, message
     std::string summary;
     int severity = -1;
+    std::string worked;  // the call in this log on other bands, modes or days, and in the logs folder (the lookup's facts)
     std::vector<std::pair<std::string, std::string>> fields;  // the values to log
 };
 
@@ -1671,17 +1676,13 @@ static QsoCheck checkQso(NppHandle h) {
                             {{"call", call}, {"band", get("BAND")}, {"mode", get("MODE")}, {"n", std::to_string(same.back())}});
             c.severity = 1;
         } else if (size_t n = adif::timesWorkedAs(text, doc.model, call)) {
-            c.summary = trp("{call} is in this log {n} time on other bands, modes or days.", "{call} is in this log {n} times on other bands, modes or days.",
-                            (long long)n, {{"call", call}});
-            c.severity = 0;
+            c.worked = trp("{n} time in this log on other bands, modes or days", "{n} times in this log on other bands, modes or days", (long long)n);
         }
     }
     if (!call.empty()) {
-        std::string before = logtools::workedBefore(call);
-        if (!before.empty()) {
-            c.summary += (c.summary.empty() ? "" : "\n") + before;
-            c.severity = std::max(c.severity, 0);
-        }
+        std::string before = logtools::workedBefore(call);  // "K1ABC: 4 QSOs in 2 other logs; last ..."
+        if (size_t colon = before.find(": "); colon != std::string::npos && colon < 20) before = before.substr(colon + 2);
+        if (!before.empty()) c.worked += (c.worked.empty() ? "" : "; ") + before;
     }
     for (const std::string &p : recordProblems) {
         c.summary += (c.summary.empty() ? "" : "\n") + p;
@@ -1711,10 +1712,16 @@ static void refreshSpotBoxes(const adif::FieldList &shown) {
     [g.qso setSpotReady:r.cluster clusterTip:ADIFString(r.clusterTip) pota:r.pota potaTip:ADIFString(r.potaTip)];
 }
 
+static void showLookupInfo();
+
 static void showQsoCheck(const QsoCheck &c) {
     [g.qso setRowStatus:c.rows];
     [g.qso setSummary:c.summary severity:c.severity];
     refreshSpotBoxes(c.fields);
+    if (c.worked != g.lookup.worked) {
+        g.lookup.worked = c.worked;
+        showLookupInfo();
+    }
 }
 
 static void scheduleQsoCheck() {
@@ -1895,6 +1902,7 @@ static void showQsoRows(NppHandle h, const adif::LintResult &r) {
         row.value = q.value;
         row.description = adif::describeField(r.model, q.name);
         row.choices = adif::valueChoicesWith(r.model, q.name, lookup);
+        if (q.name == "POTA_REF" || q.name == "MY_POTA_REF") row.suggest = ^(NSString *part) { return ADIFParkSuggestions(part); };  // a park by name
         row.required = adif::isRequiredQsoField(q.name);
         if (q.name == "TIME_ON") timeDigits = q.value.size() == 4 ? 4 : 6;
         shown.push_back(q.name);
@@ -1957,6 +1965,34 @@ static void showQsoRows(NppHandle h, const adif::LintResult &r) {
         note = trf("Also written, from the {station}: {fields}", {{"station", station::stationLabel()}, {"fields", fromStation}}) +
                (note.empty() ? "" : ". " + note);
     [g.qso setNote:@(note.c_str())];
+    // The station's key fields beside its popup: the window's, else the profile's or activation's,
+    // else the last record's.
+    {
+        adif::FieldList carried = adif::hiddenStationFields(text, r.model, {});
+        auto effective = [&](const char *name) -> std::string {
+            for (const adif::QsoField &q : g.qsoFields)
+                if (q.name == name && !q.value.empty()) return q.value;
+            for (const auto &f : mine)
+                if (f.first == name && !f.second.empty()) return f.second;
+            if (g.qsoCarryHidden)
+                for (const auto &f : carried)
+                    if (f.first == name && !f.second.empty()) return f.second;
+            return "";
+        };
+        std::vector<std::string> parts;
+        for (const char *f : {"STATION_CALLSIGN", "MY_GRIDSQUARE"})
+            if (std::string v = effective(f); !v.empty()) parts.push_back(v);
+        if (std::string w = effective("TX_PWR"); !w.empty()) parts.push_back(w + " W");
+        if (std::string rig = effective("MY_RIG"); !rig.empty()) parts.push_back(rig);
+        std::string park = effective("MY_POTA_REF");
+        std::string sig = effective("MY_SIG");
+        for (char &c : sig) c = (char)std::toupper((unsigned char)c);
+        if (park.empty() && sig == "POTA") park = effective("MY_SIG_INFO");
+        if (!park.empty()) parts.push_back(park);
+        std::string line;
+        for (const std::string &p : parts) line += (line.empty() ? "" : " \u00B7 ") + p;
+        [g.qso setStationSummary:ADIFString(line.empty() ? tr("nothing set yet: Settings, Your Station, or a profile") : line)];
+    }
     std::vector<adif::StationProfile> profiles = station::profiles();
     NSMutableArray *names = [NSMutableArray array];
     for (const adif::StationProfile &p : profiles) [names addObject:@(p.name.c_str())];
@@ -2032,21 +2068,31 @@ static std::string myGrid() {
 }
 
 // The line under Look up: what was found, the distance, and what the logs say about the park.
+// New QSO's facts about the station: what the lookup and the window say (its operator, country,
+// grid, distance and bearings, local time), then LoTW, your QSOs with it, and its parks.
 static void showLookupInfo() {
     if (!g.qso) return;
-    std::vector<std::string> parts;
-    if (!g.lookup.found.empty()) parts.push_back(g.lookup.found);
-    if (std::string lotw = ADIFLotwNote(qsoValue("CALL")); !lotw.empty()) parts.push_back(lotw);
-    std::string theirGrid = qsoValue("GRIDSQUARE");
-    if (theirGrid.empty() && g.lookup.callbook.count("GRIDSQUARE")) theirGrid = g.lookup.callbook["GRIDSQUARE"];
-    std::string mine = myGrid(), km = adif::gridDistanceKm(mine, theirGrid);
-    if (!km.empty()) {
-        parts.push_back(adif::gridDistanceText(mine, theirGrid));
-        if ([g.qso hasField:"DISTANCE"] && (qsoValue("DISTANCE").empty() || g.lookup.filled.count("DISTANCE"))) {
-            [g.qso setValue:km forField:"DISTANCE"];
-            g.lookup.filled["DISTANCE"] = km;
-        }
-    }
+    std::string call = qsoValue("CALL");
+    bool lookingUp = g.qso.lookupSource > 0;
+    auto known = [](const char *f) {  // the window's, else the callbook's
+        std::string v = qsoValue(f);
+        return !v.empty() ? v : g.lookup.callbook.count(f) ? g.lookup.callbook[f] : std::string();
+    };
+    adif::LookupSubject s;
+    s.call = call;
+    s.name = known("NAME"), s.qth = known("QTH"), s.state = known("STATE");
+    s.grid = qsoValue("GRIDSQUARE");
+    if (s.grid.empty() && g.lookup.callbook.count("GRIDSQUARE")) s.grid = g.lookup.callbook["GRIDSQUARE"], s.gridFromCallbook = true;
+    s.away = g.lookup.away;
+    adif::CountryInfo entity;
+    if (lookingUp && !call.empty() && !ADIFCountries().empty() && ADIFCountries().lookup(call, &entity)) s.entity = &entity;
+    if (s.entity) s.country = adif::countryFields(ADIFCountries(), call)["COUNTRY"];  // ADIF's name for it
+    s.myGrid = myGrid();
+    s.miles = adifhost::setting("mapListUnits") == "mi";
+    s.now = (long long)time(nullptr);
+    std::vector<adif::LookupFact> facts = adif::lookupFacts(s);
+    if (std::string lotw = ADIFLotwNote(call); !lotw.empty()) facts.push_back({tr("QSL"), lotw, ""});  // "LoTW user (last upload ...)"
+    if (!g.lookup.worked.empty()) facts.push_back({tr("Worked before"), g.lookup.worked, ""});
     for (const char *f : {"SIG_INFO", "POTA_REF", "WWFF_REF", "SOTA_REF"}) {
         std::string refs = qsoValue(f);
         size_t start = 0;
@@ -2056,13 +2102,20 @@ static void showLookupInfo() {
             start = comma == std::string::npos ? refs.size() : comma + 1;
             if (adif::isPotaRef(ref) || adif::isAdifWwffRef(ref) || adif::isAdifSotaRef(ref)) {
                 std::string line = logtools::referenceLine(ref);
-                if (std::find(parts.begin(), parts.end(), line) == parts.end()) parts.push_back(line);
+                if (std::none_of(facts.begin(), facts.end(), [&](const adif::LookupFact &x) { return x.value == line; }))
+                    facts.push_back({tr("Reference"), line, ""});
             }
         }
     }
-    std::string text;
-    for (const std::string &p : parts) text += (text.empty() ? "" : " \u00B7 ") + p;
-    [g.qso setLookupInfo:@(text.c_str()) severity:-1];
+    // DISTANCE, when the window asks for it and you haven't typed one.
+    std::string km = adif::gridDistanceKm(s.myGrid, s.grid);
+    if (!km.empty() && [g.qso hasField:"DISTANCE"] && (qsoValue("DISTANCE").empty() || g.lookup.filled.count("DISTANCE"))) {
+        [g.qso setValue:km forField:"DISTANCE"];
+        g.lookup.filled["DISTANCE"] = km;
+    }
+    NSMutableArray *rows = [NSMutableArray array];
+    for (const adif::LookupFact &f : facts) [rows addObject:@[ ADIFString(f.label), ADIFString(f.value), ADIFString(f.tip) ]];
+    [g.qso setLookupFacts:rows message:ADIFString(g.lookup.message) severity:-1];
 }
 
 static void runLookup() {
@@ -2078,7 +2131,9 @@ static void runLookup() {
         if (qsoValue(f.first.c_str()) == f.second) [g.qso setValue:"" forField:f.first];
     g.lookup.filled.clear();
     g.lookup.callbook.clear();
-    g.lookup.found.clear();
+    g.lookup.service.clear();
+    g.lookup.message.clear();
+    g.lookup.away = false;
     g.lookup.call = call;
     NSInteger source = g.qso.lookupSource;
     if (call.empty() || source == 0) {
@@ -2088,14 +2143,12 @@ static void runLookup() {
     adif::FieldMap country = adif::countryFields(ADIFCountries(), call);
     for (const char *f : {"DXCC", "COUNTRY", "CQZ", "ITUZ", "CONT"})
         if (country.count(f)) lookupFill(f, country[f]);
-    if (country.count("COUNTRY"))
-        g.lookup.found = country["COUNTRY"] + " (DXCC " + country["DXCC"] + ", CQ " + country["CQZ"] + ", ITU " + country["ITUZ"] + ")";
     showLookupInfo();
     scheduleQsoCheck();
     if (source < 2) return;
     ADIFSource src = source == 2 ? ADIFSourceQRZ : ADIFSourceHamQTH;
     if (!ADIFSavedAccount(src) || !ADIFHasSecret(src)) {
-        g.lookup.found = trf("No {service} account: add one in Settings", {{"service", ADIFSourceName(src).UTF8String}});
+        g.lookup.message = trf("No {service} account: add one in Settings", {{"service", ADIFSourceName(src).UTF8String}});
         showLookupInfo();
         return;
     }
@@ -2109,7 +2162,7 @@ static void runLookup() {
                      if (!qsoVisible() || g.lookup.call != call) return;
                      std::string name = ADIFSourceName(src).UTF8String;
                      if (!found) {
-                         g.lookup.found = name + ": " + (error ? std::string(error.UTF8String) : base + " not found");
+                         g.lookup.message = name + ": " + (error ? std::string(error.UTF8String) : trf("{call} not found", {{"call", base}}));
                          if (fatal) g.lookup.client = nil;  // sign in again next time
                          showLookupInfo();
                          return;
@@ -2124,10 +2177,8 @@ static void runLookup() {
                      if (away)
                          for (const char *k : {"GRIDSQUARE", "STATE", "CNTY", "QTH", "LAT", "LON"}) f.erase(k);
                      g.lookup.callbook = f;
-                     std::string where = f["QTH"] + (f["STATE"].empty() ? "" : (f["QTH"].empty() ? "" : ", ") + f["STATE"]);
-                     g.lookup.found = name + ": " + (f["NAME"].empty() ? base : f["NAME"]) + (where.empty() ? "" : ", " + where) +
-                                      (f["GRIDSQUARE"].empty() ? "" : " (" + f["GRIDSQUARE"] + ")") +
-                                      (away ? " " + tr("(home address; away now)") : "");
+                     g.lookup.service = name;
+                     g.lookup.away = away;
                      showLookupInfo();
                      scheduleQsoCheck();
                  }];

@@ -9,6 +9,19 @@ Versions before 0.8.0 were development builds and were not published.
 
 ## [Unreleased]
 
+### Changed
+
+- **New QSO:** the lookup's line becomes the station's facts, a row each: Operator (name and
+  QTH), Country (entity, continent, zones, DXCC), Grid, Distance with the short-path and
+  long-path bearings (km or miles, as the Map), the station's Local time (the country file's
+  standard time for the entity), QSL (LoTW), Worked before (this log and the logs folder,
+  no longer in the summary line) and its references.
+- **New QSO:** **Station** is the first row, with what the profile writes beside it ("KW9D ·
+  EN52wa · 5 W · Elecraft T1").
+- **New QSO and Start Activation:** type part of a park's name or reference in POTA_REF,
+  MY_POTA_REF or the activation's References, and the list offers the parks it could be,
+  nearest your grid first; choosing one puts its reference in (after a comma, the next one).
+
 ## [1.5.0] - 2026-10-25
 
 ### Changed

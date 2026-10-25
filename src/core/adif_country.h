@@ -22,6 +22,11 @@ struct CountryInfo {
     std::string continent;  // AF AN AS EU NA OC SA
     int cq = 0, itu = 0;
     double lat = 0, lon = 0;  // degrees, north and east positive
+    // Its standard time, hours ahead of UTC (+9 Japan, -5 the US's east), as the file gives it
+    // with the sign the other way (hours west, like its longitudes): no daylight saving time, and
+    // one zone for a country that spans several.
+    double utcOffset = 0;
+    bool hasUtcOffset = false;
 };
 
 class CountryTable {

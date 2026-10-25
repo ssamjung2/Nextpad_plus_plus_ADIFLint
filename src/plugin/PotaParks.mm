@@ -4,6 +4,8 @@
 #import "Lookup.h"
 #import "PluginHost.h"
 
+#include "adif_geo.h"
+
 #include <sys/stat.h>
 
 #include <ctime>
@@ -75,4 +77,19 @@ void ADIFUpdatePotaParks(void (^done)(BOOL ok, NSString *message)) {
         listDate = fileDate(path);
         done(YES, ADIFPotaParksStatus());
     });
+}
+
+NSArray<NSArray<NSString *> *> *ADIFParkSuggestions(NSString *part) {
+    const adif::PotaParks &list = ADIFPotaParks();
+    if (part.length < 2 || list.size() == 0) return @[];
+    double lat = 0, lon = 0;
+    bool home = adif::gridToLatLon(adifhost::setting("stationGrid"), &lat, &lon);
+    NSMutableArray *out = [NSMutableArray array];
+    for (size_t i : list.search(part.UTF8String, 20, home ? &lat : nullptr, home ? &lon : nullptr)) {
+        const adif::PotaPark &p = list.parks()[i];
+        std::string shown = p.ref + "  " + p.name + (p.location.empty() ? "" : " (" + p.location + ")");
+        if (!p.active) shown += "  " + adif::i18n::tr("(inactive)");
+        [out addObject:@[ @(p.ref.c_str()), @(shown.c_str()) ]];
+    }
+    return out;
 }

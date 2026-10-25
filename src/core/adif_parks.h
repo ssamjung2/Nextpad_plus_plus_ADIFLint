@@ -34,6 +34,12 @@ public:
     // new name. nullptr when not listed.
     const PotaPark *find(std::string_view ref) const;
     size_t indexOf(const PotaPark *p) const { return p ? (size_t)(p - parks_.data()) : (size_t)-1; }
+    // The parks a few typed letters could mean, best first, at most `limit`: a reference ("us-12",
+    // "US-1234"), words of a name in any order ("yellowstone", "lake state park"), or a location
+    // ("US-WI"). The exact reference first, then references that start so, then names that do, then
+    // names with every word; within each, active parks before inactive ones and, when a place is
+    // given, the nearest first; then by reference. Case and accents (Latin letters) ignored.
+    std::vector<size_t> search(std::string_view text, size_t limit, const double *lat = nullptr, const double *lon = nullptr) const;
 
 private:
     std::vector<PotaPark> parks_;

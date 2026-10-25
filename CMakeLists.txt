@@ -42,6 +42,7 @@ add_library(adif_core STATIC
     src/core/adif_upload.cpp
     src/core/adif_import.cpp
     src/core/adif_geo.cpp
+    src/core/adif_facts.cpp
     src/core/adif_country.cpp
     src/core/adif_programs.cpp
     src/core/adif_formats.cpp
