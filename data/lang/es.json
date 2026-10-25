@@ -869,6 +869,7 @@
   "Log: {name} (open)": "Log: {name} (abierto)",
   "Logged {call} as record {n}.": "Se registró {call} como registro {n}.",
   "Logger commands over TCP (DXKeeper, HRD form) port": "Puerto de comandos de programas de log por TCP (DXKeeper, forma HRD)",
+  "Logging Layout": "Disposición para registrar",
   "Logging to: ": "Registrando en: ",
   "Login": "Usuario",
   "Logs folder:": "Carpeta de logs:",

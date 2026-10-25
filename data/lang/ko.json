@@ -864,6 +864,7 @@
   "Log: {name} (open)": "로그: {name}(열림)",
   "Logged {call} as record {n}.": "{call}을(를) 레코드 {n}(으)로 기록했습니다.",
   "Logger commands over TCP (DXKeeper, HRD form) port": "TCP 로거 명령(DXKeeper, HRD 형식) 포트",
+  "Logging Layout": "로깅 레이아웃",
   "Logging to: ": "기록할 곳: ",
   "Login": "로그인",
   "Logs folder:": "로그 폴더:",

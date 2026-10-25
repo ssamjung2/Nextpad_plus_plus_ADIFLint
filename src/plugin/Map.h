@@ -31,5 +31,11 @@ void setSettingsProvider(NSView * (^provider)(void));
 // The Map open, its selected panel shown and its Settings card open and in sight (the menu's
 // Settings..., and every "add it in Settings").
 void revealSettings();
+#ifdef __OBJC__
+NSWindow *mapWindow();  // nil before the Map opens
+#endif
+// The QSO with this record number shown on the Map, when it is open (after New QSO logs it):
+// listed in Selected, its square chosen.
+void showRecord(int record);
 
 }  // namespace worldmap

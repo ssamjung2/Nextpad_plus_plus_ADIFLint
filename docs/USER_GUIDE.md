@@ -220,9 +220,16 @@ is selected.
 - **Log QSO** (Return) appends the record with correct lengths, in the log's own layout,
   then clears the window for the next contact. In an empty document it starts a new log
   with a header.
-- **Worked before:** with a logs folder chosen in Worked Before, the window also says when
-  the call is in your other logs ("K1ABC: 4 QSOs in 2 other logs; last 2026-09-30 14:05 on
-  20m SSB").
+- **Worked before:** the lookup's **Worked before** fact says when the call is already in
+  this log on other bands, modes or days and, with a logs folder chosen in Worked Before, in
+  your other logs ("4 QSOs in 2 other logs; last 2026-09-30 14:05 on 20m SSB").
+
+**Logging Layout** (in the ADIF Lint menu, ticked while it is on) arranges the screen for
+logging: New QSO down the right, the Map over the Log Table on the left, all three kept in
+front of the log (which stays behind them) whether Nextpad++ is active or not. Each QSO you
+log is chosen on the Map (its square, and the list's **Selected**) and in the Log Table.
+Choose it again to put the windows back as they were (they keep their places). It needs an
+ADIF log open, as New QSO does.
 
 ### Choosing the fields
 

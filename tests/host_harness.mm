@@ -738,7 +738,7 @@ int main(int argc, char **argv) {
         CHECK(std::strcmp(getName(), "ADIF Lint") == 0, "plugin name: %s", getName());
         int n = 0;
         FuncItem *items = getFuncsArray(&n);
-        CHECK(n == 36, "36 menu entries (30 commands, 6 separators), got %d", n);
+        CHECK(n == 37, "37 menu entries (31 commands, 6 separators), got %d", n);
         std::map<std::string, FuncItem *> byName;
         int nextId = 22000;
         for (int i = 0; i < n; ++i) {
@@ -6004,6 +6004,41 @@ int main(int argc, char **argv) {
                       spotLine.stringValue.UTF8String);
                 setBox(spotCluster, false);
                 [qwLog orderOut:nil];
+                {  // Logging Layout: New QSO right, the Map over the Log Table left, in front; a QSO logged is chosen in both; again, as before
+                    NSRect mapWas = mapw.frame;
+                    NSWindowLevel mapLevel = mapw.level;
+                    run("Logging Layout");
+                    pump(0.3);
+                    NSWindow *qwL = qsoWindow(), *tw = windowTitled(@"Log Table");
+                    NSTableView *tt = tw ? findTable(tw.contentView) : nil;
+                    bool tiled = qwL.visible && mapw.visible && tw.visible && NSMinX(qwL.frame) >= NSMaxX(mapw.frame) - 1 &&
+                                 NSMaxY(tw.frame) <= NSMinY(mapw.frame) + 1 && std::fabs(NSMinX(tw.frame) - NSMinX(mapw.frame)) < 1 &&
+                                 std::fabs(NSHeight(qwL.frame) - (NSMaxY(mapw.frame) - NSMinY(tw.frame))) < 2;
+                    bool front = qwL.level == NSFloatingWindowLevel && mapw.level == NSFloatingWindowLevel && tw.level == NSFloatingWindowLevel &&
+                                 [tw isKindOfClass:NSPanel.class] && !((NSPanel *)tw).hidesOnDeactivate && !((NSPanel *)qwL).hidesOnDeactivate;
+                    CHECK(tiled && front, "Logging Layout: New QSO beside the Map over the Log Table, side by side, in front (%s; %s; %s)",
+                          NSStringFromRect(qwL.frame).UTF8String, NSStringFromRect(mapw.frame).UTF8String, NSStringFromRect(tw.frame).UTF8String);
+                    qsoControl(qwL, @"CALL").stringValue = @"W1LAY";
+                    qsoControl(qwL, @"FREQ").stringValue = @"14.074";
+                    qsoControl(qwL, @"MODE").stringValue = @"FT8";
+                    if (NSTextField *grid = qsoControl(qwL, @"GRIDSQUARE")) grid.stringValue = @"FN42";
+                    [findButton(qwL.contentView, @"Log QSO") performClick:nil];
+                    pump(0.5);
+                    NSTableView *listT = (NSTableView *)viewWithIdentifier(mapw.contentView, @"map.list.table");
+                    NSSegmentedControl *kindL = (NSSegmentedControl *)viewWithIdentifier(mapw.contentView, @"map.list.kind");
+                    NSString *callColumn = @"";
+                    for (NSTableColumn *c in tt.tableColumns)
+                        if ([c.title isEqualToString:@"CALL"]) callColumn = c.identifier;
+                    NSString *chosenCall = tt.selectedRow >= 0 ? cell(tt, tt.selectedRow, callColumn) : @"none";
+                    CHECK(kindL.selectedSegment == 0 && [listT.dataSource numberOfRowsInTableView:listT] == 1 && [cell(listT, 0, @"call") isEqualToString:@"W1LAY"] &&
+                              [chosenCall isEqualToString:@"W1LAY"],
+                          "the QSO logged is chosen on the Map (Selected) and in the Log Table (%s)", chosenCall.UTF8String);
+                    run("Logging Layout");
+                    CHECK(mapw.level == mapLevel && ((NSPanel *)tw).hidesOnDeactivate, "Logging Layout off: the windows' levels and hiding as before");
+                    [mapw setFrame:mapWas display:YES];
+                    [qwL orderOut:nil];
+                    [tw orderOut:nil];
+                }
 
                 // Off and on again: PSKReporter isn't asked again within five minutes; the cluster closes and reconnects.
                 setBox(mapBox(@"show", @"spots"), false);

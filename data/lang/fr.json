@@ -869,6 +869,7 @@
   "Log: {name} (open)": "Journal : {name} (ouvert)",
   "Logged {call} as record {n}.": "{call} enregistré comme enregistrement {n}.",
   "Logger commands over TCP (DXKeeper, HRD form) port": "Port des commandes de logiciel de log sur TCP (DXKeeper, forme HRD)",
+  "Logging Layout": "Disposition pour le trafic",
   "Logging to: ": "Enregistrement dans : ",
   "Login": "Connexion",
   "Logs folder:": "Dossier des journaux :",

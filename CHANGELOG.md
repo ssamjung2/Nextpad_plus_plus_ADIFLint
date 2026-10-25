@@ -18,6 +18,11 @@ Versions before 0.8.0 were development builds and were not published.
   no longer in the summary line) and its references.
 - **New QSO:** **Station** is the first row, with what the profile writes beside it ("KW9D ·
   EN52wa · 5 W · Elecraft T1").
+- **Logging Layout** (ADIF Lint menu): New QSO on the right, the Map over the Log Table on the
+  left, kept in front of the log; each QSO logged is chosen on the Map and in the Log Table.
+- **Map:** the selected panel follows Apple's guidance as the cards in it do: a spot's reasons
+  are set apart by a green tint rather than a border, headings are in sentence style, New QSO
+  is a system push button tinted green, and the parts are spaced on a 4-point rhythm.
 - **New QSO and Start Activation:** type part of a park's name or reference in POTA_REF,
   MY_POTA_REF or the activation's References, and the list offers the parks it could be,
   nearest your grid first; choosing one puts its reference in (after a comma, the next one).

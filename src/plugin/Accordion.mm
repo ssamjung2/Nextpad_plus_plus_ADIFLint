@@ -330,6 +330,35 @@
 
 @end
 
+@implementation ADIFInsetBox {
+    NSColor *_tint;
+}
+
+- (instancetype)initWithTint:(NSColor *)tint {
+    if (!(self = [super initWithFrame:NSZeroRect])) return nil;
+    _tint = tint;
+    return self;
+}
+
+- (BOOL)isFlipped {
+    return YES;
+}
+
+- (void)drawRect:(NSRect)dirty {
+    bool dark = [[self.effectiveAppearance bestMatchFromAppearancesWithNames:@[ NSAppearanceNameAqua, NSAppearanceNameDarkAqua ]]
+        isEqualToString:NSAppearanceNameDarkAqua];
+    NSColor *fill = _tint ? [_tint colorWithAlphaComponent:dark ? 0.14 : 0.10] : [NSColor.blackColor colorWithAlphaComponent:dark ? 0.16 : 0.025];
+    [fill setFill];
+    [[NSBezierPath bezierPathWithRoundedRect:self.bounds xRadius:6 yRadius:6] fill];
+}
+
+- (void)viewDidChangeEffectiveAppearance {
+    [super viewDidChangeEffectiveAppearance];
+    self.needsDisplay = YES;
+}
+
+@end
+
 @implementation ADIFWrappingCheckbox {
     CGFloat _laidOutWidth;
 }

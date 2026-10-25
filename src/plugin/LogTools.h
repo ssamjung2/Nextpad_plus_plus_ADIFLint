@@ -6,6 +6,10 @@
 
 #include "adif_tools.h"
 
+#ifdef __OBJC__
+#import <Cocoa/Cocoa.h>
+#endif
+
 #include <string>
 #include <utility>
 #include <vector>
@@ -13,6 +17,11 @@
 namespace logtools {
 
 void cmdLogTable();
+#ifdef __OBJC__
+NSWindow *logTableWindow();  // nil before the Log Table opens
+#endif
+// The record starting at `start` chosen in the Log Table, when it is open (after New QSO logs it).
+void showRecordInTable(size_t start);
 void cmdSummary();
 void cmdActivationTracker();
 void cmdWorkedBefore();

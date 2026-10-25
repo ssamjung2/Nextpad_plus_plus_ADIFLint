@@ -40,6 +40,12 @@
 @property(nonatomic, copy) void (^onToggle)(BOOL open);
 @end
 
+// A box inside a card for content set apart (a spot's reasons): a tinted fill with no edge, its
+// corners concentric with the card's, as Apple's Boxes guidance prefers to nested borders.
+@interface ADIFInsetBox : NSView
+- (instancetype)initWithTint:(NSColor *)tint;  // nil: the neutral fill of a card in a card
+@end
+
 // Narrow panels' building blocks.
 // A checkbox whose title wraps to the width it is given (Auto Layout sets the width; its height
 // follows).

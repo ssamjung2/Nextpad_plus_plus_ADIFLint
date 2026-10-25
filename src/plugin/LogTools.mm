@@ -2762,6 +2762,15 @@ void setSpotHandler(void (^handler)(const std::vector<std::pair<std::string, std
     spots.handler = handler;
 }
 
+NSWindow *logTableWindow() { return table.w ? table.w.window : nil; }
+
+void showRecordInTable(size_t start) {
+    if (!tableVisible()) return;
+    tableRefresh();
+    for (size_t row = 0; row < table.starts.size(); ++row)
+        if (table.starts[row] == start) return [table.w selectRow:(NSInteger)row];
+}
+
 void cmdLogTable() {
     if (!table.w) {
         ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"Log Table" size:NSMakeSize(980, 560) headline:NO];

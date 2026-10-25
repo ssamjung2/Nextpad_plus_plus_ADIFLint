@@ -71,6 +71,7 @@
 #include "adif_programs.h"
 
 #include <algorithm>
+#include <tuple>
 #include <cctype>
 #include <cstring>
 #include <ctime>
@@ -94,6 +95,7 @@ enum {
     kCmdNewQso,
     kCmdSpots,
     kCmdStartActivation,
+    kCmdLayout,
     kSepLog,
     kCmdLogTable,
     kCmdCheckLog,
@@ -161,6 +163,10 @@ static struct {
     bool autocomplete = true;
     bool countCharacters = false;
     bool panelWanted = false;
+    // Logging Layout: New QSO, the Map and the Log Table arranged and kept in front; each one's
+    // level and hiding as they were, to put back.
+    bool layout = false;
+    std::vector<std::tuple<NSWindow *__weak, NSWindowLevel, BOOL>> layoutWas;
     bool firstRun = false;  // no ADIFLint.ini yet: show the welcome
     std::string pendingOpen;  // a file asked to open; New QSO opens on it when it becomes active
     std::vector<std::string> qsoFieldList;  // New QSO fields; empty: the log's own fields
@@ -472,6 +478,7 @@ static const adif::LintResult &validateNow(NppHandle h, bool showDiagnostics);
 static std::string utcNow(const char *format);
 static std::string documentName();
 static void openSettings(NSInteger source);
+static void cmdLoggingLayout();
 
 // ── PluginHost: what the other plugin files use ─────────────────────────────
 
@@ -1819,6 +1826,10 @@ static void logQso() {
         [g.qso setSummary:done severity:c.severity == 1 ? 1 : -1];
         refreshQsoTarget();
         [g.qso focusField:"CALL"];
+        if (g.layout) {  // the new QSO chosen on the Map and in the Log Table
+            worldmap::showRecord((int)adif::recordCount(after.model));
+            logtools::showRecordInTable(start);
+        }
         // Spot it, as its boxes say: the station worked on the DX cluster, yourself on pota.app when activating.
         [g.qso setSpotStatus:@""];
         logspot::afterLog(c.fields, contestNow.preset != adif::ContestPreset::None, g.qso.spotCluster && g.qso.spotClusterReady,
@@ -2786,6 +2797,47 @@ static void refreshMapDetail() {
     [g.settings setMapDetailChoices:choices levels:levels installed:have summary:mapdetail::status()];
 }
 // Night Mode (the menu item): ADIF Lint's windows red on black, the Map in its Night palette.
+// Logging Layout: New QSO on the right, the Map over the Log Table on the left, filling the screen
+// New QSO is on and kept in front of the logs (which stay behind), whether Nextpad++ is active or
+// not; each QSO logged is chosen on the Map and in the table. Again: the windows as they were.
+static void cmdLoggingLayout() {
+    if (g.layout) {
+        for (auto &[w, level, hides] : g.layoutWas) {
+            NSWindow *win = w;
+            if (!win) continue;
+            win.level = level;
+            if ([win isKindOfClass:NSPanel.class]) ((NSPanel *)win).hidesOnDeactivate = hides;
+        }
+        g.layoutWas.clear();
+        g.layout = false;
+        setCheck(kCmdLayout, false);
+        return;
+    }
+    cmdNewQso();  // New QSO first: it needs an ADIF log (it says so when this isn't one)
+    if (!g.qso || !g.qso.window.visible) return;
+    worldmap::cmdMap();
+    logtools::cmdLogTable();
+    NSWindow *qso = g.qso.window, *map = worldmap::mapWindow(), *table = logtools::logTableWindow();
+    NSScreen *screen = qso.screen ?: NSScreen.mainScreen;
+    NSRect v = screen.visibleFrame;
+    CGFloat qsoWidth = std::clamp(std::floor(NSWidth(v) * 0.3), (CGFloat)440, (CGFloat)560);
+    CGFloat left = NSWidth(v) - qsoWidth, tableHeight = std::clamp(std::floor(NSHeight(v) * 0.32), (CGFloat)220, (CGFloat)360);
+    g.layoutWas.clear();
+    for (NSWindow *w : {qso, map, table}) {
+        if (!w) continue;
+        g.layoutWas.emplace_back(w, w.level, [w isKindOfClass:NSPanel.class] ? ((NSPanel *)w).hidesOnDeactivate : NO);
+        w.level = NSFloatingWindowLevel;
+        if ([w isKindOfClass:NSPanel.class]) ((NSPanel *)w).hidesOnDeactivate = NO;
+    }
+    [map setFrame:NSMakeRect(NSMinX(v), NSMinY(v) + tableHeight, left, NSHeight(v) - tableHeight) display:YES];
+    [table setFrame:NSMakeRect(NSMinX(v), NSMinY(v), left, tableHeight) display:YES];
+    [qso setFrame:NSMakeRect(NSMinX(v) + left, NSMinY(v), qsoWidth, NSHeight(v)) display:YES];
+    for (NSWindow *w : {map, table, qso}) [w orderFront:nil];
+    [qso makeKeyAndOrderFront:nil];
+    g.layout = true;
+    setCheck(kCmdLayout, true);
+}
+
 static void cmdToggleNight() { ADIFSetNightMode(!ADIFNightMode()); }
 
 static void offlineChanged() {
@@ -2901,6 +2953,7 @@ extern "C" NPP_EXPORT void setInfo(NppData data) {
     setItem(kCmdNewQso, "New QSO...", cmdNewQso);
     setItem(kCmdSpots, "Spots (POTA, WWFF, More)...", logtools::cmdPotaSpots);
     setItem(kCmdStartActivation, "Start Activation...", station::cmdStartActivation);
+    setItem(kCmdLayout, "Logging Layout", cmdLoggingLayout, false);
     setItem(kSepLog, "", nullptr);
     setItem(kCmdLogTable, "Log Table...", logtools::cmdLogTable);
     setItem(kCmdCheckLog, "Check Log...", checklog::cmdCheckLog);

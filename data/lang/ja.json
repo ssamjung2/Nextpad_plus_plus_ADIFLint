@@ -864,6 +864,7 @@
   "Log: {name} (open)": "ログ: {name} (開いています)",
   "Logged {call} as record {n}.": "{call} をレコード {n} として記録しました。",
   "Logger commands over TCP (DXKeeper, HRD form) port": "TCP によるロガーのコマンド (DXKeeper、HRD 形式) のポート",
+  "Logging Layout": "ロギングレイアウト",
   "Logging to: ": "記録先: ",
   "Login": "ログイン",
   "Logs folder:": "ログのフォルダ:",

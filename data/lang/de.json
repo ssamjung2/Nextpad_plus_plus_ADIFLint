@@ -869,6 +869,7 @@
   "Log: {name} (open)": "Log: {name} (geöffnet)",
   "Logged {call} as record {n}.": "{call} als Datensatz {n} geloggt.",
   "Logger commands over TCP (DXKeeper, HRD form) port": "Port für Logprogramm-Befehle über TCP (DXKeeper, HRD-Form)",
+  "Logging Layout": "Log-Anordnung",
   "Logging to: ": "Loggen in: ",
   "Login": "Anmeldung",
   "Logs folder:": "Log-Ordner:",

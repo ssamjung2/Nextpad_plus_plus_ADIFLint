@@ -7172,16 +7172,8 @@ void cmdMap() {
         actions.identifier = @"map.actions";
         for (NSView *v in @[ mw.centerButton, mw.viewQso, mw.watchButton ]) [actions addSubview:v];
         mw.actions = actions;
-        mw.useSpot.bordered = NO;  // green, the panel's one main action
-        mw.useSpot.wantsLayer = YES;
-        mw.useSpot.layer.backgroundColor = NSColor.systemGreenColor.CGColor;
-        mw.useSpot.layer.cornerRadius = 7;
-        mw.useSpot.contentTintColor = NSColor.whiteColor;
-        mw.useSpot.attributedTitle = [[NSAttributedString alloc]
-            initWithString:T(@"New QSO")
-                attributes:@{NSFontAttributeName : [NSFont systemFontOfSize:NSFont.systemFontSize + 1 weight:NSFontWeightSemibold],
-                             NSForegroundColorAttributeName : NSColor.whiteColor}];
-        [mw.useSpot.heightAnchor constraintEqualToConstant:32].active = YES;
+        mw.useSpot.controlSize = NSControlSizeLarge;  // the panel's one main action: a system push button, tinted green
+        mw.useSpot.bezelStyle = NSBezelStyleRounded;
         // What kind of thing is chosen, beside its name; a line under it; its facts; why it's worth working.
         mw.chosenBadge = [NSTextField labelWithString:@""];
         mw.chosenBadge.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize - 1 weight:NSFontWeightBold];
@@ -7199,28 +7191,25 @@ void cmdMap() {
         mw.chosenSubtitle.lineBreakMode = NSLineBreakByTruncatingTail;
         mw.chosenSubtitle.identifier = @"map.chosen.subtitle";
         mw.chosenFacts = [NSGridView gridViewWithNumberOfColumns:2 rows:0];
-        mw.chosenFacts.rowSpacing = 5;
+        mw.chosenFacts.rowSpacing = 6;
         mw.chosenFacts.columnSpacing = 12;
         mw.chosenFacts.identifier = @"map.chosen.facts";
         mw.chosenFacts.hidden = YES;
         mw.whyList = rows(@[], 5);
-        NSTextField *whyCaption = caption(N(@"Why it's interesting"));
+        NSTextField *whyCaption = [NSTextField labelWithString:T(@"Why it's interesting")];  // sentence style, as the cards' groups
+        whyCaption.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightSemibold];
         NSStackView *whyStack = rows(@[ whyCaption, mw.whyList ], 6);
         [mw.whyList.widthAnchor constraintEqualToAnchor:whyStack.widthAnchor].active = YES;
-        mw.whyBox = [[NSView alloc] initWithFrame:NSZeroRect];  // a hairline round the reasons
-        mw.whyBox.wantsLayer = YES;
-        mw.whyBox.layer.borderWidth = 1;
-        mw.whyBox.layer.cornerRadius = 6;
-        mw.whyBox.layer.borderColor = [NSColor.systemGreenColor colorWithAlphaComponent:0.55].CGColor;
+        mw.whyBox = [[ADIFInsetBox alloc] initWithTint:NSColor.systemGreenColor];  // set apart by a green tint, not a border
         mw.whyBox.identifier = @"map.chosen.why";
         mw.whyBox.hidden = YES;
         whyStack.translatesAutoresizingMaskIntoConstraints = NO;
         [mw.whyBox addSubview:whyStack];
         [NSLayoutConstraint activateConstraints:@[
-            [whyStack.topAnchor constraintEqualToAnchor:mw.whyBox.topAnchor constant:8],
-            [whyStack.bottomAnchor constraintEqualToAnchor:mw.whyBox.bottomAnchor constant:-8],
-            [whyStack.leadingAnchor constraintEqualToAnchor:mw.whyBox.leadingAnchor constant:10],
-            [whyStack.trailingAnchor constraintEqualToAnchor:mw.whyBox.trailingAnchor constant:-10],
+            [whyStack.topAnchor constraintEqualToAnchor:mw.whyBox.topAnchor constant:10],
+            [whyStack.bottomAnchor constraintEqualToAnchor:mw.whyBox.bottomAnchor constant:-10],
+            [whyStack.leadingAnchor constraintEqualToAnchor:mw.whyBox.leadingAnchor constant:12],
+            [whyStack.trailingAnchor constraintEqualToAnchor:mw.whyBox.trailingAnchor constant:-12],
         ]];
         // A spot's Details: a group in Selected, closed at first (remembered).
         mw.detailsText = [NSTextField wrappingLabelWithString:@""];
@@ -7291,12 +7280,15 @@ void cmdMap() {
         NSStackView *chosenBody = rows(@[ titleRow, mw.chosenSubtitle, mw.chosenFacts, mw.whyBox, detailsSection, mw.useSpot, actions, mw.status, mw.slots ], 6);
         for (NSView *v in @[ titleRow, mw.chosenSubtitle, mw.chosenFacts, mw.whyBox, detailsSection, mw.useSpot, actions, mw.status, mw.slots ])
             [v.widthAnchor constraintEqualToAnchor:chosenBody.widthAnchor].active = YES;
+        // On a 4-point rhythm: the name with its line, then each part 12 apart, a part's own pieces 8.
         [chosenBody setCustomSpacing:2 afterView:titleRow];
-        [chosenBody setCustomSpacing:10 afterView:mw.chosenSubtitle];
-        [chosenBody setCustomSpacing:10 afterView:mw.chosenFacts];
-        [chosenBody setCustomSpacing:10 afterView:mw.whyBox];
-        [chosenBody setCustomSpacing:10 afterView:detailsSection];
-        [chosenBody setCustomSpacing:10 afterView:actions];
+        [chosenBody setCustomSpacing:12 afterView:mw.chosenSubtitle];
+        [chosenBody setCustomSpacing:12 afterView:mw.chosenFacts];
+        [chosenBody setCustomSpacing:8 afterView:mw.whyBox];
+        [chosenBody setCustomSpacing:12 afterView:detailsSection];
+        [chosenBody setCustomSpacing:8 afterView:mw.useSpot];
+        [chosenBody setCustomSpacing:12 afterView:actions];
+        [chosenBody setCustomSpacing:8 afterView:mw.status];
         NSStackView *situationBody = rows(@[ mw.statHost, mw.situation, mw.today, mw.wanted, mw.air, awardsSection, bandSection, recentSection ], 6);
         for (NSView *v in @[ mw.statHost, mw.situation, mw.today, mw.wanted, mw.air, awardsSection, bandSection, recentSection ])
             [v.widthAnchor constraintEqualToAnchor:situationBody.widthAnchor].active = YES;
@@ -7520,6 +7512,30 @@ void setSettingsProvider(NSView * (^provider)(void)) { mw.settingsProvider = pro
 void revealSettings() {
     cmdMap();
     revealSection(@"settings");
+}
+
+NSWindow *mapWindow() { return mw.window; }
+
+void showRecord(int record) {
+    if (!mw.window || !mw.window.visible) return;
+    refresh();
+    for (size_t i = 0; i < mw.data.qsos.size(); ++i) {
+        if (mw.data.qsos[i].record != record) continue;
+        double lat, lon;
+        std::string square = mw.data.qsos[i].grid.substr(0, std::min<size_t>(4, mw.data.qsos[i].grid.size()));
+        for (char &c : square) c = (char)std::toupper((unsigned char)c);
+        if (square.size() == 4 && adif::gridToLatLon(square, &lat, &lon)) {
+            ADIFMapHit h;
+            h.kind = ADIFMapHit::Square;
+            h.square = square;
+            mw.choosingFromList = true;
+            [mw.view selectHit:h];
+            mw.choosingFromList = false;
+        }
+        showList({i});
+        showListKind(kListSelected);
+        return;
+    }
 }
 
 void iotaGroupsChanged() {
