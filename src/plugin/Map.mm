@@ -1,4 +1,5 @@
 #import "Map.h"
+#import "Accordion.h"
 #import "Night.h"
 #import "ParkOutlines.h"
 #import "L10n.h"
@@ -459,7 +460,7 @@ struct {
     NSButton *show[kLayerCount] = {}, *overlay[kLayerCount] = {}, *labels[kLayerCount] = {};  // the layers' boxes (no Show for cities)
     NSButton *contacts = nil, *lines = nil, *mine = nil;
     NSPopUpButton *programs = nil, *projection = nil, *colorBy = nil, *region = nil;
-    NSPanel *styleWindow = nil;  // Style Options
+    NSView *styleBody = nil;  // Style Options, a card in the selected panel
     NSTimer *sunTimer = nil;     // day and night, while it shows now
     NSPopUpButton *band = nil, *mode = nil, *dates = nil, *confirmed = nil;
     NSTextField *status = nil, *zoomLabel = nil;
@@ -481,12 +482,11 @@ struct {
     NSButton *focusButton = nil;    // the toolbar's Focus Map: the panes hidden, or back
     bool focusRestore[3] = {};      // the panes Focus Map hid, to show again
     NSMutableDictionary<NSString *, NSView *> *sections = nil;  // a section's body, by its name
-    NSMutableDictionary<NSString *, NSButton *> *sectionTriangles = nil;
-    NSMutableDictionary<NSString *, NSTextField *> *sectionTitles = nil;
+    NSMutableDictionary<NSString *, ADIFAccordion *> *sectionCards = nil;
     // The Layers section's groups (areas, programs, places, contacts, sun), each closed on its
     // own: its grid rows or views, and its triangle.
     NSMutableDictionary<NSString *, NSArray *> *layerGroups = nil;
-    NSMutableDictionary<NSString *, NSButton *> *layerGroupTriangles = nil;
+    NSMutableDictionary<NSString *, ADIFAccordionHeader *> *layerGroupHeaders = nil;
     NSButton *otherBox = nil;              // Other programs' row: any of them shown
     NSMutableArray<NSMenu *> *layerMenus = nil;  // each layer name's own (right-click)
     NSSegmentedControl *paletteBar = nil;  // the Map section's palettes, one click each
@@ -506,6 +506,8 @@ struct {
     NSButton *centerButton = nil;
     NSButton *greyLineBox = nil, *dayNightBox = nil;  // the sidebar's Sun boxes (Style Options has them too)
     NSButton *auroraBox = nil, *beaconsBox = nil, *heatBox = nil;  // the sidebar's propagation layers
+    NSButton *terrainBox = nil;                                     // Base map: terrain, and how strong
+    NSPopUpButton *terrainStrength = nil;
     NSButton *solarTile = nil;     // the header's space weather (NOAA SWPC)
     NSPopover *solarPopover = nil;
     NSTimer *beaconTimer = nil;    // redraws as the beacons take turns
@@ -592,6 +594,7 @@ struct {
     NSButton *parkHome = nil;
     ADIFTokenCompleter *countyCompleter = nil;
     void (^spotHandler)(const std::vector<std::pair<std::string, std::string>> &) = nil;
+    NSView * (^settingsProvider)(void) = nil;  // the Settings card's groups (ADIFLint.mm)
     adif::MapData data;
     std::vector<ADIFMapEntity> dxcc;
     std::vector<size_t> listed;   // the QSOs chosen (the list's Selected): indexes into data.qsos
@@ -2035,14 +2038,21 @@ struct StyleChoice {
 };
 NSArray<NSString *> *const kPaletteTitles = @[ N(@"Standard"), N(@"Colour-blind safe"), N(@"High contrast"), N(@"Light (for printing)"), N(@"Night (red)") ];
 
+void syncStyleControls();
+
 void fillStyle() {
     ADIFMapStyle s = savedStyle();
     mw.greyLineBox.state = s.greyLine ? NSControlStateValueOn : NSControlStateValueOff;  // the sidebar's, as Style Options left them
     mw.dayNightBox.state = s.dayNight ? NSControlStateValueOn : NSControlStateValueOff;
     mw.paletteBar.selectedSegment = number("mapPalette", 0, 4);  // the sidebar's and Style Options' the same
     mw.paletteBar.enabled = !ADIFNightMode();
-    if (!mw.styleWindow) return;
-    NSView *root = mw.styleWindow.contentView;
+    int terrain = number("mapTerrain", 0, 2);  // Layers → Base map
+    mw.terrainBox.state = terrain ? NSControlStateValueOn : NSControlStateValueOff;
+    if (terrain) [mw.terrainStrength selectItemAtIndex:terrain - 1];
+    mw.terrainStrength.enabled = terrain > 0;
+    syncStyleControls();
+    if (!mw.styleBody) return;
+    NSView *root = mw.styleBody;
     if (NSPopUpButton *p = (NSPopUpButton *)findView(root, @"map.style.palette")) [p selectItemAtIndex:number("mapPalette", 0, 4)];
     for (NSString *ident in @[ @"map.style.line", @"map.style.width", @"map.style.strength", @"map.style.arcs" ])
         if (NSControl *c = (NSControl *)findView(root, ident)) c.enabled = s.paths;
@@ -2055,180 +2065,199 @@ void fillStyle() {
         if (NSControl *c = (NSControl *)findView(root, ident)) c.enabled = s[kLayerSpots].show;
 }
 
-void showStyleOptions() {
-    if (!mw.styleWindow) {
-        NSPanel *p = [[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 440, 560)
-                                                styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskUtilityWindow
-                                                  backing:NSBackingStoreBuffered
-                                                    defer:NO];
-        p.title = T(@"Style Options");
-        p.releasedWhenClosed = NO;
-        p.hidesOnDeactivate = NO;
-        p.floatingPanel = YES;
-        p.identifier = @"map.style";
-        ADIFNightTrack(p);
-        NSMutableArray *rows = [NSMutableArray array];
-        auto section = [&](NSString *title) {
-            NSTextField *t = ADIFLabel(title);
-            t.font = [NSFont boldSystemFontOfSize:NSFont.systemFontSize];
-            [rows addObject:@[ t, [NSGridCell emptyContentView] ]];
-        };
-        auto add = [&](const StyleChoice &c) {
-            NSControl *control;
-            if (c.titles) {
-                NSPopUpButton *pop = ADIFPopup(c.titles);
-                [pop selectItemAtIndex:std::clamp(number(c.key, c.fallback, (int)c.titles.count - 1), 0, (int)c.titles.count - 1)];
-                std::string key = c.key;
-                ADIFOnAction(pop, ^{
-                    setSetting(key.c_str(), std::to_string(pop.indexOfSelectedItem));
-                    applyStyle();
-                    fillStyle();
-                    fillPrograms();  // program swatches follow the palette
-                });
-                control = pop;
-            } else {
-                NSButton *box = ADIFCheckbox(c.title, flag(c.key, c.fallback));
-                std::string key = c.key;
-                ADIFOnAction(box, ^{
-                    saveFlag(key.c_str(), box.state == NSControlStateValueOn);
-                    applyStyle();
-                    fillStyle();
-                });
-                control = box;
-            }
-            control.identifier = c.ident;
-            control.toolTip = T(c.tip);
-            [rows addObject:@[ c.titles ? ADIFLabel(c.title) : [NSGridCell emptyContentView], control ]];
-        };
-        section(N(@"Colours"));
-        add({"mapPalette", @"map.style.palette", 0, kPaletteTitles, N(@"Palette:"),
-             N(@"Colour-blind safe: colours that stay apart for red-green and blue-yellow colour blindness. Light: for printing. Night (red): red on "
-             @"black, to keep your night vision")});
-        section(N(@"Markers"));
-        add({"mapMarkerSize", @"map.style.size", 1, @[ N(@"Small"), N(@"Medium##size"), N(@"Large"), N(@"Extra large") ], N(@"Size:"), nil});
-        add({"mapMarkerShape", @"map.style.shape", 0, @[ N(@"By layer: dots, triangles, diamonds"), N(@"All circles"), N(@"All squares") ], N(@"Shape:"), nil});
-        add({"mapContactMarker", @"map.style.contact", 0, @[ N(@"Pins"), N(@"Dots"), N(@"Crosshairs") ], N(@"Contacts:"), nil});
-        section(N(@"Worked areas"));
-        add({"mapSquareFill", @"map.style.fill", 0, @[ N(@"Solid##fill"), N(@"See-through"), N(@"Outlines") ], N(@"Grid squares:"), nil});
-        add({"mapAreaShade", @"map.style.shade", 1, @[ N(@"Light##shade"), N(@"Medium##shade"), N(@"Strong##shade") ], N(@"Other areas:"),
-             N(@"How strongly worked countries, states, counties and zones are shaded")});
-        section(N(@"Lines to contacts"));
-        add({"mapLineStyle", @"map.style.line", 0, @[ N(@"Solid##line"), N(@"Dashed"), N(@"Dotted") ], N(@"Line:"), nil});
-        add({"mapLineWidth", @"map.style.width", 1, @[ N(@"Thin"), N(@"Medium##width"), N(@"Thick") ], N(@"Width:"), nil});
-        add({"mapLineOpacity", @"map.style.strength", 1, @[ N(@"Faint"), N(@"Medium##strength"), N(@"Solid##strength") ], N(@"Strength:"),
-             N(@"Each line is its contact's marker colour; this is how strongly it shows")});
-        add({"mapArcs", @"map.style.arcs", 1, nil, N(@"Arch over the globe"),
-             N(@"On the globe, draw each line as an arch rising over it (for looks: the true path, and the beam heading, is the straight line "
-             @"you get with this off)")});
-        NSUInteger secondColumn = rows.count;  // from here on, the right-hand column
-        section(N(@"Spots"));
-        add({"mapSpotterStyle", @"map.style.spotters", spotterStyleFallback(),
-             @[ N(@"Hidden##spotters"), N(@"Faint grey"), N(@"Markers"), N(@"Markers and calls") ], N(@"Spotters:"),
-             N(@"The stations that heard the spots (a cluster's spotters, RBN skimmers; for PSKReporter, you), each a triangle. Point at a "
-             @"spot or a spotter for its lines")});
-        add({"mapSpotLineStyle", @"map.style.spotLines", 0, @[ N(@"In the spot's colour"), N(@"Faint, in the spot's colour"), N(@"Faint grey") ],
-             N(@"Lines:"),
-             N(@"The lines from the spotters (the Spots layer's Overlay). The spot under the pointer always shows its lines in its own colour")});
-        add({"mapSpotLabelMode", @"map.style.spotMode", 1, nil, N(@"Mode"), N(@"Under each spot's call (the Spots layer's Labels): its mode")});
-        rows[rows.count - 1] = @[ ADIFLabel(N(@"Labels show:")), rows.lastObject[1] ];
-        add({"mapSpotLabelFreq", @"map.style.spotFreq", 0, nil, N(@"Frequency"), N(@"Under each spot's call: its frequency in kHz")});
-        add({"mapSpotLabelAge", @"map.style.spotAge", 1, nil, N(@"Time since spotted"), N(@"Under each spot's call: how long ago it was spotted")});
-        add({"mapSpotLabelSnr", @"map.style.spotSnr", 1, nil, N(@"Signal report"),
-             N(@"Under each spot's call: the signal report in dB, from an RBN skimmer or PSKReporter")});
-        add({"mapSpotFade", @"map.style.spotFade", 1, nil, N(@"Fade older spots"),
-             N(@"Spots older than 10 minutes fainter, down to half at the Spots filter's age")});
-        section(N(@"POTA parks"));
-        add({"mapParkOutlines", @"map.style.parkOutlines", 0, @[ N(@"Badge and outline"), N(@"Outline only") ], N(@"Parks with an outline:"),
-             N(@"For the parks whose outlines you downloaded (Settings, POTA Parks, Park Outlines): a badge on the outline, or the outline "
-             @"and the park's label alone once it is big enough to see (zoomed further out, the badge again)")});
-        section(N(@"On the map"));
-        add({"mapReference", @"map.style.reference", 1, @[ N(@"Strong##reference"), N(@"Subtle"), N(@"Faint##reference") ], N(@"Reference layers:"),
-             N(@"How strongly the grid, the overlays' lines and names, and the distance rings show: subtle or faint, your QSOs, parks and "
-             @"spots stand out from them")});
-        add({"mapTerrain", @"map.style.terrain", 0, @[ N(@"Off##terrain"), N(@"Subtle##terrain"), N(@"Strong##terrain") ], N(@"Terrain:"),
-             N(@"Mountains and valleys shaded on the land (Natural Earth's shaded relief), fading out as you zoom in past its detail")});
-        add({"mapFlags", @"map.style.flags", 1, nil, N(@"Country flags"),
-             N(@"A flag before each DXCC entity and station: in the list's Country and DXCC entity columns and the selected panel's title")});
-        add({"mapSpotlight", @"map.style.spotlight", 0, nil, N(@"Spotlight what's chosen"),
-             N(@"With something clicked on the map, dim the rest of it: the chosen marker, square, area, outline or box stays clear")});
-        add({"mapLegend", @"map.style.legend", 1, @[ N(@"Off##legend"), N(@"Top right"), N(@"Bottom left") ], N(@"Legend:"),
-             N(@"The key to the map's colours and markers; click a spot's kind or band, or another program, in it to hide or show those")});
-        add({"mapTextSize", @"map.style.textSize", 0, @[ N(@"Standard##text"), N(@"Large##text") ], N(@"Map text:"),
-             N(@"How big the map's labels, legend, tags and information box are")});
-        add({"mapHatch", @"map.style.hatch", 0, nil, N(@"Hatch what isn't confirmed"),
-             N(@"Worked squares, countries and areas not yet confirmed get diagonal lines, so confirmation shows without relying on colour")});
-        add({"mapRings", @"map.style.rings", 0, nil, N(@"Distance rings from my grid"), nil});
-        add({"mapDayNight", @"map.style.dayNight", 0, nil, N(@"Day and night"), N(@"The night side shaded, deeper as the sun goes further down, and the "
-                                                                              @"line between day and night; the sun where it is overhead")});
-        add({"mapGreyLine", @"map.style.greyLine", 0, nil, N(@"Grey line"),
-             N(@"The twilight band, where the sun has set but is less than 6 degrees down (civil twilight), tinted gold: a common time for "
-             @"long-distance openings")});
-        add({"mapSunTime", @"map.style.sunTime", 0, @[ N(@"Now"), N(@"The selected QSO's time") ], N(@"Sun at:"),
-             N(@"Draw day and night for now (updated each minute), or for the time of the QSO you clicked")});
-        NSButton *reset = [NSButton buttonWithTitle:T(@"Reset to Defaults") target:nil action:nil];
-        reset.identifier = @"map.style.reset";
-        ADIFOnAction(reset, ^{
-            for (const char *key : {"mapPalette", "mapMarkerSize", "mapMarkerShape", "mapContactMarker", "mapSquareFill", "mapAreaShade", "mapLineStyle",
-                                    "mapLineWidth", "mapLineOpacity", "mapArcs", "mapLegend", "mapTextSize", "mapHatch", "mapRings", "mapDayNight", "mapGreyLine", "mapSunTime",
-                                    "mapSpotters", "mapSpotterStyle", "mapSpotLineStyle", "mapSpotLabelMode", "mapSpotLabelFreq", "mapSpotLabelAge",
-                                    "mapSpotLabelSnr", "mapSpotFade", "mapParkOutlines", "mapReference", "mapSpotlight", "mapTerrain", "mapFlags"})
-                setSetting(key, "");
-            [mw.styleWindow orderOut:nil];
-            mw.styleWindow = nil;
-            applyStyle();
-            fillPrograms();
-            showStyleOptions();
-        });
-        // Two columns side by side (markers, areas and lines; spots, parks and the map), Reset under them.
-        auto makeGrid = [](NSArray *gridRows) {
-            NSGridView *grid = [NSGridView gridViewWithViews:gridRows];
-            grid.rowSpacing = 6;
-            grid.columnSpacing = 10;
-            [grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
-            grid.rowAlignment = NSGridRowAlignmentFirstBaseline;
-            for (NSInteger r = 0; r < grid.numberOfRows; ++r) {  // section titles span both columns, with room above
-                NSGridCell *first = [grid cellAtColumnIndex:0 rowIndex:r];
-                if ([first.contentView isKindOfClass:NSTextField.class] && ((NSTextField *)first.contentView).font.pointSize >= NSFont.systemFontSize &&
-                    [((NSTextField *)first.contentView).font.fontDescriptor symbolicTraits] & NSFontDescriptorTraitBold) {
-                    [grid mergeCellsInHorizontalRange:NSMakeRange(0, 2) verticalRange:NSMakeRange(r, 1)];
-                    first.xPlacement = NSGridCellPlacementLeading;
-                    if (r > 0) [grid rowAtIndex:r].topPadding = 8;
-                }
-                // Fading isn't one of the label's details: a little room above it.
-                if ([[grid cellAtColumnIndex:1 rowIndex:r].contentView.identifier isEqualToString:@"map.style.spotFade"])
-                    [grid rowAtIndex:r].topPadding = 6;
-            }
-            return grid;
-        };
-        NSGridView *left = makeGrid([rows subarrayWithRange:NSMakeRange(0, secondColumn)]);
-        NSGridView *right = makeGrid([rows subarrayWithRange:NSMakeRange(secondColumn, rows.count - secondColumn)]);
-        NSBox *between = [[NSBox alloc] initWithFrame:NSZeroRect];
-        between.boxType = NSBoxSeparator;
-        for (NSView *v in @[ left, between, right, reset ]) {
-            v.translatesAutoresizingMaskIntoConstraints = NO;
-            [p.contentView addSubview:v];
-        }
-        [NSLayoutConstraint activateConstraints:@[
-            [left.topAnchor constraintEqualToAnchor:p.contentView.topAnchor constant:16],
-            [left.leadingAnchor constraintEqualToAnchor:p.contentView.leadingAnchor constant:16],
-            [between.topAnchor constraintEqualToAnchor:left.topAnchor],
-            [between.bottomAnchor constraintEqualToAnchor:reset.topAnchor constant:-12],
-            [between.leadingAnchor constraintEqualToAnchor:left.trailingAnchor constant:18],
-            [between.widthAnchor constraintEqualToConstant:1],
-            [right.topAnchor constraintEqualToAnchor:left.topAnchor],
-            [right.leadingAnchor constraintEqualToAnchor:between.trailingAnchor constant:18],
-            [right.trailingAnchor constraintLessThanOrEqualToAnchor:p.contentView.trailingAnchor constant:-16],
-            [reset.topAnchor constraintGreaterThanOrEqualToAnchor:left.bottomAnchor constant:14],
-            [reset.topAnchor constraintGreaterThanOrEqualToAnchor:right.bottomAnchor constant:14],
-            [reset.trailingAnchor constraintEqualToAnchor:p.contentView.trailingAnchor constant:-16],
-            [reset.bottomAnchor constraintEqualToAnchor:p.contentView.bottomAnchor constant:-16],
-        ]];
-        mw.styleWindow = p;
-        NSRect frame = mw.window.frame;
-        [p setFrameTopLeftPoint:NSMakePoint(NSMaxX(frame) - 20, NSMaxY(frame) - 60)];
+// Style Options' controls and their settings, to show what is saved (after Reset, or a box in the
+// sidebar that is also here).
+std::vector<std::pair<StyleChoice, NSControl *>> styleControls;
+// Each group's card, with the popups whose choices its heading sums up.
+std::vector<std::pair<ADIFAccordion *, NSArray<NSPopUpButton *> *>> styleGroups;
+
+void syncStyleControls() {
+    for (const auto &[c, control] : styleControls) {
+        if (c.titles) [(NSPopUpButton *)control selectItemAtIndex:std::clamp(number(c.key, c.fallback, (int)c.titles.count - 1), 0, (int)c.titles.count - 1)];
+        else ((NSButton *)control).state = flag(c.key, c.fallback) ? NSControlStateValueOn : NSControlStateValueOff;
     }
+    for (const auto &[card, popups] : styleGroups) {
+        NSMutableArray *chosen = [NSMutableArray array];
+        for (NSPopUpButton *p in popups) [chosen addObject:p.titleOfSelectedItem ?: @""];
+        card.header.summary = [chosen componentsJoinedByString:@" \u00B7 "];
+    }
+}
+
+// Style Options: how the map looks, a card in the selected panel, in groups (each opens and closes,
+// remembered); each choice applies at once and is kept.
+NSView *buildStyleOptions() {
+    styleControls.clear();
+    styleGroups.clear();
+    struct Group {
+        NSString *ident, *title, *symbol;
+        NSMutableArray<NSView *> *views;
+    };
+    std::vector<Group> groups;
+    auto section = [&](NSString *ident, NSString *title, NSString *symbol) { groups.push_back({ident, title, symbol, [NSMutableArray array]}); };
+    auto note = [&](NSString *text) {  // a label over the boxes after it
+        NSTextField *t = ADIFLabel(text);
+        t.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        t.textColor = NSColor.secondaryLabelColor;
+        [groups.back().views addObject:t];
+    };
+    auto add = [&](const StyleChoice &c) {
+        NSControl *control;
+        if (c.titles) {
+            NSPopUpButton *pop = ADIFPopup(c.titles);
+            std::string key = c.key;
+            ADIFOnAction(pop, ^{
+                setSetting(key.c_str(), std::to_string(pop.indexOfSelectedItem));
+                applyStyle();
+                fillStyle();
+                fillPrograms();  // program swatches follow the palette
+            });
+            [pop setContentCompressionResistancePriority:200 forOrientation:NSLayoutConstraintOrientationHorizontal];  // the panel's width rules
+            control = pop;
+            note(c.title);  // its name over it: the panel is narrow
+        } else {
+            NSButton *box = ADIFCheckbox(c.title, flag(c.key, c.fallback));
+            std::string key = c.key;
+            ADIFOnAction(box, ^{
+                saveFlag(key.c_str(), box.state == NSControlStateValueOn);
+                applyStyle();
+                fillStyle();
+            });
+            control = box;
+        }
+        control.identifier = c.ident;
+        control.toolTip = T(c.tip);
+        [groups.back().views addObject:control];
+        styleControls.emplace_back(c, control);
+    };
+    section(@"colours", N(@"Colours"), @"paintpalette");
+    add({"mapPalette", @"map.style.palette", 0, kPaletteTitles, N(@"Palette:"),
+         N(@"Colour-blind safe: colours that stay apart for red-green and blue-yellow colour blindness. Light: for printing. Night (red): red on "
+         @"black, to keep your night vision")});
+    section(@"markers", N(@"Markers"), @"mappin.and.ellipse");
+    add({"mapMarkerSize", @"map.style.size", 1, @[ N(@"Small"), N(@"Medium##size"), N(@"Large"), N(@"Extra large") ], N(@"Size:"), nil});
+    add({"mapMarkerShape", @"map.style.shape", 0, @[ N(@"By layer: dots, triangles, diamonds"), N(@"All circles"), N(@"All squares") ], N(@"Shape:"), nil});
+    add({"mapContactMarker", @"map.style.contact", 0, @[ N(@"Pins"), N(@"Dots"), N(@"Crosshairs") ], N(@"Contacts:"), nil});
+    section(@"areas", N(@"Worked areas"), @"square.grid.3x3.fill");
+    add({"mapSquareFill", @"map.style.fill", 0, @[ N(@"Solid##fill"), N(@"See-through"), N(@"Outlines") ], N(@"Grid squares:"), nil});
+    add({"mapAreaShade", @"map.style.shade", 1, @[ N(@"Light##shade"), N(@"Medium##shade"), N(@"Strong##shade") ], N(@"Other areas:"),
+         N(@"How strongly worked countries, states, counties and zones are shaded")});
+    add({"mapHatch", @"map.style.hatch", 0, nil, N(@"Hatch what isn't confirmed"),
+         N(@"Worked squares, countries and areas not yet confirmed get diagonal lines, so confirmation shows without relying on colour")});
+    section(@"lines", N(@"Lines to contacts"), @"line.diagonal");
+    add({"mapLineStyle", @"map.style.line", 0, @[ N(@"Solid##line"), N(@"Dashed"), N(@"Dotted") ], N(@"Line:"), nil});
+    add({"mapLineWidth", @"map.style.width", 1, @[ N(@"Thin"), N(@"Medium##width"), N(@"Thick") ], N(@"Width:"), nil});
+    add({"mapLineOpacity", @"map.style.strength", 1, @[ N(@"Faint"), N(@"Medium##strength"), N(@"Solid##strength") ], N(@"Strength:"),
+         N(@"Each line is its contact's marker colour; this is how strongly it shows")});
+    add({"mapArcs", @"map.style.arcs", 1, nil, N(@"Arch over the globe"),
+         N(@"On the globe, draw each line as an arch rising over it (for looks: the true path, and the beam heading, is the straight line "
+         @"you get with this off)")});
+    section(@"spots", N(@"Spots"), @"antenna.radiowaves.left.and.right");
+    add({"mapSpotterStyle", @"map.style.spotters", spotterStyleFallback(), @[ N(@"Hidden##spotters"), N(@"Faint grey"), N(@"Markers"), N(@"Markers and calls") ],
+         N(@"Spotters:"),
+         N(@"The stations that heard the spots (a cluster's spotters, RBN skimmers; for PSKReporter, you), each a triangle. Point at a "
+         @"spot or a spotter for its lines")});
+    add({"mapSpotLineStyle", @"map.style.spotLines", 0, @[ N(@"In the spot's colour"), N(@"Faint, in the spot's colour"), N(@"Faint grey") ], N(@"Lines:"),
+         N(@"The lines from the spotters (the Spots layer's Overlay). The spot under the pointer always shows its lines in its own colour")});
+    note(N(@"Labels show:"));
+    add({"mapSpotLabelMode", @"map.style.spotMode", 1, nil, N(@"Mode"), N(@"Under each spot's call (the Spots layer's Labels): its mode")});
+    add({"mapSpotLabelFreq", @"map.style.spotFreq", 0, nil, N(@"Frequency"), N(@"Under each spot's call: its frequency in kHz")});
+    add({"mapSpotLabelAge", @"map.style.spotAge", 1, nil, N(@"Time since spotted"), N(@"Under each spot's call: how long ago it was spotted")});
+    add({"mapSpotLabelSnr", @"map.style.spotSnr", 1, nil, N(@"Signal report"),
+         N(@"Under each spot's call: the signal report in dB, from an RBN skimmer or PSKReporter")});
+    add({"mapSpotFade", @"map.style.spotFade", 1, nil, N(@"Fade older spots"),
+         N(@"Spots older than 10 minutes fainter, down to half at the Spots filter's age")});
+    section(@"parks", N(@"POTA parks"), @"leaf");
+    add({"mapParkOutlines", @"map.style.parkOutlines", 0, @[ N(@"Badge and outline"), N(@"Outline only") ], N(@"Parks with an outline:"),
+         N(@"For the parks whose outlines you downloaded (Settings, POTA Parks, Park Outlines): a badge on the outline, or the outline "
+         @"and the park's label alone once it is big enough to see (zoomed further out, the badge again)")});
+    section(@"sun", N(@"Sun"), @"sun.max");
+    add({"mapDayNight", @"map.style.dayNight", 0, nil, N(@"Day and night"), N(@"The night side shaded, deeper as the sun goes further down, and the "
+                                                                          @"line between day and night; the sun where it is overhead")});
+    add({"mapGreyLine", @"map.style.greyLine", 0, nil, N(@"Grey line"),
+         N(@"The twilight band, where the sun has set but is less than 6 degrees down (civil twilight), tinted gold: a common time for "
+         @"long-distance openings")});
+    add({"mapSunTime", @"map.style.sunTime", 0, @[ N(@"Now"), N(@"The selected QSO's time") ], N(@"Sun at:"),
+         N(@"Draw day and night for now (updated each minute), or for the time of the QSO you clicked")});
+    section(@"map", N(@"On the map"), @"map");
+    add({"mapReference", @"map.style.reference", 1, @[ N(@"Strong##reference"), N(@"Subtle"), N(@"Faint##reference") ], N(@"Reference layers:"),
+         N(@"How strongly the grid, the overlays' lines and names, and the distance rings show: subtle or faint, your QSOs, parks and "
+         @"spots stand out from them")});
+    add({"mapLegend", @"map.style.legend", 1, @[ N(@"Off##legend"), N(@"Top right"), N(@"Bottom left") ], N(@"Legend:"),
+         N(@"The key to the map's colours and markers; click a spot's kind or band, or another program, in it to hide or show those")});
+    add({"mapTextSize", @"map.style.textSize", 0, @[ N(@"Standard##text"), N(@"Large##text") ], N(@"Map text:"),
+         N(@"How big the map's labels, legend, tags and information box are")});
+    add({"mapFlags", @"map.style.flags", 1, nil, N(@"Country flags"),
+         N(@"A flag before each DXCC entity and station: in the list's Country and DXCC entity columns and the selected panel's title")});
+    add({"mapSpotlight", @"map.style.spotlight", 0, nil, N(@"Spotlight what's chosen"),
+         N(@"With something clicked on the map, dim the rest of it: the chosen marker, square, area, outline or box stays clear")});
+    add({"mapRings", @"map.style.rings", 0, nil, N(@"Distance rings from my grid"), nil});
+    NSButton *reset = [NSButton buttonWithTitle:T(@"Reset to Defaults") target:nil action:nil];
+    reset.identifier = @"map.style.reset";
+    reset.toolTip = T(@"Every Style Option back as it was at first (the layers stay as they are)");
+    ADIFOnAction(reset, ^{
+        for (const char *key : {"mapPalette", "mapMarkerSize", "mapMarkerShape", "mapContactMarker", "mapSquareFill", "mapAreaShade", "mapLineStyle",
+                                "mapLineWidth", "mapLineOpacity", "mapArcs", "mapLegend", "mapTextSize", "mapHatch", "mapRings", "mapDayNight", "mapGreyLine", "mapSunTime",
+                                "mapSpotters", "mapSpotterStyle", "mapSpotLineStyle", "mapSpotLabelMode", "mapSpotLabelFreq", "mapSpotLabelAge",
+                                "mapSpotLabelSnr", "mapSpotFade", "mapParkOutlines", "mapReference", "mapSpotlight", "mapFlags"})
+            setSetting(key, "");
+        applyStyle();
+        fillPrograms();
+        fillStyle();
+    });
+    // The groups, each a card closed at first (its heading sums up what is chosen in it): the ones
+    // opened are remembered.
+    std::set<std::string> opened;
+    for (const std::string &n : splitSetting("mapStyleGroupsOpen", ',')) opened.insert(n);
+    NSMutableArray<NSView *> *parts = [NSMutableArray array];
+    for (size_t i = 0; i < groups.size(); ++i) {
+        const Group &g = groups[i];
+        NSStackView *body = [NSStackView stackViewWithViews:g.views];
+        body.orientation = NSUserInterfaceLayoutOrientationVertical;
+        body.alignment = NSLayoutAttributeLeading;
+        body.spacing = 6;
+        for (NSView *v in g.views) {
+            if ([v isKindOfClass:NSPopUpButton.class]) {
+                [v.widthAnchor constraintEqualToAnchor:body.widthAnchor].active = YES;  // as wide as the panel
+                [body setCustomSpacing:9 afterView:v];
+            } else if ([v isKindOfClass:NSTextField.class]) {
+                [body setCustomSpacing:3 afterView:v];  // a name, close to its popup or boxes
+            }
+        }
+        ADIFAccordion *group = [[ADIFAccordion alloc] initWithIdentifier:[@"map.stylegroup." stringByAppendingString:g.ident] title:g.title symbol:g.symbol body:body level:2];
+        NSMutableArray<NSPopUpButton *> *popups = [NSMutableArray array];
+        for (NSView *v in g.views)
+            if ([v isKindOfClass:NSPopUpButton.class]) [popups addObject:(NSPopUpButton *)v];
+        styleGroups.emplace_back(group, popups);
+        std::string name = ADIFStd(g.ident);
+        group.open = opened.count(name) > 0;
+        group.onToggle = ^(BOOL open) {
+            std::set<std::string> now;
+            for (const std::string &n : splitSetting("mapStyleGroupsOpen", ',')) now.insert(n);
+            if (open) now.insert(name);
+            else now.erase(name);
+            std::string v;
+            for (const std::string &n : now) v += (v.empty() ? "" : ",") + n;
+            setSetting("mapStyleGroupsOpen", v);
+        };
+        [parts addObject:group];
+    }
+    [parts addObject:reset];
+    NSStackView *all = [NSStackView stackViewWithViews:parts];
+    all.orientation = NSUserInterfaceLayoutOrientationVertical;
+    all.alignment = NSLayoutAttributeLeading;
+    all.spacing = 6;
+    [all setCustomSpacing:10 afterView:parts[parts.count - 2]];
+    for (NSView *v in parts)
+        if (v != reset) [v.widthAnchor constraintEqualToAnchor:all.widthAnchor].active = YES;
+    all.identifier = @"map.style";
+    mw.styleBody = all;
     fillStyle();
-    [mw.styleWindow makeKeyAndOrderFront:nil];
+    return all;
+}
+
+// The Style Options button and menu: the card open and in sight.
+void showStyleOptions() {
+    revealSection(@"style");
 }
 
 // Home: Settings → Your Station's grid, else the log's most used MY_GRIDSQUARE (`myGrids`: the
@@ -3421,8 +3450,7 @@ void fillBandConditions() {
     std::string focus = mw.band.indexOfSelectedItem > 0 ? ADIFStd(mw.band.titleOfSelectedItem) : "";
     for (char &c : focus) c = (char)tolower((unsigned char)c);
     // Every band, whatever the band filter: say so while it is on (the other filters apply).
-    mw.bandCaption.stringValue = (focus.empty() ? T(@"Band conditions") : TF(@"Band conditions: every band, {band} in focus", @{@"band" : ADIFString(focus)}))
-                                     .localizedUppercaseString;
+    mw.bandCaption.stringValue = focus.empty() ? T(@"Band conditions") : TF(@"Band conditions: every band, {band} in focus", @{@"band" : ADIFString(focus)});
     mw.bandCaption.toolTip = focus.empty() ? nil : T(@"Band conditions compares every band, so it ignores the band filter; the other filters apply");
     ADIFMapHit h = mw.view.selectedHit;
     if (focus.empty() && h.kind == ADIFMapHit::Spot && h.index < mw.view.spots.size()) {
@@ -4970,25 +4998,30 @@ void showPane(int pane, bool on) {
     }
 }
 
-// A section of the sidebar open or closed (its triangle); remembered.
+// The cards closed until opened: Style Options and Settings, in the selected panel.
+bool closedAtFirst(NSString *name) { return [name isEqualToString:@"style"] || [name isEqualToString:@"settings"]; }
+
+// A card in the sidebar or the selected panel open or closed (its header's chevron); remembered:
+// the cards closed (the others open at first), or opened (those closed at first).
 void setSectionOpen(NSString *name, bool open) {
-    NSView *body = mw.sections[name];
-    if (!body) return;
-    body.hidden = !open;
-    mw.sectionTriangles[name].state = open ? NSControlStateValueOn : NSControlStateValueOff;
-    std::set<std::string> closed;
-    for (const std::string &n : splitSetting("mapSectionsClosed", ',')) closed.insert(n);
-    if (open) closed.erase(ADIFStd(name));
-    else closed.insert(ADIFStd(name));
+    ADIFAccordion *card = mw.sectionCards[name];
+    if (!card) return;
+    card.open = open;
+    bool listOpen = closedAtFirst(name);
+    const char *key = listOpen ? "mapSectionsOpen" : "mapSectionsClosed";
+    std::set<std::string> listed;
+    for (const std::string &n : splitSetting(key, ',')) listed.insert(n);
+    if (open == listOpen) listed.insert(ADIFStd(name));
+    else listed.erase(ADIFStd(name));
     std::string v;
-    for (const std::string &n : closed) v += (v.empty() ? "" : ",") + n;
-    setSetting("mapSectionsClosed", v);
+    for (const std::string &n : listed) v += (v.empty() ? "" : ",") + n;
+    setSetting(key, v);
 }
 
-// A group of the Layers section open or closed (its triangle): its rows hide; remembered.
+// A group of the Layers section open or closed (its header's chevron): its rows hide; remembered.
 void setLayerGroupOpen(NSString *name, bool open) {
     for (id part in mw.layerGroups[name]) [part setHidden:!open];  // grid rows and views alike
-    mw.layerGroupTriangles[name].state = open ? NSControlStateValueOn : NSControlStateValueOff;
+    mw.layerGroupHeaders[name].open = open;
     std::set<std::string> closed;
     for (const std::string &n : splitSetting("mapLayerGroupsClosed", ',')) closed.insert(n);
     if (open) closed.erase(ADIFStd(name));
@@ -5004,10 +5037,11 @@ void switchWorkflow(int to);
 // the Spots section is Live's.
 void revealSection(NSString *name) {
     if ([name isEqualToString:@"spots"] && !live()) switchWorkflow(1);
-    if (mw.sidebar.hidden) showPane(0, true);
-    if (mw.sections[name].hidden) setSectionOpen(name, true);
+    bool right = [@[ @"selected", @"situation", @"style", @"settings" ] containsObject:name];
+    if (right ? mw.selectedPanel.hidden : mw.sidebar.hidden) showPane(right ? 2 : 0, true);
+    if (!mw.sectionCards[name].open) setSectionOpen(name, true);
     [mw.window layoutIfNeeded];
-    [mw.sections[name] scrollRectToVisible:mw.sections[name].bounds];  // its button in sight, for the popover
+    [mw.sectionCards[name] scrollRectToVisible:mw.sectionCards[name].bounds];  // its button in sight, for the popover
 }
 
 // ── The workflows: History (the log, what it reached on each layer) and Live (the spots, and
@@ -5983,23 +6017,15 @@ void cmdMap() {
             t.textColor = NSColor.secondaryLabelColor;
             return t;
         };
-        // A group's title with its triangle: closed, its rows hide (remembered).
+        // A group's header with its chevron: closed, its rows hide (remembered).
         mw.layerGroups = [NSMutableDictionary dictionary];
         mw.layerMenus = [NSMutableArray array];
-        mw.layerGroupTriangles = [NSMutableDictionary dictionary];
-        auto groupHead = [&](NSString *name, NSString *title) -> NSView * {
-            NSButton *triangle = [NSButton buttonWithTitle:@"" target:nil action:nil];
-            triangle.bezelStyle = NSBezelStyleDisclosure;
-            [triangle setButtonType:NSButtonTypePushOnPushOff];
-            triangle.controlSize = NSControlSizeSmall;
-            triangle.identifier = [@"map.layergroup." stringByAppendingString:name];
-            triangle.accessibilityLabel = T(title);
-            triangle.state = NSControlStateValueOn;
-            __weak NSButton *weak = triangle;
-            ADIFOnAction(triangle, ^{ setLayerGroupOpen(name, weak.state == NSControlStateValueOn); });
-            mw.layerGroupTriangles[name] = triangle;
-            NSStackView *h = [NSStackView stackViewWithViews:@[ triangle, heading(title, NSFontWeightSemibold) ]];
-            h.spacing = 1;
+        mw.layerGroupHeaders = [NSMutableDictionary dictionary];
+        auto groupHead = [&](NSString *name, NSString *title) -> ADIFAccordionHeader * {
+            ADIFAccordionHeader *h = [[ADIFAccordionHeader alloc] initWithTitle:title symbol:nil level:1];
+            h.identifier = [@"map.layergroup." stringByAppendingString:name];
+            h.onToggle = ^(BOOL open) { setLayerGroupOpen(name, open); };
+            mw.layerGroupHeaders[name] = h;
             return h;
         };
         // Other programs (WWFF, SOTA, IOTA's references in the log...): a box for them all, the name a
@@ -6025,7 +6051,9 @@ void cmdMap() {
                                @"colours, parks badged, IOTA groups filled in");
         allHead.toolTip = T(@"All: draw the whole layer, every square, country, state, county, zone, park or group, worked or not");
         labelsHead.toolTip = T(@"Labels: write their names or numbers (while the layer shows)");
-        NSMutableArray *layerRows = [NSMutableArray arrayWithObject:@[ groupHead(@"areas", N(@"Worked areas")), workedHead, allHead, labelsHead ]];
+        ADIFAccordionHeader *areasHead = groupHead(@"areas", N(@"Worked areas"));
+        areasHead.rule = NO;  // the card's first: its header is the line above
+        NSMutableArray *layerRows = [NSMutableArray arrayWithObject:@[ areasHead, workedHead, allHead, labelsHead ]];
         std::vector<NSInteger> sections;
         std::map<std::string, std::vector<NSInteger>> groupRows;  // a group's rows in the grid
         std::string group = "areas";
@@ -6060,14 +6088,15 @@ void cmdMap() {
             mw.layerGroups[ADIFString(name)] = parts;
         }
         layers.rowSpacing = 3;
-        layers.columnSpacing = 12;
+        layers.columnSpacing = 10;
         for (NSInteger c = 1; c < layers.numberOfColumns; ++c) [layers columnAtIndex:c].xPlacement = NSGridCellPlacementCenter;
         for (NSInteger r = 0; r < layers.numberOfRows; ++r) [layers rowAtIndex:r].yPlacement = NSGridCellPlacementCenter;
         [layers rowAtIndex:0].bottomPadding = 2;
+        [layers cellAtColumnIndex:0 rowIndex:0].xPlacement = NSGridCellPlacementFill;
         for (NSInteger r : sections) {
             [layers mergeCellsInHorizontalRange:NSMakeRange(0, 4) verticalRange:NSMakeRange(r, 1)];
-            [layers rowAtIndex:r].topPadding = 7;
-            [layers rowAtIndex:r].bottomPadding = 2;
+            [layers cellAtColumnIndex:0 rowIndex:r].xPlacement = NSGridCellPlacementFill;  // the header, its hairline across
+            [layers rowAtIndex:r].topPadding = 4;
         }
         layers.identifier = @"map.layers";
         mw.show[kLayerSpots].title = T(@"Show");
@@ -6848,32 +6877,19 @@ void cmdMap() {
                              cluster(@[ mw.chips, mw.clearFilters ]), cluster(@[ keepView, copyButton, mw.focusButton ]) ])
             [toolbar addSubview:v];
 
-        // The sidebar: sections, each with a triangle to close it.
+        // The sidebar: sections, each a card whose header opens and closes it (remembered).
         mw.sections = [NSMutableDictionary dictionary];
-        mw.sectionTriangles = [NSMutableDictionary dictionary];
-        mw.sectionTitles = [NSMutableDictionary dictionary];
-        std::set<std::string> closedSections;
+        mw.sectionCards = [NSMutableDictionary dictionary];
+        std::set<std::string> closedSections, openedSections;
         for (const std::string &n : splitSetting("mapSectionsClosed", ',')) closedSections.insert(n);
-        auto section = [&](NSString *name, NSString *title, NSView *body) -> NSView * {
-            NSButton *triangle = [NSButton buttonWithTitle:@"" target:nil action:nil];
-            triangle.bezelStyle = NSBezelStyleDisclosure;
-            [triangle setButtonType:NSButtonTypePushOnPushOff];
-            triangle.identifier = [@"map.section." stringByAppendingString:name];
-            triangle.accessibilityLabel = T(title);
-            NSTextField *head = caption(title);
-            head.identifier = [NSString stringWithFormat:@"map.section.%@.title", name];
-            NSStackView *heading = [NSStackView stackViewWithViews:@[ triangle, head ]];
-            heading.spacing = 2;
-            NSStackView *sec = rows(@[ heading, body ], 8);
-            sec.identifier = [@"map.group." stringByAppendingString:name];
-            [body.widthAnchor constraintEqualToAnchor:sec.widthAnchor].active = YES;
-            mw.sections[name] = body, mw.sectionTriangles[name] = triangle, mw.sectionTitles[name] = head;
-            bool open = !closedSections.count(ADIFStd(name));
-            triangle.state = open ? NSControlStateValueOn : NSControlStateValueOff;
-            body.hidden = !open;
-            __weak NSButton *weak = triangle;
-            ADIFOnAction(triangle, ^{ setSectionOpen(name, weak.state == NSControlStateValueOn); });
-            return sec;
+        for (const std::string &n : splitSetting("mapSectionsOpen", ',')) openedSections.insert(n);
+        auto section = [&](NSString *name, NSString *title, NSString *symbol, NSView *body) -> NSView * {
+            ADIFAccordion *card = [[ADIFAccordion alloc] initWithIdentifier:[@"map.group." stringByAppendingString:name] title:title symbol:symbol body:body level:0];
+            card.header.identifier = [@"map.section." stringByAppendingString:name];
+            mw.sections[name] = body, mw.sectionCards[name] = card;
+            card.open = closedAtFirst(name) ? openedSections.count(ADIFStd(name)) > 0 : !closedSections.count(ADIFStd(name));
+            card.onToggle = ^(BOOL open) { setSectionOpen(name, open); };
+            return card;
         };
         auto fullWidth = [](NSStackView *stack, NSArray<NSView *> *views) {  // these as wide as the stack
             for (NSView *v in views) [v.widthAnchor constraintEqualToAnchor:stack.widthAnchor].active = YES;
@@ -6984,9 +7000,6 @@ void cmdMap() {
             ADIFOnAction(b, ^{
                 saveFlag(which.c_str(), weak.state == NSControlStateValueOn);
                 applyStyle();
-                if (mw.styleWindow)
-                    if (NSButton *other = (NSButton *)findView(mw.styleWindow.contentView, [@"map.style." stringByAppendingString:which == "mapGreyLine" ? @"greyLine" : @"dayNight"]))
-                        other.state = weak.state;
                 fillStyle();
             });
             return b;
@@ -7018,22 +7031,52 @@ void cmdMap() {
         mw.heatBox = layerBox(N(@"Heat map"), "mapSpotHeat",
                               N(@"The spots shown as a heat map: warmer where more stations are spotted now (the band, mode and Quick View apply)"),
                               @"map.spotheat");
-        NSStackView *layerSection =
-            rows(@[ layers, contactsHead, mw.contacts, mw.lines, mw.mine, sunHead, mw.greyLineBox, mw.dayNightBox, mw.auroraBox, mw.beaconsBox ], 5);
-        [layerSection setCustomSpacing:12 afterView:layers];
-        [layerSection setCustomSpacing:12 afterView:mw.mine];
+        // Base map: the land's terrain (shaded relief), subtle or strong.
+        NSView *baseHead = groupHead(@"base", N(@"Base map"));
+        int terrain = number("mapTerrain", 0, 2);
+        mw.terrainBox = ADIFCheckbox(@"Terrain", terrain > 0);
+        mw.terrainBox.identifier = @"map.terrain";
+        mw.terrainBox.toolTip = T(@"Mountains and valleys shaded on the land (Natural Earth's shaded relief), fading out as you zoom in past its detail");
+        mw.terrainStrength = ADIFPopup(@[ @"Subtle##terrain", @"Strong##terrain" ]);
+        mw.terrainStrength.identifier = @"map.terrain.strength";
+        mw.terrainStrength.controlSize = NSControlSizeSmall;
+        mw.terrainStrength.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        mw.terrainStrength.toolTip = T(@"How strongly the terrain is shaded");
+        mw.terrainStrength.accessibilityLabel = T(@"Terrain strength");
+        [mw.terrainStrength selectItemAtIndex:std::clamp(number("mapTerrainStrength", terrain ? terrain - 1 : 0, 1), 0, 1)];
+        mw.terrainStrength.enabled = terrain > 0;
+        auto terrainChanged = ^{
+            bool on = mw.terrainBox.state == NSControlStateValueOn;
+            setSetting("mapTerrainStrength", std::to_string(mw.terrainStrength.indexOfSelectedItem));
+            setSetting("mapTerrain", std::to_string(on ? mw.terrainStrength.indexOfSelectedItem + 1 : 0));
+            mw.terrainStrength.enabled = on;
+            applyStyle();
+        };
+        ADIFOnAction(mw.terrainBox, terrainChanged);
+        ADIFOnAction(mw.terrainStrength, terrainChanged);
+        NSStackView *terrainLine = line(@[ mw.terrainBox, mw.terrainStrength ]);
+        NSStackView *layerSection = rows(@[ layers, contactsHead, mw.contacts, mw.lines, mw.mine, sunHead, mw.greyLineBox, mw.dayNightBox, mw.auroraBox,
+                                            mw.beaconsBox, baseHead, terrainLine ],
+                                         5);
+        for (NSView *v in @[ contactsHead, sunHead, baseHead ]) {  // their hairlines across the card
+            [v.widthAnchor constraintEqualToAnchor:layerSection.widthAnchor].active = YES;
+            [layerSection setCustomSpacing:2 afterView:v];
+        }
         mw.layerGroups[@"contacts"] = @[ mw.contacts, mw.lines, mw.mine ];
         mw.layerGroups[@"sun"] = @[ mw.greyLineBox, mw.dayNightBox, mw.auroraBox, mw.beaconsBox ];
+        mw.layerGroups[@"base"] = @[ terrainLine ];
         for (const std::string &n : splitSetting("mapLayerGroupsClosed", ','))
             if (mw.layerGroups[ADIFString(n)]) setLayerGroupOpen(ADIFString(n), false);
         NSArray<NSView *> *sectionViews = @[
-            section(@"views", N(@"Quick Views"), viewsBody), mw.spotsSection = section(@"spots", N(@"Spots"), rows(@[ spotLayer, mw.heatBox, spotsLine, onlyLine, mw.watchEdit ], 8)),
-            section(@"layers", N(@"Layers"), layerSection), section(@"map", N(@"Map"), mapRows), section(@"filters", N(@"Filters"), filterRows)
+            section(@"views", N(@"Quick Views"), @"bookmark", viewsBody),
+            mw.spotsSection = section(@"spots", N(@"Spots"), @"antenna.radiowaves.left.and.right", rows(@[ spotLayer, mw.heatBox, spotsLine, onlyLine, mw.watchEdit ], 8)),
+            section(@"layers", N(@"Layers"), @"square.3.stack.3d", layerSection), section(@"map", N(@"Map"), @"map", mapRows),
+            section(@"filters", N(@"Filters"), @"line.horizontal.3.decrease.circle", filterRows)
         ];
         mw.spotsSection.hidden = !live();
-        NSStackView *sideColumn = rows(sectionViews, 18);
-        sideColumn.edgeInsets = NSEdgeInsetsMake(12, 12, 16, 12);
-        for (NSView *v in sectionViews) [v.widthAnchor constraintEqualToAnchor:sideColumn.widthAnchor constant:-24].active = YES;
+        NSStackView *sideColumn = rows(sectionViews, 8);
+        sideColumn.edgeInsets = NSEdgeInsetsMake(10, 8, 16, 8);
+        for (NSView *v in sectionViews) [v.widthAnchor constraintEqualToAnchor:sideColumn.widthAnchor constant:-16].active = YES;
         // A view that scrolls, in the window's sidebar material; its content from the top.
         auto scrolling = [](NSView *content, NSString *ident, BOOL sidebar) {
             ADIFMapColumnView *doc = [[ADIFMapColumnView alloc] initWithFrame:NSZeroRect];
@@ -7179,46 +7222,25 @@ void cmdMap() {
             [whyStack.leadingAnchor constraintEqualToAnchor:mw.whyBox.leadingAnchor constant:10],
             [whyStack.trailingAnchor constraintEqualToAnchor:mw.whyBox.trailingAnchor constant:-10],
         ]];
-        // A spot's Details, closed at first (remembered).
-        NSButton *detailsTriangle = [NSButton buttonWithTitle:@"" target:nil action:nil];
-        detailsTriangle.bezelStyle = NSBezelStyleDisclosure;
-        [detailsTriangle setButtonType:NSButtonTypePushOnPushOff];
-        detailsTriangle.identifier = @"map.details.toggle";
-        detailsTriangle.accessibilityLabel = T(@"Details");
+        // A spot's Details: a group in Selected, closed at first (remembered).
         mw.detailsText = [NSTextField wrappingLabelWithString:@""];
         mw.detailsText.selectable = YES;
         mw.detailsText.identifier = @"map.details";
         mw.detailsBody = mw.detailsText;
-        NSStackView *detailsHead = [NSStackView stackViewWithViews:@[ detailsTriangle, caption(N(@"Details")) ]];
-        detailsHead.spacing = 2;
-        NSStackView *detailsSection = rows(@[ detailsHead, mw.detailsText ], 6);
-        [mw.detailsText.widthAnchor constraintEqualToAnchor:detailsSection.widthAnchor].active = YES;
-        detailsSection.identifier = @"map.details.section";
+        ADIFAccordion *detailsSection = [[ADIFAccordion alloc] initWithIdentifier:@"map.details.section" title:N(@"Details") symbol:nil body:mw.detailsText level:1];
+        detailsSection.header.identifier = @"map.details.toggle";
         detailsSection.hidden = YES;
+        detailsSection.open = flag("mapDetailsOpen", false);
+        detailsSection.onToggle = ^(BOOL open) { saveFlag("mapDetailsOpen", open); };
         mw.detailsSection = detailsSection;
-        bool detailsOpen = flag("mapDetailsOpen", false);
-        detailsTriangle.state = detailsOpen ? NSControlStateValueOn : NSControlStateValueOff;
-        mw.detailsText.hidden = !detailsOpen;
-        __weak NSButton *weakDetails = detailsTriangle;
-        ADIFOnAction(detailsTriangle, ^{
-            bool open = weakDetails.state == NSControlStateValueOn;
-            mw.detailsText.hidden = !open;
-            saveFlag("mapDetailsOpen", open);
-        });
         mw.status.textColor = NSColor.secondaryLabelColor;  // the description, under the facts
-        NSBox *between = [[NSBox alloc] initWithFrame:NSZeroRect];
-        between.boxType = NSBoxSeparator;
-        NSTextField *chosenCaption = caption(N(@"Selected")), *situationCaption = caption(N(@"Situation"));
         NSButton *closeChosen = smallButton(@"Hide", @"Hide this panel (the button at the right of the header shows it again)", ^{ showPane(2, false); });
         iconOnly(closeChosen, @"xmark");
         closeChosen.bordered = NO;
         closeChosen.accessibilityLabel = T(@"Hide the selected panel");
         closeChosen.identifier = @"map.selected.close";
-        NSStackView *chosenHead = [[NSStackView alloc] initWithFrame:NSZeroRect];
-        [chosenHead addView:chosenCaption inGravity:NSStackViewGravityLeading];
-        [chosenHead addView:closeChosen inGravity:NSStackViewGravityTrailing];
         // Live's newest spots, and View all spots.
-        NSButton *allSpots = smallButton(@"View all spots \u2192", @"The list's Spots: every station spotted in view", ^{
+        NSButton *allSpots = smallButton(@"View all spots →", @"The list's Spots: every station spotted in view", ^{
             mw.listKind.selectedSegment = kListSpots;
             setSetting("mapListKind", std::to_string(kListSpots));
             if (mw.listPanel.hidden) showPane(1, true);
@@ -7228,21 +7250,15 @@ void cmdMap() {
         allSpots.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
         allSpots.contentTintColor = NSColor.linkColor;
         allSpots.identifier = @"map.recent.all";
-        NSStackView *recentHead = [[NSStackView alloc] initWithFrame:NSZeroRect];
-        [recentHead addView:caption(N(@"Recent spots")) inGravity:NSStackViewGravityLeading];
-        [recentHead addView:allSpots inGravity:NSStackViewGravityTrailing];
         mw.recentHost = [[NSView alloc] initWithFrame:NSZeroRect];
-        NSStackView *recentSection = rows(@[ recentHead, mw.recentHost ], 6);
-        [recentHead.widthAnchor constraintEqualToAnchor:recentSection.widthAnchor].active = YES;
-        recentSection.identifier = @"map.recent.section";
+        ADIFAccordion *recentSection = [[ADIFAccordion alloc] initWithIdentifier:@"map.recent.section" title:N(@"Recent spots") symbol:nil body:mw.recentHost level:1];
+        recentSection.header.identifier = @"map.recent.toggle";
+        [recentSection.header addAccessory:allSpots];
         recentSection.hidden = YES;
+        recentSection.open = !flag("mapRecentClosed", false);
+        recentSection.onToggle = ^(BOOL open) { saveFlag("mapRecentClosed", !open); };
         mw.recentSection = recentSection;
-        // Live's Band conditions: closed with its triangle (remembered).
-        NSButton *bandTriangle = [NSButton buttonWithTitle:@"" target:nil action:nil];
-        bandTriangle.bezelStyle = NSBezelStyleDisclosure;
-        [bandTriangle setButtonType:NSButtonTypePushOnPushOff];
-        bandTriangle.identifier = @"map.bands.toggle";
-        bandTriangle.accessibilityLabel = T(@"Band conditions");
+        // Live's Band conditions, a group in Situation (remembered).
         mw.bandLine = [NSTextField wrappingLabelWithString:@""];
         mw.bandLine.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
         mw.bandLine.identifier = @"map.bands.line";
@@ -7252,65 +7268,49 @@ void cmdMap() {
         bandBody.identifier = @"map.bands.body";
         [mw.bandLine.widthAnchor constraintEqualToAnchor:bandBody.widthAnchor].active = YES;
         [mw.bandHost.widthAnchor constraintEqualToAnchor:bandBody.widthAnchor].active = YES;
-        mw.bandCaption = caption(N(@"Band conditions"));
+        ADIFAccordion *bandSection = [[ADIFAccordion alloc] initWithIdentifier:@"map.bands.section" title:N(@"Band conditions") symbol:nil body:bandBody level:1];
+        bandSection.header.identifier = @"map.bands.toggle";
+        mw.bandCaption = bandSection.header.titleField;
         mw.bandCaption.identifier = @"map.bands.caption";
-        NSStackView *bandHead = [NSStackView stackViewWithViews:@[ bandTriangle, mw.bandCaption ]];
-        bandHead.spacing = 2;
-        NSStackView *bandSection = rows(@[ bandHead, bandBody ], 6);
-        [bandBody.widthAnchor constraintEqualToAnchor:bandSection.widthAnchor].active = YES;
-        bandSection.identifier = @"map.bands.section";
         bandSection.hidden = YES;
         bandSection.toolTip = T(@"How the bands are doing, from the spots: the stations spotted on each, those heard by spotters within 1,500 km of "
                                 @"your station, and the best report they gave");
+        bandSection.open = !flag("mapBandsClosed", false);
+        bandSection.onToggle = ^(BOOL open) { saveFlag("mapBandsClosed", !open); };
         mw.bandSection = bandSection;
-        bool bandsOpen = !flag("mapBandsClosed", false);
-        bandTriangle.state = bandsOpen ? NSControlStateValueOn : NSControlStateValueOff;
-        bandBody.hidden = !bandsOpen;
-        __weak NSButton *weakBands = bandTriangle;
-        ADIFOnAction(bandTriangle, ^{
-            bool open = weakBands.state == NSControlStateValueOn;
-            bandBody.hidden = !open;
-            saveFlag("mapBandsClosed", !open);
-        });
-        // History's Awards: closed with its triangle (remembered).
-        NSButton *awardsTriangle = [NSButton buttonWithTitle:@"" target:nil action:nil];
-        awardsTriangle.bezelStyle = NSBezelStyleDisclosure;
-        [awardsTriangle setButtonType:NSButtonTypePushOnPushOff];
-        awardsTriangle.identifier = @"map.awards.toggle";
-        awardsTriangle.accessibilityLabel = T(@"Awards");
+        // History's Awards, a group in Situation (remembered).
         mw.awardsHost = [[NSView alloc] initWithFrame:NSZeroRect];
-        NSStackView *awardsHead = [NSStackView stackViewWithViews:@[ awardsTriangle, caption(N(@"Awards")) ]];
-        awardsHead.spacing = 2;
-        NSStackView *awardsSection = rows(@[ awardsHead, mw.awardsHost ], 6);
-        [mw.awardsHost.widthAnchor constraintEqualToAnchor:awardsSection.widthAnchor].active = YES;
-        awardsSection.identifier = @"map.awards.section";
+        ADIFAccordion *awardsSection = [[ADIFAccordion alloc] initWithIdentifier:@"map.awards.section" title:N(@"Awards") symbol:nil body:mw.awardsHost level:1];
+        awardsSection.header.identifier = @"map.awards.toggle";
         awardsSection.hidden = YES;
+        awardsSection.open = !flag("mapAwardsClosed", false);
+        awardsSection.onToggle = ^(BOOL open) { saveFlag("mapAwardsClosed", !open); };
         mw.awardsSection = awardsSection;
-        bool awardsOpen = !flag("mapAwardsClosed", false);
-        awardsTriangle.state = awardsOpen ? NSControlStateValueOn : NSControlStateValueOff;
-        mw.awardsHost.hidden = !awardsOpen;
-        __weak NSButton *weakAwards = awardsTriangle;
-        ADIFOnAction(awardsTriangle, ^{
-            bool open = weakAwards.state == NSControlStateValueOn;
-            mw.awardsHost.hidden = !open;
-            saveFlag("mapAwardsClosed", !open);
-        });
-        NSStackView *selectedColumn = rows(@[ chosenHead, titleRow, mw.chosenSubtitle, mw.chosenFacts, mw.whyBox, detailsSection, mw.useSpot, actions, mw.status, mw.slots,
-                                              between, situationCaption, mw.statHost, mw.situation, mw.today, mw.wanted, mw.air, awardsSection, bandSection, recentSection ],
-                                           6);
-        selectedColumn.edgeInsets = NSEdgeInsetsMake(12, 12, 16, 12);
-        for (NSView *v in @[ chosenHead, titleRow, mw.chosenSubtitle, mw.chosenFacts, mw.whyBox, detailsSection, mw.useSpot, actions, mw.status, mw.slots, between, mw.statHost, awardsSection, bandSection,
-                             mw.situation, mw.today, mw.wanted, mw.air, recentSection ])
-            [v.widthAnchor constraintEqualToAnchor:selectedColumn.widthAnchor constant:-24].active = YES;
-        [selectedColumn setCustomSpacing:2 afterView:titleRow];
-        [selectedColumn setCustomSpacing:10 afterView:mw.chosenSubtitle];
-        [selectedColumn setCustomSpacing:10 afterView:mw.chosenFacts];
-        [selectedColumn setCustomSpacing:10 afterView:mw.whyBox];
-        [selectedColumn setCustomSpacing:10 afterView:detailsSection];
-        [selectedColumn setCustomSpacing:10 afterView:actions];
-        [selectedColumn setCustomSpacing:12 afterView:mw.slots];
-        [selectedColumn setCustomSpacing:12 afterView:between];
-        [selectedColumn setCustomSpacing:16 afterView:mw.air];
+        // The panel's cards: Selected (what was chosen), Situation (the log's or the air's), Style
+        // Options and Settings (closed at first). Each is remembered open or closed.
+        NSStackView *chosenBody = rows(@[ titleRow, mw.chosenSubtitle, mw.chosenFacts, mw.whyBox, detailsSection, mw.useSpot, actions, mw.status, mw.slots ], 6);
+        for (NSView *v in @[ titleRow, mw.chosenSubtitle, mw.chosenFacts, mw.whyBox, detailsSection, mw.useSpot, actions, mw.status, mw.slots ])
+            [v.widthAnchor constraintEqualToAnchor:chosenBody.widthAnchor].active = YES;
+        [chosenBody setCustomSpacing:2 afterView:titleRow];
+        [chosenBody setCustomSpacing:10 afterView:mw.chosenSubtitle];
+        [chosenBody setCustomSpacing:10 afterView:mw.chosenFacts];
+        [chosenBody setCustomSpacing:10 afterView:mw.whyBox];
+        [chosenBody setCustomSpacing:10 afterView:detailsSection];
+        [chosenBody setCustomSpacing:10 afterView:actions];
+        NSStackView *situationBody = rows(@[ mw.statHost, mw.situation, mw.today, mw.wanted, mw.air, awardsSection, bandSection, recentSection ], 6);
+        for (NSView *v in @[ mw.statHost, mw.situation, mw.today, mw.wanted, mw.air, awardsSection, bandSection, recentSection ])
+            [v.widthAnchor constraintEqualToAnchor:situationBody.widthAnchor].active = YES;
+        [situationBody setCustomSpacing:10 afterView:mw.air];
+        NSView *chosenCard = section(@"selected", N(@"Selected"), @"scope", chosenBody);
+        [mw.sectionCards[@"selected"].header addAccessory:closeChosen];
+        NSView *situationCard = section(@"situation", N(@"Situation"), @"chart.bar", situationBody);
+        NSView *styleCard = section(@"style", N(@"Style Options"), @"paintpalette", buildStyleOptions());
+        NSMutableArray<NSView *> *cards = [NSMutableArray arrayWithArray:@[ chosenCard, situationCard, styleCard ]];
+        if (NSView *settings = mw.settingsProvider ? mw.settingsProvider() : nil)
+            [cards addObject:section(@"settings", N(@"Settings"), @"gearshape", settings)];
+        NSStackView *selectedColumn = rows(cards, 8);
+        selectedColumn.edgeInsets = NSEdgeInsetsMake(10, 8, 16, 8);
+        for (NSView *v in cards) [v.widthAnchor constraintEqualToAnchor:selectedColumn.widthAnchor constant:-16].active = YES;
         mw.selectedPanel = scrolling(selectedColumn, @"map.selected", NO);
 
         // The zoom buttons on the map, as on other maps: in, the zoom, out; then the log and the world.
@@ -7381,7 +7381,8 @@ void cmdMap() {
         mw.splitKeeper = [[ADIFSplitKeeper alloc] init];
         {  // the sidebar's least width: its layers' grid and its menus whole, in this language
             CGFloat least = 280;
-            for (NSView *v in @[ layers, mw.colorBy, mw.projection, mw.region ]) least = std::max(least, std::ceil(v.fittingSize.width) + 24 + 16);
+            for (NSView *v in @[ layers, mw.colorBy, mw.projection, mw.region ])  // the column's and the card's margins, and a scroller
+                least = std::max(least, std::ceil(v.fittingSize.width) + 16 + 22 + 14);
             mw.splitKeeper.leastSidebar = least;
 
         }
@@ -7513,6 +7514,13 @@ void cmdMap() {
 }
 
 void setSpotHandler(void (^handler)(const std::vector<std::pair<std::string, std::string>> &fields)) { mw.spotHandler = handler; }
+
+void setSettingsProvider(NSView * (^provider)(void)) { mw.settingsProvider = provider; }
+
+void revealSettings() {
+    cmdMap();
+    revealSection(@"settings");
+}
 
 void iotaGroupsChanged() {
     if (mw.view) mw.view.needsDisplay = YES;

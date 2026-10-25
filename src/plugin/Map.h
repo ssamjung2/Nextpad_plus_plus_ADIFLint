@@ -3,6 +3,10 @@
 // own grid, over Natural Earth's land outline (adif_world.h); PNG export.
 #pragma once
 
+#ifdef __OBJC__
+#import <Cocoa/Cocoa.h>
+#endif
+
 #include <array>
 #include <string>
 #include <utility>
@@ -20,5 +24,12 @@ bool shownArea(std::array<double, 4> *box);
 void detailChanged();  // Map Detail regions were downloaded or removed
 // Where a spot's Use in New QSO sends its fields (New QSO, set up by ADIFLint.mm).
 void setSpotHandler(void (^handler)(const std::vector<std::pair<std::string, std::string>> &fields));
+#ifdef __OBJC__
+// What the Map's Settings card holds (ADIF Lint's settings, set up by ADIFLint.mm).
+void setSettingsProvider(NSView * (^provider)(void));
+#endif
+// The Map open, its selected panel shown and its Settings card open and in sight (the menu's
+// Settings..., and every "add it in Settings").
+void revealSettings();
 
 }  // namespace worldmap

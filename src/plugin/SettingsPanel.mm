@@ -1,4 +1,5 @@
 #import "SettingsPanel.h"
+#import "Accordion.h"
 #import "Night.h"
 #import "L10n.h"
 
@@ -9,6 +10,10 @@
 
 #include "PluginHost.h"
 #include "adif_geo.h"
+
+#include <algorithm>
+#include <string>
+#include <vector>
 #import "ToolWindow.h"
 
 // Flipped, so the sections start at the top of the scroll view.
@@ -20,8 +25,18 @@
 }
 @end
 
+// A status line: hidden while it has nothing to say, so an empty one leaves no gap in its card.
+@interface ADIFStatusLine : NSTextField
+@end
+@implementation ADIFStatusLine
+- (void)setStringValue:(NSString *)value {
+    [super setStringValue:value ?: @""];
+    self.hidden = self.stringValue.length == 0;
+}
+@end
+
 @implementation ADIFSettingsPanel {
-    NSPanel *_window;
+    NSMutableDictionary<NSString *, ADIFAccordion *> *_groups;
     NSMutableArray<NSTextField *> *_user;    // per source; hidden for API-key sources
     NSMutableArray<NSSecureTextField *> *_secret;
     NSMutableArray<NSTextField *> *_status;
@@ -29,7 +44,6 @@
     NSButton *_countryUpdate, *_lotwOn, *_lotwUpdate;
     NSTextField *_lotwStatus, *_iotaStatus, *_potaStatus;
     NSButton *_iotaUpdate, *_potaUpdate;
-    NSScrollView *_scroll;
     NSTextField *_welcome, *_stationCall, *_stationGrid, *_logsFolder, *_stationStatus;
     NSArray<NSButton *> *_editorBoxes;
     NSButton *_offline;
@@ -50,50 +64,76 @@
     NSTextField *_detailStatus, *_detailSummary;
 }
 
-static NSTextField *sectionTitle(NSString *text) {
-    NSTextField *title = [NSTextField labelWithString:T(text)];
-    title.font = [NSFont boldSystemFontOfSize:NSFont.systemFontSize + 1];
-    return title;
+// "a,b,c" as its parts.
+static std::vector<std::string> splitList(const std::string &text) {
+    std::vector<std::string> out;
+    std::string part;
+    for (char c : text + ",")
+        if (c == ',') {
+            if (!part.empty()) out.push_back(part);
+            part.clear();
+        } else {
+            part += c;
+        }
+    return out;
 }
 
-static NSStackView *sectionStack(NSArray<NSView *> *views, NSString *identifier) {
-    NSStackView *section = [NSStackView stackViewWithViews:views];
-    section.orientation = NSUserInterfaceLayoutOrientationVertical;
-    section.alignment = NSLayoutAttributeLeading;
-    section.spacing = 8;
-    [section setCustomSpacing:4 afterView:views.firstObject];
-    section.identifier = identifier;
-    return section;
+// A group of the Settings card: a card of its own, its heading naming it with an icon and what is
+// set in it; closed, its controls keep their values. Its views run the panel's width (a push button
+// goes in a row of its own size); the groups open are remembered ("settingsOpen").
+static ADIFAccordion *sectionStack(NSString *title, NSString *symbol, NSArray<NSView *> *views, NSString *identifier) {
+    NSMutableArray<NSView *> *parts = [NSMutableArray array];
+    for (NSView *v in views) {
+        bool push = [v isKindOfClass:NSButton.class] && ![v isKindOfClass:ADIFWrappingCheckbox.class] &&
+                    ((NSButton *)v).bezelStyle == NSBezelStyleRounded;
+        [parts addObject:push ? [ADIFWrapRow rowWithViews:@[ v ]] : v];
+    }
+    NSStackView *body = [NSStackView stackViewWithViews:parts];
+    body.orientation = NSUserInterfaceLayoutOrientationVertical;
+    body.alignment = NSLayoutAttributeLeading;
+    body.spacing = 8;
+    for (NSView *v in parts) {
+        [v.widthAnchor constraintEqualToAnchor:body.widthAnchor].active = YES;
+        [v setContentCompressionResistancePriority:200 forOrientation:NSLayoutConstraintOrientationHorizontal];  // the panel's width rules
+    }
+    ADIFAccordion *group = [[ADIFAccordion alloc] initWithIdentifier:identifier title:title symbol:symbol body:body level:2];
+    std::string name = ADIFStd(identifier);
+    std::vector<std::string> open = splitList(adifhost::setting("settingsOpen"));
+    group.open = std::find(open.begin(), open.end(), name) != open.end();
+    group.onToggle = ^(BOOL isOpen) {
+        std::vector<std::string> now = splitList(adifhost::setting("settingsOpen"));
+        now.erase(std::remove(now.begin(), now.end(), name), now.end());
+        if (isOpen) now.push_back(name);
+        std::string v;
+        for (const std::string &n : now) v += (v.empty() ? "" : ",") + n;
+        adifhost::setSetting("settingsOpen", v);
+    };
+    return group;
 }
-
-// Fixed text width: wrapping labels need it to work out their height.
-static const CGFloat kTextWidth = 520;
 
 // "Callsign:" in the language in use (French puts a space before the colon).
 static NSString *colon(NSString *label) { return TF(@"{label}:", @{@"label" : label}); }
 
-// The label column, the same in every section so the fields line up: the widest label, and at
-// least 80 points (longer in some languages).
-static CGFloat labelColumnWidth() {
-    NSMutableArray<NSString *> *labels = [NSMutableArray arrayWithArray:@[
-        T(@"Callsign:"), T(@"Grid:"), T(@"Logs folder:"), colon(T(@"Node")), colon(T(@"Login")), colon(T(@"Then send")), colon(T(@"Your email")),
-        colon(T(@"Reports"))
-    ]];
-    for (NSInteger s = 0; s < ADIFSourceCount; ++s) {
-        [labels addObject:colon(ADIFSourceUserLabel((ADIFSource)s))];
-        [labels addObject:colon(ADIFSourceSecretLabel((ADIFSource)s))];
-    }
-    CGFloat w = 80;
-    for (NSString *l in labels) w = MAX(w, ceil([NSTextField labelWithString:l].intrinsicContentSize.width));
-    return w;
+// A field with its name over it (the panel is narrow): the name small, the field the panel's width.
+static NSStackView *field(NSString *label, NSView *control) {
+    NSTextField *name = [NSTextField labelWithString:label];
+    name.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    name.textColor = NSColor.secondaryLabelColor;
+    NSStackView *pair = [NSStackView stackViewWithViews:@[ name, control ]];
+    pair.orientation = NSUserInterfaceLayoutOrientationVertical;
+    pair.alignment = NSLayoutAttributeLeading;
+    pair.spacing = 3;
+    [control.widthAnchor constraintEqualToAnchor:pair.widthAnchor].active = YES;
+    for (NSView *v in @[ name, control ]) [v setContentCompressionResistancePriority:200 forOrientation:NSLayoutConstraintOrientationHorizontal];
+    return pair;
 }
 
 static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
-    NSTextField *t = [NSTextField wrappingLabelWithString:T(text)];
+    NSTextField *t = text.length ? [NSTextField wrappingLabelWithString:T(text)] : [ADIFStatusLine wrappingLabelWithString:@""];
+    t.hidden = text.length == 0;
     t.font = [NSFont systemFontOfSize:size];
     t.textColor = color;
-    t.preferredMaxLayoutWidth = kTextWidth;
-    [t.widthAnchor constraintEqualToConstant:kTextWidth].active = YES;
+    [t setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
     return t;
 }
 
@@ -102,82 +142,41 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     _user = [NSMutableArray array];
     _secret = [NSMutableArray array];
     _status = [NSMutableArray array];
-    _window = [[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, kTextWidth + 40, 400)
-                                         styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
-                                           backing:NSBackingStoreBuffered
-                                             defer:YES];
-    _window.title = T(@"ADIF Lint Settings");
-    ADIFNightTrack(_window);
-    _window.floatingPanel = YES;
-    _window.hidesOnDeactivate = YES;
-    _window.releasedWhenClosed = NO;
-    _window.delegate = self;
-
     NSMutableArray<NSView *> *views = [NSMutableArray array];
-    _welcome = wrapping(@"Welcome to ADIF Lint. Enter your callsign and grid below: New QSO and the exports use them for "
+    _welcome = wrapping(@"Welcome to ADIF Lint. Enter your callsign and grid in Your Station: New QSO and the exports use them for "
                         @"a log that doesn't have them yet. Accounts for QRZ.com, LoTW, eQSL and Club Log are further "
                         @"down, when you want them.",
                         NSFont.systemFontSize, NSColor.labelColor);
     _welcome.hidden = YES;
+    _welcome.identifier = @"settings.welcome";
     [views addObject:_welcome];
-    for (NSView *section in @[ [self stationSection], [self editorSection], [self languageSection], [self offlineSection], [self keyboardSection], [self countrySection], [self lotwSection],
-                                 [self potaSection], [self iotaSection], [self mapDetailSection], [self spotsSection] ]) {
-        [views addObject:section];
-        NSBox *line = [[NSBox alloc] init];
-        line.boxType = NSBoxSeparator;
-        [line.widthAnchor constraintEqualToConstant:kTextWidth].active = YES;
-        [views addObject:line];
+    _groups = [NSMutableDictionary dictionary];
+    for (ADIFAccordion *group in @[ [self stationSection], [self editorSection], [self languageSection], [self offlineSection], [self keyboardSection],
+                                    [self countrySection], [self lotwSection], [self potaSection], [self iotaSection], [self mapDetailSection],
+                                    [self spotsSection] ]) {
+        _groups[group.identifier] = group;
+        [views addObject:group];
     }
-    [views addObject:wrapping(@"Accounts and API keys for the online services. They are saved in your macOS Keychain "
-                              @"(items named \"ADIF Lint: ...\"), never in a file, and a saved password is never shown "
-                              @"here.",
-                              NSFont.systemFontSize, NSColor.labelColor)];
+    NSTextField *accounts = wrapping(@"Accounts and API keys for the online services. They are saved in your macOS Keychain "
+                                     @"(items named \"ADIF Lint: ...\"), never in a file, and a saved password is never shown "
+                                     @"here.",
+                                     NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    accounts.identifier = @"settings.accounts";
+    [views addObject:accounts];
     for (NSInteger s = 0; s < ADIFSourceCount; ++s) {
-        NSBox *line = [[NSBox alloc] init];
-        line.boxType = NSBoxSeparator;
-        [line.widthAnchor constraintEqualToConstant:kTextWidth].active = YES;
-        [views addObject:line];
-        [views addObject:[self sectionFor:(ADIFSource)s]];
+        ADIFAccordion *group = [self sectionFor:(ADIFSource)s];
+        _groups[group.identifier] = group;
+        [views addObject:group];
     }
-    // Plain stack views size themselves from their content (an NSBox does not).
     NSStackView *stack = [NSStackView stackViewWithViews:views];
     stack.orientation = NSUserInterfaceLayoutOrientationVertical;
     stack.alignment = NSLayoutAttributeLeading;
-    stack.spacing = 14;
-    stack.edgeInsets = NSEdgeInsetsMake(18, 20, 20, 20);
-    stack.translatesAutoresizingMaskIntoConstraints = NO;
-    // The sections scroll when the screen is too short for all of them.
-    NSView *document = [[ADIFSettingsDocument alloc] initWithFrame:NSZeroRect];
-    document.translatesAutoresizingMaskIntoConstraints = NO;
-    [document addSubview:stack];
-    _scroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
-    _scroll.hasVerticalScroller = YES;
-    _scroll.autohidesScrollers = YES;
-    _scroll.drawsBackground = NO;
-    _scroll.documentView = document;
-    _scroll.translatesAutoresizingMaskIntoConstraints = NO;
-    NSView *root = _window.contentView;
-    [root addSubview:_scroll];
-    NSSize fit = stack.fittingSize;
-    CGFloat screen = NSScreen.mainScreen ? NSHeight(NSScreen.mainScreen.visibleFrame) - 80 : 760;
-    [NSLayoutConstraint activateConstraints:@[
-        [stack.topAnchor constraintEqualToAnchor:document.topAnchor],
-        [stack.leadingAnchor constraintEqualToAnchor:document.leadingAnchor],
-        [stack.trailingAnchor constraintEqualToAnchor:document.trailingAnchor],
-        [stack.bottomAnchor constraintEqualToAnchor:document.bottomAnchor],
-        [document.leadingAnchor constraintEqualToAnchor:_scroll.contentView.leadingAnchor],
-        [document.trailingAnchor constraintEqualToAnchor:_scroll.contentView.trailingAnchor],
-        [document.topAnchor constraintEqualToAnchor:_scroll.contentView.topAnchor],
-        [_scroll.topAnchor constraintEqualToAnchor:root.topAnchor],
-        [_scroll.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
-        [_scroll.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
-        [_scroll.bottomAnchor constraintEqualToAnchor:root.bottomAnchor],
-    ]];
-    [_window setContentSize:NSMakeSize(fit.width, MIN(fit.height, MAX(screen, 400)))];
-    _window.contentMinSize = NSMakeSize(fit.width, 300);
-    _window.contentMaxSize = NSMakeSize(fit.width, fit.height);
-    _window.styleMask |= NSWindowStyleMaskResizable;
-    [_window center];
+    stack.spacing = 6;
+    [stack setCustomSpacing:10 afterView:_welcome];
+    [stack setCustomSpacing:14 afterView:views[views.count - 1 - ADIFSourceCount - 1]];  // the last group, then the accounts' note
+    for (NSView *v in views) [v.widthAnchor constraintEqualToAnchor:stack.widthAnchor].active = YES;
+    stack.identifier = @"settings";
+    _view = stack;
     [self refresh];
     return self;
 }
@@ -187,30 +186,25 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     _stationCall.placeholderString = T(@"e.g. KW9D");
     _stationGrid = [NSTextField textFieldWithString:@""];
     _stationGrid.placeholderString = T(@"e.g. EN52");
-    for (NSTextField *f in @[ _stationCall, _stationGrid ]) [f.widthAnchor constraintEqualToConstant:140].active = YES;
+    _stationCall.identifier = @"settings.station.call";
+    _stationGrid.identifier = @"settings.station.grid";
     _logsFolder = [NSTextField labelWithString:@""];
     _logsFolder.lineBreakMode = NSLineBreakByTruncatingMiddle;
-    [_logsFolder.widthAnchor constraintLessThanOrEqualToConstant:300].active = YES;
+    [_logsFolder setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
     NSButton *choose = [NSButton buttonWithTitle:T(@"Choose...") target:self action:@selector(chooseFolder:)];
-    NSGridView *grid = [NSGridView gridViewWithViews:@[
-        @[ [NSTextField labelWithString:T(@"Callsign:")], _stationCall ],
-        @[ [NSTextField labelWithString:T(@"Grid:")], _stationGrid ],
-        @[ [NSTextField labelWithString:T(@"Logs folder:")], [NSStackView stackViewWithViews:@[ _logsFolder, choose ]] ],
-    ]];
-    grid.rowSpacing = 6;
-    grid.columnSpacing = 8;
-    grid.rowAlignment = NSGridRowAlignmentFirstBaseline;
-    [grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
-    [grid columnAtIndex:0].width = labelColumnWidth();
+    NSStackView *folder = [NSStackView stackViewWithViews:@[ _logsFolder, choose ]];
+    folder.spacing = 8;
     NSButton *save = [NSButton buttonWithTitle:T(@"Save") target:self action:@selector(saveStation:)];
     NSButton *profiles = [NSButton buttonWithTitle:T(@"Station Profiles...") target:self action:@selector(stationProfiles:)];
     profiles.toolTip = T(@"Named sets of your station's fields (home, portable, a club station) for New QSO and activations");
-    NSStackView *buttons = [NSStackView stackViewWithViews:@[ save, profiles ]];
+    ADIFWrapRow *buttons = [ADIFWrapRow rowWithViews:@[ save, profiles ]];
     _stationStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
     NSTextField *help = wrapping(@"Used when a log doesn't say: New QSO fills STATION_CALLSIGN and MY_GRIDSQUARE from them "
                                  @"in a new log, and the exports use the callsign. Worked Before searches the logs folder.",
                                  NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
-    return sectionStack(@[ sectionTitle(@"Your Station"), help, grid, buttons, _stationStatus ], @"settings.station");
+    return sectionStack(N(@"Your Station"), @"person.crop.circle", @[ help, field(T(@"Callsign:"), _stationCall), field(T(@"Grid:"), _stationGrid), field(T(@"Logs folder:"), folder), buttons,
+                                               _stationStatus ],
+                        @"settings.station");
 }
 
 - (void)stationProfiles:(id)sender {
@@ -229,6 +223,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     _stationCall.stringValue = call ?: @"";
     _stationGrid.stringValue = grid ?: @"";
     _logsFolder.stringValue = folder.length ? folder.stringByAbbreviatingWithTildeInPath : T(@"(none)");
+    [self summarize];
 }
 
 - (void)setStationStatus:(NSString *)text ok:(BOOL)ok {
@@ -243,24 +238,24 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     ];
     NSMutableArray<NSButton *> *boxes = [NSMutableArray array];
     for (NSUInteger i = 0; i < titles.count; ++i) {
-        NSButton *b = [NSButton checkboxWithTitle:T(titles[i]) target:self action:@selector(editorOption:)];
+        NSButton *b = [ADIFWrappingCheckbox boxWithTitle:titles[i] target:self action:@selector(editorOption:)];
         b.tag = (NSInteger)i;
         [boxes addObject:b];
     }
     _editorBoxes = boxes;
-    NSMutableArray<NSView *> *views = [NSMutableArray arrayWithObject:sectionTitle(@"Editor")];
-    [views addObjectsFromArray:boxes];
-    return sectionStack(views, @"settings.editor");
+    return sectionStack(N(@"Editor"), @"pencil", boxes, @"settings.editor");
 }
 
 - (void)editorOption:(NSButton *)sender {
     if (self.onEditorOption) self.onEditorOption(sender.tag, sender.state == NSControlStateValueOn);
+    [self summarize];
 }
 
 - (void)setEditorValidate:(BOOL)validate colour:(BOOL)colour autocomplete:(BOOL)autocomplete characters:(BOOL)characters {
     BOOL on[] = {validate, colour, autocomplete, characters};
     for (NSUInteger i = 0; i < _editorBoxes.count && i < 4; ++i)
         _editorBoxes[i].state = on[i] ? NSControlStateValueOn : NSControlStateValueOff;
+    [self summarize];
 }
 
 - (NSView *)languageSection {
@@ -279,9 +274,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
                                  @"English, and so does the User Guide. The menu and new messages change at once; windows ADIF "
                                  @"Lint has already shown change when Nextpad++ starts again.",
                                  NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
-    NSStackView *row = [NSStackView stackViewWithViews:@[ [NSTextField labelWithString:T(@"Language:")], _language ]];
-    row.spacing = 8;
-    return sectionStack(@[ sectionTitle(@"Language"), help, row ], @"settings.language");
+    return sectionStack(N(@"Language"), @"globe", @[ help, field(T(@"Language:"), _language) ], @"settings.language");
 }
 
 - (void)languageChosen:(id)sender {
@@ -295,17 +288,18 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     [_language itemAtIndex:0].title = TF(@"Same as Nextpad++ ({language})", @{@"language" : @(hostName.c_str())});
     NSInteger at = [_language indexOfItemWithRepresentedObject:code ?: @""];
     [_language selectItemAtIndex:at < 0 ? 0 : at];
+    [self summarize];
 }
 
 - (NSView *)offlineSection {
-    _offline = [NSButton checkboxWithTitle:T(@"Work offline: make no network requests") target:self action:@selector(offlineToggled:)];
+    _offline = [ADIFWrappingCheckbox boxWithTitle:@"Work offline: make no network requests" target:self action:@selector(offlineToggled:)];
     _offline.identifier = @"settings.offline.box";
     NSTextField *help = wrapping(@"For off-grid operating, or to be sure nothing is sent. Callbook lookups, spots, uploads (TQSL "
                                  @"too), imports from the online services, downloads and web pages are refused while it is on; "
                                  @"everything that works on this Mac's files goes on, and Monitor still hears the programs on "
                                  @"this Mac. Also in the ADIF Lint menu: Offline Mode.",
                                  NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
-    return sectionStack(@[ sectionTitle(@"Offline Mode"), help, _offline ], @"settings.offline");
+    return sectionStack(N(@"Offline Mode"), @"wifi.slash", @[ help, _offline ], @"settings.offline");
 }
 
 - (NSView *)mapDetailSection {
@@ -318,29 +312,27 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
         NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
     _detailRegion = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     _detailRegion.identifier = @"settings.mapdetail.region";
-    [_detailRegion.widthAnchor constraintEqualToConstant:250].active = YES;
     _detailLevel = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     _detailLevel.identifier = @"settings.mapdetail.level";
     for (NSPopUpButton *p in @[ _detailRegion, _detailLevel ]) {
         p.target = self;
         p.action = @selector(detailChoiceChanged:);
     }
-    NSStackView *choose = [NSStackView stackViewWithViews:@[ _detailRegion, _detailLevel ]];
     _detailCheck = [NSButton buttonWithTitle:T(@"Check Size") target:self action:@selector(detailCheck:)];
     _detailDownload = [NSButton buttonWithTitle:T(@"Download") target:self action:@selector(detailDownload:)];
     _detailStop = [NSButton buttonWithTitle:T(@"Stop") target:self action:@selector(detailStop:)];
     _detailDownload.enabled = _detailStop.enabled = NO;
-    NSStackView *buttons = [NSStackView stackViewWithViews:@[ _detailCheck, _detailDownload, _detailStop ]];
+    ADIFWrapRow *buttons = [ADIFWrapRow rowWithViews:@[ _detailCheck, _detailDownload, _detailStop ]];
     _detailStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
     _detailStatus.identifier = @"settings.mapdetail.status";
     _detailInstalled = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     _detailInstalled.identifier = @"settings.mapdetail.installed";
-    [_detailInstalled.widthAnchor constraintEqualToConstant:330].active = YES;
     _detailRemove = [NSButton buttonWithTitle:T(@"Remove") target:self action:@selector(detailRemove:)];
-    NSStackView *have = [NSStackView stackViewWithViews:@[ [NSTextField labelWithString:T(@"Downloaded:")], _detailInstalled, _detailRemove ]];
     _detailSummary = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
     _detailSummary.identifier = @"settings.mapdetail.summary";
-    return sectionStack(@[ sectionTitle(@"Map Detail"), help, choose, buttons, _detailStatus, have, _detailSummary ], @"settings.mapdetail");
+    return sectionStack(N(@"Map Detail"), @"map", @[ help, field(colon(T(@"Region")), _detailRegion), field(colon(T(@"Detail")), _detailLevel), buttons, _detailStatus,
+                                             field(T(@"Downloaded:"), _detailInstalled), _detailRemove, _detailSummary ],
+                        @"settings.mapdetail");
 }
 
 - (void)setMapDetailChoices:(NSArray<NSArray *> *)choices
@@ -368,6 +360,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     if (!installed.count) [_detailInstalled addItemWithTitle:T(@"(none)")];
     _detailInstalled.enabled = _detailRemove.enabled = installed.count > 0;
     _detailSummary.stringValue = summary ?: @"";
+    [self summarize];
 }
 
 - (void)setMapDetailState:(NSString *)message ok:(BOOL)ok checked:(BOOL)checked busy:(BOOL)busy {
@@ -405,10 +398,12 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
 
 - (void)offlineToggled:(id)sender {
     if (self.onOfflineToggled) self.onOfflineToggled(_offline.state == NSControlStateValueOn);
+    [self summarize];
 }
 
 - (void)setOffline:(BOOL)on {
     _offline.state = on ? NSControlStateValueOn : NSControlStateValueOff;
+    [self summarize];
 }
 
 - (NSView *)keyboardSection {
@@ -418,33 +413,32 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
         @"Control-Option-Down, Previous Problem Control-Option-Up, Spots Control-Option-S (pick others if Nextpad++ "
         @"already uses one).",
         NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
-    return sectionStack(@[ sectionTitle(@"Keyboard Shortcuts"), help ], @"settings.keyboard");
+    return sectionStack(N(@"Keyboard Shortcuts"), @"keyboard", @[ help ], @"settings.keyboard");
 }
 
 - (void)showWelcome {
     _welcome.hidden = NO;
     [self refresh];
-    [_window makeKeyAndOrderFront:nil];
-    [_window makeFirstResponder:_stationCall];
+    [self openGroup:@"settings.station"];
+    [_view.window makeFirstResponder:_stationCall];
     [_welcome scrollRectToVisible:_welcome.bounds];
 }
 
+// A group open (remembered as the user's own opening would be), its controls laid out.
+- (void)openGroup:(NSString *)ident {
+    ADIFAccordion *group = _groups[ident];
+    if (!group.open) [group.header toggle];
+    [_view layoutSubtreeIfNeeded];
+}
+
 - (NSView *)countrySection {
-    NSTextField *title = [NSTextField labelWithString:T(@"Country Data")];
-    title.font = [NSFont boldSystemFontOfSize:NSFont.systemFontSize + 1];
     NSTextField *help = wrapping(@"DXCC entity, CQ and ITU zones and continent from a call's prefix, offline, for Enrich from "
                                  @"Country Data and New QSO. From Jim Reisert AD1C's country files (country-files.com, "
                                  @"MIT licence), updated every few weeks. Update downloads the newest release.",
                                  NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
     _countryUpdate = [NSButton buttonWithTitle:T(@"Update") target:self action:@selector(countryUpdate:)];
     _countryStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
-    NSStackView *section = [NSStackView stackViewWithViews:@[ title, help, _countryUpdate, _countryStatus ]];
-    section.orientation = NSUserInterfaceLayoutOrientationVertical;
-    section.alignment = NSLayoutAttributeLeading;
-    section.spacing = 8;
-    [section setCustomSpacing:4 afterView:title];
-    section.identifier = @"settings.country";
-    return section;
+    return sectionStack(N(@"Country Data"), @"flag", @[ help, _countryUpdate, _countryStatus ], @"settings.country");
 }
 
 - (NSView *)lotwSection {
@@ -454,14 +448,15 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
                                  NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
     _lotwOn = [NSButton checkboxWithTitle:T(@"Show LoTW users") target:self action:@selector(lotwToggled:)];
     _lotwUpdate = [NSButton buttonWithTitle:T(@"Update") target:self action:@selector(lotwUpdate:)];
-    NSStackView *row = [NSStackView stackViewWithViews:@[ _lotwOn, _lotwUpdate ]];
+    ADIFWrapRow *row = [ADIFWrapRow rowWithViews:@[ _lotwOn, _lotwUpdate ]];
     row.spacing = 12;
     _lotwStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
-    return sectionStack(@[ sectionTitle(@"LoTW Users"), help, row, _lotwStatus ], @"settings.lotwusers");
+    return sectionStack(N(@"LoTW Users"), @"checkmark.seal", @[ help, row, _lotwStatus ], @"settings.lotwusers");
 }
 
 - (void)lotwToggled:(id)sender {
     if (self.onLotwUsersToggled) self.onLotwUsersToggled(_lotwOn.state == NSControlStateValueOn);
+    [self summarize];
 }
 
 - (void)lotwUpdate:(id)sender {
@@ -475,6 +470,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     _lotwUpdate.enabled = YES;
     _lotwStatus.stringValue = T(text);
     _lotwStatus.textColor = ok ? NSColor.secondaryLabelColor : NSColor.systemRedColor;
+    [self summarize];
 }
 
 - (NSView *)potaSection {
@@ -501,28 +497,24 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     _outlinesLocation.numberOfVisibleItems = 15;
     _outlinesLocation.placeholderString = T(@"POTA location, such as US-IL");
     _outlinesLocation.identifier = @"settings.outlines.location";
-    [_outlinesLocation.widthAnchor constraintEqualToConstant:150].active = YES;
+    [_outlinesLocation.widthAnchor constraintEqualToConstant:150].active = YES;  // a location's reference is short
     _outlinesLocation.target = self;
     _outlinesLocation.action = @selector(outlinesLocationChosen:);
     _outlinesDownload = [NSButton buttonWithTitle:T(@"Download") target:self action:@selector(outlinesDownload:)];
     _outlinesDownload.identifier = @"settings.outlines.download";
-    NSStackView *outlinesRow = [NSStackView stackViewWithViews:@[ _outlinesLocation, _outlinesDownload ]];
-    outlinesRow.spacing = 8;
+    ADIFWrapRow *outlinesRow = [ADIFWrapRow rowWithViews:@[ _outlinesLocation, _outlinesDownload ]];
     _outlinesStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
     _outlinesStatus.identifier = @"settings.outlines.status";
     // What is downloaded: a location each in the menu (to remove one), and all of them summed up.
     _outlinesHave = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     _outlinesHave.identifier = @"settings.outlines.installed";
-    [_outlinesHave.widthAnchor constraintEqualToConstant:330].active = YES;
     _outlinesRemove = [NSButton buttonWithTitle:T(@"Remove") target:self action:@selector(outlinesRemove:)];
     _outlinesRemove.identifier = @"settings.outlines.remove";
-    NSStackView *have = [NSStackView stackViewWithViews:@[ [NSTextField labelWithString:T(@"Downloaded:")], _outlinesHave, _outlinesRemove ]];
-    have.spacing = 8;
     _outlinesSummary = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
     _outlinesSummary.identifier = @"settings.outlines.summary";
     [self fillOutlines];
-    return sectionStack(@[ sectionTitle(@"POTA Parks"), help, _potaUpdate, _potaStatus, outlinesTitle, outlinesHelp, outlinesRow, _outlinesStatus, have,
-                           _outlinesSummary ],
+    return sectionStack(N(@"POTA Parks"), @"leaf", @[ help, _potaUpdate, _potaStatus, outlinesTitle, outlinesHelp, outlinesRow, _outlinesStatus,
+                                             field(T(@"Downloaded:"), _outlinesHave), _outlinesRemove, _outlinesSummary ],
                         @"settings.pota");
 }
 
@@ -649,7 +641,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
                                  NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
     _iotaUpdate = [NSButton buttonWithTitle:T(@"Download") target:self action:@selector(iotaUpdate:)];
     _iotaStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
-    return sectionStack(@[ sectionTitle(@"IOTA Groups"), help, _iotaUpdate, _iotaStatus ], @"settings.iota");
+    return sectionStack(N(@"IOTA Groups"), @"drop", @[ help, _iotaUpdate, _iotaStatus ], @"settings.iota");
 }
 
 - (void)iotaUpdate:(id)sender {
@@ -677,9 +669,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     _countryStatus.textColor = ok ? NSColor.secondaryLabelColor : NSColor.systemRedColor;
 }
 
-- (NSView *)sectionFor:(ADIFSource)source {
-    NSTextField *title = [NSTextField labelWithString:T(ADIFSourceName(source))];
-    title.font = [NSFont boldSystemFontOfSize:NSFont.systemFontSize + 1];
+- (ADIFAccordion *)sectionFor:(ADIFSource)source {
     NSTextField *help = wrapping(ADIFSourceCredentialHelp(source), NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
 
     BOOL apiKey = ADIFSourceCredentialKind(source) == ADIFCredentialAPIKey;
@@ -687,42 +677,24 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     user.placeholderString = ADIFSourceUserLabel(source);
     NSSecureTextField *secret = [[NSSecureTextField alloc] initWithFrame:NSZeroRect];
     secret.placeholderString = ADIFSourceSecretLabel(source);
-    for (NSTextField *f in @[ user, secret ]) [f.widthAnchor constraintEqualToConstant:300].active = YES;
-    NSGridView *grid = [NSGridView gridViewWithViews:@[
-        @[ [NSTextField labelWithString:colon(ADIFSourceUserLabel(source))], user ],
-        @[ [NSTextField labelWithString:colon(ADIFSourceSecretLabel(source))], secret ],
-    ]];
-    grid.rowSpacing = 6;
-    grid.columnSpacing = 8;
-    grid.rowAlignment = NSGridRowAlignmentFirstBaseline;
-    [grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
-    [grid columnAtIndex:0].width = labelColumnWidth();
-    [grid rowAtIndex:0].hidden = apiKey;
+    NSStackView *userField = field(colon(ADIFSourceUserLabel(source)), user), *secretField = field(colon(ADIFSourceSecretLabel(source)), secret);
+    userField.hidden = apiKey;
 
     NSButton *save = [NSButton buttonWithTitle:T(@"Save") target:self action:@selector(save:)];
     NSButton *test = [NSButton buttonWithTitle:T(@"Test Sign-In") target:self action:@selector(test:)];
     test.hidden = !ADIFSourceCanTest(source);
     NSButton *remove = [NSButton buttonWithTitle:T(@"Remove") target:self action:@selector(remove:)];
     for (NSButton *b in @[ save, test, remove ]) b.tag = source;
-    NSStackView *buttons = [NSStackView stackViewWithViews:@[ save, test, remove ]];
-    buttons.spacing = 8;
+    ADIFWrapRow *buttons = [ADIFWrapRow rowWithViews:@[ save, test, remove ]];
     NSTextField *status = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
 
-    NSStackView *section = [NSStackView stackViewWithViews:@[ title, help, grid, buttons, status ]];
-    section.orientation = NSUserInterfaceLayoutOrientationVertical;
-    section.alignment = NSLayoutAttributeLeading;
-    section.spacing = 8;
-    [section setCustomSpacing:4 afterView:title];
-    section.identifier = [NSString stringWithFormat:@"settings.source.%ld", (long)source];
+    ADIFAccordion *section = sectionStack(ADIFSourceName(source), @"key", @[ help, userField, secretField, buttons, status ],
+                                          [NSString stringWithFormat:@"settings.source.%ld", (long)source]);
 
     [_user addObject:user];
     [_secret addObject:secret];
     [_status addObject:status];
     return section;
-}
-
-- (NSPanel *)window {
-    return _window;
 }
 
 - (void)setStatus:(NSString *)text ok:(BOOL)ok forSource:(NSInteger)s {
@@ -735,11 +707,11 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
                                  @"only while the Map is open; nothing at all in Offline Mode. New QSO's Spot when logging boxes post "
                                  @"the stations you log on the DX cluster connected here.",
                                  NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
-    _spotsSpothole = [NSButton checkboxWithTitle:T(@"Spothole: POTA, WWFF, GMA and other programs, and the DX clusters and RBN it reads "
-                                                   @"(spothole.app, every 2 minutes; SOTA left out)")
-                                          target:self
-                                          action:@selector(spotsChanged:)];
-    _spotsCluster = [NSButton checkboxWithTitle:T(@"A DX cluster (telnet), logged in with your callsign") target:self action:@selector(spotsChanged:)];
+    _spotsSpothole = [ADIFWrappingCheckbox boxWithTitle:@"Spothole: POTA, WWFF, GMA and other programs, and the DX clusters and RBN it reads "
+                                                        @"(spothole.app, every 2 minutes; SOTA left out)"
+                                                 target:self
+                                                 action:@selector(spotsChanged:)];
+    _spotsCluster = [ADIFWrappingCheckbox boxWithTitle:@"A DX cluster (telnet), logged in with your callsign" target:self action:@selector(spotsChanged:)];
     _spotsNode = [[NSComboBox alloc] initWithFrame:NSZeroRect];
     _spotsNode.placeholderString = T(@"host:port");
     NSMutableArray *tips = [NSMutableArray array];
@@ -754,10 +726,9 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     _spotsCommands = [NSTextField textFieldWithString:@""];
     _spotsCommands.placeholderString = T(@"optional, e.g. set/skimmer");
     _spotsCommands.toolTip = T(@"Commands to send after logging in, \";\" between them; they're the node's own (see its help)");
-    for (NSTextField *f in @[ _spotsNode, _spotsLogin, _spotsCommands ]) [f.widthAnchor constraintEqualToConstant:300].active = YES;
-    _spotsPsk = [NSButton checkboxWithTitle:T(@"PSKReporter: the digital-mode reception reports of your callsign or your grid square (every 5 minutes)")
-                                     target:self
-                                     action:@selector(spotsChanged:)];
+    _spotsPsk = [ADIFWrappingCheckbox boxWithTitle:@"PSKReporter: the digital-mode reception reports of your callsign or your grid square (every 5 minutes)"
+                                            target:self
+                                            action:@selector(spotsChanged:)];
     _spotsPskQuery = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [_spotsPskQuery addItemsWithTitles:@[ T(@"Of my callsign: who heard me, and what my station heard"), T(@"Around my grid square") ]];
     _spotsPskQuery.target = self, _spotsPskQuery.action = @selector(spotsChanged:);
@@ -770,27 +741,10 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     _spotsPskCall.toolTip = T(@"The callsign whose reception reports PSKReporter gives: your own (Your Station) when empty, or another one: a "
                               @"club station, a portable call, or a friend's");
     _spotsPskCall.identifier = @"settings.spots.pskCall";
-    [_spotsPskCall.widthAnchor constraintEqualToConstant:300].active = YES;
     _spotsEmail = [NSTextField textFieldWithString:@""];
     _spotsEmail.placeholderString = T(@"optional");
     _spotsEmail.toolTip = T(@"PSKReporter asks the programs that query it for a contact email address (appcontact), in case of a problem. "
                             @"Leave it empty to send none.");
-    [_spotsEmail.widthAnchor constraintEqualToConstant:300].active = YES;
-    NSGridView *grid = [NSGridView gridViewWithViews:@[
-        @[ [NSTextField labelWithString:colon(T(@"Node"))], _spotsNode ], @[ [NSTextField labelWithString:colon(T(@"Login"))], _spotsLogin ],
-        @[ [NSTextField labelWithString:colon(T(@"Then send"))], _spotsCommands ]
-    ]];
-    NSGridView *pskGrid = [NSGridView gridViewWithViews:@[
-        @[ [NSTextField labelWithString:colon(T(@"Reports"))], _spotsPskQuery ], @[ [NSTextField labelWithString:T(@"Callsign:")], _spotsPskCall ],
-        @[ [NSTextField labelWithString:colon(T(@"Your email"))], _spotsEmail ]
-    ]];
-    for (NSGridView *g in @[ grid, pskGrid ]) {
-        g.rowSpacing = 6;
-        g.columnSpacing = 8;
-        g.rowAlignment = NSGridRowAlignmentFirstBaseline;
-        [g columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
-        [g columnAtIndex:0].width = labelColumnWidth();
-    }
     NSButton *save = [NSButton buttonWithTitle:T(@"Save") target:self action:@selector(spotsChanged:)];
     _spotsStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
     _spotsSpothole.identifier = @"settings.spots.spothole", _spotsCluster.identifier = @"settings.spots.cluster";
@@ -802,7 +756,9 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
                                                                            object:nil
                                                                             queue:nil
                                                                        usingBlock:^(NSNotification *) { [self fillSpotsStatus]; }];
-    _spotsView = sectionStack(@[ sectionTitle(@"Spots"), help, _spotsSpothole, _spotsCluster, grid, _spotsPsk, pskGrid, save, _spotsStatus ],
+    _spotsView = sectionStack(N(@"Spots"), @"antenna.radiowaves.left.and.right", @[ help, _spotsSpothole, _spotsCluster, field(colon(T(@"Node")), _spotsNode), field(colon(T(@"Login")), _spotsLogin),
+                                              field(colon(T(@"Then send")), _spotsCommands), _spotsPsk, field(colon(T(@"Reports")), _spotsPskQuery),
+                                              field(T(@"Callsign:"), _spotsPskCall), field(colon(T(@"Your email")), _spotsEmail), save, _spotsStatus ],
                               @"settings.spots");
     [self fillSpots];
     return _spotsView;
@@ -820,6 +776,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     _spotsCommands.stringValue = @(c.commands.c_str());
     _spotsEmail.stringValue = @(c.email.c_str());
     [self fillSpotsStatus];
+    [self summarize];
 }
 
 - (void)fillSpotsStatus {
@@ -849,6 +806,32 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     [self fillSpots];
 }
 
+// What each group's heading says is set in it, at a glance.
+- (void)summarize {
+    if (!_groups) return;
+    auto say = ^(NSString *ident, NSString *text) { self->_groups[ident].header.summary = text; };
+    auto onOff = ^(NSButton *b) { return b.state == NSControlStateValueOn ? T(@"On##summary") : T(@"Off##summary"); };
+    NSMutableArray *station = [NSMutableArray array];
+    for (NSTextField *f in @[ _stationCall, _stationGrid ])
+        if (f.stringValue.length) [station addObject:f.stringValue.uppercaseString];
+    say(@"settings.station", station.count ? [station componentsJoinedByString:@" \u00B7 "] : T(@"not set"));
+    NSInteger on = 0;
+    for (NSButton *b in _editorBoxes) on += b.state == NSControlStateValueOn;
+    say(@"settings.editor", TF(@"{on} of {all} on", @{@"on" : @(on), @"all" : @(_editorBoxes.count)}));
+    say(@"settings.language", _language.titleOfSelectedItem);
+    say(@"settings.offline", onOff(_offline));
+    say(@"settings.lotwusers", onOff(_lotwOn));
+    NSInteger regions = _detailInstalled.enabled ? _detailInstalled.numberOfItems : 0;
+    say(@"settings.mapdetail", regions ? TP(@"{n} region", @"{n} regions", regions) : T(@"none downloaded"));
+    NSMutableArray *sources = [NSMutableArray array];
+    if (_spotsSpothole.state == NSControlStateValueOn) [sources addObject:@"Spothole"];
+    if (_spotsCluster.state == NSControlStateValueOn) [sources addObject:T(@"DX cluster")];
+    if (_spotsPsk.state == NSControlStateValueOn) [sources addObject:@"PSKReporter"];
+    say(@"settings.spots", sources.count ? [sources componentsJoinedByString:@", "] : T(@"none"));
+    for (NSInteger s = 0; s < ADIFSourceCount; ++s)
+        say([NSString stringWithFormat:@"settings.source.%ld", (long)s], ADIFHasSecret((ADIFSource)s) ? T(@"Saved##summary") : T(@"not set"));
+}
+
 - (void)refresh {
     [self fillSpots];
     for (NSInteger s = 0; s < ADIFSourceCount; ++s) {
@@ -861,24 +844,27 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
             secret ? T(@"Saved in your Keychain (type to replace)") : ADIFSourceSecretLabel((ADIFSource)s);
         [self setStatus:secret ? N(@"Saved.") : N(@"Not set.") ok:YES forSource:s];
     }
+    [self summarize];
 }
 
 - (void)showSource:(NSInteger)source {
     [self refresh];
-    [_window makeKeyAndOrderFront:nil];
     if (source == -3) {  // country data
+        [self openGroup:@"settings.country"];
         [_countryUpdate scrollRectToVisible:_countryUpdate.bounds];
         return;
     }
     if (source == -4) {  // spots
-        [_spotsView scrollRectToVisible:_spotsView.bounds];
+        [self openGroup:@"settings.spots"];
+        [_spotsView scrollRectToVisible:NSMakeRect(0, 0, NSWidth(_spotsView.bounds), 30)];
         return;
     }
     if (source >= 0 && source < ADIFSourceCount) {
+        [self openGroup:[NSString stringWithFormat:@"settings.source.%ld", (long)source]];
         BOOL apiKey = ADIFSourceCredentialKind((ADIFSource)source) == ADIFCredentialAPIKey;
         NSTextField *first = apiKey || _user[(NSUInteger)source].stringValue.length ? _secret[(NSUInteger)source]
                                                                                      : _user[(NSUInteger)source];
-        [_window makeFirstResponder:first];
+        [_view.window makeFirstResponder:first];
         [first scrollRectToVisible:first.bounds];
     }
 }

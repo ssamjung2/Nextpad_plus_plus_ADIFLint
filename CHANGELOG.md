@@ -11,6 +11,23 @@ Versions before 0.8.0 were development builds and were not published.
 
 ### Changed
 
+- **Settings** live in the Map: a **Settings** card in the selected panel, in place of the
+  ADIF Lint Settings window. **Settings…** in the menu, the Map's gear and every "add one in
+  Settings" open the Map with it. Each section (Your Station, Editor, Language, Offline Mode,
+  the downloads, Spots and each account) is a card of its own, closed until opened, its
+  heading saying what is set in it ("KW9D · EN52", "3 of 4 on", **Saved** or **not set**).
+- **Style Options** is a card in the selected panel too, in place of its window: its groups
+  (Colours, Markers, Worked areas, Lines to contacts, Spots, POTA parks, Sun, On the map) are
+  cards in it, closed at first, each heading summing up what is chosen in it.
+- **Map:** the sidebar and the selected panel are in cards (Quick Views, Spots, Layers, Map,
+  Filters; Selected, Situation, Style Options, Settings), each opening and closing from its
+  heading, with groups inside (the layers' Worked areas, Programs, Places, Contacts, Sun and
+  propagation; Awards, Band conditions, Recent spots, Details). After Apple's Human Interface
+  Guidelines: the chevron at the leading edge, right when closed and down when open; the whole
+  heading is the target, Space or the arrow keys from the keyboard, and VoiceOver hears a
+  disclosure triangle. Closing one hides only its controls: what is set in it stays.
+- **Map:** **Terrain** is a layer (Layers → Base map, subtle or strong), no longer in Style
+  Options.
 - **Map:** the selected panel gives the operator's **Name** for a spot or a QSO: the NAME of
   your latest QSO with the call, else the callbook New QSO looks calls up in (QRZ.com or
   HamQTH, when chosen there), asked once per call.
@@ -19,7 +36,6 @@ Versions before 0.8.0 were development builds and were not published.
   Each stays as you leave it (off at first), and Log QSO spots what is ticked, with the same
   rules as before; the line under them says what was done. A box is dimmed, its tooltip saying
   why, when it can't spot. Settings → Spots' "offer to spot" box is gone.
-
 - **Map:** the live dot turns orange when any spot source you turned on fails, not only when the
   spots grow old, and the toolbar names it ("DX cluster not answering") or says Offline Mode is
   on.

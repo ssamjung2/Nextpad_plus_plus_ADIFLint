@@ -1,14 +1,15 @@
 // ADIF Lint Settings: your station, editor options, keyboard shortcuts, the
 // country data, and accounts and API keys for the online services, stored in
-// the macOS Keychain (see Lookup.h).
+// the macOS Keychain (see Lookup.h). A group each, opening and closing, in the
+// Map's Settings card (`view`).
 // AppKit and Foundation only.
 #pragma once
 
 #import <Cocoa/Cocoa.h>
 
-@interface ADIFSettingsPanel : NSObject <NSWindowDelegate>
+@interface ADIFSettingsPanel : NSObject
 
-@property(nonatomic, readonly) NSPanel *window;
+@property(nonatomic, readonly) NSView *view;  // the groups, for the Map's Settings card
 // A credential was saved or removed for this source.
 @property(nonatomic, copy) void (^onChanged)(NSInteger source);
 
@@ -62,8 +63,9 @@
 @property(nonatomic, copy) void (^onOfflineToggled)(BOOL on);
 - (void)setOffline:(BOOL)on;
 
-- (void)showWelcome;                   // first run: a welcome, and Your Station at the top
-- (void)showSource:(NSInteger)source;  // show the window with that source's first field focused (-3: country data, -4: spots)
+- (void)showWelcome;                   // first run: a welcome, and Your Station open
+- (void)showSource:(NSInteger)source;  // that source's group open, its first field focused (-3: country data, -4: spots)
+- (void)openGroup:(NSString *)ident;   // "settings.station", "settings.source.0"...
 - (void)refresh;                       // reload what is saved
 
 @end

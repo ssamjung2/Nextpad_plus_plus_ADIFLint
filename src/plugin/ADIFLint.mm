@@ -2243,7 +2243,8 @@ static void setCountCharacters(bool on);
 static void refreshSettingsOptions();
 static void refreshMapDetail();
 
-static void openSettings(NSInteger source) {
+// ADIF Lint Settings: made once, for the Map's Settings card, with what they say now.
+static void ensureSettings() {
     if (!g.settings) {
         g.settings = [[ADIFSettingsPanel alloc] init];
         g.settings.onLotwUsersToggled = ^(BOOL on) {
@@ -2348,6 +2349,12 @@ static void openSettings(NSInteger source) {
     [g.settings setOffline:ADIFOffline()];
     [g.settings setLanguage:ADIFString(adifhost::setting("uiLanguage"))];
     refreshMapDetail();
+}
+
+// Settings: the Map's Settings card, with that source's group open (-1 none in particular).
+static void openSettings(NSInteger source) {
+    ensureSettings();
+    worldmap::revealSettings();
     [g.settings showSource:source];
 }
 
@@ -2949,6 +2956,10 @@ extern "C" NPP_EXPORT void beNotified(SCNotification *n) {
                 });
                 logtools::setSpotHandler(^(const std::vector<std::pair<std::string, std::string>> &fields) { useSpot(fields); });
                 worldmap::setSpotHandler(^(const std::vector<std::pair<std::string, std::string>> &fields) { useSpot(fields); });
+                worldmap::setSettingsProvider(^NSView * {
+                    ensureSettings();
+                    return g.settings.view;
+                });
                 if (g.panelWanted) showPanel(true);
                 schedule(0.1);
                 dispatch_async(dispatch_get_main_queue(), ^{ monitor::startIfWanted(); });

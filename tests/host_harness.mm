@@ -477,6 +477,28 @@ static NSView *viewWithIdentifier(NSView *v, NSString *ident) {
         if (NSView *f = viewWithIdentifier(s, ident)) return f;
     return nil;
 }
+// Settings: the Map's Settings card (the Map's window), and done with it (the card closed again).
+static NSWindow *settingsWindow() {
+    for (NSWindow *w in NSApp.windows)
+        if ([w.identifier isEqualToString:@"map.window"] && viewWithIdentifier(w.contentView, @"settings")) return w;
+    return nil;
+}
+static void doneWithSettings() {
+    NSWindow *w = settingsWindow();
+    NSControl *h = w ? (NSControl *)viewWithIdentifier(w.contentView, @"map.section.settings") : nil;
+    if ([[h valueForKey:@"open"] boolValue]) [h performClick:nil];
+}
+// Done with Settings outside the Map's own tests: the Map closed, as a user would close it.
+static void closeSettings() {
+    doneWithSettings();
+    [settingsWindow() orderOut:nil];
+}
+// A Settings group open ("settings.station", "settings.source.7"...), laid out.
+static void openSettingsGroup(NSWindow *w, NSString *ident) {
+    NSControl *h = w ? (NSControl *)viewWithIdentifier(w.contentView, [ident stringByAppendingString:@".header"]) : nil;
+    if (h && ![[h valueForKey:@"open"] boolValue]) [h performClick:nil];
+    [w.contentView layoutSubtreeIfNeeded];
+}
 static SettingsRow settingsRow(NSWindow *w, NSInteger source) {
     SettingsRow r;
     r.box = viewWithIdentifier(w.contentView, [NSString stringWithFormat:@"settings.source.%ld", (long)source]);
@@ -572,11 +594,17 @@ static std::string demoLog() {
     return out;
 }
 
+static void snapshotView(NSView *v, const char *name);
 static void snapshot(NSWindow *w, const char *name) {
-    const char *dir = getenv("ADIFLINT_SNAPSHOT_DIR");
-    if (!dir || !w) return;
+    if (!getenv("ADIFLINT_SNAPSHOT_DIR") || !w) return;
     w.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
-    NSView *v = w.contentView;
+    snapshotView(w.contentView, name);
+}
+
+// A view as a PNG, all of it (scrolled out of sight or not), in its window's appearance.
+static void snapshotView(NSView *v, const char *name) {
+    const char *dir = getenv("ADIFLINT_SNAPSHOT_DIR");
+    if (!dir || !v) return;
     [v layoutSubtreeIfNeeded];
     NSBitmapImageRep *rep = [v bitmapImageRepForCachingDisplayInRect:v.bounds];
     [v cacheDisplayInRect:v.bounds toBitmapImageRep:rep];
@@ -944,7 +972,7 @@ int main(int argc, char **argv) {
         CHECK(H.dwell[kSciMain] == 500 && H.dwell[kSciSecond] == 500, "dwell time armed on both views");
         {   // The welcome: Settings, with Your Station at the top.
             pump(0.2);
-            NSWindow *sw = windowTitled(@"ADIF Lint Settings");
+            NSWindow *sw = settingsWindow();
             NSString *welcome = sw ? labelContaining(sw.contentView, @"Welcome to ADIF Lint") : nil;
             CHECK(sw.visible && welcome != nil, "first run: Settings opens with a welcome");
             if (sw) {
@@ -976,7 +1004,7 @@ int main(int argc, char **argv) {
             callField.stringValue = @"";  // later tests log into logs that name their own station
             gridField.stringValue = @"";
             [save performClick:nil];
-            [sw orderOut:nil];
+            closeSettings();
         }
         {   // Toolbar buttons: New QSO, Log Table, Check Log, Spots, each with a light and dark icon.
             notify(NPPN_TBMODIFICATION);
@@ -1198,7 +1226,7 @@ int main(int argc, char **argv) {
         // ── Settings ──
         {
             run("Settings...");
-            NSWindow *sw = windowTitled(@"ADIF Lint Settings");
+            NSWindow *sw = settingsWindow();
             NSButton *countBox = sw ? findButton(sw.contentView, @"Count lengths in characters, not bytes (for UTF-8 logs)") : nil;
             NSButton *colourBox = sw ? findButton(sw.contentView, @"Colour ADIF syntax") : nil;
             CHECK(countBox && colourBox && countBox.state == NSControlStateValueOff && colourBox.state == NSControlStateValueOn,
@@ -1206,7 +1234,7 @@ int main(int argc, char **argv) {
             [countBox performClick:nil];
             [colourBox performClick:nil];
             CHECK(countFills(kName) == 0, "colours cleared when switched off");
-            [sw orderOut:nil];
+            closeSettings();
         }
         NSString *ini = [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint.ini"]
                                                   encoding:NSUTF8StringEncoding
@@ -1516,7 +1544,7 @@ int main(int argc, char **argv) {
 
         // ── Settings: accounts in the (test) Keychain ──
         run("Settings...");
-        NSWindow *sw = windowTitled(@"ADIF Lint Settings");
+        NSWindow *sw = settingsWindow();
         CHECK(sw != nil, "Settings window created");
         if (sw) {
             SettingsRow qrz = settingsRow(sw, 0), lotw = settingsRow(sw, 2);
@@ -1527,6 +1555,7 @@ int main(int argc, char **argv) {
             [sw.contentView layoutSubtreeIfNeeded];
             CHECK(overlaps(sw.contentView) == 0, "Settings controls do not overlap (%d overlaps)", overlaps(sw.contentView));
             // The sections scroll when the screen is short: the last one can be scrolled into view.
+            openSettingsGroup(sw, @"settings.source.7");
             SettingsRow last = settingsRow(sw, 7);
             [last.status scrollRectToVisible:last.status.bounds];
             NSRect lastRect = visibleInWindow(last.status);
@@ -1568,7 +1597,7 @@ int main(int argc, char **argv) {
             [findButton(qrz.box, @"Save") performClick:nil];
             CHECK([qrz.status.stringValue isEqualToString:@"Enter both fields."], "both fields required: %s",
                   qrz.status.stringValue.UTF8String);
-            [sw orderOut:nil];
+            closeSettings();
 
             // With the account back, lookups work again.
             choose(0);
@@ -2203,7 +2232,7 @@ int main(int argc, char **argv) {
 
             // Settings lists the upload accounts.
             run("Settings...");
-            NSWindow *setw = windowTitled(@"ADIF Lint Settings");
+            NSWindow *setw = settingsWindow();
             if (setw) {
                 SettingsRow club = settingsRow(setw, 4);
                 CHECK(club.title && [club.title.stringValue isEqualToString:@"Club Log"] &&
@@ -2214,7 +2243,7 @@ int main(int argc, char **argv) {
                 CHECK(eq && test && test.hidden, "eQSL has no sign-in test button");
                 NSView *ql = viewWithIdentifier(setw.contentView, @"settings.source.3");
                 CHECK(ql && !findButton(ql, @"Test Sign-In").hidden, "QRZ Logbook key can be tested");
-                [setw orderOut:nil];
+                closeSettings();
             }
 
             // QRZ.com Logbook: lists what it would send; nothing goes until Upload.
@@ -2894,7 +2923,7 @@ int main(int argc, char **argv) {
 
             // Settings: Update the country file (fixture), saved beside ADIFLint.ini.
             run("Settings...");
-            NSWindow *setw = windowTitled(@"ADIF Lint Settings");
+            NSWindow *setw = settingsWindow();
             NSView *country = setw ? viewWithIdentifier(setw.contentView, @"settings.country") : nil;
             CHECK(country && findButton(country, @"Update"), "Country Data section with Update");
             if (country) {
@@ -2909,7 +2938,7 @@ int main(int argc, char **argv) {
                 CHECK(countryStatus().find("Updated to bigcty-test") == 0 &&
                           [[NSFileManager defaultManager] fileExistsAtPath:[tmp stringByAppendingPathComponent:@"ADIFLint-cty.csv"]],
                       "country file updated: %s", countryStatus().c_str());
-                [setw orderOut:nil];
+                closeSettings();
             }
         }
 
@@ -3202,9 +3231,9 @@ int main(int argc, char **argv) {
             NSString *work = [tmp stringByAppendingPathComponent:@"activations"];
             [[NSFileManager defaultManager] createDirectoryAtPath:work withIntermediateDirectories:YES attributes:nil error:nil];
             run("Settings...");
-            NSWindow *sw = windowTitled(@"ADIF Lint Settings");
+            NSWindow *sw = settingsWindow();
             [findButton(sw.contentView, @"Station Profiles...") performClick:nil];
-            [sw orderOut:nil];
+            closeSettings();
             NSWindow *pw = windowTitled(@"Station Profiles");
             NSTableView *pt = pw ? findTable(pw.contentView) : nil;
             [findButton(pw.contentView, @"Add") performClick:nil];
@@ -3668,7 +3697,8 @@ int main(int argc, char **argv) {
         // ── LoTW users: off until asked, then in New QSO's lookup line ──
         {
             run("Settings...");
-            NSWindow *sw = windowTitled(@"ADIF Lint Settings");
+            NSWindow *sw = settingsWindow();
+            openSettingsGroup(sw, @"settings.lotwusers");
             NSView *section = sw ? viewWithIdentifier(sw.contentView, @"settings.lotwusers") : nil;
             NSButton *on = section ? findButton(section, @"Show LoTW users") : nil;
             CHECK(on && on.state == NSControlStateValueOff, "LoTW users are off at first");
@@ -3677,7 +3707,7 @@ int main(int argc, char **argv) {
             for (int i = 0; i < 30 && ![labelContaining(section, @"calls") length]; ++i) pump(0.05);
             CHECK([labelContaining(section, @"5 calls, downloaded") length] > 0, "the list downloaded: %s",
                   labelContaining(section, @"calls").UTF8String);
-            [sw orderOut:nil];
+            closeSettings();
             H.doc = "lotw\n<ADIF_VER:5>3.1.7\n<EOH>\n";
             notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
             pump(0.2);
@@ -3951,16 +3981,19 @@ int main(int argc, char **argv) {
                     if ([i.title hasPrefix:prefix]) return i.state == NSControlStateValueOn;
                 return false;
             };
-            // Style Options: its panel's controls by identifier (map.style.<name>), opened from the Map.
-            auto stylePanel = [&]() -> NSWindow * {
+            // Style Options: a card in the selected panel, opened by its button; its controls by identifier (map.style.<name>).
+            auto stylePanel = [&]() -> NSView * {
                 [styleOpen performClick:nil];
-                for (NSWindow *w in NSApp.windows)
-                    if ([w.identifier isEqualToString:@"map.style"] && w.visible) return w;
-                return nil;
+                NSView *card = viewWithIdentifier(mapw.contentView, @"map.group.style");
+                return card && !card.hidden ? viewWithIdentifier(card, @"map.style") : nil;
+            };
+            auto closeStyle = [&]() {  // the card closed again
+                NSControl *h = (NSControl *)viewWithIdentifier(mapw.contentView, @"map.section.style");
+                if ([[h valueForKey:@"open"] boolValue]) [h performClick:nil];
             };
             auto style = [&](NSString *name) {
-                NSWindow *w = stylePanel();
-                return w ? (NSControl *)viewWithIdentifier(w.contentView, [@"map.style." stringByAppendingString:name]) : nil;
+                NSView *v = stylePanel();
+                return v ? (NSControl *)viewWithIdentifier(v, [@"map.style." stringByAppendingString:name]) : nil;
             };
             auto stylePick = [&](NSString *name, NSString *title) {
                 NSPopUpButton *p = (NSPopUpButton *)style(name);
@@ -4032,11 +4065,13 @@ int main(int argc, char **argv) {
                       ((NSButton *)style(@"arcs")).state == NSControlStateValueOn,
                   "Lines to contacts (Markers), then their style and width (Style Options); arching over the globe starts on");
             CHECK(styleSet(@"rings", true), "distance rings on");
-            if (NSWindow *sp = stylePanel()) {
-                [sp.contentView layoutSubtreeIfNeeded];
-                CHECK(overlaps(sp.contentView) == 0 && style(@"palette") && style(@"dayNight") && style(@"reset"),
-                      "Style Options: its sections, with no overlaps (%d)", overlaps(sp.contentView));
-                snapshot(sp, "map-style-options");
+            if (NSView *sp = stylePanel()) {
+                [mapw.contentView layoutSubtreeIfNeeded];
+                NSView *panel = viewWithIdentifier(mapw.contentView, @"map.selected");
+                CHECK(overlaps(sp) == 0 && style(@"palette") && style(@"dayNight") && style(@"reset") &&
+                          NSMaxX([sp convertRect:sp.bounds toView:nil]) <= NSMaxX([panel convertRect:panel.bounds toView:nil]),
+                      "Style Options: a card in the selected panel, its groups within it, with no overlaps (%d)", overlaps(sp));
+                snapshotView(viewWithIdentifier(mapw.contentView, @"map.group.style"), "map-style-options");
             } else {
                 CHECK(false, "Style Options opens");
             }
@@ -4214,7 +4249,11 @@ int main(int argc, char **argv) {
                         }
                     return n ? sum / n : -1;
                 };
-                CHECK(style(@"terrain") && [((NSPopUpButton *)style(@"terrain")).titleOfSelectedItem isEqualToString:@"Off"], "Terrain starts off");
+                NSButton *terrainBox = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.terrain");
+                NSPopUpButton *terrainStrength = (NSPopUpButton *)viewWithIdentifier(mapw.contentView, @"map.terrain.strength");
+                CHECK(terrainBox && terrainStrength && terrainBox.state == NSControlStateValueOff && !terrainStrength.enabled && !style(@"terrain") &&
+                          [terrainBox isDescendantOf:viewWithIdentifier(mapw.contentView, @"map.group.layers")],
+                      "Terrain: a layer (Layers, Base map), off at first, its strength dimmed; no longer in Style Options");
                 for (NSString *projection in @[ @"Equirectangular", @"Mercator", @"Equal Earth", @"Globe" ]) {
                     if ([projection isEqualToString:@"Globe"]) {
                         pick(proj, [proj itemAtIndex:3].title);
@@ -4224,19 +4263,23 @@ int main(int argc, char **argv) {
                         [findButton(mapw.contentView, @"World") performClick:nil];
                     }
                     NSBitmapImageRep *flat = mapImage();
-                    stylePick(@"terrain", @"Strong");
+                    [terrainStrength selectItemWithTitle:@"Strong"];
+                    [terrainStrength sendAction:terrainStrength.action to:terrainStrength.target];
+                    setBox(terrainBox, true);
                     NSBitmapImageRep *shaded = mapImage();
                     double hills = change(flat, shaded, pointFor(84, 30)), sea = change(flat, shaded, pointFor(70, -30));
                     CHECK(hills > 0.03 && sea >= 0 && sea < 0.002, "Terrain on %s: the Himalaya shaded (%.3f), the sea unchanged (%.4f)", projection.UTF8String,
                           hills, sea);
                     if ([projection isEqualToString:@"Equirectangular"]) snapshot(mapw, "map-terrain");
                     if ([projection isEqualToString:@"Globe"]) snapshot(mapw, "map-terrain-globe");
-                    stylePick(@"terrain", @"Off");
+                    setBox(terrainBox, false);
                 }
+                CHECK(!terrainStrength.enabled && [terrainStrength.titleOfSelectedItem isEqualToString:@"Strong"],
+                      "Terrain off: its strength dimmed, and kept for next time");
                 pick(proj, @"Equirectangular");
             }
             {  // Propagation: space weather from NOAA SWPC (the fixtures), the aurora, the NCDXF beacons
-                [stylePanel() orderOut:nil];
+                closeStyle();
                 NSButton *tile = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.solar");
                 auto inPopover = [&](NSString *ident) -> NSView * {
                     for (NSWindow *w in NSApp.windows)
@@ -4389,7 +4432,8 @@ int main(int argc, char **argv) {
             CHECK(iotaLabels.enabled && [labelContaining(mapw.contentView, @"IOTA:") hasPrefix:@"IOTA: download IOTA's group list first"],
                   "IOTA without the group list says where to get it: %s", labelContaining(mapw.contentView, @"IOTA").UTF8String);
             run("Settings...");
-            NSWindow *isw = windowTitled(@"ADIF Lint Settings");
+            NSWindow *isw = settingsWindow();
+            openSettingsGroup(isw, @"settings.iota");
             NSView *iotaSection = isw ? viewWithIdentifier(isw.contentView, @"settings.iota") : nil;
             CHECK(iotaSection && [labelContaining(iotaSection, @"Not downloaded") length] && [labelContaining(iotaSection, @"RSGB and IOTA Ltd") length],
                   "Settings: IOTA Groups, not downloaded, with IOTA's terms");
@@ -4399,7 +4443,7 @@ int main(int argc, char **argv) {
                       [[NSFileManager defaultManager] fileExistsAtPath:[tmp stringByAppendingPathComponent:@"ADIFLint-iota-groups.json"]],
                   "IOTA's group list downloaded (the 4 good groups of the test file) into the config folder: %s",
                   labelContaining(iotaSection, @"group").UTF8String);
-            [isw orderOut:nil];
+            doneWithSettings();
             setBox(iotaShow, true);  // the groups worked, filled
             [findButton(mapw.contentView, @"World") performClick:nil];
             [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(1.5, 58.0), 0)];  // the North Sea, in EU-005's box
@@ -4447,7 +4491,8 @@ int main(int argc, char **argv) {
             CHECK(potaLabels.enabled && [labelContaining(mapw.contentView, @"POTA:") hasPrefix:@"POTA: download POTA's park list first"],
                   "POTA without the park list says where to get it: %s", labelContaining(mapw.contentView, @"POTA").UTF8String);
             run("Settings...");
-            NSWindow *psw = windowTitled(@"ADIF Lint Settings");
+            NSWindow *psw = settingsWindow();
+            openSettingsGroup(psw, @"settings.pota");
             NSView *potaSection = psw ? viewWithIdentifier(psw.contentView, @"settings.pota") : nil;
             CHECK(potaSection && [labelContaining(potaSection, @"Not downloaded") length] && [labelContaining(potaSection, @"isn't affiliated") length],
                   "Settings: POTA Parks, not downloaded");
@@ -4461,7 +4506,7 @@ int main(int argc, char **argv) {
             CHECK(potaStatus.find("7 parks (6 active), downloaded") == 0 &&
                       [[NSFileManager defaultManager] fileExistsAtPath:[tmp stringByAppendingPathComponent:@"ADIFLint-pota-parks.csv"]],
                   "POTA's park list downloaded (the test file's 7 parks) into the config folder: %s", potaStatus.c_str());
-            [psw orderOut:nil];
+            doneWithSettings();
             std::string mapDoc = H.doc;  // and an activation of US-2004
             H.doc += "<CALL:5>W9ACT <QSO_DATE:8>20261010 <TIME_ON:4>1300 <BAND:3>40m <MODE:2>CW <MY_POTA_REF:7>US-2004 <EOR>\n";
             notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
@@ -4578,11 +4623,11 @@ int main(int argc, char **argv) {
                                                                                                         object:rowsTable]];
                         NSString *titled = entityRow >= 0 ? ((NSTextField *)viewWithIdentifier(mapw.contentView, @"map.contact.title")).stringValue : @"";
                         bool off = styleSet(@"flags", false);
-                        [stylePanel() orderOut:nil];
+                        closeStyle();
                         showKind(4);
                         NSString *plain = unRow >= 0 ? cell(rowsTable, unRow, @"country") : @"";
                         styleSet(@"flags", true);
-                        [stylePanel() orderOut:nil];
+                        closeStyle();
                         CHECK([unCountry hasPrefix:un] && malta && [titled hasPrefix:un] && off && plain.length && ![plain hasPrefix:un],
                               "flags: the UN's before 4U1UN's country (%s), none for SMOM (%d), in the title (%s); off in Style Options (%s)",
                               unCountry.UTF8String, malta, titled.UTF8String, plain.UTF8String);
@@ -4704,7 +4749,7 @@ int main(int argc, char **argv) {
                 CHECK(faded > 0.2, "the spotlight fades the rest of the map toward its background (%.2f apart)", faded);
                 snapshot(mapw, "map-spotlight");
                 styleSet(@"spotlight", false);
-                [stylePanel() orderOut:nil];
+                closeStyle();
                 [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, pointFor(-74.40, 40.70), 1)];
                 [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, pointFor(-74.40, 40.70), 1)];
                 CHECK(rowsTable.selectedRow == 0, "a park clicked on the map: its row chosen (%ld)", (long)rowsTable.selectedRow);
@@ -4804,7 +4849,7 @@ int main(int argc, char **argv) {
                 [psw.contentView layoutSubtreeIfNeeded];
                 CHECK(overlaps(potaSection) == 0, "Settings: POTA Parks with outlines downloaded does not overlap (%d)", overlaps(potaSection));
                 snapshot(psw, "settings-pota-outlines");
-                [psw orderOut:nil];
+                doneWithSettings();
                 setenv("ADIFLINT_FAKE_LOOKUP_DIR", fixtures.c_str(), 1);
                 showBox(-75.6, 40.2, -73.8, 41.5);
                 [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-74.585, 41.072), 0)];  // in US-2001's area, away from its ring
@@ -4838,7 +4883,7 @@ int main(int argc, char **argv) {
                           hoverText().UTF8String);
                     snapshot(mapw, "map-pota-outline-only");
                     CHECK(stylePick(@"parkOutlines", @"Badge and outline"), "and back to a badge on the outline");
-                    [stylePanel() orderOut:nil];
+                    closeStyle();
                 }
                 NSString *credit = [mapView performSelector:@selector(creditLine)];
                 CHECK([credit isEqualToString:@"© OpenStreetMap contributors · PAD-US 4.1 (USGS)"], "the outlines' sources credited: %s",
@@ -4848,7 +4893,7 @@ int main(int argc, char **argv) {
                 CHECK(![[NSFileManager defaultManager] fileExistsAtPath:[tmp stringByAppendingPathComponent:@"parks/US-NJ.outlines"]] &&
                           [outlinesSummary.stringValue isEqualToString:@"None downloaded."] && !installed.enabled,
                       "Remove: the location chosen in Downloaded gone");
-                [psw orderOut:nil];
+                doneWithSettings();
                 [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-74.585, 41.072), 0)];
                 CHECK(![labelContaining(mapw.contentView, @"Outline: OSM") length], "no outline once removed");
             }
@@ -4872,7 +4917,7 @@ int main(int argc, char **argv) {
                 run("Settings...");
                 std::string manyStatus = downloadParks(@"3,000 parks");
                 setenv("ADIFLINT_FAKE_LOOKUP_DIR", fixtures.c_str(), 1);
-                [psw orderOut:nil];
+                doneWithSettings();
                 CHECK(manyStatus.find("3,000 parks (3,000 active)") == 0, "a list of 3,000 parks: %s", manyStatus.c_str());
                 [findButton(mapw.contentView, @"World") performClick:nil];
                 showBox(-89.9, 44.1, -89.2, 44.9);
@@ -4884,7 +4929,7 @@ int main(int argc, char **argv) {
                 snapshot(mapw, "map-pota-dots");
                 run("Settings...");
                 downloadParks(@"7 parks");  // back to the test file's parks
-                [psw orderOut:nil];
+                doneWithSettings();
             }
             setBox(potaBox, false);
             H.doc = mapDoc;
@@ -5245,7 +5290,7 @@ int main(int argc, char **argv) {
                           "Style Options: Large map text (the legend %.0f, was %.0f); hatching what isn't confirmed (%d %d; squares %d)", legendLarge, legendTall,
                           hatched, ![plain isEqualToData:withHatch], mapBox(@"show", @"grid").state == NSControlStateValueOn);
                 }
-                [stylePanel() orderOut:nil];
+                closeStyle();
                 {  // A layer's own menu (right-click its name): Only This Layer shows it alone.
                     NSMenu *layerMenu = viewWithIdentifier(mapw.contentView, @"map.layername.states").menu;
                     [layerMenu.delegate menuNeedsUpdate:layerMenu];
@@ -5261,9 +5306,8 @@ int main(int argc, char **argv) {
                     setBox(mapBox(@"show", @"states"), false), setBox(mapBox(@"overlay", @"states"), false);
                     setBox(mapBox(@"overlay", @"grid"), true);
                 }
-                CHECK(NSHeight(stylePanel().frame) <= 900, "Style Options in two columns fits a 900-high screen (%.0f)", NSHeight(stylePanel().frame));
-                snapshot(stylePanel(), "map-style");
-                [stylePanel() orderOut:nil];
+                snapshotView(viewWithIdentifier(mapw.contentView, @"map.group.style"), "map-style");
+                closeStyle();
             }
             {  // At its smallest the header and the panes fit, the map keeps its room; nothing overlaps or runs off the window.
                 NSRect was = mapw.frame;
@@ -5291,7 +5335,7 @@ int main(int argc, char **argv) {
                       [((NSPopUpButton *)style(@"line")).titleOfSelectedItem isEqualToString:@"Solid"] &&
                       [((NSPopUpButton *)style(@"width")).titleOfSelectedItem isEqualToString:@"Medium"],
                   "Style Options → Reset to Defaults");
-            [stylePanel() orderOut:nil];
+            closeStyle();
             menuAction(programsMenu, @"IOTA (islands)");
             pick(colour, @"Colour by confirmation");
             setBox(linesBox, false);
@@ -5314,7 +5358,7 @@ int main(int argc, char **argv) {
                 pick(proj, @"Equirectangular");
                 [findButton(mapw.contentView, @"World") performClick:nil];
                 run("Settings...");
-                NSWindow *setw = windowTitled(@"ADIF Lint Settings");
+                NSWindow *setw = settingsWindow();
                 NSPopUpButton *region = (NSPopUpButton *)viewWithIdentifier(setw.contentView, @"settings.mapdetail.region");
                 NSPopUpButton *level = (NSPopUpButton *)viewWithIdentifier(setw.contentView, @"settings.mapdetail.level");
                 NSPopUpButton *have = (NSPopUpButton *)viewWithIdentifier(setw.contentView, @"settings.mapdetail.installed");
@@ -5345,7 +5389,7 @@ int main(int argc, char **argv) {
                     CHECK(overlaps(setw.contentView) == 0, "Settings with Map Detail does not overlap (%d)", overlaps(setw.contentView));
                     snapshot(setw, "settings-map-detail");
                 }
-                [setw orderOut:nil];
+                doneWithSettings();
 
                 // The Map: Testville's lake, park, buildings and streets; past 1,024x where the detail is.
                 showBox(-89.395, 43.066, -89.372, 43.079);
@@ -5379,7 +5423,7 @@ int main(int argc, char **argv) {
                 showBox(-89.395, 43.066, -89.372, 43.079);
                 CHECK(!osmShown() && mapZoom() <= 1024, "without it, the base map and 1,024x at most");
                 [findButton(mapw.contentView, @"World") performClick:nil];
-                [setw orderOut:nil];
+                doneWithSettings();
             }
 
             // ── Spots: Spothole and PSKReporter from fixtures written now (their times matter), and a
@@ -5486,7 +5530,7 @@ int main(int argc, char **argv) {
 
                 // Settings → Spots: the cluster on the loopback port, PSKReporter with an address.
                 run("Settings...");
-                NSWindow *setw = windowTitled(@"ADIF Lint Settings");
+                NSWindow *setw = settingsWindow();
                 auto setField = [&](NSString *ident, NSString *value) {
                     NSTextField *f = (NSTextField *)viewWithIdentifier(setw.contentView, ident);
                     f.stringValue = value;
@@ -5505,7 +5549,7 @@ int main(int argc, char **argv) {
                 [(NSButton *)viewWithIdentifier(setw.contentView, @"settings.spots.save") performClick:nil];
                 [setw.contentView layoutSubtreeIfNeeded];
                 CHECK(overlaps(setw.contentView) == 0, "Settings with Spots does not overlap");
-                [setw orderOut:nil];
+                doneWithSettings();
                 CHECK(requests().empty(), "nothing is fetched before the Spots layer shows");
 
                 // Live: the spots layer shows (its first time, with the spots' list and the countries worked, no squares);
@@ -5675,7 +5719,7 @@ int main(int argc, char **argv) {
                         NSString *allHeading = ((NSTextField *)viewWithIdentifier(mapw.contentView, @"map.bands.caption")).stringValue;
                         CHECK([chosenBand isEqualToString:@"40m"] && focused && bandMenu.indexOfSelectedItem == 0,
                               "Band conditions: 40m chosen sets the band filter and its line (%s), again clears it", chosenBand.UTF8String);
-                        CHECK([bandHeading isEqualToString:@"BAND CONDITIONS: EVERY BAND, 40M IN FOCUS"] && [allHeading isEqualToString:@"BAND CONDITIONS"] &&
+                        CHECK([bandHeading isEqualToString:@"Band conditions: every band, 40m in focus"] && [allHeading isEqualToString:@"Band conditions"] &&
                                   [fewer rangeOfString:@" of "].location != NSNotFound && [fewer containsString:@"stations on the map"],
                               "the band filter: Band conditions says it shows every band (%s, then %s); the toolbar says how many the filters keep (%s)",
                               bandHeading.UTF8String, allHeading.UTF8String, fewer.UTF8String);
@@ -5780,10 +5824,9 @@ int main(int argc, char **argv) {
                       "spotters faint grey; the spotters' lines faint grey or faint");
                 CHECK(stylePick(@"spotters", @"Markers and calls"), "spotters with their calls");
                 if (mapw) snapshot(mapw, "map-spotters");
-                if (NSWindow *sp = stylePanel()) {
-                    CHECK(overlaps(sp.contentView) == 0 && NSHeight(sp.frame) <= 900, "the Style Options panel with Spots fits (%.0f high)",
-                          NSHeight(sp.frame));
-                    snapshot(sp, "map-style-spots");
+                if (NSView *sp = stylePanel()) {
+                    CHECK(overlaps(sp) == 0, "Style Options with Spots: no overlaps (%d)", overlaps(sp));
+                    snapshotView(viewWithIdentifier(mapw.contentView, @"map.group.style"), "map-style-spots");
                 }
                 {
                     NSString *ini = [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint.ini"]
@@ -5821,16 +5864,16 @@ int main(int argc, char **argv) {
                 }
                 pskCall.stringValue = @"K9TST";
                 [(NSButton *)viewWithIdentifier(setw.contentView, @"settings.spots.save") performClick:nil];
-                [setw orderOut:nil];
+                doneWithSettings();
                 // Night Mode: every ADIF Lint window dark and through the red filter, the Map in its Night palette; off again.
                 run("Night Mode");
                 auto nightOn = [](NSWindow *w) {
                     return w && [w.appearance.name isEqualToString:NSAppearanceNameDarkAqua] && w.contentView.contentFilters.count == 1 &&
                            w.contentView.layerUsesCoreImageFilters;
                 };
-                NSWindow *stylew = stylePanel();
+                NSView *stylew = stylePanel();
                 NSControl *palettePick = style(@"palette");
-                CHECK(nightOn(mapw) && nightOn(setw) && nightOn(stylew) && palettePick && !palettePick.enabled,
+                CHECK(nightOn(mapw) && nightOn(setw) && [stylew isDescendantOf:mapw.contentView] && palettePick && !palettePick.enabled,
                       "Night Mode: the Map, Settings and Style Options red on black; the palette set by it");
                 [(NSButton *)viewWithIdentifier(mapw.contentView, @"map.spots.open") performClick:nil];
                 pump(0.2);
@@ -6390,7 +6433,7 @@ int main(int argc, char **argv) {
                     stylePick(@"palette", @"Night (red)");
                     snapshot(mapw, "docs-map-detail-night");
                     stylePick(@"palette", @"Standard");
-                    [stylePanel() orderOut:nil];
+                    closeStyle();
                     [[NSFileManager defaultManager] removeItemAtPath:copy error:nil];
                     pump(0.2);
                 }
@@ -6443,7 +6486,7 @@ int main(int argc, char **argv) {
                 // Back to the defaults.
                 stylePick(@"palette", @"Standard");
                 stylePick(@"width", @"Medium");
-                [stylePanel() orderOut:nil];
+                closeStyle();
                 pick(colour, @"Colour by confirmation");
                 pick(proj, @"Equirectangular");
                 box(@"Contacts", false);
@@ -6485,7 +6528,7 @@ int main(int argc, char **argv) {
             NSString *urls = [NSString stringWithContentsOfFile:urlLog encoding:NSUTF8StringEncoding error:nil];
             CHECK([urls isEqualToString:@"refused https://pota.app/#/user/logs\n"], "offline: pota.app not opened: %s", urls.UTF8String);
             run("Settings...");
-            NSWindow *setw = windowTitled(@"ADIF Lint Settings");
+            NSWindow *setw = settingsWindow();
             NSButton *box = (NSButton *)viewWithIdentifier(setw.contentView, @"settings.offline.box");
             CHECK(box.state == NSControlStateValueOn, "Settings shows Offline Mode on");
             if (setw) {
@@ -6500,7 +6543,7 @@ int main(int argc, char **argv) {
             CHECK([urls isEqualToString:@"opened https://pota.app/#/user/logs\n"], "online again: pota.app opens: %s", urls.UTF8String);
             unsetenv("ADIFLINT_TEST_URL_LOG");
             [aw orderOut:nil];
-            [setw orderOut:nil];
+            doneWithSettings();
         }
 
         CHECK(messageProc(0, 0, 0) == TRUE, "messageProc answers");

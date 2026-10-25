@@ -559,8 +559,8 @@ The window, from the top:
   square, a DXCC entity or a POTA park: Return chooses it on the map, or offers a menu when
   several match; a call chooses your QSOs with it, or its spot), the **bell** (see
   [The watch list](#the-watch-list)), **Log Table** (the
-  table), **Style Options** (the palette), **Export PNG** (the arrow out of a box),
-  **Settings** (the gear), **Help** (this guide, in your browser), and three buttons that
+  table), **Style Options** (the palette: its card in the selected panel), **Export PNG** (the
+  arrow out of a box), **Settings** (the gear: its card in the selected panel), **Help** (this guide, in your browser), and three buttons that
   show or hide the sidebar, the list and the selected panel. The window's title names the
   log too.
 - **The toolbar**: **History**, **Live**, **DX Chase** or **POTA**; what the map shows (in History, the QSOs and the
@@ -578,7 +578,10 @@ The window, from the top:
   toolbar can't show (a place chosen in More Filters; in Live, the dates and confirmation,
   which spots don't follow, and the Quick View) is a tag beside it: click the tag to remove
   that filter.
-- **The sidebar**, on the left, in sections you can close with their triangles:
+- **The sidebar**, on the left, in cards. Click a card's heading (or press Space on it) to
+  close or open it; its chevron points right when it is closed and down when it is open.
+  Closing a card or a group hides only its controls: what is ticked or chosen in it stays
+  as it is.
   - **Quick Views**: in History, the whole log and each layer, with how many you worked
     (the tooltip adds how many are confirmed). Choosing one shows that layer's worked areas
     among all of it; **All QSOs** goes back to squares, countries and parks. **Needs
@@ -596,10 +599,11 @@ The window, from the top:
     **Only spots of** (see [Spots on the map](#spots-on-the-map)), and **Watch List…** (see
     [The watch list](#the-watch-list)).
   - **Layers**: a row for each layer (see [Layers](#layers-worked-all-and-labels)), then
-    **Contacts** (QSO markers, contact paths, your home station) and **Sun and propagation**
-    (the grey line, day and night, the aurora and the NCDXF beacons). Each group (**Worked
-    areas**, **Programs**, **Places**, **Contacts**, **Sun and propagation**) closes on its own
-    with its triangle.
+    **Contacts** (QSO markers, contact paths, your home station), **Sun and propagation**
+    (the grey line, day and night, the aurora and the NCDXF beacons) and **Base map**
+    (**Terrain**, subtle or strong; see [Style Options and export](#style-options-and-export)).
+    Each group (**Worked areas**, **Programs**, **Places**, **Contacts**, **Sun and
+    propagation**, **Base map**) closes on its own with its heading.
   - **Map**: the palettes, a swatch each (one click; see [Colours](#colours)), **Colour by**,
     the projection, and **Region**.
   - **Filters**: **POTA parks in** (see [POTA parks in](#pota-parks-in-fewer-parks)).
@@ -609,7 +613,10 @@ The window, from the top:
   bottom left; a map lower than its room sits at the top.
 - **Under the map**, [the list](#the-list-the-qsos-chosen-and-whats-in-view), its tabs
   saying how many each has.
-- **On the right**, [the selected panel and the situation](#the-selected-panel-and-the-situation).
+- **On the right**, the selected panel, in cards as the sidebar is: **Selected** and
+  **Situation** (see [the selected panel and the situation](#the-selected-panel-and-the-situation)),
+  then **Style Options** (see [Style Options and export](#style-options-and-export)) and
+  **Settings** (see [Settings](#settings)), both closed until you open them.
 - **The footer**: whether the spots are live and how fresh, as a dot (green when the newest
   is less than 15 minutes old and every source you turned on is answering; orange when the
   spots are older or a source's last request failed, the toolbar then naming it, such as
@@ -620,12 +627,12 @@ The window, from the top:
   your log's confirmations were last downloaded.
 
 Drag the dividers to give the sidebar, the list or the selected panel more room. Every
-choice, the sections closed and where the dividers were left are remembered.
+choice, the cards and groups open or closed and where the dividers were left are remembered.
 
 ### Layers: Worked, All and Labels
 
 Each layer in the sidebar's **Layers** section has up to three boxes, in three groups
-(**Worked areas**, **Programs**, **Places**, each closed with its triangle); the Spots
+(**Worked areas**, **Programs**, **Places**, each closed with its heading); the Spots
 layer's are in the **Spots** section:
 
 - **Worked** marks what you worked on that layer: the worked grid squares, countries, states,
@@ -1286,8 +1293,11 @@ your own use; if you pass them on, the licence goes with them.
 
 ### Style Options and export
 
-**Style Options…** opens a panel beside the map. Each choice applies at once and is kept;
-**Reset to Defaults** puts them all back.
+**Style Options** is a card in the selected panel (the header's palette button opens it, and
+shows the panel if it is hidden). In it, each group is a card of its own, closed at first,
+its heading saying what is chosen in it (such as "Dashed · Thick · Medium" for the lines), so
+you can find the setting you want without opening them all. Each choice applies at once and
+is kept; **Reset to Defaults** puts them all back (the layers stay as they are).
 
 - **Colours**: the palettes above.
 - **Markers**: size; shapes by layer (dots, triangles, diamonds) or all circles or squares;
@@ -1314,18 +1324,17 @@ your own use; if you pass them on, the licence goes with them.
   and **Fade older spots**.
 - **On the map**: **Reference layers** (strong, subtle or faint: how strongly the grid, the
   overlays' lines and names and the distance rings show, so your QSOs, parks and spots stand
-  out from them; subtle at first); **Terrain** (off at first, subtle or strong: see below);
-  **Country flags** (on at first: a flag before each DXCC entity's name and station, see
+  out from them; subtle at first); **Country flags** (on at first: a flag before each DXCC entity's name and station, see
   below); **Spotlight what's chosen** (while something is clicked,
   the rest of the map dims, the chosen marker, square, area, outline or box left clear; what
   you click gets a ring in your Mac's accent colour either way); the **Legend** (off, top
   right or bottom left); **Map text** (standard or large: labels, legend, tags and the
-  information box); **Hatch what isn't confirmed** (diagonal lines across the worked squares,
-  countries and areas not yet confirmed, so confirmation shows without colour); **Distance
-  rings** from your grid, 2,500 km apart for the whole world, closer as you zoom in, with
-  bearings every 30° when the globe is centred on home; **Day and night**; **Grey line**; and
-  **Sun at** now or at the selected QSO's time. Style Options is in two columns: colours,
-  markers, worked areas and lines on the left; spots, POTA parks and the map on the right.
+  information box); and **Distance rings** from your grid, 2,500 km apart for the whole
+  world, closer as you zoom in, with bearings every 30° when the globe is centred on home.
+- **Worked areas** also has **Hatch what isn't confirmed** (diagonal lines across the worked
+  squares, countries and areas not yet confirmed, so confirmation shows without colour).
+- **Sun**: **Day and night**, **Grey line** (the same as the sidebar's boxes), and **Sun at**
+  now or at the selected QSO's time.
 
 **Day and night** shades the side of the Earth where the sun is down, deeper as it goes
 further down (to astronomical twilight, 18° below the horizon, where it is 65% black), draws the line between day
@@ -1337,7 +1346,7 @@ place comes from NOAA's solar calculator equations (after Meeus), good to about 
 
 ![Day and night at a QSO's time: the night side shaded, the grey line in gold, and the sun overhead in the Gulf of Guinea](images/map-day-night.png)
 
-**Terrain** shades the land's mountains and valleys from Natural Earth's 1:50m shaded relief
+**Terrain**, a layer (Layers → Base map: tick it, then choose subtle or strong), shades the land's mountains and valleys from Natural Earth's 1:50m shaded relief
 (public domain): slopes facing away from the light darker, those facing it lighter, flat ground left in the palette's colour, in every palette and
 projection. It is about 5 km a pixel, so it fades out as you zoom in from 16× and is gone by
 48×, where Map Detail and the 1:10m coasts take over.
@@ -1659,7 +1668,11 @@ Rules for every source:
 
 ## Settings
 
-**Settings…** has these sections. The first time ADIF Lint runs, it opens with a welcome.
+Settings is a card in the Map's selected panel: **Settings…** in the ADIF Lint menu, the gear
+in the Map's header, and every "add one in Settings" open the Map with it. Each section is a
+card of its own, closed until you open it, its heading saying what is set in it (your call
+and grid, "3 of 4 on", **Saved** or **not set** for an account), so the one you want is quick
+to find. The first time ADIF Lint runs, it opens with a welcome and Your Station open.
 
 - **Your Station:** your callsign and grid, used where a log doesn't say: New QSO fills
   STATION_CALLSIGN and MY_GRIDSQUARE from them in a new log, distances are measured from the

@@ -96,6 +96,7 @@ Also run, before a pull request that touches the plugin or the core:
 | `src/plugin/Solar.mm` | Space weather from NOAA SWPC, fetched only while the Map shows it and the user turned it on |
 | `src/plugin/Network.mm`, `L10n.mm` | Offline Mode, opening web pages, and the plain downloads (Map Detail, park outlines, space weather); the language tables |
 | `src/plugin/LogSpot.mm`, `Night.mm` | Spot when logging (New QSO's two boxes); Night Mode (every ADIF Lint window red on black) |
+| `src/plugin/Accordion.mm` | The cards and groups of the Map's sidebar and selected panel (Style Options and Settings among them), and the narrow panels' wrapping checkboxes and rows |
 | `src/cli/` | The `adiflint` command-line tool |
 | `spec/adif-3.1.7/` | ADIF's JSON export and HTML specification the tables are generated from (see `SOURCE.md`) |
 | `data/` | AD1C's country file (see `SOURCE.md`), the Map's 1:10m detail (`map-detail.bin`) and terrain (`relief.jpg`), `toolbar/`, the toolbar icons, and `lang/`, the language tables, all installed beside the plugin |
