@@ -972,6 +972,12 @@ void ADIFSuggestAsYouType(NSComboBox *box, ADIFSuggestBlock suggest) {
     return _textView.string ?: @"";
 }
 
+- (void)setDocumentView:(NSView *)view {
+    view.frame = NSMakeRect(0, 0, NSWidth(_scroll.contentView.bounds), NSHeight(view.frame));
+    view.autoresizingMask = NSViewWidthSizable;
+    _scroll.documentView = view;
+}
+
 - (void)show {
     [_window makeKeyAndOrderFront:nil];
 }

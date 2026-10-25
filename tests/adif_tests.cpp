@@ -39,6 +39,7 @@
 #include "adif_beacons.h"
 #include "adif_solar.h"
 #include "adif_facts.h"
+#include "adif_stats.h"
 
 #include <algorithm>
 #include <cmath>
@@ -4047,6 +4048,37 @@ static void testJson() {
 }
 
 // Flags: each current entity has one, but for the four without; as emoji.
+static void testStats() {
+    // 2026-10-19 was a Monday; 2026-10-25 a Sunday.
+    std::string log = std::string(kHeader) +
+                      "<CALL:4>K1AB <QSO_DATE:8>20261019 <TIME_ON:4>1405 <BAND:3>20m <MODE:3>SSB <DXCC:3>291 <STATE:2>CT <GRIDSQUARE:6>FN31pr <CONT:2>NA <EOR>\n"
+                      "<CALL:4>W2CD <QSO_DATE:8>20261019 <TIME_ON:4>1430 <BAND:3>40m <MODE:2>CW <DXCC:3>291 <STATE:2>NJ <GRIDSQUARE:4>FN20 <CONT:2>NA <EOR>\n"
+                      "<CALL:5>G4ABC <QSO_DATE:8>20261025 <TIME_ON:4>2359 <BAND:3>20m <MODE:4>MFSK <SUBMODE:3>FT8 <DXCC:3>223 <CONT:2>EU "
+                      "<VUCC_GRIDS:9>IO91,IO92 <EOR>\n"
+                      "<CALL:4>K1AB <QSO_DATE:8>20261025 <TIME_ON:4>0010 <BAND:2>6m <MODE:3>SSB <DXCC:3>291 <STATE:2>CT <GRIDSQUARE:4>FN31 <CONT:2>NA <EOR>\n"
+                      "<CALL:5>JA1XY <BAND:4>160m <MODE:2>CW <EOR>\n"
+                      "<QSO_DATE:8>20261025 <TIME_ON:4>1200 <BAND:3>20m <EOR>\n";  // no CALL: not counted
+    LintResult r = lintModel(log);
+    SummaryStats s = summaryStats(log, r.model);
+    auto list = [](const std::vector<std::pair<std::string, size_t>> &v) {
+        std::string out;
+        for (const auto &[k, n] : v) out += (out.empty() ? "" : " ") + k + "=" + std::to_string(n);
+        return out;
+    };
+    CHECK(s.qsos == 5 && list(s.bands) == "160m=1 40m=1 20m=2 6m=1" && list(s.modes) == "CW=2 SSB=2 FT8=1",
+          "by band (low first) and mode (most first): %s; %s", list(s.bands).c_str(), list(s.modes).c_str());
+    CHECK(list(s.days) == "20261019=2 20261025=2" && list(s.continents) == "EU=1 NA=3", "per day and continent: %s; %s", list(s.days).c_str(),
+          list(s.continents).c_str());
+    CHECK(s.hourWeekday[0][14] == 2 && s.hourWeekday[6][23] == 1 && s.hourWeekday[6][0] == 1 && s.hourWeekday[6][12] == 0,
+          "hour and weekday: Monday 14 UTC twice, Sunday 23 and 00 UTC once each");
+    CHECK(s.growth.size() == 2 && s.growth[0].day == "20261019" && s.growth[0].dxcc == 1 && s.growth[0].states == 2 && s.growth[0].grids == 2 &&
+              s.growth[1].dxcc == 2 && s.growth[1].states == 2 && s.growth[1].grids == 4,
+          "what was reached, day by day: %zu days; %zu entities, %zu states, %zu squares at the end", s.growth.size(),
+          s.growth.empty() ? 0 : s.growth.back().dxcc, s.growth.empty() ? 0 : s.growth.back().states, s.growth.empty() ? 0 : s.growth.back().grids);
+    SummaryStats none = summaryStats(std::string(kHeader), lintModel(std::string(kHeader)).model);
+    CHECK(none.qsos == 0 && none.bands.empty() && none.growth.empty(), "an empty log: nothing");
+}
+
 static void testFlags() {
     size_t n = 0;
     const adif::DxccName *table = adif::dxccTable(&n);
@@ -4290,6 +4322,7 @@ int main(int argc, char **argv) {
     testOutlines();
     testFlags();
     testBeacons();
+    testStats();
     testSolar();
     testProjections();
     testPalettes();

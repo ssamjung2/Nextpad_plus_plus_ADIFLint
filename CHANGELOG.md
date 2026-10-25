@@ -9,6 +9,13 @@ Versions before 0.8.0 were development builds and were not published.
 
 ## [Unreleased]
 
+### Added
+
+- **Log Summary → Charts:** QSOs by band, mode and continent, per day (or week, or 30 days),
+  by UTC hour and weekday, and the DXCC entities, US states and grid squares reached over
+  time; each mark's number in its tooltip; Copy and Export PNG. One series a chart, in one
+  blue checked against the window in light and dark mode.
+
 ### Changed
 
 - **New QSO:** the lookup's line becomes the station's facts, a row each: Operator (name and

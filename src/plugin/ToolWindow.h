@@ -119,6 +119,8 @@ void ADIFBlockMenuItem(NSMenuItem *item, void (^block)(void));
 
 // Show a monospaced, read-only report instead of the table.
 - (void)setText:(NSString *)text;
+// Show a view of your own instead (flipped; as wide as the window, its own height): charts.
+- (void)setDocumentView:(NSView *)view;
 - (NSString *)text;
 
 - (void)show;

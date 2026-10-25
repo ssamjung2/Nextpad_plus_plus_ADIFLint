@@ -1699,6 +1699,28 @@ int main(int argc, char **argv) {
             if (sw2) {
                 CHECK(overlaps(sw2.contentView) == 0, "Summary controls do not overlap");
                 snapshot(sw2, "summary");
+                // Charts: the same numbers drawn; Export PNG saves them; Text again.
+                NSSegmentedControl *viewSwitch = (NSSegmentedControl *)viewWithIdentifier(sw2.contentView, @"summary.view");
+                viewSwitch.selectedSegment = 1;
+                [viewSwitch sendAction:viewSwitch.action to:viewSwitch.target];
+                pump(0.2);
+                [sw2.contentView layoutSubtreeIfNeeded];
+                NSView *charts = viewWithIdentifier(sw2.contentView, @"summary.charts");
+                NSString *spoken = charts.accessibilityLabel;
+                NSButton *exportPng = findButton(sw2.contentView, @"Export PNG...");
+                CHECK(charts && charts.window == sw2 && NSHeight(charts.frame) > 600 && [spoken hasPrefix:@"Charts of 11 QSOs"] &&
+                          [spoken containsString:@"Most on "] && exportPng && !exportPng.hidden,
+                      "Log Summary's charts: %.0f points tall; \"%s\"", NSHeight(charts.frame), spoken.UTF8String);
+                snapshot(sw2, "summary-charts");
+                [exportPng performClick:nil];
+                NSString *png = @"";
+                for (NSString *f in [[NSFileManager defaultManager] contentsOfDirectoryAtPath:outDir error:nil])
+                    if ([f hasSuffix:@" summary.png"]) png = [outDir stringByAppendingPathComponent:f];
+                NSImage *saved = [[NSImage alloc] initWithContentsOfFile:png];
+                CHECK(saved && saved.size.height > 600, "Export PNG saves the charts (%s, %.0f high)", png.lastPathComponent.UTF8String, saved.size.height);
+                viewSwitch.selectedSegment = 0;
+                [viewSwitch sendAction:viewSwitch.action to:viewSwitch.target];
+                CHECK(exportPng.hidden && [tvs.firstObject window] == sw2, "Text again: the report, no Export PNG");
             }
 
             // Activation Tracker: 10 unique QSOs (the repeat doesn't count).
@@ -6583,6 +6605,17 @@ int main(int argc, char **argv) {
                     [ltw.contentView layoutSubtreeIfNeeded];
                     snapshot(ltw, "docs-log-table");
                     [ltw orderOut:nil];
+                }
+                run("Log Summary...");  // its charts, on the sample log
+                if (NSWindow *sumw = windowTitled(@"Log Summary")) {
+                    NSSegmentedControl *viewSwitch = (NSSegmentedControl *)viewWithIdentifier(sumw.contentView, @"summary.view");
+                    viewSwitch.selectedSegment = 1;
+                    [viewSwitch sendAction:viewSwitch.action to:viewSwitch.target];
+                    pump(0.2);
+                    if (NSView *charts = viewWithIdentifier(sumw.contentView, @"summary.charts")) snapshotView(charts, "docs-summary-charts");
+                    viewSwitch.selectedSegment = 0;
+                    [viewSwitch sendAction:viewSwitch.action to:viewSwitch.target];
+                    [sumw orderOut:nil];
                 }
             }
             [mapw orderOut:nil];

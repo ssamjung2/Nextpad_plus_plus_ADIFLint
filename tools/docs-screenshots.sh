@@ -46,6 +46,7 @@ docs-map-propagation map-propagation
 map-pota map-parks
 map-status map-status
 docs-log-table log-table
+docs-summary-charts summary-charts
 check-log check-log
 new-qso-lookup new-qso-lookup
 new-qso-spot new-qso-spot

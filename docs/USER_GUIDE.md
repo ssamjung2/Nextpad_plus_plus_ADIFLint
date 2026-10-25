@@ -544,6 +544,17 @@ Buttons:
 DXCC entities, states, grids, parks activated and parks worked (a hunter's tally), and how
 many QSOs are confirmed and uploaded to each service. **Copy** puts it on the clipboard.
 
+**Charts** (beside **Text**, remembered) draws the log: QSOs by band (low bands first), by
+mode (the eight most, then the rest) and by continent; QSOs per day (per week over four
+months, per 30 days over three years) with the busiest marked; when you were on the air,
+by UTC hour and weekday (darker is more; brighter in dark mode); and the DXCC entities, US
+states (STATE, for the US, Alaska and Hawaii) and grid squares you reached, over time, each
+on its own scale. Point at a bar, cell or point for its number. **Copy** puts the charts on
+the clipboard as a picture, and **Export PNG…** saves them. Each chart is one series in one
+blue, with no legend: its title says what it shows, and **Text** has the same numbers.
+
+![Log Summary's charts of a sample log: QSOs by band, mode and continent, per week, by hour and weekday, and DXCC entities, states and grid squares reached](images/summary-charts.png)
+
 **Worked Before…** searches every `.adi` and `.adif` file in a folder you choose (and its
 subfolders) for a call, matching portable forms (`VE3/K1ABC/P` finds K1ABC). The folder
 is read in the background; files that changed are read again when you use it after a

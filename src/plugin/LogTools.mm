@@ -2,6 +2,8 @@
 #import "L10n.h"
 #import "Monitor.h"
 #import "LotwUsers.h"
+#import "Charts.h"
+#import "Country.h"
 #include "adif_capture.h"
 #include "adif_compare.h"
 
@@ -14,6 +16,7 @@
 #include "adif_enrich.h"
 #include "adif_spec.h"
 #include "adif_tools.h"
+#include "adif_stats.h"
 #include "adif_upload.h"
 #include "adif_programs.h"
 #include "adif_spots.h"
@@ -719,7 +722,12 @@ void openBulkEdit(bool shift, bool fromTable);
 
 struct {
     ADIFToolWindow *w = nil;
+    NSSegmentedControl *view = nil;  // Text or Charts (remembered: summaryView)
+    ADIFChartsView *charts = nil;
+    NSButton *exportPng = nil;
 } summary;
+
+bool summaryCharts() { return summary.view.selectedSegment == 1; }
 
 void summaryRefresh() {
     if (!summary.w) return;
@@ -727,7 +735,14 @@ void summaryRefresh() {
         NppHandle h = scintilla();
         const adif::LintResult &r = lint(h);
         [summary.w setTarget:logLine()];
-        [summary.w setText:ADIFString(adif::summaryReport(adifhost::text(h), r.model, documentName()))];
+        std::string_view text = adifhost::text(h);
+        if (summaryCharts()) {
+            [summary.charts setStats:adif::summaryStats(text, r.model, &ADIFCountries())];
+            [summary.w setDocumentView:summary.charts];
+        } else {
+            [summary.w setText:ADIFString(adif::summaryReport(text, r.model, documentName()))];
+        }
+        summary.exportPng.hidden = !summaryCharts();
         [summary.w setStatus:r.errors ? ADIFString(trf("The log has {errors}; records with problems may be counted wrongly.",
                                                        {{"errors", plural(r.errors, "error")}}))
                                       : @""
@@ -2866,12 +2881,48 @@ void cmdLogTable() {
 
 void cmdSummary() {
     if (!summary.w) {
-        ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"Log Summary" size:NSMakeSize(640, 640) headline:NO];
+        ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"Log Summary" size:NSMakeSize(680, 720) headline:NO];
         summary.w = w;
+        // Text (the numbers, a table) or Charts (the same, drawn).
+        summary.view = [NSSegmentedControl segmentedControlWithLabels:@[ T(@"Text"), T(@"Charts") ]
+                                                         trackingMode:NSSegmentSwitchTrackingSelectOne
+                                                               target:nil
+                                                               action:nil];
+        summary.view.identifier = @"summary.view";
+        summary.view.selectedSegment = setting("summaryView") == "charts" ? 1 : 0;
+        ADIFOnAction(summary.view, ^{
+            setSetting("summaryView", summaryCharts() ? "charts" : "text");
+            summaryRefresh();
+        });
+        [w addOptionRow:@[ summary.view ]];
+        summary.charts = [[ADIFChartsView alloc] initWithFrame:NSMakeRect(0, 0, 640, 400)];
+        summary.charts.identifier = @"summary.charts";
         [w addButton:@"Copy" trailing:NO action:^{
             [NSPasteboard.generalPasteboard clearContents];
-            [NSPasteboard.generalPasteboard setString:summary.w.text forType:NSPasteboardTypeString];
+            if (summaryCharts()) {
+                [NSPasteboard.generalPasteboard setData:[summary.charts pngData] forType:NSPasteboardTypePNG];
+            } else {
+                std::string text = adif::summaryReport(adifhost::text(scintilla()), lint(scintilla()).model, documentName());
+                [NSPasteboard.generalPasteboard setString:ADIFString(text) forType:NSPasteboardTypeString];
+            }
             [summary.w setStatus:@"Copied." severity:-1];
+        }];
+        summary.exportPng = [w addButton:@"Export PNG..." trailing:NO action:^{
+            std::string base = documentName();
+            if (size_t dot = base.rfind('.'); dot != std::string::npos) base.resize(dot);
+            std::string path;
+            if (const char *dir = getenv("ADIFLINT_TEST_SAVE_DIR")) {
+                path = std::string(dir) + "/" + base + " summary.png";
+            } else {
+                NSSavePanel *p = [NSSavePanel savePanel];
+                p.nameFieldStringValue = ADIFString(base + " summary.png");
+                if (UTType *t = [UTType typeWithFilenameExtension:@"png"]) p.allowedContentTypes = @[ t ];
+                if ([p runModal] != NSModalResponseOK || !p.URL) return;
+                path = ADIFStd(p.URL.path);
+            }
+            bool ok = [[summary.charts pngData] writeToFile:ADIFString(path) atomically:YES];
+            [summary.w setStatus:ok ? TF(@"Saved {file}.", @{@"file" : ADIFString(path).lastPathComponent}) : T(@"Could not save the charts.")
+                        severity:ok ? -1 : 2];
         }];
     }
     summaryRefresh();
