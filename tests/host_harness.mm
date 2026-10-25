@@ -6479,10 +6479,15 @@ int main(int argc, char **argv) {
                         if (viewWithIdentifier(w.contentView, @"map.solar.on")) [w orderOut:nil];
                 }
                 // Terrain over the Alps.
-                CHECK(stylePick(@"terrain", @"Strong"), "docs: terrain");
+                NSButton *terrainOn = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.terrain");
+                NSPopUpButton *terrainHow = (NSPopUpButton *)viewWithIdentifier(mapw.contentView, @"map.terrain.strength");
+                [terrainHow selectItemWithTitle:@"Strong"];
+                [terrainHow sendAction:terrainHow.action to:terrainHow.target];
+                setBox(terrainOn, true);
+                CHECK(terrainOn && terrainOn.state == NSControlStateValueOn, "docs: terrain");
                 showBox(3, 42.5, 17, 49);
                 snapshot(mapw, "docs-map-terrain");
-                stylePick(@"terrain", @"Off");
+                setBox(terrainOn, false);
                 // Back to the defaults.
                 stylePick(@"palette", @"Standard");
                 stylePick(@"width", @"Medium");

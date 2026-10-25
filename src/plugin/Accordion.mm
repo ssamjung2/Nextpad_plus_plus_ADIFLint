@@ -90,6 +90,7 @@
 - (void)setSummary:(NSString *)summary {
     _summary = [summary copy];
     _summaryField.stringValue = summary ?: @"";
+    _summaryField.toolTip = summary.length ? summary : nil;  // whole when the heading is too narrow for it
     _summaryField.hidden = summary.length == 0;
 }
 

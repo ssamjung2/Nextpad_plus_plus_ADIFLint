@@ -9,6 +9,8 @@ Versions before 0.8.0 were development builds and were not published.
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-25
+
 ### Changed
 
 - **Settings** live in the Map: a **Settings** card in the selected panel, in place of the
@@ -811,7 +813,8 @@ First public release.
 - **Fix Lengths**, as one undo step, and **Count Lengths in Characters**.
 - The `adiflint` command-line tool.
 
-[Unreleased]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.4.1...HEAD
+[Unreleased]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.4.1...v1.5.0
 [1.4.1]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.2.0...v1.3.0
