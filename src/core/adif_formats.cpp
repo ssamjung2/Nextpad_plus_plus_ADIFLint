@@ -1,4 +1,6 @@
 #include "adif_formats.h"
+
+#include "adif_contest.h"
 #include "adif_i18n.h"
 
 #include "adif_spec.h"
@@ -265,6 +267,39 @@ CabrilloLog toCabrillo(const std::vector<Record> &recs, const CabrilloOptions &o
                             " " + date.substr(0, 4) + "-" + date.substr(4, 2) + "-" + date.substr(6, 2) + " " + time.substr(0, 4) + " " +
                             (mine.empty() ? "-" : mine) + " " + (sent.empty() ? "-" : sent) + " " + call + " " + (rcvd.empty() ? "-" : rcvd) + "\n";
             t += l;
+            ++out.qsos;
+            continue;
+        }
+        // A contest ADIF Lint knows: its exchange's words in order (the report where it has one, the
+        // serial, then the rest), a space between, "-" for one missing.
+        if (const ContestDef *def = findContestDef(contest)) {
+            auto words = [&](const char *rst, const char *serial, const char *rest) {
+                std::vector<std::string> w;
+                if (def->rst) w.push_back(up(trim(r.get(rst))));
+                if (std::string n = trim(r.get(serial)); !n.empty() || def->serial) w.push_back(n);
+                std::string more = up(trim(r.get(rest)));
+                size_t at = 0;
+                while (at < more.size()) {
+                    size_t sp = more.find(' ', at);
+                    std::string part = more.substr(at, sp == std::string::npos ? std::string::npos : sp - at);
+                    if (!part.empty()) w.push_back(part);
+                    at = sp == std::string::npos ? more.size() : sp + 1;
+                }
+                if (more.empty()) w.push_back("");
+                std::string out;
+                bool gap = false;
+                for (std::string &x : w) {
+                    if (x.empty()) x = "-", gap = true;
+                    out += (out.empty() ? "" : " ") + x;
+                }
+                return std::make_pair(out, gap);
+            };
+            auto [sent, gapS] = words("RST_SENT", "STX", "STX_STRING");
+            auto [rcvd, gapR] = words("RST_RCVD", "SRX", "SRX_STRING");
+            out.incomplete += gapS || gapR;
+            t += "QSO: " + std::string(5 - std::min<size_t>(5, freq.size()), ' ') + freq + " " + mode + (mode.size() < 2 ? " " : "") + " " +
+                 date.substr(0, 4) + "-" + date.substr(4, 2) + "-" + date.substr(6, 2) + " " + time.substr(0, 4) + " " + (mine.empty() ? "-" : mine) +
+                 " " + sent + " " + call + " " + rcvd + "\n";
             ++out.qsos;
             continue;
         }

@@ -1,4 +1,5 @@
-// Contests in New QSO: ARRL Field Day, Winter Field Day or serial numbers. The
+// Contests in New QSO: ARRL Field Day, Winter Field Day, serial numbers, or a contest known by its
+// rules (CQ WW, WPX, ARRL DX, IARU, Sweepstakes, NAQP, Sprint, 10 and 160 m, a QSO party). The
 // Contest window chooses one and your exchange; New QSO then asks for the other
 // station's exchange, writes the contest's fields and warns of duplicates by its
 // rule (adif_contest.h).

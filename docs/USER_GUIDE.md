@@ -305,9 +305,36 @@ park the same way (a two-fer). It needs POTA's park list (Settings → POTA Park
 - **Serial numbers:** an optional CONTEST_ID (such as `CQ-WPX-SSB`); New QSO asks for the
   received **SRX** and writes STX, counting up from the log's highest for that contest.
 
+- **A contest by its rules:** CQ World Wide DX (SSB, CW, RTTY), CQ WPX (SSB, CW, RTTY), ARRL
+  International DX (CW, SSB), IARU HF World Championship, ARRL November Sweepstakes (CW, SSB),
+  North American QSO Party (CW, SSB, RTTY), North American Sprint (CW, SSB, RTTY), the ARRL
+  10-Meter and 160-Meter Contests, and a state QSO party. Type your part of the exchange (your
+  CQ zone for CQ WW, `A 72 IL` for Sweepstakes, your name and state for NAQP; nothing for
+  WPX), and New QSO asks for theirs (CQZ, SRX, PRECEDENCE, CHECK, ARRL_SECT, NAME, STATE...)
+  and checks it (a CQ zone is 1 to 40, a check two digits). Each QSO gets the contest's
+  CONTEST_ID, your fields (MY_CQ_ZONE, MY_ARRL_SECT, MY_NAME...), a serial number counting up
+  where the contest sends one, and the exchange's words in STX_STRING and SRX_STRING. New QSO
+  warns of a duplicate by the contest's own rule (once per band for CQ WW and NAQP, per band and
+  mode for IARU, once in the contest for Sweepstakes, per mode for ARRL 10 m) and of a band or
+  mode the contest doesn't count. The window shows its bands, what to keep in mind (the
+  Sprint's QSY rule, WPX's double points on the low bands...) and where its rules were read.
+  - **ARRL DX** asks a W/VE station for the DX station's power and a DX station for the
+    state; a power such as `KW` stays in SRX_STRING (RX_PWR is a number).
+  - **ARRL 10 m:** DX stations leave their exchange empty and send serial numbers; a DX
+    station's serial typed where the state goes is written as SRX.
+  - **A state QSO party:** parties differ, so give the party's own CONTEST_ID (such as
+    `IL QSO Party` or `CA-QSO-PARTY`) and your county or state as the sponsor lists them; their
+    county or state goes into SRX_STRING. A party that sends serial numbers: use **Serial
+    numbers**.
+
+The rules were read on 2026-10-25 from the organisers' own pages (cqww.com, cqwpx.com,
+contests.arrl.org, ncjweb.com, ssbsprint.com); check the current rules before a contest.
+
 The window lists this log's contest QSOs per band and mode. **Stop** ends it, and New QSO
 stops carrying the contest's fields. **Export… → Cabrillo** writes Field Day QSO lines
-without reports, class and section as separate words (`W1AW 2A CT K1ABC 3A EMA`).
+without reports, class and section as separate words (`W1AW 2A CT K1ABC 3A EMA`), and a known
+contest's lines with its exchange's words in order: `KW9D 12 A 72 IL W1AW 34 B 85 EMA` for
+Sweepstakes (no reports), `KW9D 59 4 DL1ABC 59 14` for CQ WW.
 
 ### Spotting a QSO
 

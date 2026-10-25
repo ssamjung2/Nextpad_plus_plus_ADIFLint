@@ -11,6 +11,13 @@ Versions before 0.8.0 were development builds and were not published.
 
 ### Added
 
+- **Contests by their rules** (New QSO → Contest…): CQ WW (SSB, CW, RTTY), CQ WPX (SSB, CW,
+  RTTY), ARRL International DX (CW, SSB), IARU HF, ARRL Sweepstakes (CW, SSB), NAQP (CW, SSB,
+  RTTY), NA Sprint (CW, SSB, RTTY), ARRL 10 m and 160 m, and a state QSO party. Your exchange
+  and theirs written to their ADIF fields and to STX_STRING/SRX_STRING; serial numbers where a
+  contest sends them; duplicates by each contest's rule; warnings for bands and modes it doesn't
+  count; Cabrillo lines with the exchange in order. Rules read from the organisers on
+  2026-10-25.
 - **Log Summary → Charts:** QSOs by band, mode and continent, per day (or week, or 30 days),
   by UTC hour and weekday, and the DXCC entities, US states and grid squares reached over
   time; each mark's number in its tooltip; Copy and Export PNG. One series a chart, in one

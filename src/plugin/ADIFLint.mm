@@ -1561,13 +1561,6 @@ static bool isBlank(std::string_view text) {
 
 static bool qsoVisible() { return g.qso && g.qso.window.visible; }
 
-static bool isArrlSection(const std::string &v) {
-    const adif::EnumDef *e = adif::findEnum("ARRL_Section");
-    std::string t = v;
-    while (!t.empty() && t.back() == ' ') t.pop_back();
-    while (!t.empty() && t.front() == ' ') t.erase(t.begin());
-    return e && !t.empty() && adif::findEnumValue(*e, t);
-}
 
 struct QsoCheck {
     bool ok = true;
@@ -1629,9 +1622,11 @@ static QsoCheck checkQso(NppHandle h) {
     adif::ContestSetup contestNow = contest::setup();
     bool fieldDay = contestNow.preset == adif::ContestPreset::FieldDay || contestNow.preset == adif::ContestPreset::WinterFieldDay;
     adif::FieldList lintFields = c.fields;
-    if (fieldDay)  // DX or MX: the exchange's word, not an ARRL section; it goes into SRX_STRING
-        for (auto &f : lintFields)
-            if (f.first == "ARRL_SECT" && !isArrlSection(f.second)) f.second.clear();
+    // A word of the exchange that isn't one ADIF's field takes (DX for a section or state, KW for a
+    // power): it goes into SRX_STRING only.
+    std::vector<std::string> drops = adif::contestDrops(contestNow, c.fields);
+    for (auto &f : lintFields)
+        if (std::find(drops.begin(), drops.end(), f.first) != drops.end()) f.second.clear();
     adif::BuiltRecord br = adif::buildRecord(lintFields, adif::Layout::RecordPerLine, "\n", lengthUnit(), docUtf8(h));
     adif::LintOptions opt;
     opt.lengthUnit = lengthUnit();
@@ -1657,19 +1652,22 @@ static QsoCheck checkQso(NppHandle h) {
         std::string pc = adif::classProblem(contestNow.preset, get("CLASS")), ps = adif::sectionProblem(contestNow.preset, get("ARRL_SECT"));
         if (!pc.empty()) mark("CLASS", 1, pc);
         if (!ps.empty()) mark("ARRL_SECT", 1, ps);
+    } else if (contestNow.preset == adif::ContestPreset::Defined) {  // the contest's exchange, row by row
+        for (const std::string &row : adif::contestRows(contestNow))
+            if (std::string p = adif::contestRowProblem(contestNow, row, get(row.c_str())); !p.empty()) mark(row.c_str(), 1, p);
     }
     if (contestNow.preset != adif::ContestPreset::None && !call.empty()) {
         adif::Record qso;
         qso.fields = c.fields;
-        std::vector<int> dup = adif::contestDupes(text, doc.model, adif::contestIdFor(contestNow), qso);
+        std::vector<int> dup = adif::contestDupes(text, doc.model, contestNow, qso);
         std::string cat = adif::modeCategory(get("MODE"));
         if (!dup.empty()) {
-            c.summary = trf("{call} is already in the contest on {band} {mode} (record {n}): a station counts once per band and mode.",
+            c.summary = trf("{call} is already in the contest on {band} {mode} (record {n}): {rule}.",
                             {{"call", call}, {"band", adif::effectiveBand(qso)}, {"mode", cat == "CW" ? "CW" : cat == "PH" ? tr("Phone") : tr("Digital")},
-                             {"n", std::to_string(dup.back())}});
+                             {"n", std::to_string(dup.back())}, {"rule", adif::dupeRuleText(contestNow)}});
             c.severity = 1;
         }
-        std::string rule = adif::contestRuleProblem(contestNow.preset, qso);
+        std::string rule = adif::contestRuleProblem(contestNow, qso);
         if (!rule.empty()) {
             c.summary += (c.summary.empty() ? "" : "\n") + rule;
             c.severity = std::max(c.severity, 1);
@@ -1784,10 +1782,11 @@ static void logQso() {
         // A running contest's fields: CONTEST_ID, the exchanges, the serial number (for the fields not shown).
         adif::ContestSetup contestNow = contest::setup();
         if (contestNow.preset != adif::ContestPreset::None) {
-            int serial = contestNow.preset == adif::ContestPreset::Serial ? adif::nextSerial(text, r.model, adif::contestIdFor(contestNow)) : 0;
+            int serial = adif::contestSerial(contestNow) ? adif::nextSerial(text, r.model, adif::contestIdFor(contestNow)) : 0;
             adif::FieldList extra = adif::contestFields(contestNow, [g.qso values], serial);
+            std::vector<std::string> drops = adif::contestDrops(contestNow, [g.qso values]);  // kept in SRX_STRING only
             c.fields.erase(std::remove_if(c.fields.begin(), c.fields.end(),
-                                          [](const auto &f) { return f.first == "ARRL_SECT" && !isArrlSection(f.second); }),
+                                          [&](const auto &f) { return std::find(drops.begin(), drops.end(), f.first) != drops.end(); }),
                            c.fields.end());
             c.fields = adif::overlay(c.fields, extra);  // the contest's own values win over carried ones
         }
@@ -1889,7 +1888,7 @@ static void loadQsoRows(NppHandle h, const adif::LintResult &r, bool keepValues,
             q.value.clear();
     }
     // A running contest asks for the other station's exchange.
-    for (const std::string &name : adif::contestRows(cs.preset))
+    for (const std::string &name : adif::contestRows(cs))
         if (std::none_of(g.qsoFields.begin(), g.qsoFields.end(), [&](const adif::QsoField &q) { return q.name == name; })) {
             auto it = typed.find(name);
             g.qsoFields.push_back(adif::QsoField{name, keepValues && it != typed.end() ? it->second : std::string(), false});
@@ -2245,7 +2244,7 @@ static void refreshQsoTarget() {
         std::string progress = station::activationProgress(docText(h), freshLint(h).model);
         if (!progress.empty()) line += "  ·  " + progress;
         adif::ContestSetup cs = contest::setup();
-        if (cs.preset == adif::ContestPreset::Serial)
+        if (adif::contestSerial(cs))
             line += "  ·  " + contest::label() + ": STX " + std::to_string(adif::nextSerial(docText(h), freshLint(h).model, adif::contestIdFor(cs))) + " next";
         else if (cs.preset != adif::ContestPreset::None)
             line += "  ·  " + contest::label();

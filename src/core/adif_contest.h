@@ -30,13 +30,61 @@
 
 namespace adif {
 
-enum class ContestPreset { None, FieldDay, WinterFieldDay, Serial };
+enum class ContestPreset { None, FieldDay, WinterFieldDay, Serial, Defined };
 
 struct ContestSetup {
     ContestPreset preset = ContestPreset::None;
-    std::string sent;       // Field Days: your exchange ("1D IL", "2O IL")
-    std::string contestId;  // Serial: the CONTEST_ID to write (may be empty)
+    std::string sent;       // Field Days and Defined: your exchange ("1D IL", "2O IL", "4", "A 72 IL")
+    std::string contestId;  // Serial: the CONTEST_ID to write (may be empty); Defined: the contest's
+    std::string partyId;    // Defined QSO-PARTY: the party's own CONTEST_ID ("IL QSO Party", "CA-QSO-PARTY")
 };
+
+// The contests New QSO knows by their rules, a row each (adif_contest.cpp gives each one's source
+// and the date it was read). What you send and what you are sent are written as ADIF has fields
+// for them, and the exchange's words, in their Cabrillo order, in STX_STRING and SRX_STRING (after
+// the report and the serial number, which have fields of their own).
+enum class DupeRule { PerBand, PerBandMode, PerContest, PerMode };
+enum class SentKind {
+    None,           // nothing beyond the report or serial
+    CqZone,         // your CQ zone: MY_CQ_ZONE
+    ItuZone,        // your ITU zone (MY_ITU_ZONE), or an IARU society's or official's abbreviation
+    State,          // your state or province: MY_STATE
+    StateOrPower,   // ARRL DX: your state or province (W/VE), or your power (DX)
+    Sweepstakes,    // precedence, check and section ("A 72 IL")
+    NameQth,        // name and state, province or prefix ("ANDY IL"): MY_NAME, MY_STATE
+    StateOrSerial,  // ARRL 10 m: your state or province; empty: serial numbers (DX)
+    SectionOrNone,  // ARRL 160 m: your section; empty: none (DX)
+    Location,       // a QSO party: your county or state, as the sponsor lists them
+    CqZoneQth,      // CQ WW RTTY: your CQ zone, and your state or province (US, Canada) or DX ("4 IL")
+};
+struct ContestDef {
+    const char *id;                 // CONTEST_ID, and the Cabrillo CONTEST tag
+    const char *name;               // "CQ World Wide DX, SSB"
+    const char *modes;              // the mode categories it counts ("PH", "CW", "CW PH"; "RTTY": MODE RTTY only)
+    const char *bands;              // its bands, space separated
+    DupeRule dupe;
+    bool rst, serial;               // the exchange starts with the report; you send a serial number (STX, counting up)
+    SentKind sent;
+    const char *sentExample;        // "4", "A 72 IL"... ("" none)
+    std::vector<const char *> rows; // what New QSO asks of the other station, in exchange order
+    const char *source;             // the rules read: where, which version, when
+    const char *notes;              // what to keep in mind, for the Contest window
+};
+const std::vector<ContestDef> &contestDefs();
+const ContestDef *findContestDef(std::string_view contestId);  // by CONTEST_ID, any case; null when not one
+
+// A setup's name ("CQ World Wide DX, SSB", "ARRL Field Day"), and whether it counts up a serial.
+std::string contestName(const ContestSetup &s);
+bool contestSerial(const ContestSetup &s);
+// "once per band", "once per band and mode", "once in the contest", "once per mode".
+std::string dupeRuleText(const ContestSetup &s);
+// What New QSO asks of the other station for this setup.
+std::vector<std::string> contestRows(const ContestSetup &s);
+// What's wrong with a received value for this setup ("" when fine or not checked).
+std::string contestRowProblem(const ContestSetup &s, std::string_view field, std::string_view value);
+// Fields whose received value isn't one ADIF's field takes (DX for an ARRL_SECT or STATE, KW for
+// RX_PWR, an IARU society for ITUZ): left out of the record, kept in SRX_STRING.
+std::vector<std::string> contestDrops(const ContestSetup &s, const std::vector<std::pair<std::string, std::string>> &qso);
 
 const char *contestPresetName(ContestPreset p);  // "ARRL Field Day", "Winter Field Day", "Serial numbers", ""
 
@@ -72,9 +120,14 @@ std::string modeCategory(std::string_view mode);
 // a WSJT mode (MODE or SUBMODE) for Winter Field Day, or PROP_MODE (RPT for both;
 // SAT, ECH, INTERNET and IRL as well for Winter Field Day). The rules above.
 std::string contestRuleProblem(ContestPreset p, const Record &qso);
+// The same for any setup: a Field Day's as above; a defined contest's band, mode (and ARRL 10 m's
+// CW below 28.3 MHz).
+std::string contestRuleProblem(const ContestSetup &s, const Record &qso);
 
 // Records (numbers) that are the same contact under a Field Day's rule: the same
 // call, band and mode category, with the same CONTEST_ID.
 std::vector<int> contestDupes(std::string_view text, const DocModel &m, std::string_view contestId, const Record &qso);
+// The same under the setup's own rule (a defined contest's DupeRule; once per band and mode else).
+std::vector<int> contestDupes(std::string_view text, const DocModel &m, const ContestSetup &s, const Record &qso);
 
 }  // namespace adif

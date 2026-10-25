@@ -4048,6 +4048,103 @@ static void testJson() {
 }
 
 // Flags: each current entity has one, but for the four without; as emoji.
+static void testContestDefs() {
+    using F = std::vector<std::pair<std::string, std::string>>;
+    auto find = [](const F &f, const char *name) {
+        for (const auto &kv : f)
+            if (kv.first == name) return kv.second;
+        return std::string("(none)");
+    };
+    auto rows = [](const ContestSetup &s) {
+        std::string out;
+        for (const std::string &r : contestRows(s)) out += (out.empty() ? "" : " ") + r;
+        return out;
+    };
+    CHECK(contestDefs().size() >= 20 && findContestDef("cq-ww-ssb") && std::string(findContestDef("cq-ww-ssb")->id) == "CQ-WW-SSB" &&
+              !findContestDef("NOT-A-CONTEST"),
+          "the contests, found by CONTEST_ID in any case (%zu)", contestDefs().size());
+    for (const ContestDef &d : contestDefs())  // every CONTEST_ID ADIF knows (the generic QSO party aside)
+        if (std::string_view(d.id) != "QSO-PARTY") {
+            const EnumDef *e = findEnum("Contest_ID");
+            CHECK(e && findEnumValue(*e, d.id), "%s is in ADIF's Contest_ID enumeration", d.id);
+        }
+    // CQ WW SSB: your zone; theirs in CQZ; once per band; phone on six bands.
+    ContestSetup ww{ContestPreset::Defined, "4", "CQ-WW-SSB"};
+    F wwf = contestFields(ww, {{"CALL", "DL1ABC"}, {"RST_RCVD", "59"}, {"CQZ", "14"}}, 0);
+    CHECK(sentProblem(ww).empty() && rows(ww) == "CQZ" && find(wwf, "CONTEST_ID") == "CQ-WW-SSB" && find(wwf, "MY_CQ_ZONE") == "4" &&
+              find(wwf, "STX_STRING") == "4" && find(wwf, "SRX_STRING") == "14" && find(wwf, "STX") == "(none)" && !contestSerial(ww),
+          "CQ WW: zone 4 sent, 14 received");
+    CHECK(!sentProblem({ContestPreset::Defined, "41", "CQ-WW-SSB"}).empty() && !contestRowProblem(ww, "CQZ", "41").empty() &&
+              contestRowProblem(ww, "CQZ", "14").empty(),
+          "a CQ zone is 1 to 40");
+    Record wwq;
+    wwq.fields = {{"CALL", "DL1ABC"}, {"BAND", "30m"}, {"MODE", "SSB"}};
+    CHECK(!contestRuleProblem(ww, wwq).empty(), "CQ WW: no 30 m (%s)", contestRuleProblem(ww, wwq).c_str());
+    wwq.fields = {{"CALL", "DL1ABC"}, {"BAND", "20m"}, {"MODE", "CW"}};
+    CHECK(!contestRuleProblem(ww, wwq).empty(), "CQ WW SSB: no CW (%s)", contestRuleProblem(ww, wwq).c_str());
+    // WPX: serials; the prefix multiplier is the scorer's.
+    ContestSetup wpx{ContestPreset::Defined, "", "CQ-WPX-CW"};
+    F wpxf = contestFields(wpx, {{"CALL", "DL1ABC"}, {"SRX", "123"}}, 7);
+    CHECK(sentProblem(wpx).empty() && contestSerial(wpx) && rows(wpx) == "SRX" && find(wpxf, "STX") == "7" && find(wpxf, "SRX_STRING") == "(none)",
+          "CQ WPX: STX counts up, SRX received");
+    // Sweepstakes: no report; precedence, check and section; once in the contest.
+    ContestSetup ss{ContestPreset::Defined, "a 72 il", "ARRL-SS-CW"};
+    F ssf = contestFields(ss, {{"CALL", "W1AW"}, {"SRX", "34"}, {"PRECEDENCE", "B"}, {"CHECK", "85"}, {"ARRL_SECT", "EMA"}}, 12);
+    CHECK(sentProblem(ss).empty() && rows(ss) == "SRX PRECEDENCE CHECK ARRL_SECT" && find(ssf, "STX") == "12" && find(ssf, "STX_STRING") == "A 72 IL" &&
+              find(ssf, "MY_ARRL_SECT") == "IL" && find(ssf, "SRX_STRING") == "B 85 EMA",
+          "Sweepstakes: STX_STRING %s, SRX_STRING %s", find(ssf, "STX_STRING").c_str(), find(ssf, "SRX_STRING").c_str());
+    CHECK(!sentProblem({ContestPreset::Defined, "Z 72 IL", "ARRL-SS-CW"}).empty() && !contestRowProblem(ss, "PRECEDENCE", "Z").empty() &&
+              !contestRowProblem(ss, "CHECK", "7").empty(),
+          "Sweepstakes: precedence Q A B U M S, a two-digit check");
+    // ARRL DX: W/VE log the DX station's power; DX log the state.
+    ContestSetup dxW{ContestPreset::Defined, "IL", "ARRL-DX-CW"}, dxDx{ContestPreset::Defined, "100", "ARRL-DX-CW"};
+    F dxf = contestFields(dxW, {{"CALL", "DL1ABC"}, {"RX_PWR", "KW"}}, 0);
+    CHECK(rows(dxW) == "RX_PWR" && rows(dxDx) == "STATE" && find(dxf, "MY_STATE") == "IL" && find(dxf, "SRX_STRING") == "KW" &&
+              contestDrops(dxW, {{"RX_PWR", "KW"}}) == std::vector<std::string>{"RX_PWR"} && contestDrops(dxW, {{"RX_PWR", "100"}}).empty() &&
+              find(contestFields(dxDx, {}, 0), "TX_PWR") == "100",
+          "ARRL DX: rows by side; KW kept in SRX_STRING, not RX_PWR");
+    // ARRL 10 m: DX stations send serials (an empty exchange); a DX station's serial typed in STATE goes to SRX.
+    ContestSetup ten{ContestPreset::Defined, "", "ARRL-10"};
+    F tenf = contestFields(ten, {{"CALL", "DL1ABC"}, {"STATE", "045"}}, 3);
+    CHECK(contestSerial(ten) && !contestSerial({ContestPreset::Defined, "IL", "ARRL-10"}) && find(tenf, "STX") == "3" && find(tenf, "SRX") == "45" &&
+              contestDrops(ten, {{"STATE", "045"}}) == std::vector<std::string>{"STATE"},
+          "ARRL 10 m: serials for DX");
+    Record tenq;
+    tenq.fields = {{"CALL", "K1AB"}, {"FREQ", "28.400"}, {"MODE", "CW"}};
+    CHECK(!contestRuleProblem(ten, tenq).empty(), "ARRL 10 m: CW below 28.3 MHz");
+    // The party's own CONTEST_ID.
+    ContestSetup party{ContestPreset::Defined, "COOK", "QSO-PARTY", "IL QSO Party"};
+    CHECK(contestIdFor(party) == "IL QSO Party" && sentProblem(party).empty() && !sentProblem({ContestPreset::Defined, "COOK", "QSO-PARTY"}).empty(),
+          "a QSO party writes its own CONTEST_ID");
+    // Duplicates by each rule.
+    std::string log = std::string(kHeader) +
+                      "<CALL:4>W1AW <QSO_DATE:8>20261107 <TIME_ON:4>2100 <BAND:3>20m <MODE:2>CW <CONTEST_ID:10>ARRL-SS-CW <EOR>\n"
+                      "<CALL:6>DL1ABC <QSO_DATE:8>20261128 <TIME_ON:4>0010 <BAND:3>20m <MODE:2>CW <CONTEST_ID:9>CQ-WW-CW <EOR>\n";
+    LintResult lr = lintModel(log);
+    Record again;
+    again.fields = {{"CALL", "W1AW/7"}, {"BAND", "40m"}, {"MODE", "CW"}};
+    CHECK(contestDupes(log, lr.model, ss, again).size() == 1, "Sweepstakes: W1AW/7 on 40 m is W1AW again (once in the contest)");
+    again.fields = {{"CALL", "DL1ABC"}, {"BAND", "40m"}, {"MODE", "CW"}};
+    ContestSetup wwcw{ContestPreset::Defined, "4", "CQ-WW-CW"};
+    CHECK(contestDupes(log, lr.model, wwcw, again).empty(), "CQ WW: another band is a new QSO");
+    again.fields = {{"CALL", "DL1ABC"}, {"BAND", "20m"}, {"MODE", "CW"}};
+    CHECK(contestDupes(log, lr.model, wwcw, again).size() == 1 && dupeRuleText(wwcw) == "a station counts once per band", "CQ WW: the same band again");
+    // Cabrillo: the words in order, no report for Sweepstakes.
+    std::string clog = std::string(kHeader) +
+                       "<CALL:4>W1AW <QSO_DATE:8>20261107 <TIME_ON:4>2100 <FREQ:6>14.050 <MODE:2>CW <CONTEST_ID:10>ARRL-SS-CW <STX:2>12 "
+                       "<STX_STRING:7>A 72 IL <SRX:2>34 <SRX_STRING:8>B 85 EMA <STATION_CALLSIGN:4>KW9D <EOR>\n"
+                       "<CALL:6>DL1ABC <QSO_DATE:8>20261024 <TIME_ON:4>1200 <FREQ:6>14.200 <MODE:3>SSB <CONTEST_ID:9>CQ-WW-SSB <RST_SENT:2>59 "
+                       "<RST_RCVD:2>59 <STX_STRING:1>4 <SRX_STRING:2>14 <STATION_CALLSIGN:4>KW9D <EOR>\n";
+    LintResult cr = lintModel(clog);
+    CabrilloOptions co;
+    co.contest = "ARRL-SS-CW";
+    co.callsign = "KW9D";
+    CabrilloLog cab = toCabrillo(records(clog, cr.model), co);
+    CHECK(cab.text.find("QSO: 14050 CW 2026-11-07 2100 KW9D 12 A 72 IL W1AW 34 B 85 EMA\n") != std::string::npos &&
+              cab.text.find("QSO: 14200 PH 2026-10-24 1200 KW9D 59 4 DL1ABC 59 14\n") != std::string::npos && cab.incomplete == 0,
+          "Cabrillo QSO lines for Sweepstakes and CQ WW:\n%s", cab.text.c_str());
+}
+
 static void testStats() {
     // 2026-10-19 was a Monday; 2026-10-25 a Sunday.
     std::string log = std::string(kHeader) +
@@ -4323,6 +4420,7 @@ int main(int argc, char **argv) {
     testFlags();
     testBeacons();
     testStats();
+    testContestDefs();
     testSolar();
     testProjections();
     testPalettes();

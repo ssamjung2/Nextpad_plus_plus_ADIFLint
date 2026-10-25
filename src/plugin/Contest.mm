@@ -16,41 +16,54 @@ namespace {
 struct {
     ADIFToolWindow *w = nil;
     NSPopUpButton *preset = nil;
-    NSTextField *sent = nil, *contestId = nil;
+    NSTextField *sent = nil, *contestId = nil, *idLabel = nil;
+    NSTextField *rules = nil;  // a contest's bands, what to keep in mind, and where its rules were read
     NSStackView *sentRow = nil, *idRow = nil;
     NSButton *start = nil;
 } cw;
 
+// Settings: contestPreset FD, WFD, SERIAL or DEF; contestDef the defined contest's CONTEST_ID;
+// contestId Serial's CONTEST_ID; contestParty a QSO party's; contestSent your exchange.
 adif::ContestPreset presetFrom(const std::string &s) {
     return s == "FD" ? adif::ContestPreset::FieldDay : s == "WFD" ? adif::ContestPreset::WinterFieldDay
                      : s == "SERIAL"                 ? adif::ContestPreset::Serial
+                     : s == "DEF"                    ? adif::ContestPreset::Defined
                                                      : adif::ContestPreset::None;
 }
 const char *presetKey(adif::ContestPreset p) {
-    return p == adif::ContestPreset::FieldDay ? "FD" : p == adif::ContestPreset::WinterFieldDay ? "WFD" : p == adif::ContestPreset::Serial ? "SERIAL" : "";
+    return p == adif::ContestPreset::FieldDay ? "FD" : p == adif::ContestPreset::WinterFieldDay ? "WFD" : p == adif::ContestPreset::Serial ? "SERIAL"
+           : p == adif::ContestPreset::Defined ? "DEF" : "";
 }
+
+bool isParty(const adif::ContestSetup &s) { return s.preset == adif::ContestPreset::Defined && s.contestId == "QSO-PARTY"; }
 
 // What the window shows now (not necessarily running).
 adif::ContestSetup chosen() {
     adif::ContestSetup s;
-    NSInteger i = cw.preset.indexOfSelectedItem;
-    s.preset = i == 0 ? adif::ContestPreset::FieldDay : i == 1 ? adif::ContestPreset::WinterFieldDay : adif::ContestPreset::Serial;
+    NSString *key = cw.preset.selectedItem.representedObject ?: @"FD";
+    s.preset = presetFrom(ADIFStd(key));
+    if (s.preset == adif::ContestPreset::None) s.preset = adif::ContestPreset::Defined, s.contestId = ADIFStd(key);
     s.sent = ADIFStd(cw.sent.stringValue);
-    s.contestId = ADIFStd(cw.contestId.stringValue);
+    if (s.preset == adif::ContestPreset::Serial) s.contestId = ADIFStd(cw.contestId.stringValue);
+    if (isParty(s)) s.partyId = ADIFStd(cw.contestId.stringValue);
     return s;
 }
 
 void refresh() {
     if (!cw.w) return;
     adif::ContestSetup s = chosen();
-    bool fieldDay = s.preset != adif::ContestPreset::Serial;
-    cw.sentRow.hidden = !fieldDay;
-    cw.idRow.hidden = fieldDay;
-    cw.sent.placeholderString = s.preset == adif::ContestPreset::WinterFieldDay ? T(@"e.g. 2O IL") : T(@"e.g. 1D IL");
+    const adif::ContestDef *def = s.preset == adif::ContestPreset::Defined ? adif::findContestDef(s.contestId) : nullptr;
+    bool fieldDay = s.preset == adif::ContestPreset::FieldDay || s.preset == adif::ContestPreset::WinterFieldDay;
+    cw.sentRow.hidden = !fieldDay && !(def && def->sent != adif::SentKind::None);
+    cw.idRow.hidden = s.preset != adif::ContestPreset::Serial && !isParty(s);
+    cw.sent.placeholderString = s.preset == adif::ContestPreset::WinterFieldDay ? T(@"e.g. 2O IL")
+                                : def                                          ? TF(@"e.g. {example}", @{@"example" : ADIFString(def->sentExample)})
+                                                                               : T(@"e.g. 1D IL");
+    cw.contestId.placeholderString = isParty(s) ? T(@"e.g. IL QSO Party, CA-QSO-PARTY") : T(@"e.g. CQ-WPX-SSB (optional)");
     bool running = setting("contestActive") == "1";
     cw.start.title = running ? T(@"Stop") : T(@"Start");
     [cw.w setTarget:TF(@"Log: {name}", @{@"name" : ADIFString(documentName())})];
-    // This log's contest QSOs per band and mode, as the Field Days count them.
+    // This log's contest QSOs per band and mode.
     std::string id = adif::contestIdFor(s);
     std::map<std::string, std::map<std::string, size_t>> count;
     size_t total = 0;
@@ -90,7 +103,17 @@ void refresh() {
         st = trf(id.empty() ? "New QSO asks for SRX and writes STX {n} next, counting up. {qsos} so far."
                             : "New QSO asks for SRX and writes STX {n} next, counting up, with CONTEST_ID {id}. {qsos} so far.",
                  {{"n", std::to_string(next)}, {"id", id}, {"qsos", plural(total, "QSO")}});
-    else
+    else if (def) {
+        std::string asks;
+        for (const std::string &row : adif::contestRows(s)) asks += (asks.empty() ? "" : ", ") + row;
+        std::string bands = def->bands;
+        st = trf("New QSO asks for {rows} and writes CONTEST_ID {id}{serial}; {rule}.",
+                 {{"rows", asks.empty() ? tr("the report") : asks},
+                  {"id", id},
+                  {"serial", adif::contestSerial(s) ? trf(", and STX {n} next, counting up", {{"n", std::to_string(next)}}) : std::string()},
+                  {"rule", adif::dupeRuleText(s)}}) +
+             " " + trf("{qsos} in this log.", {{"qsos", plural(total, "QSO")}});
+    } else
         st = trf("New QSO asks for their CLASS and ARRL_SECT and writes CONTEST_ID {id}, your exchange in STX_STRING and theirs in SRX_STRING. "
                  "A station counts once per band and mode (CW, Phone, Digital).",
                  {{"id", id}}) +
@@ -99,6 +122,14 @@ void refresh() {
                                                                : tr("Bands 160, 80, 40, 20, 15 and 10 m and 6 m up (2026 rules).")) +
              " " + trf("{qsos} in this log.", {{"qsos", plural(total, "QSO")}});
     if (running) st = trf("Running: {status}", {{"status", st}});
+    std::string rules;
+    if (def) {
+        std::string bands = def->bands;
+        rules = (bands.empty() ? "" : trf("Bands: {bands}.", {{"bands", bands}}) + " ") + tr(def->notes) + " " +
+                trf("Rules: {source}.", {{"source", def->source}});
+    }
+    cw.rules.stringValue = ADIFString(rules);
+    cw.rules.superview.hidden = rules.empty();
     [cw.w setStatus:ADIFString(st) severity:severity];
     cw.start.enabled = running || problem.empty();
 }
@@ -112,7 +143,8 @@ void startStop() {
         if (!adif::sentProblem(s).empty()) return refresh();
         setSetting("contestPreset", presetKey(s.preset));
         setSetting("contestSent", s.sent);
-        setSetting("contestId", s.contestId);
+        if (s.preset == adif::ContestPreset::Defined) setSetting("contestDef", s.contestId), setSetting("contestParty", s.partyId);
+        else setSetting("contestId", s.contestId);
         setSetting("contestActive", "1");
         openNewQso();
     }
@@ -127,16 +159,18 @@ adif::ContestSetup setup() {
     if (setting("contestActive") != "1") return s;
     s.preset = presetFrom(setting("contestPreset"));
     s.sent = setting("contestSent");
-    s.contestId = setting("contestId");
+    s.contestId = setting(s.preset == adif::ContestPreset::Defined ? "contestDef" : "contestId");
+    if (s.preset == adif::ContestPreset::Defined) s.partyId = setting("contestParty");
     return s;
 }
 
 std::string label() {
     adif::ContestSetup s = setup();
     if (s.preset == adif::ContestPreset::None) return "";
-    std::string out = tr(adif::contestPresetName(s.preset));
+    std::string out = adif::contestName(s);
     if (s.preset == adif::ContestPreset::Serial) return out + (s.contestId.empty() ? "" : " (" + s.contestId + ")");
-    return out + ", " + trf("sending {exchange}", {{"exchange", s.sent}});
+    if (isParty(s)) out += " (" + s.partyId + ")";
+    return s.sent.find_first_not_of(" ") == std::string::npos ? out : out + ", " + trf("sending {exchange}", {{"exchange", s.sent}});
 }
 
 void documentChanged() {
@@ -145,18 +179,36 @@ void documentChanged() {
 
 void cmdContest() {
     if (!cw.w) {
-        ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"Contest" size:NSMakeSize(640, 380) headline:NO];
+        ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"Contest" size:NSMakeSize(660, 480) headline:NO];
         cw.w = w;
+        // The Field Days and serial numbers, then the contests known by their rules.
         cw.preset = ADIFPopup(@[ @"ARRL Field Day", @"Winter Field Day", @"Serial numbers" ]);
+        cw.preset.identifier = @"contest.preset";
+        cw.preset.itemArray[0].representedObject = @"FD", cw.preset.itemArray[1].representedObject = @"WFD";
+        cw.preset.itemArray[2].representedObject = @"SERIAL";
+        [cw.preset.menu addItem:[NSMenuItem separatorItem]];
+        for (const adif::ContestDef &d : adif::contestDefs())
+            [cw.preset.menu addItemWithTitle:ADIFString(adif::i18n::tr(d.name)) action:nil keyEquivalent:@""].representedObject = @(d.id);
         adif::ContestPreset p = presetFrom(setting("contestPreset"));
-        [cw.preset selectItemAtIndex:p == adif::ContestPreset::WinterFieldDay ? 1 : p == adif::ContestPreset::Serial ? 2 : 0];
+        NSString *want = p == adif::ContestPreset::Defined ? ADIFString(setting("contestDef")) : @(presetKey(p));
+        NSInteger at = [cw.preset indexOfItemWithRepresentedObject:want];
+        [cw.preset selectItemAtIndex:at >= 0 ? at : 0];
         [w addOptionRow:@[ ADIFLabel(@"Contest:"), cw.preset ]];
         cw.sent = ADIFTextField(@"e.g. 1D IL", 120);
         cw.sent.stringValue = ADIFString(setting("contestSent"));
         cw.sentRow = [w addOptionRow:@[ ADIFLabel(@"Your exchange:"), cw.sent ]];
+        cw.sent.identifier = @"contest.sent";
         cw.contestId = ADIFTextField(@"e.g. CQ-WPX-SSB (optional)", 220);
-        cw.contestId.stringValue = ADIFString(setting("contestId"));
+        cw.contestId.identifier = @"contest.id";
+        cw.contestId.stringValue = ADIFString(setting(p == adif::ContestPreset::Defined ? "contestParty" : "contestId"));
         cw.idRow = [w addOptionRow:@[ ADIFLabel(@"CONTEST_ID:"), cw.contestId ]];
+        cw.rules = [NSTextField wrappingLabelWithString:@""];
+        cw.rules.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        cw.rules.textColor = NSColor.secondaryLabelColor;
+        cw.rules.preferredMaxLayoutWidth = 580;
+        [cw.rules.widthAnchor constraintEqualToConstant:580].active = YES;
+        cw.rules.identifier = @"contest.rules";
+        [w addOptionRow:@[ cw.rules ]];
         ADIFOnAction(cw.preset, ^{
             if (setting("contestActive") == "1") setSetting("contestActive", "0"), setSetting("contestStopped", "1"), stationChanged();
             refresh();

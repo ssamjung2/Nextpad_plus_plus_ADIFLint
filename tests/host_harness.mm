@@ -3668,6 +3668,50 @@ int main(int argc, char **argv) {
             size_t w4 = H.doc.find("<CALL:4>W4CC");
             CHECK(w4 != std::string::npos && H.doc.find("CONTEST_ID", w4) == std::string::npos && H.doc.find("<STX:", w4) == std::string::npos,
                   "after Stop, QSOs carry no contest fields:\n%s", w4 == std::string::npos ? "" : H.doc.substr(w4).c_str());
+            {  // A contest known by its rules: CQ WW SSB. Your zone sent; theirs asked for; once per band; its bands.
+                NSInteger ww = [preset indexOfItemWithRepresentedObject:@"CQ-WW-SSB"];
+                [preset selectItemAtIndex:ww];
+                [preset sendAction:preset.action to:preset.target];
+                NSTextField *sentF = (NSTextField *)viewWithIdentifier(cwin.contentView, @"contest.sent");
+                NSTextField *rulesF = (NSTextField *)viewWithIdentifier(cwin.contentView, @"contest.rules");
+                sentF.stringValue = @"41";
+                [[NSNotificationCenter defaultCenter] postNotificationName:NSControlTextDidChangeNotification object:sentF];
+                bool refused = !findButton(cwin.contentView, @"Start").enabled;
+                sentF.stringValue = @"4";
+                [[NSNotificationCenter defaultCenter] postNotificationName:NSControlTextDidChangeNotification object:sentF];
+                CHECK(ww > 3 && refused && [sentF.placeholderString isEqualToString:@"e.g. 4"] && [rulesF.stringValue containsString:@"Rules: cqww.com/rules"] &&
+                          [labelWithLines(cwin.contentView, 4) containsString:@"New QSO asks for CQZ and writes CONTEST_ID CQ-WW-SSB"],
+                      "CQ WW SSB in the Contest window: a zone of 41 refused; %s | %s", labelWithLines(cwin.contentView, 4).UTF8String,
+                      rulesF.stringValue.UTF8String);
+                [cwin.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(cwin.contentView) == 0, "Contest with a defined contest does not overlap");
+                snapshot(cwin, "contest-cqww");
+                [findButton(cwin.contentView, @"Start") performClick:nil];
+                pump(0.3);
+                qwc = qsoWindow();
+                CHECK(qsoControl(qwc, @"CQZ") != nil, "CQ WW: New QSO asks for CQZ");
+                qsoControl(qwc, @"CQZ").stringValue = @"14";
+                logOne(@"DL1ABC", @"20m", @"SSB", nil, nil);
+                size_t dl = H.doc.find("<CALL:6>DL1ABC");
+                std::string rec = dl == std::string::npos ? "" : H.doc.substr(dl, H.doc.find("<EOR>", dl) - dl);
+                CHECK(rec.find("<CONTEST_ID:9>CQ-WW-SSB") != std::string::npos && rec.find("<MY_CQ_ZONE:1>4") != std::string::npos &&
+                          rec.find("<STX_STRING:1>4") != std::string::npos && rec.find("<CQZ:2>14") != std::string::npos &&
+                          rec.find("<SRX_STRING:2>14") != std::string::npos,
+                      "a CQ WW QSO: %s", rec.c_str());
+                qsoControl(qwc, @"CQZ").stringValue = @"14";
+                std::string again = logOne(@"DL1ABC", @"20m", @"SSB", nil, nil);
+                CHECK(again.find("already in the contest on 20m Phone") != std::string::npos && again.find("once per band") != std::string::npos,
+                      "the same station on the same band: %s", again.c_str());
+                qsoControl(qwc, @"CALL").stringValue = @"G4XYZ";
+                qsoControl(qwc, @"BAND").stringValue = @"30m";
+                qsoControl(qwc, @"CQZ").stringValue = @"14";
+                [[NSNotificationCenter defaultCenter] postNotificationName:NSControlTextDidChangeNotification object:qsoControl(qwc, @"CALL")];
+                pump(0.3);
+                std::string thirty = summaryLabel(qwc.contentView).stringValue.UTF8String;
+                CHECK(thirty.find("doesn't count 30m") != std::string::npos, "CQ WW: 30 m isn't one of its bands: %s", thirty.c_str());
+                [findButton(cwin.contentView, @"Stop") performClick:nil];
+                pump(0.2);
+            }
             [cwin orderOut:nil];
             [qsoWindow() orderOut:nil];
         }
