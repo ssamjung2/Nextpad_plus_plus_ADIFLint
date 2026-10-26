@@ -21,6 +21,12 @@ std::string upper(std::string_view s) {
     return o;
 }
 
+std::string lower(std::string_view s) {
+    std::string o;
+    for (char c : s) o.push_back((c >= 'A' && c <= 'Z') ? (char)(c + 32) : c);
+    return o;
+}
+
 std::string trim(std::string_view s) {
     size_t b = 0, e = s.size();
     while (b < e && (s[b] == ' ' || s[b] == '\t' || s[b] == '\r' || s[b] == '\n')) ++b;
@@ -31,7 +37,8 @@ std::string trim(std::string_view s) {
 bool isStatusField(std::string_view name) {
     for (const char *f : {"QRZCOM_QSO_UPLOAD_STATUS", "QRZCOM_QSO_UPLOAD_DATE", "CLUBLOG_QSO_UPLOAD_STATUS",
                           "CLUBLOG_QSO_UPLOAD_DATE", "LOTW_QSL_SENT", "LOTW_QSLSDATE", "EQSL_QSL_SENT", "EQSL_QSLSDATE",
-                          "APP_ADIFLINT_WRL_QSO_UPLOAD_STATUS", "APP_ADIFLINT_WRL_QSO_UPLOAD_DATE"})
+                          "APP_ADIFLINT_WRL_QSO_UPLOAD_STATUS", "APP_ADIFLINT_WRL_QSO_UPLOAD_DATE", "HRDLOG_QSO_UPLOAD_STATUS",
+                          "HRDLOG_QSO_UPLOAD_DATE", "HAMQTH_QSO_UPLOAD_STATUS", "HAMQTH_QSO_UPLOAD_DATE"})
         if (equalsNoCase(name, f)) return true;
     return false;
 }
@@ -53,6 +60,8 @@ UploadFields uploadFields(UploadService s) {
         case UploadService::ClubLog: return {"CLUBLOG_QSO_UPLOAD_STATUS", "CLUBLOG_QSO_UPLOAD_DATE"};
         case UploadService::EQSL: return {"EQSL_QSL_SENT", "EQSL_QSLSDATE"};
         case UploadService::WRL: return {"APP_ADIFLINT_WRL_QSO_UPLOAD_STATUS", "APP_ADIFLINT_WRL_QSO_UPLOAD_DATE"};
+        case UploadService::HRDLog: return {"HRDLOG_QSO_UPLOAD_STATUS", "HRDLOG_QSO_UPLOAD_DATE"};
+        case UploadService::HamQTH: return {"HAMQTH_QSO_UPLOAD_STATUS", "HAMQTH_QSO_UPLOAD_DATE"};
     }
     return {"", ""};
 }
@@ -64,6 +73,8 @@ const char *uploadServiceName(UploadService s) {
         case UploadService::ClubLog: return "Club Log";
         case UploadService::EQSL: return "eQSL";
         case UploadService::WRL: return "World Radio League";
+        case UploadService::HRDLog: return "HRDLog.net";
+        case UploadService::HamQTH: return "HamQTH";
     }
     return "";
 }
@@ -329,6 +340,112 @@ std::string tqslExitMeaning(int code) {
     }
 }
 
+std::string hrdlogBody(std::string_view callsign, std::string_view code, std::string_view app, std::string_view adi, std::string_view key) {
+    std::string out = "Callsign=" + formEncode(callsign) + "&Code=" + formEncode(code) + "&App=" + formEncode(app);
+    if (!key.empty()) out += "&Cmd=UPDATE&ADIFKey=" + formEncode(key);
+    return out + "&ADIFData=" + formEncode(adi);
+}
+
+std::string qsoKeyAdi(std::string_view text, const DocModel &m, int group) {
+    if (group < 0 || (size_t)group >= m.groups.size()) return "";
+    std::string out;
+    for (const char *f : {"CALL", "QSO_DATE", "TIME_ON", "BAND", "MODE"}) {
+        std::string v(groupValue(text, m, m.groups[(size_t)group], f));
+        if (!v.empty()) out += makeSpecifier(f, v, LengthUnit::Bytes, true) + " ";
+    }
+    return out + "<EOR>";
+}
+
+HrdlogReply parseHrdlogReply(std::string_view xml) {
+    // The text of the first element with this local name, whatever its namespace prefix.
+    auto element = [&](std::string_view name, std::string *value) {
+        for (size_t at = xml.find('<'); at != std::string_view::npos; at = xml.find('<', at + 1)) {
+            size_t end = xml.find_first_of(" \t\r\n/>", at + 1);
+            if (end == std::string_view::npos) return false;
+            std::string_view tag = xml.substr(at + 1, end - at - 1);
+            if (size_t colon = tag.find(':'); colon != std::string_view::npos) tag = tag.substr(colon + 1);
+            if (tag != name) continue;
+            size_t open = xml.find('>', end);
+            if (open == std::string_view::npos) return false;
+            if (xml[open - 1] == '/') {  // <insert/>
+                value->clear();
+                return true;
+            }
+            size_t close = xml.find('<', open + 1);
+            *value = trim(xml.substr(open + 1, (close == std::string_view::npos ? xml.size() : close) - open - 1));
+            return true;
+        }
+        return false;
+    };
+    HrdlogReply r;
+    std::string v;
+    if (element("error", &v)) {
+        r.message = htmlDecode(v);
+        r.unknownUser = r.message == "Unknown user" || r.message == "Invalid token";
+        r.notFound = r.message.find("Unable to find QSO") != std::string::npos;
+    } else if (element("insert", &v) || element("update", &v)) {
+        long long n = std::atoll(v.c_str());
+        r.ok = n > 0;
+        r.duplicate = n == 0;
+    }
+    return r;
+}
+
+std::string jsonQuote(std::string_view s) {
+    static const char kHex[] = "0123456789abcdef";
+    std::string out = "\"";
+    for (unsigned char c : s) {
+        if (c == '"' || c == '\\') out += '\\', out += (char)c;
+        else if (c == '\n') out += "\\n";
+        else if (c == '\r') out += "\\r";
+        else if (c == '\t') out += "\\t";
+        else if (c < 0x20) out += "\\u00", out += kHex[c >> 4], out += kHex[c & 15];
+        else out += (char)c;
+    }
+    return out + "\"";
+}
+
+std::string hamqthQsoJson(std::string_view text, const DocModel &m, int group, bool replace) {
+    if (group < 0 || (size_t)group >= m.groups.size()) return "";
+    const ModelGroup &g = m.groups[(size_t)group];
+    auto value = [&](const char *f) { return trim(groupValue(text, m, g, f)); };
+    // The fields HamQTH stores (its developers page), the band in capitals as its examples write it.
+    static const char *const kStored[] = {"CALL", "QSO_DATE", "TIME_ON", "TIME_OFF", "BAND", "FREQ", "MODE", "SUBMODE", "RST_SENT",
+                                          "RST_RCVD", "NAME", "QTH", "QSL_SENT", "QSL_RCVD", "QSL_VIA", "QSLSDATE", "QSLRDATE", "IOTA",
+                                          "TX_PWR", "GRIDSQUARE", "MY_GRIDSQUARE", "CQZ", "ITUZ", "CONT", "DXCC", "STATE", "CNTY",
+                                          "LOTW_QSL_SENT", "LOTW_QSL_RCVD", "LOTW_QSLSDATE", "LOTW_QSLRDATE", "EQSL_QSL_SENT",
+                                          "EQSL_QSL_RCVD", "EQSL_QSLSDATE", "EQSL_QSLRDATE"};
+    auto object = [&](std::initializer_list<const char *> names) {
+        std::string out;
+        for (const char *f : names) {
+            std::string v = value(f);
+            if (v.empty()) continue;
+            if (!std::strcmp(f, "BAND")) v = upper(v);
+            out += (out.empty() ? "" : ",") + jsonQuote(lower(f)) + ":" + jsonQuote(v);
+        }
+        return "{" + out + "}";
+    };
+    std::string qso;
+    for (const char *f : kStored) {
+        std::string v = value(f);
+        if (v.empty()) continue;
+        if (!std::strcmp(f, "BAND")) v = upper(v);
+        qso += (qso.empty() ? "" : ",") + jsonQuote(lower(f)) + ":" + jsonQuote(v);
+    }
+    std::string out = "{";
+    std::string station = upper(value("STATION_CALLSIGN"));
+    if (!station.empty()) out += "\"callsign\":" + jsonQuote(station) + ",";
+    out += "\"qso\":{" + qso + "}";
+    if (replace) {
+        std::string original = object({"CALL", "QSO_DATE", "TIME_ON", "BAND"});
+        std::string mode = upper(value("MODE"));
+        if (mode == "USB" || mode == "LSB") mode = "SSB";  // "USB and LSB are stored as SSB"
+        if (!mode.empty()) original.insert(original.size() - 1, std::string(original.size() > 2 ? "," : "") + "\"mode\":" + jsonQuote(mode));
+        out += ",\"original\":" + original;
+    }
+    return out + "}";
+}
+
 bool wrlImportFinished(std::string_view status) {
     for (const char *s : {"complete", "complete_with_errors", "failed", "rejected", "expired", "cancelled"})
         if (status == s) return true;
@@ -468,7 +585,8 @@ std::vector<TextEdit> markModified(std::string_view text, const DocModel &m, con
         for (size_t i = 0; i < g.fieldCount; ++i) {
             const ModelField &f = m.fields[g.firstField + i];
             std::string_view name = fieldName(text, f);
-            if ((equalsNoCase(name, "QRZCOM_QSO_UPLOAD_STATUS") || equalsNoCase(name, "CLUBLOG_QSO_UPLOAD_STATUS")) &&
+            if ((equalsNoCase(name, "QRZCOM_QSO_UPLOAD_STATUS") || equalsNoCase(name, "CLUBLOG_QSO_UPLOAD_STATUS") ||
+                 equalsNoCase(name, "HRDLOG_QSO_UPLOAD_STATUS") || equalsNoCase(name, "HAMQTH_QSO_UPLOAD_STATUS")) &&
                 upper(trim(fieldValue(text, f))) == "Y")
                 out.push_back(setFieldValue(text, f, "M", unit, utf8));
         }

@@ -13,7 +13,7 @@ enum Family { kImport, kExport, kUpload };
 // Members, in popup order.
 enum { kImportLotw, kImportQrzLogbook, kImportEqsl, kImportCsv, kImportWsjtx };
 enum { kExportActivations, kExportCsv, kExportCabrillo, kExportLabels };
-enum { kUploadQrz, kUploadLotw, kUploadClubLog, kUploadEqsl, kUploadWrl };
+enum { kUploadQrz, kUploadLotw, kUploadClubLog, kUploadEqsl, kUploadWrl, kUploadHrdlog, kUploadHamqth };
 
 // The popup for the first option row of a family window; `current` is this window's member.
 NSPopUpButton *popup(Family f, NSInteger current);

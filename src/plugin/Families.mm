@@ -39,6 +39,8 @@ const Member kUploads[] = {
     {N(@"Club Log"), N(@"Upload to Club Log"), uploads::cmdUploadClubLog},
     {N(@"eQSL"), N(@"Upload to eQSL"), uploads::cmdUploadEqsl},
     {@"World Radio League", @"Upload to World Radio League", uploads::cmdUploadWrl},
+    {@"HRDLog.net", @"Upload to HRDLog.net", uploads::cmdUploadHrdlog},
+    {@"HamQTH", @"Upload to HamQTH", uploads::cmdUploadHamqth},
 };
 
 const Member *members(Family f, size_t *n) {

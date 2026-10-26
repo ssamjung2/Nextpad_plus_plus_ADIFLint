@@ -17,6 +17,10 @@ Versions before 0.8.0 were development builds and were not published.
   allowance and default logbook. ADIF has no WRL fields, so uploaded QSOs get
   APP_ADIFLINT_WRL_QSO_UPLOAD_STATUS Y and its date; they are marked only when WRL has every
   one. API read 2026-10-25.
+- **Upload to HRDLog.net and HamQTH** (Upload…, QSL Sync): one QSO per request, with your
+  HRDLog callsign and upload code (Settings) or your HamQTH account (HamQTH's API v2).
+  Uploaded QSOs get HRDLOG_ and HAMQTH_QSO_UPLOAD_STATUS Y and their dates; an edited one
+  becomes M and the next upload updates it there. Read 2026-10-26.
 
 ## [1.6.0] - 2026-10-25
 

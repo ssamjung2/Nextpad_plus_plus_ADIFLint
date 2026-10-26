@@ -34,6 +34,7 @@ NSString *ADIFSourceName(ADIFSource source) {
         case ADIFSourceEQSL: return @"eQSL";
         case ADIFSourceTqsl: return N(@"TQSL certificate");
         case ADIFSourceWRL: return @"World Radio League";
+        case ADIFSourceHRDLog: return @"HRDLog.net";
         case ADIFSourceCountryData: return N(@"Country Data");
     }
     return @"";
@@ -45,9 +46,13 @@ ADIFCredentialKind ADIFSourceCredentialKind(ADIFSource source) {
                : ADIFCredentialAccount;
 }
 
-NSString *ADIFSourceUserLabel(ADIFSource source) { return source == ADIFSourceClubLog ? T(@"Email") : T(@"Username"); }
+NSString *ADIFSourceUserLabel(ADIFSource source) {
+    return source == ADIFSourceClubLog ? T(@"Email") : source == ADIFSourceHRDLog ? T(@"Callsign") : T(@"Username");
+}
 NSString *ADIFSourceSecretLabel(ADIFSource source) {
-    return ADIFSourceCredentialKind(source) == ADIFCredentialAPIKey && source != ADIFSourceTqsl ? T(@"API key") : T(@"Password");
+    return source == ADIFSourceHRDLog ? T(@"Upload code")
+           : ADIFSourceCredentialKind(source) == ADIFCredentialAPIKey && source != ADIFSourceTqsl ? T(@"API key")
+                                                                                                 : T(@"Password");
 }
 
 BOOL ADIFSourceCanTest(ADIFSource source) { return source <= ADIFSourceQRZLogbook || source == ADIFSourceWRL; }
@@ -58,7 +63,7 @@ NSString *ADIFSourceCredentialHelp(ADIFSource source) {
             return T(@"Your QRZ.com username and password. QRZ's callsign lookups (the XML interface) sign in with these, "
                    @"not an API key. Grid, county and zones need a QRZ XML Logbook Data subscription.");
         case ADIFSourceHamQTH:
-            return T(@"Your HamQTH.com username and password (a free account).");
+            return T(@"Your HamQTH.com callsign and password (a free account), for Enrich, New QSO's lookup and Upload to HamQTH.");
         case ADIFSourceQRZLogbook:
             return T(@"The API access key from your QRZ.com Logbook's settings, for Upload to and Import from QRZ.com Logbook. Each "
                    @"logbook (callsign) has its own key; QSOs go to the logbook the key belongs to.");
@@ -77,6 +82,9 @@ NSString *ADIFSourceCredentialHelp(ADIFSource source) {
             return T(@"Only if your TQSL callsign certificate has a password: Upload to LoTW gives it to TQSL with -p. While "
                    @"TQSL runs (seconds), other programs on this Mac can see it in the process list. Leave it empty to "
                    @"have no password, or if TQSL should ask.");
+        case ADIFSourceHRDLog:
+            return T(@"Your HRDLog.net callsign and the upload code HRDLog emailed you when you registered (not your password), for "
+                   @"Upload to HRDLog.net.");
         case ADIFSourceWRL:
             return T(@"The API key from World Radio League (Integrations > Developer API > Generate API key), for Upload to World "
                    @"Radio League. WRL shows it only once, and one key covers your whole account. Your membership must include the "
@@ -826,6 +834,133 @@ static BOOL fakeWrl(NSString *name, NSInteger *status, NSData **body, long long 
     }
     *body = [t dataUsingEncoding:NSUTF8StringEncoding];
     return YES;
+}
+
+// ── HRDLog.net (adif::hrdlogBody) ──
+
+static NSString *const kHrdlogNewEntry = @"https://robot.hrdlog.net/NewEntry.aspx";
+
+void ADIFHrdlogSend(NSString *agent, NSString *adi, NSString *key, void (^done)(const adif::HrdlogReply &reply, NSString *error)) {
+    NSString *call = ADIFSavedAccount(ADIFSourceHRDLog), *code = savedSecret(ADIFSourceHRDLog);
+    if (!call.length || !code.length) {
+        dispatch_async(dispatch_get_main_queue(), ^{ done(adif::HrdlogReply(), T(@"No HRDLog.net callsign and upload code yet. Add them in Settings.")); });
+        return;
+    }
+    if (fakeNet()) {
+        fakeUploadLog(key.length ? [NSString stringWithFormat:@"HRDLOG UPDATE %@ %@", key, adi] : [@"HRDLOG " stringByAppendingString:adi]);
+        NSString *xml = [NSString stringWithFormat:@"<?xml version=\"1.0\"?><HRDLOG xmlns=\"http://xml.hrdlog.com\"><NewEntry><%@>%d</%@></NewEntry></HRDLOG>",
+                                                   key.length ? @"update" : @"insert", [adi containsString:@"<CALL:4>DUPE"] ? 0 : 1, key.length ? @"update" : @"insert"];
+        dispatch_async(dispatch_get_main_queue(), ^{ done(adif::parseHrdlogReply(xml.UTF8String), nil); });
+        return;
+    }
+    NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:kHrdlogNewEntry]];
+    r.HTTPMethod = @"POST";
+    [r setValue:@"application/x-www-form-urlencoded" forHTTPHeaderField:@"Content-Type"];
+    [r setValue:agent forHTTPHeaderField:@"User-Agent"];
+    std::string body = adif::hrdlogBody(call.UTF8String, code.UTF8String, "ADIF Lint", adi.UTF8String ?: "", key.UTF8String ?: "");
+    r.HTTPBody = [NSData dataWithBytes:body.data() length:body.size()];
+    httpExchange(r, ^(NSInteger status, NSData *data, NSString *error) {
+        if (error) done(adif::HrdlogReply(), [@"HRDLog.net: " stringByAppendingString:error]);
+        else if (status != 200) done(adif::HrdlogReply(), [NSString stringWithFormat:T(@"HTTP %ld from HRDLog.net"), (long)status]);
+        else done(adif::parseHrdlogReply(text(data).UTF8String ?: ""), nil);
+    });
+}
+
+// ── HamQTH API v2 (adif::hamqthQsoJson) ──
+
+static NSString *const kHamqthApi = @"https://www.hamqth.com/api/v2/";
+static NSString *hamqthToken;  // kept for its hour, as HamQTH asks
+static NSDate *hamqthTokenUntil;
+
+// The problem's detail (RFC 7807 JSON), or "".
+static NSString *problemDetail(NSData *body) {
+    id obj = body.length ? [NSJSONSerialization JSONObjectWithData:body options:0 error:nil] : nil;
+    id detail = [obj isKindOfClass:NSDictionary.class] ? obj[@"detail"] : nil;
+    NSString *d = [detail isKindOfClass:NSString.class] ? detail : @"";
+    return d.length > 300 ? [[d substringToIndex:300] stringByAppendingString:@"..."] : d;
+}
+
+static void hamqthLogin(NSString *agent, void (^done)(NSString *token, NSString *error)) {
+    if (hamqthToken && [hamqthTokenUntil timeIntervalSinceNow] > 60) {
+        done(hamqthToken, nil);
+        return;
+    }
+    NSString *call = ADIFSavedAccount(ADIFSourceHamQTH), *password = savedSecret(ADIFSourceHamQTH);
+    if (!call.length || !password.length) {
+        done(nil, T(@"No HamQTH account yet. Add it in Settings."));
+        return;
+    }
+    if (fakeNet()) {
+        hamqthToken = @"fake";
+        hamqthTokenUntil = [NSDate dateWithTimeIntervalSinceNow:3600];
+        done(hamqthToken, nil);
+        return;
+    }
+    NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:[kHamqthApi stringByAppendingString:@"login"]]];
+    r.HTTPMethod = @"POST";
+    [r setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    [r setValue:agent forHTTPHeaderField:@"User-Agent"];
+    r.HTTPBody = [NSJSONSerialization dataWithJSONObject:@{@"callsign" : call, @"password" : password} options:0 error:nil];
+    httpExchangeHeaders(r, ^(NSInteger status, NSData *body, NSDictionary *headers, NSString *error) {
+        if (error) {
+            done(nil, [@"HamQTH: " stringByAppendingString:error]);
+            return;
+        }
+        id obj = status == 200 && body ? [NSJSONSerialization JSONObjectWithData:body options:0 error:nil] : nil;
+        id token = [obj isKindOfClass:NSDictionary.class] ? obj[@"token"] : nil, expires = token ? obj[@"expiresIn"] : nil;
+        if ([token isKindOfClass:NSString.class] && [token length]) {
+            hamqthToken = token;
+            hamqthTokenUntil = [NSDate dateWithTimeIntervalSinceNow:[expires isKindOfClass:NSNumber.class] ? [expires doubleValue] : 3600];
+            done(token, nil);
+            return;
+        }
+        long long retry = 0;
+        for (NSString *h in headers)
+            if ([h caseInsensitiveCompare:@"Retry-After"] == NSOrderedSame) retry = [headers[h] longLongValue];
+        done(nil, status == 401   ? T(@"HamQTH did not accept the callsign and password: check them in Settings.")
+                  : status == 429 ? TF(@"HamQTH refuses sign-in for a while after wrong passwords: try again in {seconds} seconds.",
+                                      @{@"seconds" : @(retry)})
+                                  : [NSString stringWithFormat:T(@"HTTP %ld from HamQTH"), (long)status]);
+    });
+}
+
+void ADIFHamqthSendQso(NSString *agent, NSString *json, BOOL replace, void (^done)(NSInteger status, NSString *detail, NSString *error)) {
+    __block BOOL retried = NO;
+    __block void (^attempt)(void);
+    attempt = ^{
+        hamqthLogin(agent, ^(NSString *token, NSString *error) {
+            if (error) {
+                done(0, nil, error);
+                attempt = nil;
+                return;
+            }
+            if (fakeNet()) {
+                fakeUploadLog([NSString stringWithFormat:@"HAMQTH %@ %@", replace ? @"PUT" : @"POST", json]);
+                NSInteger status = [json containsString:@"\"call\":\"DUPE\""] && !replace ? 409 : replace ? 200 : 201;
+                dispatch_async(dispatch_get_main_queue(), ^{ done(status, status == 409 ? @"The QSO is in the log already." : @"", nil); });
+                attempt = nil;
+                return;
+            }
+            NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:[kHamqthApi stringByAppendingString:@"log/qso"]]];
+            r.HTTPMethod = replace ? @"PUT" : @"POST";
+            [r setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+            [r setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+            [r setValue:agent forHTTPHeaderField:@"User-Agent"];
+            [r setValue:[@"Bearer " stringByAppendingString:token] forHTTPHeaderField:@"Authorization"];
+            r.HTTPBody = [json dataUsingEncoding:NSUTF8StringEncoding];
+            httpExchange(r, ^(NSInteger status, NSData *body, NSString *err) {
+                if (!err && status == 401 && !retried) {  // the token ran out: sign in again, once
+                    retried = YES;
+                    hamqthToken = nil;
+                    attempt();
+                    return;
+                }
+                attempt = nil;
+                done(status, problemDetail(body), err ? [@"HamQTH: " stringByAppendingString:err] : nil);
+            });
+        });
+    };
+    attempt();
 }
 
 static NSString *fakeWrlFile;  // test mode: the last file sent, for the import's counts

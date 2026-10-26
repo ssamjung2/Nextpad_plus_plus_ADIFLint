@@ -4110,6 +4110,43 @@ static void testWrl() {
           "WRL errors in words");
 }
 
+static void testHrdlogHamqth() {
+    std::string text = "h <EOH>\n<CALL:4>K1AB <QSO_DATE:8>20261025 <TIME_ON:4>1200 <BAND:3>20m <MODE:3>USB <NAME:7>Jo \"Q\" <MY_SIG:4>POTA "
+                       "<STATION_CALLSIGN:4>KW9D <HRDLOG_QSO_UPLOAD_STATUS:1>Y <HAMQTH_QSO_UPLOAD_STATUS:1>Y <EOR>\n";
+    LintOptions opt;
+    opt.buildModel = true;
+    LintResult r = lint(text, opt);
+    int g = records(text, r.model).front().group;
+    // HRDLog: the form, as HRDLOG-net-library's HrdProtocol.cs builds it; its replies.
+    CHECK(hrdlogBody("KW9D", "a1b2", "ADIF Lint", "<CALL:4>K1AB <EOR>") == "Callsign=KW9D&Code=a1b2&App=ADIF%20Lint&ADIFData=%3CCALL%3A4%3EK1AB%20%3CEOR%3E" &&
+              hrdlogBody("KW9D", "c", "A", "x", "<CALL:4>K1AB <EOR>").find("&Cmd=UPDATE&ADIFKey=%3CCALL") != std::string::npos,
+          "HRDLog form: %s", hrdlogBody("KW9D", "a1b2", "ADIF Lint", "<CALL:4>K1AB <EOR>").c_str());
+    CHECK(qsoKeyAdi(text, r.model, g) == "<CALL:4>K1AB <QSO_DATE:8>20261025 <TIME_ON:4>1200 <BAND:3>20m <MODE:3>USB <EOR>", "the QSO's key: %s",
+          qsoKeyAdi(text, r.model, g).c_str());
+    const char *ns = "<?xml version=\"1.0\"?><HRDLOG xmlns=\"http://xml.hrdlog.com\"><NewEntry>";
+    HrdlogReply ok = parseHrdlogReply(std::string(ns) + "<insert>1</insert></NewEntry></HRDLOG>"),
+                dupe = parseHrdlogReply(std::string(ns) + "<insert>0</insert></NewEntry></HRDLOG>"),
+                user = parseHrdlogReply(std::string(ns) + "<error>Unknown user</error></NewEntry></HRDLOG>"),
+                gone = parseHrdlogReply("<x:HRDLOG xmlns:x=\"http://xml.hrdlog.com\"><x:NewEntry><x:error>Unable to find QSO</x:error></x:NewEntry></x:HRDLOG>"),
+                upd = parseHrdlogReply(std::string(ns) + "<update>1</update></NewEntry></HRDLOG>");
+    CHECK(ok.ok && !ok.duplicate && dupe.duplicate && !dupe.ok && user.unknownUser && !user.ok && gone.notFound && upd.ok &&
+              !parseHrdlogReply("<html>busy</html>").ok,
+          "HRDLog replies");
+    // HamQTH: the fields it stores, lower-case, the band in capitals; with replace, the original (USB as SSB).
+    std::string post = hamqthQsoJson(text, r.model, g, false), put = hamqthQsoJson(text, r.model, g, true);
+    CHECK(post == "{\"callsign\":\"KW9D\",\"qso\":{\"call\":\"K1AB\",\"qso_date\":\"20261025\",\"time_on\":\"1200\",\"band\":\"20M\",\"mode\":\"USB\","
+                  "\"name\":\"Jo \\\"Q\\\"\"}}" &&
+              put.find(",\"original\":{\"call\":\"K1AB\",\"qso_date\":\"20261025\",\"time_on\":\"1200\",\"band\":\"20M\",\"mode\":\"SSB\"}}") !=
+                  std::string::npos,
+          "HamQTH JSON: %s / %s", post.c_str(), put.c_str());
+    CHECK(jsonQuote("a\tb\x01\xc3\xa9") == "\"a\\tb\\u0001\xc3\xa9\"", "JSON strings: %s", jsonQuote("a\tb\x01").c_str());
+    // Both mark M when an uploaded QSO changes, as QRZ.com and Club Log do.
+    std::string m = applyTextEdits(text, markModified(text, r.model, {g}, LengthUnit::Characters, true));
+    CHECK(m.find("<HRDLOG_QSO_UPLOAD_STATUS:1>M") != std::string::npos && m.find("<HAMQTH_QSO_UPLOAD_STATUS:1>M") != std::string::npos &&
+              std::string(uploadServiceName(UploadService::HRDLog)) == "HRDLog.net" && recordAdi(text, r.model, g).find("HRDLOG_") == std::string::npos,
+          "HRDLog and HamQTH statuses");
+}
+
 static void testContestDefs() {
     using F = std::vector<std::pair<std::string, std::string>>;
     auto find = [](const F &f, const char *name) {
@@ -4485,6 +4522,7 @@ int main(int argc, char **argv) {
     testContestDefs();
     testTqslCertificates();
     testWrl();
+    testHrdlogHamqth();
     testSolar();
     testProjections();
     testPalettes();

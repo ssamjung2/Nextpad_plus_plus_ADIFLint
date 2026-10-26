@@ -777,6 +777,8 @@ int main(int argc, char **argv) {
             {"Upload to Club Log...", "QSL Sync (Upload, Confirmations)...", @"Club Log"},
             {"Upload to eQSL...", "QSL Sync (Upload, Confirmations)...", @"eQSL"},
             {"Upload to World Radio League...", "QSL Sync (Upload, Confirmations)...", @"World Radio League"},
+            {"Upload to HRDLog.net...", "QSL Sync (Upload, Confirmations)...", @"HRDLog.net"},
+            {"Upload to HamQTH...", "QSL Sync (Upload, Confirmations)...", @"HamQTH"},
             {"Enrich from QRZ.com...", "Enrich...", @"QRZ.com"},
             {"Enrich from HamQTH...", "Enrich...", @"HamQTH"},
             {"Enrich from Country Data...", "Enrich...", @"Country Data (offline)"},
@@ -2277,6 +2279,9 @@ int main(int argc, char **argv) {
                 CHECK(eq && test && test.hidden, "eQSL has no sign-in test button");
                 NSView *ql = viewWithIdentifier(setw.contentView, @"settings.source.3");
                 CHECK(ql && !findButton(ql, @"Test Sign-In").hidden, "QRZ Logbook key can be tested");
+                SettingsRow hrd = settingsRow(setw, 9);
+                CHECK(hrd.title && [hrd.title.stringValue isEqualToString:@"HRDLog.net"] && [hrd.user.placeholderString isEqualToString:@"Callsign"],
+                      "HRDLog asks for a callsign and upload code");
                 openSettingsGroup(setw, @"settings.source.8");
                 NSView *wrl = viewWithIdentifier(setw.contentView, @"settings.source.8");
                 NSButton *wtest = wrl ? findButton(wrl, @"Test Sign-In") : nil;
@@ -2446,6 +2451,57 @@ int main(int argc, char **argv) {
                 [wl orderOut:nil];
             }
 
+            // HRDLog.net and HamQTH: one QSO per request; the duplicate counts as already in the log.
+            run("Upload to HRDLog.net...");
+            NSWindow *hr = windowTitled(@"Upload to HRDLog.net");
+            if (hr) {
+                [findButton(hr.contentView, [NSString stringWithFormat:@"Upload %zu QSOs", records - 1]) performClick:nil];
+                waitDone(hr);
+                log = uploadsLog();
+                CHECK(count(log, "HRDLOG <CALL:") == records - 1 && count(H.doc, "<HRDLOG_QSO_UPLOAD_STATUS:1>Y") == records - 1 &&
+                          status(hr).find("Sent " + std::to_string(records - 1) + " of " + std::to_string(records - 1) + " to HRDLog.net") == 0,
+                      "HRDLog: %s", status(hr).c_str());
+                [hr orderOut:nil];
+            }
+            run("Upload to HamQTH...");
+            NSWindow *hq = windowTitled(@"Upload to HamQTH");
+            if (hq) {
+                [findButton(hq.contentView, [NSString stringWithFormat:@"Upload %zu QSOs", records - 1]) performClick:nil];
+                waitDone(hq);
+                log = uploadsLog();
+                CHECK(count(log, "HAMQTH POST {") == records - 1 && count(log, "HAMQTH POST {\"callsign\":\"KW9D\",\"qso\":{\"call\":\"K1AB\"") == 1 &&
+                          log.find("\"original\"") == std::string::npos &&
+                          count(H.doc, "<HAMQTH_QSO_UPLOAD_STATUS:1>Y") == records - 1,
+                      "HamQTH: %s", status(hq).c_str());
+                [hq.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(hq.contentView) == 0, "HamQTH controls do not overlap");
+                snapshot(hq, "upload-hamqth");
+                // An edit makes both M; the next upload replaces their copies.
+                size_t k2 = H.doc.find("<CALL:4>K1AB");
+                size_t v = H.doc.find("<MY_STATE:2>", k2) + 12;
+                H.doc.replace(v, 2, H.doc.substr(v, 2) == "KS" ? "MO" : "KS");
+                notify(SCN_MODIFIED, 0, (intptr_t)v, SC_MOD_INSERTTEXT | SC_PERFORMED_USER);
+                pump(1.0);
+                std::string w2 = H.doc.substr(k2, H.doc.find("<EOR>", k2) - k2);
+                CHECK(w2.find("<HRDLOG_QSO_UPLOAD_STATUS:1>M") != std::string::npos && w2.find("<HAMQTH_QSO_UPLOAD_STATUS:1>M") != std::string::npos,
+                      "an edit marks HRDLog and HamQTH M:\n%s", w2.c_str());
+                [findButton(hq.contentView, @"Refresh") performClick:nil];
+                [findButton(hq.contentView, @"Upload 1 QSO") performClick:nil];
+                waitDone(hq);
+                CHECK(count(uploadsLog(), "HAMQTH PUT {") == 1 && uploadsLog().find(",\"original\":{\"call\":\"K1AB\"") != std::string::npos &&
+                          status(hq).find("Sent 1 of 1") == 0,
+                      "HamQTH replaces the changed QSO: %s", status(hq).c_str());
+                [hq orderOut:nil];
+                run("Upload to HRDLog.net...");
+                if (NSWindow *hr2 = windowTitled(@"Upload to HRDLog.net")) {
+                    [findButton(hr2.contentView, @"Refresh") performClick:nil];
+                    [findButton(hr2.contentView, @"Upload 1 QSO") performClick:nil];
+                    waitDone(hr2);
+                    CHECK(count(uploadsLog(), "HRDLOG UPDATE <CALL:4>K1AB <QSO_DATE:8>") == 1, "HRDLog updates the changed QSO: %s", status(hr2).c_str());
+                    [hr2 orderOut:nil];
+                }
+            }
+
             // LoTW through a stand-in TQSL that records its arguments.
             NSString *script = [tmp stringByAppendingPathComponent:@"tqsl"];
             NSString *argsFile = [tmp stringByAppendingPathComponent:@"tqsl-args.txt"];
@@ -2593,7 +2649,7 @@ int main(int argc, char **argv) {
             runItem("QSL Sync (Upload, Confirmations)...");
             NSWindow *sync = windowTitled(@"QSL Sync");
             NSTableView *syncTable = sync ? findTable(sync.contentView) : nil;
-            CHECK(syncTable && [syncTable.dataSource numberOfRowsInTableView:syncTable] == 5 && [cell(syncTable, 3, @"0") isEqualToString:@"eQSL"] &&
+            CHECK(syncTable && [syncTable.dataSource numberOfRowsInTableView:syncTable] == 7 && [cell(syncTable, 3, @"0") isEqualToString:@"eQSL"] &&
                       [cell(syncTable, 3, @"4") isEqualToString:@(std::to_string(records - 1).c_str())] && [cell(syncTable, 2, @"6") isEqualToString:@"—"] &&
                       [cell(syncTable, 1, @"8") isEqualToString:@"never"],
                   "QSL Sync: eQSL uploaded %s, Club Log confirmations %s, LoTW last download %s", cell(syncTable, 3, @"4").UTF8String,

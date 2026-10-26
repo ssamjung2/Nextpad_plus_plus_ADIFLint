@@ -45,8 +45,8 @@ Log and eQSL.
   confirmation, count or year, with a palette tested for colour blindness and a red one for
   night use.
 - **Keeps QSL services in sync.** Import your QSOs and confirmations from LoTW, QRZ.com
-  Logbook and eQSL; upload to QRZ.com Logbook, LoTW (TQSL), Club Log, eQSL and World Radio
-  League. Every window
+  Logbook and eQSL; upload to QRZ.com Logbook, LoTW (TQSL), Club Log, eQSL, World Radio
+  League, HRDLog.net and HamQTH. Every window
   lists exactly what would be sent or changed, and nothing happens until you say so.
 - **Edits the whole log safely.** A **Log Table** that edits like a spreadsheet, **Bulk
   Edit**, **Time Shift**, **Remove Duplicates** and **Compare and Merge Logs**, each
@@ -171,7 +171,7 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
 - **Enrich** missing fields from QRZ.com, HamQTH or offline country data.
 - **QSL Sync** and **Upload** to QRZ.com Logbook, LoTW (through TQSL, with a pre-flight
   check against your Station Location, and the certificate each station profile signs
-  with), Club Log, eQSL and World Radio League, keeping the ADIF upload-status
+  with), Club Log, eQSL, World Radio League, HRDLog.net and HamQTH, keeping the ADIF upload-status
   fields up to date.
 
 **Languages**
@@ -268,7 +268,7 @@ tab); Settings suggests some.
 | Map (Grids, DXCC, Parks)… | The operating map: in History the squares, countries, US states and counties, CQ and ITU zones, POTA parks and IOTA groups worked, with awards progress; in Live, DX Chase and POTA the stations spotted now and which your log needs, with a watch list; filters by band, mode, date, confirmation and place; four projections, including a globe you turn by dragging; terrain, flags, space weather, the aurora, the NCDXF beacons, day and night and the grey line; PNG export |
 | Import… | From LoTW, QRZ.com Logbook or eQSL (your QSOs and confirmations), a CSV file, or WSJT-X's log |
 | Export… | Activation logs for POTA, WWFF or SOTA, CSV, a Cabrillo contest log, or QSL labels (PDF) |
-| QSL Sync (Upload, Confirmations)… | Each service at a glance; upload to QRZ.com Logbook, LoTW (TQSL), Club Log, eQSL or World Radio League (list what would be sent, upload when you say so, mark it uploaded) and download confirmations |
+| QSL Sync (Upload, Confirmations)… | Each service at a glance; upload to QRZ.com Logbook, LoTW (TQSL), Club Log, eQSL, World Radio League, HRDLog.net or HamQTH (list what would be sent, upload when you say so, mark it uploaded) and download confirmations |
 | Enrich… | Fill missing station details from QRZ.com or HamQTH, or DXCC, zones and continent from country data (offline) |
 | Monitor (WSJT-X, N1MM, Loggers)… | Add the QSOs WSJT-X, JS8Call, N1MM Logger+, GridTracker and other programs log to a log you choose, as they log them |
 | Record Panel | Show or hide the docked record table |
@@ -296,7 +296,8 @@ your Mac.
 | Service | Address | When | What is sent |
 |---|---|---|---|
 | QRZ.com XML | `xmldata.qrz.com` | Enrich (QRZ.com); New QSO lookup set to QRZ.com; Test Sign-In | Your username and password (POST), then the calls looked up |
-| HamQTH | `www.hamqth.com` | Enrich (HamQTH); New QSO lookup set to HamQTH; Test Sign-In | Your username and password, then the calls looked up |
+| HamQTH | `www.hamqth.com` | Enrich (HamQTH); New QSO lookup set to HamQTH; Upload (HamQTH); Test Sign-In | Your username and password, then the calls looked up or the QSOs you upload |
+| HRDLog.net | `robot.hrdlog.net` | Upload (HRDLog.net) | Your callsign, upload code and the QSOs you upload |
 | LoTW | `lotw.arrl.org` | Import (LoTW); Test Sign-In | Your username and password and the log's date range |
 | QRZ.com Logbook | `logbook.qrz.com` | Upload and Import (QRZ.com Logbook); Test Sign-In | Your API key, the log's date range and the QSOs you upload |
 | Club Log | `clublog.org` | Upload (Club Log) | Your email, Application Password, API key and the QSOs you upload |
@@ -379,8 +380,9 @@ and the release steps.
   the country data's place for its call, often the middle of the country.
 - No SOTA spots: the SOTA API's terms don't allow software written with AI tools without
   the SOTA team's approval. SOTA tracking and export work offline.
-- Club Log and World Radio League offer no documented way to download QSOs or
-  confirmations, so there is no Import from them. eQSL documents only its InBox (the eQSLs others sent you), so Import
+- Club Log, World Radio League, HRDLog.net and HamQTH offer no documented way to download
+  QSOs or confirmations, so there is no Import from them. HAMLOG.online publishes no API for
+  other programs, so ADIF Lint doesn't upload to it. eQSL documents only its InBox (the eQSLs others sent you), so Import
   from eQSL offers the QSOs your log lacks without ticking them: they are the other
   station's records.
 - ADX (XML) files are not handled.

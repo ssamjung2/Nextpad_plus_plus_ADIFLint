@@ -19,6 +19,7 @@
 //     8 none processed (duplicates or out of date range), 9 some ignored.
 //   World Radio League API (its OpenAPI 3.1 description "World Radio League API"
 //     1.1.0 at api.worldradioleague.com/v1/openapi.json, read 2026-10-25): see WrlImport.
+//   HRDLog.net: see hrdlogBody. HamQTH API v2: see hamqthQsoJson.
 //   ADIF 3.1.7: QSO_Upload_Status Y uploaded, N do not upload, M modified since
 //     upload; QSL_Sent Y, N, R requested, Q queued, I ignore or invalid.
 #pragma once
@@ -32,16 +33,18 @@
 
 namespace adif {
 
-enum class UploadService { QRZ, LoTW, ClubLog, EQSL, WRL };
+enum class UploadService { QRZ, LoTW, ClubLog, EQSL, WRL, HRDLog, HamQTH };
 
 // ADIF has no fields for World Radio League, so its are ADIF Lint's own (APP_ADIFLINT_WRL_...),
 // used as QSO_Upload_Status and its date are.
 struct UploadFields {
-    const char *status;  // QRZCOM_QSO_UPLOAD_STATUS, LOTW_QSL_SENT, CLUBLOG_QSO_UPLOAD_STATUS, EQSL_QSL_SENT, APP_ADIFLINT_WRL_QSO_UPLOAD_STATUS
-    const char *date;    // QRZCOM_QSO_UPLOAD_DATE, LOTW_QSLSDATE, CLUBLOG_QSO_UPLOAD_DATE, EQSL_QSLSDATE, APP_ADIFLINT_WRL_QSO_UPLOAD_DATE
+    const char *status;  // QRZCOM_QSO_UPLOAD_STATUS, LOTW_QSL_SENT, CLUBLOG_QSO_UPLOAD_STATUS, EQSL_QSL_SENT,
+                         // APP_ADIFLINT_WRL_QSO_UPLOAD_STATUS, HRDLOG_QSO_UPLOAD_STATUS, HAMQTH_QSO_UPLOAD_STATUS
+    const char *date;    // the date each was sent: QRZCOM_QSO_UPLOAD_DATE, LOTW_QSLSDATE...
 };
 UploadFields uploadFields(UploadService s);
-const char *uploadServiceName(UploadService s);  // "QRZ.com Logbook", "LoTW", "Club Log", "eQSL", "World Radio League"
+// "QRZ.com Logbook", "LoTW", "Club Log", "eQSL", "World Radio League", "HRDLog.net", "HamQTH"
+const char *uploadServiceName(UploadService s);
 
 struct UploadItem {
     int group = -1, record = 0;
@@ -49,7 +52,7 @@ struct UploadItem {
     std::string status;   // the service's status field now
     bool done = false;    // already uploaded (or sent), by its status
     bool skip = false;    // marked not to upload (N, or I for QSL services)
-    bool replace = false; // QRZ: modified since upload (M): send with OPTION=REPLACE
+    bool replace = false; // modified since upload (M): QRZ.com, HRDLog and HamQTH replace their copy
     std::string problem;  // why it cannot be sent (missing CALL, QSO_DATE...); empty when fine
 };
 // Every record, with its upload state for the service.
@@ -127,6 +130,34 @@ bool wrlImportAllIn(const WrlImport &imp, size_t sent);
 // (0: no bulk import, which Upload uses; -1 unknown) and defaultLogbook.resolution (configured,
 // sole, ambiguous or none: where an import without a logbook goes).
 std::string wrlKeySummary(std::string_view tier, long long importPerDay, std::string_view resolution);
+// HRDLog.net: one QSO per form POST to https://robot.hrdlog.net/NewEntry.aspx of Callsign, Code
+// (the upload code HRDLog emails when you register, not the password), App and ADIFData; an update
+// adds Cmd=UPDATE and ADIFKey, the QSO as the log has it (CALL, QSO_DATE and TIME_ON at least).
+// The reply is XML in the namespace http://xml.hrdlog.com: NewEntry holding insert or update (the
+// records stored, 0 for a duplicate) or error ("Unknown user" for a wrong callsign or code). From
+// HRDLog's operator IW1QLH's HRDLOG-net-library (src/HRDlibrary/HrdProtocol.cs, 2023-06-17, read
+// 2026-10-26); hrdlog.net publishes no other description.
+std::string hrdlogBody(std::string_view callsign, std::string_view code, std::string_view app, std::string_view adi,
+                       std::string_view key = {});
+// The QSO's key for an update: CALL, QSO_DATE, TIME_ON, BAND and MODE as ADI.
+std::string qsoKeyAdi(std::string_view text, const DocModel &m, int group);
+struct HrdlogReply {
+    bool ok = false, duplicate = false, unknownUser = false, notFound = false;
+    std::string message;  // the error's text
+};
+HrdlogReply parseHrdlogReply(std::string_view xml);
+
+// HamQTH API v2 (www.hamqth.com/developers.php and its OpenAPI document "HamQTH API 2", read
+// 2026-10-26): POST /api/v2/login {"callsign", "password"} gives a token for an hour (401 a wrong
+// password; 429 with Retry-After after several). POST /api/v2/log/qso adds one QSO, as
+// {"callsign": the log when not your own, "qso": {lower-case ADIF names: ADIF values}}: 201
+// stored, 409 already in the log, 422 an invalid field, 403 a callsign you don't manage. PUT
+// with "original" (call, qso_date, time_on, band, mode as the log has them) replaces one; 404
+// when it isn't there. USB and LSB are stored as SSB. Errors carry RFC 7807 problem JSON.
+// The request for one record: its fields HamQTH stores, and with `replace` the original as well.
+std::string hamqthQsoJson(std::string_view text, const DocModel &m, int group, bool replace);
+std::string jsonQuote(std::string_view s);  // a JSON string literal
+
 // An API error in words: what its code means (Error.code), then WRL's own message and hint.
 // `retryAfter`: seconds from a 429's Retry-After, or 0.
 std::string wrlErrorText(int httpStatus, std::string_view code, std::string_view message, std::string_view hint, long long retryAfter = 0);
@@ -139,9 +170,9 @@ std::vector<TextEdit> markUploaded(std::string_view text, const DocModel &m, con
 // QSL_SENT, QSLRDATE, QSLSDATE and their _VIA fields, the LOTW_, EQSL_, DCL_,
 // QRZCOM_, CLUBLOG_, HRDLOG_, HAMLOGEU_ and HAMQTH_ fields, and APP_ fields.
 bool isTrackingField(std::string_view name);
-// For these records, QRZCOM_QSO_UPLOAD_STATUS and CLUBLOG_QSO_UPLOAD_STATUS of
+// For these records, QRZCOM_, CLUBLOG_, HRDLOG_ and HAMQTH_QSO_UPLOAD_STATUS of
 // Y become M: ADIF's "modified since being uploaded", so the next upload sends
-// the change. (LoTW and eQSL have no such status.)
+// the change. (LoTW and eQSL have no such status; WRL skips QSOs it has.)
 std::vector<TextEdit> markModified(std::string_view text, const DocModel &m, const std::vector<int> &groups,
                                    LengthUnit unit, bool utf8);
 // `edits` plus those of `extra` that don't overlap any of them; sorted.

@@ -1,5 +1,6 @@
 // Network work: QRZ.com XML and HamQTH callbook clients, the LoTW confirmation
-// report, POTA spots, uploads to QRZ.com Logbook, Club Log, eQSL and World Radio League, and
+// report, POTA spots, uploads to QRZ.com Logbook, Club Log, eQSL, World Radio League, HRDLog.net
+// and HamQTH, and
 // Keychain storage for every service's credentials.
 //
 // Credentials are kept in the login Keychain (generic password items named
@@ -28,10 +29,11 @@ typedef NS_ENUM(NSInteger, ADIFSource) {
     ADIFSourceClubLogKey = 5,  // upload: Club Log API key for this program
     ADIFSourceEQSL = 6,        // upload: eQSL username and password
     ADIFSourceTqsl = 7,        // upload: the TQSL callsign certificate's password, if it has one
-    ADIFSourceWRL = 8,         // upload: World Radio League API key
-    ADIFSourceCountryData = 9, // Enrich only: AD1C's country file, offline (no account); 8 before 1.7
+    ADIFSourceWRL = 8,          // upload: World Radio League API key
+    ADIFSourceHRDLog = 9,       // upload: HRDLog.net callsign and upload code
+    ADIFSourceCountryData = 10, // Enrich only: AD1C's country file, offline (no account); 8 before 1.7
 };
-static const NSInteger ADIFSourceCount = 9;  // the sources with an account in Settings
+static const NSInteger ADIFSourceCount = 10;  // the sources with an account in Settings
 
 // What a source signs in with.
 typedef NS_ENUM(NSInteger, ADIFCredentialKind) {
@@ -93,6 +95,15 @@ void ADIFEqslUpload(NSString *agent, NSString *adiFile, NSString *fileName, void
 void ADIFWrlStartImport(NSString *agent, void (^done)(const adif::WrlImport &imp, NSString *error));
 void ADIFWrlUploadFile(NSString *agent, NSString *url, NSString *adiFile, void (^done)(NSString *error));
 void ADIFWrlImportStatus(NSString *agent, NSString *importId, void (^done)(const adif::WrlImport &imp, long long retryAfter, NSString *error));
+
+// HRDLog.net (adif::hrdlogBody), with the saved callsign and upload code: one QSO inserted, or
+// with `key` (adif::qsoKeyAdi) updated. Test mode: noted in uploads.log; <CALL:4>DUPE is a duplicate.
+void ADIFHrdlogSend(NSString *agent, NSString *adi, NSString *key, void (^done)(const adif::HrdlogReply &reply, NSString *error));
+// HamQTH API v2 (adif::hamqthQsoJson): one QSO, POST or with `replace` PUT, signed in with the saved
+// HamQTH account (the token kept for its hour, and signed in again once if it has run out).
+// `status` is the HTTP status and `detail` the problem's detail. Test mode: noted in uploads.log;
+// a POST of CALL DUPE is 409.
+void ADIFHamqthSendQso(NSString *agent, NSString *json, BOOL replace, void (^done)(NSInteger status, NSString *detail, NSString *error));
 
 // ── Imports, spots and data downloads (completion on the main queue) ────────
 

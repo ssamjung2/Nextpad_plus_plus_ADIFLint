@@ -28,7 +28,7 @@ using namespace adifhost;
 
 namespace {
 
-const size_t kServices = 5;
+const size_t kServices = 7;
 // How long TQSL may take to sign and upload (ADIFLINT_TEST_TQSL_SECONDS overrides it for tests).
 double tqslSeconds() {
     const char *t = getenv("ADIFLINT_TEST_TQSL_SECONDS");
@@ -53,6 +53,9 @@ struct Upload {
         size_t row;
         int group;
         std::string call, date, time, adi;
+        std::string key;   // HRDLog: the QSO as the log has it, to update it (adif::qsoKeyAdi)
+        std::string json;  // HamQTH: the request (adif::hamqthQsoJson)
+        bool replace = false;  // HRDLog and HamQTH: update their copy (M, or sent again)
         bool ok = false;
     };
     std::vector<Sent> sent;
@@ -213,6 +216,12 @@ NSString *accountLine(adif::UploadService s) {
         case adif::UploadService::EQSL:
             return saved(ADIFSourceEQSL) ? [NSString stringWithFormat:T(@"%@ (saved in your Keychain)"), ADIFSavedAccount(ADIFSourceEQSL)]
                                          : T(@"No eQSL account yet: add it in Settings.");
+        case adif::UploadService::HRDLog:
+            return saved(ADIFSourceHRDLog) ? [NSString stringWithFormat:T(@"%@ (upload code saved in your Keychain)"), ADIFSavedAccount(ADIFSourceHRDLog)]
+                                           : T(@"No HRDLog.net callsign and upload code yet: add them in Settings.");
+        case adif::UploadService::HamQTH:
+            return saved(ADIFSourceHamQTH) ? [NSString stringWithFormat:T(@"%@ (saved in your Keychain)"), ADIFSavedAccount(ADIFSourceHamQTH)]
+                                           : T(@"No HamQTH account yet: add it in Settings.");
         case adif::UploadService::WRL:
             return saved(ADIFSourceWRL) ? T(@"World Radio League API key saved in your Keychain; QSOs go to your default logbook")
                                         : T(@"No World Radio League API key yet: add it in Settings.");
@@ -467,9 +476,71 @@ void recordResult(Upload &u, size_t i, bool ok, const std::string &text, int sev
     [u.w setRowSeverity:severity row:(NSInteger)u.sent[i].row];
 }
 
-// QRZ and eQSL take one QSO per request (the QRZ Logbook API's INSERT "is a single
-// record operation"; it has no batch insert, checked 2026-10-10). QRZ uploads go
-// three at a time; eQSL's one after another.
+// HRDLog: one QSO; an update of one HRDLog doesn't have ("Unable to find QSO") is sent as new.
+void hrdlogSend(Upload &u, size_t i, bool update, void (^later)(void)) {
+    Upload *pu = &u;
+    unsigned run = u.run;
+    ADIFHrdlogSend(agent(), ADIFString(u.sent[i].adi), update ? ADIFString(u.sent[i].key) : nil, ^(const adif::HrdlogReply &r, NSString *error) {
+        if (pu->run != run) return;
+        if (error) {
+            recordResult(*pu, i, false, trf("not sent: {why}", {{"why", ADIFStd(error)}}), 2);
+            pu->fatal = trf("Stopped: {why}.", {{"why", ADIFStd(error)}});
+        } else if (r.notFound && update) {
+            hrdlogSend(*pu, i, false, later);
+            return;
+        } else if (r.ok) {
+            recordResult(*pu, i, true, update ? tr("replaced") : tr("uploaded"), 3);
+        } else if (r.duplicate) {
+            recordResult(*pu, i, true, tr("already in the log"), 3);
+        } else if (r.unknownUser) {
+            recordResult(*pu, i, false, tr("refused"), 2);
+            pu->fatal = tr("HRDLog.net doesn't know this callsign and upload code: check them in Settings.");
+        } else {
+            recordResult(*pu, i, false, trf("rejected: {why}", {{"why", r.message.empty() ? tr("no result") : r.message}}), 2);
+        }
+        later();
+    });
+}
+
+// HamQTH: one QSO; a replacement of one HamQTH doesn't have (404) is sent as new.
+void hamqthSend(Upload &u, size_t i, bool replace, void (^later)(void)) {
+    Upload *pu = &u;
+    unsigned run = u.run;
+    std::string json = u.sent[i].json;
+    if (!replace) {  // a POST has no "original"
+        size_t at = json.rfind(",\"original\":");
+        if (at != std::string::npos) json = json.substr(0, at) + "}";
+    }
+    ADIFHamqthSendQso(agent(), ADIFString(json), replace, ^(NSInteger status, NSString *detail, NSString *error) {
+        if (pu->run != run) return;
+        std::string why = ADIFStd(detail);
+        if (error) {
+            recordResult(*pu, i, false, trf("not sent: {why}", {{"why", ADIFStd(error)}}), 2);
+            pu->fatal = trf("Stopped: {why}.", {{"why", ADIFStd(error)}});
+        } else if (status == 404 && replace) {
+            hamqthSend(*pu, i, false, later);
+            return;
+        } else if (status == 201 || status == 200) {
+            recordResult(*pu, i, true, replace ? tr("replaced") : tr("uploaded"), 3);
+        } else if (status == 409) {
+            recordResult(*pu, i, true, tr("already in the log"), 3);
+        } else if (status == 403) {
+            recordResult(*pu, i, false, trf("refused: {why}", {{"why", why.empty() ? tr("the log of a callsign you don't manage on HamQTH") : why}}), 2);
+        } else if (status == 401) {
+            recordResult(*pu, i, false, tr("refused"), 2);
+            pu->fatal = tr("HamQTH did not accept the sign-in: check the callsign and password in Settings.");
+        } else {
+            recordResult(*pu, i, false,
+                         why.empty() ? trf("rejected (HTTP {status})", {{"status", std::to_string((long)status)}}) : trf("rejected: {why}", {{"why", why}}),
+                         2);
+        }
+        later();
+    });
+}
+
+// QRZ, eQSL, HRDLog and HamQTH take one QSO per request (the QRZ Logbook API's INSERT "is a
+// single record operation"; it has no batch insert, checked 2026-10-10). QRZ uploads go three
+// at a time; the others one after another.
 void sendNext(Upload &u) {
     if (u.cancelled || !u.fatal.empty() || u.next >= u.sent.size()) {
         if (u.inFlight) return;  // the last answers are still coming
@@ -521,6 +592,10 @@ void sendNext(Upload &u) {
             }
             later();
         });
+    } else if (u.service == adif::UploadService::HRDLog) {
+        hrdlogSend(u, i, u.sent[i].replace, later);
+    } else if (u.service == adif::UploadService::HamQTH) {
+        hamqthSend(u, i, u.sent[i].replace, later);
     } else {
         std::string file = u.sent[i].adi;
         ADIFEqslUpload(agent(), ADIFString(file), @"adiflint.adi", ^(NSString *reply, NSString *error) {
@@ -581,6 +656,9 @@ void startUpload(Upload &u) {
             s.date = i.date;
             s.time = i.time;
             s.adi = adif::recordAdi(text, r.model, i.group);
+            s.replace = i.replace || i.done;  // M (changed since upload), or sending again one already uploaded
+            if (u.service == adif::UploadService::HRDLog) s.key = adif::qsoKeyAdi(text, r.model, i.group);
+            if (u.service == adif::UploadService::HamQTH) s.json = adif::hamqthQsoJson(text, r.model, i.group, true);
             if (u.service == adif::UploadService::EQSL) {
                 if (!nick.empty())
                     s.adi.insert(s.adi.size() - 5, adif::makeSpecifier("APP_EQSL_QTH_NICKNAME", nick, adif::LengthUnit::Bytes, true) + " ");
@@ -599,7 +677,9 @@ void startUpload(Upload &u) {
         for (const Upload::Sent &s : u.sent) groups.push_back(s.group);
         switch (u.service) {
             case adif::UploadService::QRZ:
-            case adif::UploadService::EQSL: sendNext(u); break;
+            case adif::UploadService::EQSL:
+            case adif::UploadService::HRDLog:
+            case adif::UploadService::HamQTH: sendNext(u); break;
             case adif::UploadService::ClubLog: {
                 std::string call = ADIFStd(u.callsign.stringValue);
                 for (char &c : call) c = (char)std::toupper((unsigned char)c);
@@ -742,6 +822,8 @@ void openUpload(adif::UploadService s) {
                 openSettings(s == adif::UploadService::QRZ       ? ADIFSourceQRZLogbook
                              : s == adif::UploadService::ClubLog ? ADIFSourceClubLog
                              : s == adif::UploadService::WRL     ? ADIFSourceWRL
+                             : s == adif::UploadService::HRDLog  ? ADIFSourceHRDLog
+                             : s == adif::UploadService::HamQTH  ? ADIFSourceHamQTH
                                                                  : ADIFSourceEQSL);
             });
             [w addOptionRow:@[ ADIFLabel(@"Account:"), u.account, settings ]];
@@ -860,7 +942,8 @@ struct QslSync {
 
 // Rows in the families' popup order; the label as the Upload popup names it.
 const adif::UploadService kSyncOrder[] = {adif::UploadService::QRZ, adif::UploadService::LoTW, adif::UploadService::ClubLog,
-                                          adif::UploadService::EQSL, adif::UploadService::WRL};
+                                          adif::UploadService::EQSL, adif::UploadService::WRL, adif::UploadService::HRDLog,
+                                          adif::UploadService::HamQTH};
 const char *syncLabel(adif::UploadService s) {
     switch (s) {
         case adif::UploadService::QRZ: return "QRZ.com Logbook";
@@ -868,11 +951,15 @@ const char *syncLabel(adif::UploadService s) {
         case adif::UploadService::ClubLog: return "Club Log";
         case adif::UploadService::EQSL: return "eQSL";
         case adif::UploadService::WRL: return "World Radio League";
+        case adif::UploadService::HRDLog: return "HRDLog.net";
+        case adif::UploadService::HamQTH: return "HamQTH";
     }
     return "";
 }
 // Services with no confirmations to download.
-bool noConfirmations(adif::UploadService s) { return s == adif::UploadService::ClubLog || s == adif::UploadService::WRL; }
+bool noConfirmations(adif::UploadService s) {
+    return s != adif::UploadService::QRZ && s != adif::UploadService::LoTW && s != adif::UploadService::EQSL;
+}
 const char *downloadKey(adif::UploadService s) {
     return s == adif::UploadService::QRZ ? "lastDownloadQRZ" : s == adif::UploadService::LoTW ? "lastDownloadLoTW" : s == adif::UploadService::EQSL ? "lastDownloadEQSL" : "";
 }
@@ -921,7 +1008,7 @@ void syncRefresh() {
                          : waiting.empty()           ? tr("Everything is uploaded.")
                                                      : trf("QSOs waiting: {list}.", {{"list", waiting}});
         st += " " + tr("Select a service, then Upload... (it lists what would be sent first) or Download Confirmations... (it lists what would "
-                       "change first). Club Log and World Radio League have no confirmations to download.");
+                       "change first). Only LoTW, QRZ.com Logbook and eQSL have confirmations to download.");
         [qsl.w setStatus:ADIFString(st) severity:-1];
         syncButtons();
     } catch (...) {
@@ -939,7 +1026,9 @@ void syncOpen(bool download) {
         case adif::UploadService::LoTW: imports::cmdImportLotw(); break;
         case adif::UploadService::EQSL: imports::cmdImportEqsl(); break;
         case adif::UploadService::ClubLog:
-        case adif::UploadService::WRL: break;
+        case adif::UploadService::WRL:
+        case adif::UploadService::HRDLog:
+        case adif::UploadService::HamQTH: break;
     }
 }
 
@@ -952,6 +1041,8 @@ void cmdUploadLotw() { openUpload(adif::UploadService::LoTW); }
 void cmdUploadClubLog() { openUpload(adif::UploadService::ClubLog); }
 void cmdUploadEqsl() { openUpload(adif::UploadService::EQSL); }
 void cmdUploadWrl() { openUpload(adif::UploadService::WRL); }
+void cmdUploadHrdlog() { openUpload(adif::UploadService::HRDLog); }
+void cmdUploadHamqth() { openUpload(adif::UploadService::HamQTH); }
 
 void cmdQslSync() {
     if (!qsl.w) {
@@ -972,6 +1063,8 @@ void cmdQslSync() {
                          : s == adif::UploadService::ClubLog ? ADIFSourceClubLog
                          : s == adif::UploadService::EQSL    ? ADIFSourceEQSL
                          : s == adif::UploadService::WRL     ? ADIFSourceWRL
+                         : s == adif::UploadService::HRDLog  ? ADIFSourceHRDLog
+                         : s == adif::UploadService::HamQTH  ? ADIFSourceHamQTH
                                                              : ADIFSourceLoTW);
         }];
         qsl.upload = [w addButton:@"Upload..." trailing:YES action:^{ syncOpen(false); }];
