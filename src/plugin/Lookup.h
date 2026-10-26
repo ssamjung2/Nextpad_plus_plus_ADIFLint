@@ -1,5 +1,5 @@
 // Network work: QRZ.com XML and HamQTH callbook clients, the LoTW confirmation
-// report, POTA spots, uploads to QRZ.com Logbook, Club Log and eQSL, and
+// report, POTA spots, uploads to QRZ.com Logbook, Club Log, eQSL and World Radio League, and
 // Keychain storage for every service's credentials.
 //
 // Credentials are kept in the login Keychain (generic password items named
@@ -14,6 +14,7 @@
 #import <Foundation/Foundation.h>
 
 #include "adif_import.h"
+#include "adif_upload.h"
 
 #include <map>
 #include <string>
@@ -27,9 +28,10 @@ typedef NS_ENUM(NSInteger, ADIFSource) {
     ADIFSourceClubLogKey = 5,  // upload: Club Log API key for this program
     ADIFSourceEQSL = 6,        // upload: eQSL username and password
     ADIFSourceTqsl = 7,        // upload: the TQSL callsign certificate's password, if it has one
-    ADIFSourceCountryData = 8, // Enrich only: AD1C's country file, offline (no account)
+    ADIFSourceWRL = 8,         // upload: World Radio League API key
+    ADIFSourceCountryData = 9, // Enrich only: AD1C's country file, offline (no account); 8 before 1.7
 };
-static const NSInteger ADIFSourceCount = 8;  // the sources with an account in Settings
+static const NSInteger ADIFSourceCount = 9;  // the sources with an account in Settings
 
 // What a source signs in with.
 typedef NS_ENUM(NSInteger, ADIFCredentialKind) {
@@ -81,6 +83,16 @@ void ADIFClubLogUpload(NSString *agent, NSString *callsign, NSString *adiFile, N
                        void (^done)(NSInteger status, NSString *message, NSString *error));
 // eQSL ImportADIF.cfm: the saved username and password; `reply` is the returned page.
 void ADIFEqslUpload(NSString *agent, NSString *adiFile, NSString *fileName, void (^done)(NSString *reply, NSString *error));
+
+// World Radio League's ADIF import (adif::WrlImport), with the saved API key: start one (POST
+// /v1/imports, programId "ADIF Lint"), send the file to its upload address (PUT, without the key;
+// sent once more if the first try fails), and ask how it goes (GET /v1/imports/{id}). Errors in
+// words (adif::wrlErrorText); `retryAfter` is a 429's Retry-After in seconds. Test mode: answers
+// from <fake dir>/wrl/start.txt and import.txt when present ("HTTP 409\nRetry-After: 30\n\n{json}",
+// the status line and headers optional), else a successful import; each request noted in uploads.log.
+void ADIFWrlStartImport(NSString *agent, void (^done)(const adif::WrlImport &imp, NSString *error));
+void ADIFWrlUploadFile(NSString *agent, NSString *url, NSString *adiFile, void (^done)(NSString *error));
+void ADIFWrlImportStatus(NSString *agent, NSString *importId, void (^done)(const adif::WrlImport &imp, long long retryAfter, NSString *error));
 
 // ── Imports, spots and data downloads (completion on the main queue) ────────
 

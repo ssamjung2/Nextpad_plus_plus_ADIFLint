@@ -4070,6 +4070,46 @@ static void testTqslCertificates() {
     CHECK(tqslExitMeaning(15) == "wrong certificate password" && tqslExitMeaning(13).find("busy") != std::string::npos, "TQSL's exit codes 12 to 15");
 }
 
+static void testWrl() {
+    // The status fields are ADIF Lint's own, kept out of every upload, marked like the others.
+    std::string text = "h <EOH>\n<CALL:4>K1AB <QSO_DATE:8>20261025 <TIME_ON:4>1200 <BAND:3>20m <MODE:2>CW <APP_ADIFLINT_WRL_QSO_UPLOAD_STATUS:1>N <EOR>\n"
+                       "<CALL:4>K2CD <QSO_DATE:8>20261025 <TIME_ON:4>1210 <BAND:3>20m <MODE:2>CW <EOR>\n";
+    LintOptions opt;
+    opt.buildModel = true;
+    LintResult r = lint(text, opt);
+    std::vector<UploadItem> items = uploadItems(text, r.model, UploadService::WRL);
+    CHECK(items.size() == 2 && items[0].skip && uploadWanted(items[1]) && std::string(uploadServiceName(UploadService::WRL)) == "World Radio League",
+          "WRL upload items: N is not to be sent");
+    CHECK(recordAdi(text, r.model, items[0].group).find("APP_ADIFLINT_WRL") == std::string::npos, "the WRL status is never uploaded");
+    std::string marked = applyTextEdits(text, markUploaded(text, r.model, {items[1].group}, UploadService::WRL, "20261026", LengthUnit::Characters, true));
+    CHECK(marked.find("<APP_ADIFLINT_WRL_QSO_UPLOAD_STATUS:1>Y") != std::string::npos &&
+              marked.find("<APP_ADIFLINT_WRL_QSO_UPLOAD_DATE:8>20261026") != std::string::npos && isTrackingField("APP_ADIFLINT_WRL_QSO_UPLOAD_DATE"),
+          "WRL uploads marked:\n%s", marked.c_str());
+    // Import statuses, as the API's Import schema gives them.
+    WrlImport imp;
+    imp.status = "processing", imp.progress = 45;
+    CHECK(!wrlImportFinished(imp.status) && wrlImportSummary(imp) == "World Radio League is importing (45% done)...", "processing: %s",
+          wrlImportSummary(imp).c_str());
+    imp.status = "complete", imp.total = 5, imp.imported = 3, imp.duplicates = 2, imp.failed = 0;
+    CHECK(wrlImportFinished(imp.status) && wrlImportAllIn(imp, 5) && !wrlImportAllIn(imp, 6) &&
+              wrlImportSummary(imp) == "World Radio League imported 3 of 5 QSOs; 2 were already there.",
+          "complete: %s", wrlImportSummary(imp).c_str());
+    imp.status = "complete_with_errors", imp.imported = 2, imp.failed = 1;
+    CHECK(!wrlImportAllIn(imp, 5) && wrlImportSummary(imp).find("1 could not be imported, and it doesn't say which") != std::string::npos,
+          "complete with errors: nothing can be marked");
+    imp = WrlImport();
+    imp.status = "rejected", imp.errorCode = "IMPORT_QUOTA_EXHAUSTED";
+    CHECK(wrlImportFinished(imp.status) && !wrlImportAllIn(imp, 0) && wrlImportSummary(imp).find("after 00:00 UTC") != std::string::npos &&
+              wrlImportSummary(imp).find("Nothing was imported or charged") != std::string::npos,
+          "rejected: %s", wrlImportSummary(imp).c_str());
+    CHECK(wrlErrorText(409, "CONFLICT", "An ADIF import is already running for this account.", "").find("one at a time") != std::string::npos &&
+              wrlErrorText(429, "RATE_LIMITED", "", "", 30) == "Too many requests: try again in 30 seconds." &&
+              wrlErrorText(401, "INVALID_KEY", "The API key is not valid.", "Check for truncation.") ==
+                  "World Radio League did not accept the API key: check it in Settings. It says: The API key is not valid. Check for truncation." &&
+              wrlErrorText(502, "", "", "") == "World Radio League answered HTTP 502.",
+          "WRL errors in words");
+}
+
 static void testContestDefs() {
     using F = std::vector<std::pair<std::string, std::string>>;
     auto find = [](const F &f, const char *name) {
@@ -4444,6 +4484,7 @@ int main(int argc, char **argv) {
     testStats();
     testContestDefs();
     testTqslCertificates();
+    testWrl();
     testSolar();
     testProjections();
     testPalettes();

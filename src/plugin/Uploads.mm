@@ -28,7 +28,7 @@ using namespace adifhost;
 
 namespace {
 
-const size_t kServices = 4;
+const size_t kServices = 5;
 // How long TQSL may take to sign and upload (ADIFLINT_TEST_TQSL_SECONDS overrides it for tests).
 double tqslSeconds() {
     const char *t = getenv("ADIFLINT_TEST_TQSL_SECONDS");
@@ -213,6 +213,9 @@ NSString *accountLine(adif::UploadService s) {
         case adif::UploadService::EQSL:
             return saved(ADIFSourceEQSL) ? [NSString stringWithFormat:T(@"%@ (saved in your Keychain)"), ADIFSavedAccount(ADIFSourceEQSL)]
                                          : T(@"No eQSL account yet: add it in Settings.");
+        case adif::UploadService::WRL:
+            return saved(ADIFSourceWRL) ? T(@"World Radio League API key saved in your Keychain; QSOs go to your default logbook")
+                                        : T(@"No World Radio League API key yet: add it in Settings.");
         case adif::UploadService::LoTW: return @"";
     }
     return @"";
@@ -423,6 +426,41 @@ void finish(Upload &u, const std::string &summary, int severity) {
 
 void sendNext(Upload &u);
 
+void recordResult(Upload &u, size_t i, bool ok, const std::string &text, int severity);
+
+// World Radio League: ask how the import goes every few seconds (honouring Retry-After) until it
+// is finished, Stop is pressed, or a quarter of an hour has passed.
+void wrlPoll(Upload &u, std::string importId, unsigned run, CFAbsoluteTime started) {
+    Upload *pu = &u;
+    ADIFWrlImportStatus(agent(), ADIFString(importId), ^(const adif::WrlImport &imp, long long retryAfter, NSString *error) {
+        if (pu->run != run) return;
+        if (!error && adif::wrlImportFinished(imp.status)) {
+            bool all = adif::wrlImportAllIn(imp, pu->sent.size());
+            bool done = imp.status == "complete" || imp.status == "complete_with_errors";
+            for (size_t i = 0; i < pu->sent.size(); ++i)
+                recordResult(*pu, i, all, all ? tr("uploaded") : tr("see below"), all ? 3 : done ? 1 : 2);
+            std::string summary = adif::wrlImportSummary(imp);
+            if (!all && done) summary += " " + tr("Records were not marked, since World Radio League doesn't say which QSOs it took.");
+            finish(*pu, summary, all ? 3 : done ? 1 : 2);
+            return;
+        }
+        if (error && retryAfter <= 0) {
+            finish(*pu, ADIFStd(error) + " " + tr("The file was sent: World Radio League's Activity Log shows how the import went. Records were not marked."), 1);
+            return;
+        }
+        if (!error) [pu->w setStatus:ADIFString(adif::wrlImportSummary(imp)) severity:-1];
+        bool late = CFAbsoluteTimeGetCurrent() - started > 15 * 60;
+        if (pu->cancelled || late) {
+            finish(*pu, (pu->cancelled ? tr("Stopped watching.") : tr("World Radio League is still working on the import.")) + " " +
+                            tr("It goes on there, and its Activity Log will show how it went; records were not marked."),
+                   1);
+            return;
+        }
+        double wait = std::max<double>(ADIFLookupFakeMode() ? 0.1 : 3, (double)retryAfter);  // "every few seconds is plenty"
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(wait * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ wrlPoll(*pu, importId, run, started); });
+    });
+}
+
 void recordResult(Upload &u, size_t i, bool ok, const std::string &text, int severity) {
     u.sent[i].ok = ok;
     [u.w setCell:text row:(NSInteger)u.sent[i].row column:kColResult];
@@ -595,6 +633,42 @@ void startUpload(Upload &u) {
                                   });
                 break;
             }
+            case adif::UploadService::WRL: {
+                std::string file = adif::uploadFile(text, r.model, groups, ADIFLINT_VERSION, utcNow("%Y%m%d %H%M%S"));
+                if ((long long)file.size() > adif::kWrlMaxBytes) {
+                    setRunning(u, false);
+                    [u.w setStatus:ADIFString(trf("The file would be {size} MB, and World Radio League takes up to 10 MB at a time: tick fewer QSOs.",
+                                                  {{"size", std::to_string((file.size() + 524288) / 1048576)}}))
+                             severity:2];
+                    return;
+                }
+                [u.w setStatus:ADIFString(trf("Starting an import of {qsos} at World Radio League...", {{"qsos", plural(groups.size(), "QSO")}})) severity:-1];
+                unsigned run = u.run;
+                NSString *adi = ADIFString(file);
+                ADIFWrlStartImport(agent(), ^(const adif::WrlImport &imp, NSString *error) {
+                    if (pu->run != run) return;
+                    if (error || pu->cancelled) {
+                        for (size_t i = 0; i < pu->sent.size(); ++i) recordResult(*pu, i, false, tr("not sent"), error ? 2 : 1);
+                        finish(*pu, error ? ADIFStd(error) : tr("Stopped before the file was sent; nothing was imported."), error ? 2 : 1);
+                        return;
+                    }
+                    [pu->w setStatus:ADIFString(trf("Sending {qsos} to World Radio League...", {{"qsos", plural(pu->sent.size(), "QSO")}})) severity:-1];
+                    std::string importId = imp.id;
+                    ADIFWrlUploadFile(agent(), ADIFString(imp.uploadUrl), adi, ^(NSString *err) {
+                        if (pu->run != run) return;
+                        if (err) {
+                            for (size_t i = 0; i < pu->sent.size(); ++i) recordResult(*pu, i, false, tr("not sent"), 2);
+                            finish(*pu, trf("The file did not reach World Radio League ({why}), so nothing was imported: Upload again to retry.",
+                                            {{"why", ADIFStd(err)}}),
+                                   2);
+                            return;
+                        }
+                        for (size_t i = 0; i < pu->sent.size(); ++i) recordResult(*pu, i, false, tr("sent, being imported"), -1);
+                        wrlPoll(*pu, importId, run, CFAbsoluteTimeGetCurrent());
+                    });
+                });
+                break;
+            }
             case adif::UploadService::LoTW: {
                 std::string tq = tqslPath();
                 std::string loc = ADIFStd(u.location.stringValue);
@@ -665,8 +739,9 @@ void openUpload(adif::UploadService s) {
             u.account.lineBreakMode = NSLineBreakByTruncatingTail;
             NSButton *settings = [NSButton buttonWithTitle:T(@"Settings...") target:nil action:nil];
             ADIFOnAction(settings, ^{
-                openSettings(s == adif::UploadService::QRZ ? ADIFSourceQRZLogbook
+                openSettings(s == adif::UploadService::QRZ       ? ADIFSourceQRZLogbook
                              : s == adif::UploadService::ClubLog ? ADIFSourceClubLog
+                             : s == adif::UploadService::WRL     ? ADIFSourceWRL
                                                                  : ADIFSourceEQSL);
             });
             [w addOptionRow:@[ ADIFLabel(@"Account:"), u.account, settings ]];
@@ -785,16 +860,19 @@ struct QslSync {
 
 // Rows in the families' popup order; the label as the Upload popup names it.
 const adif::UploadService kSyncOrder[] = {adif::UploadService::QRZ, adif::UploadService::LoTW, adif::UploadService::ClubLog,
-                                          adif::UploadService::EQSL};
+                                          adif::UploadService::EQSL, adif::UploadService::WRL};
 const char *syncLabel(adif::UploadService s) {
     switch (s) {
         case adif::UploadService::QRZ: return "QRZ.com Logbook";
         case adif::UploadService::LoTW: return "LoTW (TQSL)";
         case adif::UploadService::ClubLog: return "Club Log";
         case adif::UploadService::EQSL: return "eQSL";
+        case adif::UploadService::WRL: return "World Radio League";
     }
     return "";
 }
+// Services with no confirmations to download.
+bool noConfirmations(adif::UploadService s) { return s == adif::UploadService::ClubLog || s == adif::UploadService::WRL; }
 const char *downloadKey(adif::UploadService s) {
     return s == adif::UploadService::QRZ ? "lastDownloadQRZ" : s == adif::UploadService::LoTW ? "lastDownloadLoTW" : s == adif::UploadService::EQSL ? "lastDownloadEQSL" : "";
 }
@@ -802,14 +880,14 @@ const char *downloadKey(adif::UploadService s) {
 adif::UploadService syncSelected() {
     std::vector<NSInteger> sel = [qsl.w selectedRows];
     NSInteger row = sel.empty() ? -1 : sel.front();
-    return row >= 0 && row < 4 ? kSyncOrder[row] : adif::UploadService::QRZ;
+    return row >= 0 && row < (NSInteger)std::size(kSyncOrder) ? kSyncOrder[row] : adif::UploadService::QRZ;
 }
 
 void syncButtons() {
     std::vector<NSInteger> sel = [qsl.w selectedRows];
     bool any = !sel.empty();
     qsl.upload.enabled = any;
-    qsl.download.enabled = any && syncSelected() != adif::UploadService::ClubLog;
+    qsl.download.enabled = any && !noConfirmations(syncSelected());
 }
 
 void syncRefresh() {
@@ -831,8 +909,8 @@ void syncRefresh() {
             rows.push_back({syncLabel(s), hasAccount ? tr("saved") : tr("none"), std::to_string(sum.toUpload),
                             sum.modified ? std::to_string(sum.modified) : "", std::to_string(sum.uploaded),
                             sum.problems ? std::to_string(sum.problems) : "",
-                            s == adif::UploadService::ClubLog ? "—" : std::to_string(sum.confirmed), adif::displayDate(sum.lastUpload),
-                            s == adif::UploadService::ClubLog ? "—" : last.empty() ? tr("never") : last});
+                            noConfirmations(s) ? "—" : std::to_string(sum.confirmed), adif::displayDate(sum.lastUpload),
+                            noConfirmations(s) ? "—" : last.empty() ? tr("never") : last});
             sev.push_back(!hasAccount ? 0 : sum.toUpload ? 1 : 3);
             keys.push_back(syncLabel(s));
             if (sum.toUpload)
@@ -843,7 +921,7 @@ void syncRefresh() {
                          : waiting.empty()           ? tr("Everything is uploaded.")
                                                      : trf("QSOs waiting: {list}.", {{"list", waiting}});
         st += " " + tr("Select a service, then Upload... (it lists what would be sent first) or Download Confirmations... (it lists what would "
-                       "change first). Club Log has no confirmations to download.");
+                       "change first). Club Log and World Radio League have no confirmations to download.");
         [qsl.w setStatus:ADIFString(st) severity:-1];
         syncButtons();
     } catch (...) {
@@ -860,7 +938,8 @@ void syncOpen(bool download) {
         case adif::UploadService::QRZ: imports::cmdImportQrzLogbook(); break;
         case adif::UploadService::LoTW: imports::cmdImportLotw(); break;
         case adif::UploadService::EQSL: imports::cmdImportEqsl(); break;
-        case adif::UploadService::ClubLog: break;
+        case adif::UploadService::ClubLog:
+        case adif::UploadService::WRL: break;
     }
 }
 
@@ -872,6 +951,7 @@ void cmdUploadQrz() { openUpload(adif::UploadService::QRZ); }
 void cmdUploadLotw() { openUpload(adif::UploadService::LoTW); }
 void cmdUploadClubLog() { openUpload(adif::UploadService::ClubLog); }
 void cmdUploadEqsl() { openUpload(adif::UploadService::EQSL); }
+void cmdUploadWrl() { openUpload(adif::UploadService::WRL); }
 
 void cmdQslSync() {
     if (!qsl.w) {
@@ -891,6 +971,7 @@ void cmdQslSync() {
             openSettings(s == adif::UploadService::QRZ       ? ADIFSourceQRZLogbook
                          : s == adif::UploadService::ClubLog ? ADIFSourceClubLog
                          : s == adif::UploadService::EQSL    ? ADIFSourceEQSL
+                         : s == adif::UploadService::WRL     ? ADIFSourceWRL
                                                              : ADIFSourceLoTW);
         }];
         qsl.upload = [w addButton:@"Upload..." trailing:YES action:^{ syncOpen(false); }];

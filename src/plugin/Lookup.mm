@@ -21,6 +21,7 @@ static NSString *const kLotwBase = @"https://lotw.arrl.org/lotwuser/lotwreport.a
 static NSString *const kQrzLogbookApi = @"https://logbook.qrz.com/api";
 static NSString *const kClubLogPutLogs = @"https://clublog.org/putlogs.php";
 static NSString *const kEqslImport = @"https://www.eQSL.cc/qslcard/ImportADIF.cfm";
+static NSString *const kWrlApi = @"https://api.worldradioleague.com";
 
 NSString *ADIFSourceName(ADIFSource source) {
     switch (source) {
@@ -32,14 +33,16 @@ NSString *ADIFSourceName(ADIFSource source) {
         case ADIFSourceClubLogKey: return N(@"Club Log API key");
         case ADIFSourceEQSL: return @"eQSL";
         case ADIFSourceTqsl: return N(@"TQSL certificate");
+        case ADIFSourceWRL: return @"World Radio League";
         case ADIFSourceCountryData: return N(@"Country Data");
     }
     return @"";
 }
 
 ADIFCredentialKind ADIFSourceCredentialKind(ADIFSource source) {
-    return source == ADIFSourceQRZLogbook || source == ADIFSourceClubLogKey || source == ADIFSourceTqsl ? ADIFCredentialAPIKey
-                                                                                                       : ADIFCredentialAccount;
+    return source == ADIFSourceQRZLogbook || source == ADIFSourceClubLogKey || source == ADIFSourceTqsl || source == ADIFSourceWRL
+               ? ADIFCredentialAPIKey
+               : ADIFCredentialAccount;
 }
 
 NSString *ADIFSourceUserLabel(ADIFSource source) { return source == ADIFSourceClubLog ? T(@"Email") : T(@"Username"); }
@@ -47,7 +50,7 @@ NSString *ADIFSourceSecretLabel(ADIFSource source) {
     return ADIFSourceCredentialKind(source) == ADIFCredentialAPIKey && source != ADIFSourceTqsl ? T(@"API key") : T(@"Password");
 }
 
-BOOL ADIFSourceCanTest(ADIFSource source) { return source <= ADIFSourceQRZLogbook; }
+BOOL ADIFSourceCanTest(ADIFSource source) { return source <= ADIFSourceQRZLogbook || source == ADIFSourceWRL; }
 
 NSString *ADIFSourceCredentialHelp(ADIFSource source) {
     switch (source) {
@@ -74,6 +77,10 @@ NSString *ADIFSourceCredentialHelp(ADIFSource source) {
             return T(@"Only if your TQSL callsign certificate has a password: Upload to LoTW gives it to TQSL with -p. While "
                    @"TQSL runs (seconds), other programs on this Mac can see it in the process list. Leave it empty to "
                    @"have no password, or if TQSL should ask.");
+        case ADIFSourceWRL:
+            return T(@"The API key from World Radio League (Integrations > Developer API > Generate API key), for Upload to World "
+                   @"Radio League. WRL shows it only once, and one key covers your whole account. Your membership must include the "
+                   @"API; Test Sign-In shows what it allows and which logbook uploads go to.");
         case ADIFSourceCountryData: return @"";
         case ADIFSourceLoTW:
             return T(@"Your LoTW website username (not always your callsign) and password, not your TQSL certificate "
@@ -495,6 +502,11 @@ static void lotwDownload(NSString *from, NSString *to, void (^done)(NSString *ad
 
 // ── Test a saved credential ─────────────────────────────────────────────────
 
+static void wrlRequest(NSString *agent, NSString *method, NSString *path, NSData *json,
+                       void (^done)(NSDictionary *data, long long retryAfter, NSString *error));
+static NSString *fakeText(NSString *relative);
+static NSString *utf8(const std::string &s) { return [[NSString alloc] initWithBytes:s.data() length:s.size() encoding:NSUTF8StringEncoding] ?: @""; }
+
 void ADIFTestCredential(ADIFSource source, void (^done)(BOOL ok, NSString *message)) {
     if (!ADIFSavedAccount(source) || !ADIFHasSecret(source)) {
         dispatch_async(dispatch_get_main_queue(), ^{ done(NO, T(@"Nothing saved yet.")); });
@@ -520,6 +532,32 @@ void ADIFTestCredential(ADIFSource source, void (^done)(BOOL ok, NSString *messa
             if (error) done(NO, [@"QRZ.com: " stringByAppendingString:error]);
             else handle([[NSString alloc] initWithData:body encoding:NSUTF8StringEncoding]);
         });
+        return;
+    }
+    if (source == ADIFSourceWRL) {
+        // GET /v1/me: "Confirms a key works and reports what it may do, without writing anything."
+        void (^handle)(NSDictionary *, long long, NSString *) = ^(NSDictionary *data, long long, NSString *error) {
+            if (error) {
+                done(NO, error);
+                return;
+            }
+            NSDictionary *limits = [data[@"limits"] isKindOfClass:NSDictionary.class] ? data[@"limits"] : nil;
+            NSDictionary *logbook = [data[@"defaultLogbook"] isKindOfClass:NSDictionary.class] ? data[@"defaultLogbook"] : nil;
+            id tier = data[@"membershipTier"], perDay = limits[@"importContactsPerDay"], resolution = logbook[@"resolution"];
+            done(YES, utf8(adif::wrlKeySummary([tier isKindOfClass:NSString.class] ? [tier UTF8String] : "",
+                                                     [perDay isKindOfClass:NSNumber.class] ? [perDay longLongValue] : -1,
+                                                     [resolution isKindOfClass:NSString.class] ? [resolution UTF8String] : "")));
+        };
+        if (fakeNet()) {
+            NSString *t = fakeText(@"wrl/me.json")
+                              ?: @"{\"data\":{\"membershipTier\":\"premium\",\"limits\":{\"importContactsPerDay\":50000},"
+                                 @"\"defaultLogbook\":{\"logbookId\":null,\"resolution\":\"sole\"}},\"meta\":null,\"error\":null}";
+            id obj = [NSJSONSerialization JSONObjectWithData:[t dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil];
+            NSDictionary *data = [obj isKindOfClass:NSDictionary.class] && [obj[@"data"] isKindOfClass:NSDictionary.class] ? obj[@"data"] : nil;
+            dispatch_async(dispatch_get_main_queue(), ^{ handle(data, 0, data ? nil : @"bad test data"); });
+            return;
+        }
+        wrlRequest([NSString stringWithFormat:@"ADIFLint/%s", ADIFLINT_VERSION], @"GET", @"/v1/me", nil, handle);
         return;
     }
     if (!ADIFSourceCanTest(source)) {
@@ -605,21 +643,25 @@ static void fakeUploadLog(NSString *line) {
     [h closeFile];
 }
 
-// POST and hand back the status and body whatever the status (Club Log explains its 403 and 400 in the body).
-static void httpExchange(NSURLRequest *request, void (^done)(NSInteger status, NSData *body, NSString *error)) {
+// Send and hand back the status, body and headers whatever the status (Club Log explains its 403 and 400 in the body).
+static void httpExchangeHeaders(NSURLRequest *request, void (^done)(NSInteger status, NSData *body, NSDictionary *headers, NSString *error)) {
     if (ADIFOffline()) {
         NSString *why = ADIFOfflineReason();
-        dispatch_async(dispatch_get_main_queue(), ^{ done(0, nil, why); });
+        dispatch_async(dispatch_get_main_queue(), ^{ done(0, nil, nil, why); });
         return;
     }
     NSURLSessionDataTask *task = [lookupSession()
         dataTaskWithRequest:request
           completionHandler:^(NSData *data, NSURLResponse *response, NSError *err) {
-              NSInteger status = [response isKindOfClass:NSHTTPURLResponse.class] ? ((NSHTTPURLResponse *)response).statusCode : 0;
+              NSHTTPURLResponse *http = [response isKindOfClass:NSHTTPURLResponse.class] ? (NSHTTPURLResponse *)response : nil;
               NSString *problem = err ? err.localizedDescription : nil;
-              dispatch_async(dispatch_get_main_queue(), ^{ done(status, data, problem); });
+              dispatch_async(dispatch_get_main_queue(), ^{ done(http.statusCode, data, http.allHeaderFields, problem); });
           }];
     [task resume];
+}
+
+static void httpExchange(NSURLRequest *request, void (^done)(NSInteger status, NSData *body, NSString *error)) {
+    httpExchangeHeaders(request, ^(NSInteger status, NSData *body, NSDictionary *, NSString *error) { done(status, body, error); });
 }
 
 static NSString *text(NSData *d) {
@@ -724,6 +766,188 @@ NSString *ADIFTqslPassword(void) { return ADIFHasSecret(ADIFSourceTqsl) ? savedS
 static NSString *fakeText(NSString *relative) {
     NSData *d = [NSData dataWithContentsOfFile:[fakeDir() stringByAppendingPathComponent:relative]];
     return d ? text(d) : nil;
+}
+
+// ── World Radio League (see adif::WrlImport) ──
+
+static std::string jsonText(id v) { return [v isKindOfClass:NSString.class] ? std::string(((NSString *)v).UTF8String ?: "") : std::string(); }
+static long long jsonCount(id v) { return [v isKindOfClass:NSNumber.class] ? ((NSNumber *)v).longLongValue : -1; }
+
+static adif::WrlImport wrlImportFrom(NSDictionary *data) {
+    adif::WrlImport imp;
+    imp.id = jsonText(data[@"id"]);
+    imp.status = jsonText(data[@"status"]);
+    imp.errorCode = jsonText(data[@"errorCode"]);
+    if ([data[@"progress"] isKindOfClass:NSNumber.class]) imp.progress = [data[@"progress"] doubleValue];
+    NSDictionary *counts = [data[@"counts"] isKindOfClass:NSDictionary.class] ? data[@"counts"] : nil;
+    imp.total = jsonCount(counts[@"total"]);
+    imp.imported = jsonCount(counts[@"imported"]);
+    imp.duplicates = jsonCount(counts[@"duplicates"]);
+    imp.failed = jsonCount(counts[@"failed"]);
+    NSDictionary *upload = [data[@"upload"] isKindOfClass:NSDictionary.class] ? data[@"upload"] : nil;
+    imp.uploadUrl = jsonText(upload[@"url"]);
+    return imp;
+}
+
+// The JSON envelope ({data, meta, error}) unwrapped: `data` for a 2xx answer, else the error in words.
+static void wrlReply(NSInteger status, NSData *body, long long retryAfter, NSString *error,
+                     void (^done)(NSDictionary *data, long long retryAfter, NSString *error)) {
+    if (error) {
+        done(nil, 0, [@"World Radio League: " stringByAppendingString:error]);
+        return;
+    }
+    id obj = body.length ? [NSJSONSerialization JSONObjectWithData:body options:0 error:nil] : nil;
+    NSDictionary *envelope = [obj isKindOfClass:NSDictionary.class] ? obj : nil;
+    if (status >= 200 && status < 300 && [envelope[@"data"] isKindOfClass:NSDictionary.class]) {
+        done(envelope[@"data"], retryAfter, nil);
+        return;
+    }
+    NSDictionary *e = [envelope[@"error"] isKindOfClass:NSDictionary.class] ? envelope[@"error"] : nil;
+    std::string message = jsonText(e[@"message"]), hint = jsonText(e[@"hint"]);
+    if (message.size() > 300) message = message.substr(0, 300) + "...";
+    if (hint.size() > 300) hint = hint.substr(0, 300) + "...";
+    done(nil, retryAfter, utf8(adif::wrlErrorText((int)status, jsonText(e[@"code"]), message, hint, retryAfter)));
+}
+
+// Test mode: "HTTP 409\nRetry-After: 30\n\n{json}", or just the JSON (then 200).
+static BOOL fakeWrl(NSString *name, NSInteger *status, NSData **body, long long *retryAfter) {
+    NSString *t = fakeText([NSString stringWithFormat:@"wrl/%@.txt", name]);
+    if (!t) return NO;
+    *status = 200;
+    *retryAfter = 0;
+    if ([t hasPrefix:@"HTTP "]) {
+        NSRange blank = [t rangeOfString:@"\n\n"];
+        NSString *head = blank.location == NSNotFound ? t : [t substringToIndex:blank.location];
+        t = blank.location == NSNotFound ? @"" : [t substringFromIndex:blank.location + 2];
+        for (NSString *line in [head componentsSeparatedByString:@"\n"]) {
+            if ([line hasPrefix:@"HTTP "]) *status = [line substringFromIndex:5].integerValue;
+            else if ([line.lowercaseString hasPrefix:@"retry-after:"]) *retryAfter = [line substringFromIndex:12].longLongValue;
+        }
+    }
+    *body = [t dataUsingEncoding:NSUTF8StringEncoding];
+    return YES;
+}
+
+static NSString *fakeWrlFile;  // test mode: the last file sent, for the import's counts
+static int fakeWrlPolls;
+
+static void wrlRequest(NSString *agent, NSString *method, NSString *path, NSData *json,
+                       void (^done)(NSDictionary *data, long long retryAfter, NSString *error)) {
+    NSString *key = savedSecret(ADIFSourceWRL);
+    if (!key.length) {
+        dispatch_async(dispatch_get_main_queue(), ^{ done(nil, 0, T(@"No World Radio League API key yet. Add it in Settings.")); });
+        return;
+    }
+    NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:[kWrlApi stringByAppendingString:path]]];
+    r.HTTPMethod = method;
+    [r setValue:[@"Bearer " stringByAppendingString:key] forHTTPHeaderField:@"Authorization"];
+    [r setValue:agent forHTTPHeaderField:@"User-Agent"];
+    [r setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+    if (json) {
+        [r setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+        r.HTTPBody = json;
+    }
+    httpExchangeHeaders(r, ^(NSInteger status, NSData *body, NSDictionary *headers, NSString *error) {
+        long long retry = 0;
+        for (NSString *h in headers)
+            if ([h caseInsensitiveCompare:@"Retry-After"] == NSOrderedSame) retry = [headers[h] longLongValue];
+        wrlReply(status, body, retry, error, done);
+    });
+}
+
+void ADIFWrlStartImport(NSString *agent, void (^done)(const adif::WrlImport &imp, NSString *error)) {
+    NSData *json = [NSJSONSerialization dataWithJSONObject:@{@"programId" : @"ADIF Lint"} options:0 error:nil];
+    void (^handle)(NSDictionary *, long long, NSString *) = ^(NSDictionary *data, long long, NSString *error) {
+        adif::WrlImport imp = data ? wrlImportFrom(data) : adif::WrlImport();
+        if (!error && (imp.id.empty() || imp.uploadUrl.empty())) error = T(@"World Radio League gave no import or upload address.");
+        done(imp, error);
+    };
+    if (fakeNet() && savedSecret(ADIFSourceWRL).length) {
+        fakeUploadLog([@"WRL START " stringByAppendingString:[[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding]]);
+        NSInteger status;
+        NSData *body;
+        long long retry;
+        if (!fakeWrl(@"start", &status, &body, &retry)) {
+            status = 201;
+            body = [@"{\"data\":{\"id\":\"8d2f4b1a-3c5e-4f60-9a7b-1c2d3e4f5a6b\",\"status\":\"awaiting_upload\",\"upload\":{\"url\":"
+                    @"\"https://storage.example.test/upload/api.adi?token=t\",\"method\":\"PUT\",\"maxBytes\":10485760}},\"meta\":null,\"error\":null}"
+                dataUsingEncoding:NSUTF8StringEncoding];
+        }
+        fakeWrlPolls = 0;
+        dispatch_async(dispatch_get_main_queue(), ^{ wrlReply(status, body, retry, nil, handle); });
+        return;
+    }
+    wrlRequest(agent, @"POST", @"/v1/imports", json, handle);
+}
+
+static void wrlPut(NSString *agent, NSURL *url, NSData *file, int tries, void (^done)(NSString *error)) {
+    NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:url];
+    r.HTTPMethod = @"PUT";
+    [r setValue:@"text/plain" forHTTPHeaderField:@"Content-Type"];  // and no API key: the address carries its own token
+    [r setValue:agent forHTTPHeaderField:@"User-Agent"];
+    r.HTTPBody = file;
+    httpExchange(r, ^(NSInteger status, NSData *, NSString *error) {
+        if (!error && status >= 200 && status < 300) {
+            done(nil);
+            return;
+        }
+        NSString *why = error ?: [NSString stringWithFormat:T(@"HTTP %ld from %@"), (long)status, url.host];
+        // "If a PUT fails part-way, send it again" (the API's createImport); not for a refusal.
+        if (tries < 2 && !ADIFOffline() && (error || status >= 500))
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ wrlPut(agent, url, file, tries + 1, done); });
+        else done(why);
+    });
+}
+
+void ADIFWrlUploadFile(NSString *agent, NSString *url, NSString *adiFile, void (^done)(NSString *error)) {
+    NSURL *u = [NSURL URLWithString:url];
+    if (![u.scheme.lowercaseString isEqualToString:@"https"] || !u.host.length) {
+        dispatch_async(dispatch_get_main_queue(), ^{ done(T(@"World Radio League gave an upload address that isn't HTTPS, so nothing was sent.")); });
+        return;
+    }
+    NSData *file = [adiFile dataUsingEncoding:NSUTF8StringEncoding];
+    if (fakeNet()) {
+        fakeUploadLog([NSString stringWithFormat:@"WRL PUT %@\n%@", url, adiFile]);
+        fakeWrlFile = adiFile;
+        dispatch_async(dispatch_get_main_queue(), ^{ done(nil); });
+        return;
+    }
+    wrlPut(agent, u, file, 1, done);
+}
+
+void ADIFWrlImportStatus(NSString *agent, NSString *importId, void (^done)(const adif::WrlImport &imp, long long retryAfter, NSString *error)) {
+    // An id is a UUID: nothing else goes into the path.
+    NSCharacterSet *notUuid = [[NSCharacterSet characterSetWithCharactersInString:@"0123456789abcdefABCDEF-"] invertedSet];
+    if (!importId.length || [importId rangeOfCharacterFromSet:notUuid].location != NSNotFound) {
+        dispatch_async(dispatch_get_main_queue(), ^{ done(adif::WrlImport(), 0, T(@"World Radio League gave an import id that isn't one.")); });
+        return;
+    }
+    void (^handle)(NSDictionary *, long long, NSString *) = ^(NSDictionary *data, long long retryAfter, NSString *error) {
+        done(data ? wrlImportFrom(data) : adif::WrlImport(), retryAfter, error);
+    };
+    if (fakeNet() && savedSecret(ADIFSourceWRL).length) {
+        NSInteger status;
+        NSData *body;
+        long long retry;
+        if (!fakeWrl(@"import", &status, &body, &retry)) {
+            // Processing at first, then complete: the file's records, those with CALL DUPE already there.
+            NSUInteger total = [fakeWrlFile componentsSeparatedByString:@"<EOR>"].count - 1;
+            NSUInteger dupes = [fakeWrlFile componentsSeparatedByString:@"<CALL:4>DUPE"].count - 1;
+            NSString *json = ++fakeWrlPolls < 2
+                                 ? @"{\"data\":{\"id\":\"8d2f4b1a-3c5e-4f60-9a7b-1c2d3e4f5a6b\",\"status\":\"processing\",\"progress\":50,\"counts\":null},"
+                                   @"\"meta\":null,\"error\":null}"
+                                 : [NSString stringWithFormat:@"{\"data\":{\"id\":\"8d2f4b1a-3c5e-4f60-9a7b-1c2d3e4f5a6b\",\"status\":\"complete\","
+                                                              @"\"progress\":100,\"recordCount\":%lu,\"counts\":{\"total\":%lu,\"imported\":%lu,"
+                                                              @"\"duplicates\":%lu,\"failed\":0}},\"meta\":null,\"error\":null}",
+                                                              (unsigned long)total, (unsigned long)total, (unsigned long)(total - dupes), (unsigned long)dupes];
+            status = 200;
+            retry = 0;
+            body = [json dataUsingEncoding:NSUTF8StringEncoding];
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{ wrlReply(status, body, retry, nil, handle); });
+        return;
+    }
+    wrlRequest(agent, @"GET", [@"/v1/imports/" stringByAppendingString:importId], nil, handle);
 }
 
 // One FETCH page; then the next from the highest APP_QRZLOG_LOGID + 1, until a short page.

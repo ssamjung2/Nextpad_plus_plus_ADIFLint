@@ -1253,7 +1253,7 @@ static void logHealth(NppHandle h, const adif::LintResult &r, std::string *line,
         // Uploads: only the services this log has been sent to.
         std::string waiting;
         for (adif::UploadService s : {adif::UploadService::QRZ, adif::UploadService::LoTW, adif::UploadService::ClubLog,
-                                      adif::UploadService::EQSL}) {
+                                      adif::UploadService::EQSL, adif::UploadService::WRL}) {
             std::vector<adif::UploadItem> items = adif::uploadItems(text, r.model, s);
             // Used: something was sent (Y, or M after an edit). A downloaded log often says N
             // for services you never use (QRZ.com writes EQSL_QSL_SENT N).
@@ -2743,6 +2743,7 @@ static void openEnrich(ADIFSource source) {
 static void cmdEnrich() {
     std::string last = adifhost::setting("enrichLast");
     long source = last.empty() ? ADIFSourceQRZ : std::atol(last.c_str());
+    if (source == 8) source = ADIFSourceCountryData;  // its number before World Radio League took 8 (1.7)
     if (source != ADIFSourceQRZ && source != ADIFSourceHamQTH && source != ADIFSourceCountryData) source = ADIFSourceQRZ;
     openEnrich((ADIFSource)source);
 }

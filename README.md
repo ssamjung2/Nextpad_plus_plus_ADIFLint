@@ -45,7 +45,8 @@ Log and eQSL.
   confirmation, count or year, with a palette tested for colour blindness and a red one for
   night use.
 - **Keeps QSL services in sync.** Import your QSOs and confirmations from LoTW, QRZ.com
-  Logbook and eQSL; upload to QRZ.com Logbook, LoTW (TQSL), Club Log and eQSL. Every window
+  Logbook and eQSL; upload to QRZ.com Logbook, LoTW (TQSL), Club Log, eQSL and World Radio
+  League. Every window
   lists exactly what would be sent or changed, and nothing happens until you say so.
 - **Edits the whole log safely.** A **Log Table** that edits like a spreadsheet, **Bulk
   Edit**, **Time Shift**, **Remove Duplicates** and **Compare and Merge Logs**, each
@@ -170,7 +171,7 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
 - **Enrich** missing fields from QRZ.com, HamQTH or offline country data.
 - **QSL Sync** and **Upload** to QRZ.com Logbook, LoTW (through TQSL, with a pre-flight
   check against your Station Location, and the certificate each station profile signs
-  with), Club Log and eQSL, keeping the ADIF upload-status
+  with), Club Log, eQSL and World Radio League, keeping the ADIF upload-status
   fields up to date.
 
 **Languages**
@@ -267,7 +268,7 @@ tab); Settings suggests some.
 | Map (Grids, DXCC, Parks)… | The operating map: in History the squares, countries, US states and counties, CQ and ITU zones, POTA parks and IOTA groups worked, with awards progress; in Live, DX Chase and POTA the stations spotted now and which your log needs, with a watch list; filters by band, mode, date, confirmation and place; four projections, including a globe you turn by dragging; terrain, flags, space weather, the aurora, the NCDXF beacons, day and night and the grey line; PNG export |
 | Import… | From LoTW, QRZ.com Logbook or eQSL (your QSOs and confirmations), a CSV file, or WSJT-X's log |
 | Export… | Activation logs for POTA, WWFF or SOTA, CSV, a Cabrillo contest log, or QSL labels (PDF) |
-| QSL Sync (Upload, Confirmations)… | Each service at a glance; upload to QRZ.com Logbook, LoTW (TQSL), Club Log or eQSL (list what would be sent, upload when you say so, mark it uploaded) and download confirmations |
+| QSL Sync (Upload, Confirmations)… | Each service at a glance; upload to QRZ.com Logbook, LoTW (TQSL), Club Log, eQSL or World Radio League (list what would be sent, upload when you say so, mark it uploaded) and download confirmations |
 | Enrich… | Fill missing station details from QRZ.com or HamQTH, or DXCC, zones and continent from country data (offline) |
 | Monitor (WSJT-X, N1MM, Loggers)… | Add the QSOs WSJT-X, JS8Call, N1MM Logger+, GridTracker and other programs log to a log you choose, as they log them |
 | Record Panel | Show or hide the docked record table |
@@ -300,6 +301,7 @@ your Mac.
 | QRZ.com Logbook | `logbook.qrz.com` | Upload and Import (QRZ.com Logbook); Test Sign-In | Your API key, the log's date range and the QSOs you upload |
 | Club Log | `clublog.org` | Upload (Club Log) | Your email, Application Password, API key and the QSOs you upload |
 | eQSL | `www.eqsl.cc` | Upload and Import (eQSL) | Your username and password, the log's date range and the QSOs you upload |
+| World Radio League | `api.worldradioleague.com`, then the upload address it gives | Upload (World Radio League); Test Sign-In | Your API key (not to the upload address) and the QSOs you upload |
 | POTA | `api.pota.app` | The Spots window (POTA), every minute while it is open | Nothing but the request |
 | WWFF | `spots.wwff.co` | The Spots window (WWFF), every minute while it is open | Nothing but the request |
 | Spothole | `spothole.app` | The Spots window (More programs), every 2 minutes while it is open | The programs asked for (never a login) |
@@ -377,8 +379,8 @@ and the release steps.
   the country data's place for its call, often the middle of the country.
 - No SOTA spots: the SOTA API's terms don't allow software written with AI tools without
   the SOTA team's approval. SOTA tracking and export work offline.
-- Club Log offers no documented way to download QSOs or confirmations, so there is no
-  Import from Club Log. eQSL documents only its InBox (the eQSLs others sent you), so Import
+- Club Log and World Radio League offer no documented way to download QSOs or
+  confirmations, so there is no Import from them. eQSL documents only its InBox (the eQSLs others sent you), so Import
   from eQSL offers the QSOs your log lacks without ticking them: they are the other
   station's records.
 - ADX (XML) files are not handled.

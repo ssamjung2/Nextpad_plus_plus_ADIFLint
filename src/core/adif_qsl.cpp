@@ -287,7 +287,8 @@ ServiceSummary serviceSummary(std::string_view text, const DocModel &m, UploadSe
                 break;
             }
             case UploadService::QRZ: out.confirmed += equalsNoCase(trimmed(r.get("APP_QRZLOG_STATUS")), "C"); break;
-            case UploadService::ClubLog: break;
+            case UploadService::ClubLog:
+            case UploadService::WRL: break;
         }
     }
     return out;

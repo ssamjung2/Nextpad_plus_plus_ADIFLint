@@ -8,8 +8,8 @@
 // Problems in their colour; plain text dimmed.
 static NSColor *severityColor(int severity) { return severity < 0 ? NSColor.secondaryLabelColor : ADIFSeverityColor(severity); }
 
-// The fields the window offers, and which sources provide them: bit (1 << ADIFSource):
-// 0 QRZ.com, 1 HamQTH, 8 Country Data.
+// The fields the window offers, and which sources provide them: bit (1 << ADIFSource).
+const unsigned kQrz = 1u << ADIFSourceQRZ, kHamQth = 1u << ADIFSourceHamQTH, kCountryData = 1u << ADIFSourceCountryData;
 struct FieldOption {
     NSString *label;
     std::vector<std::string> fields;
@@ -18,17 +18,17 @@ struct FieldOption {
 };
 static const std::vector<FieldOption> &fieldOptions() {
     static const std::vector<FieldOption> options = {
-        {N(@"Name"), {"NAME"}, 0b011, true},
-        {N(@"City (QTH)"), {"QTH"}, 0b011, true},
-        {N(@"State"), {"STATE"}, 0b011, true},
-        {N(@"County"), {"CNTY"}, 0b011, true},
-        {N(@"Grid square"), {"GRIDSQUARE"}, 0b011, true},
-        {N(@"Country and DXCC"), {"DXCC", "COUNTRY"}, 0b100000011, true},
-        {N(@"CQ zone"), {"CQZ"}, 0b100000011, true},
-        {N(@"ITU zone"), {"ITUZ"}, 0b100000011, true},
-        {N(@"IOTA"), {"IOTA"}, 0b011, true},
-        {N(@"Continent"), {"CONT"}, 0b100000010, true},
-        {N(@"Latitude and longitude"), {"LAT", "LON"}, 0b011, false},
+        {N(@"Name"), {"NAME"}, kQrz | kHamQth, true},
+        {N(@"City (QTH)"), {"QTH"}, kQrz | kHamQth, true},
+        {N(@"State"), {"STATE"}, kQrz | kHamQth, true},
+        {N(@"County"), {"CNTY"}, kQrz | kHamQth, true},
+        {N(@"Grid square"), {"GRIDSQUARE"}, kQrz | kHamQth, true},
+        {N(@"Country and DXCC"), {"DXCC", "COUNTRY"}, kQrz | kHamQth | kCountryData, true},
+        {N(@"CQ zone"), {"CQZ"}, kQrz | kHamQth | kCountryData, true},
+        {N(@"ITU zone"), {"ITUZ"}, kQrz | kHamQth | kCountryData, true},
+        {N(@"IOTA"), {"IOTA"}, kQrz | kHamQth, true},
+        {N(@"Continent"), {"CONT"}, kHamQth | kCountryData, true},
+        {N(@"Latitude and longitude"), {"LAT", "LON"}, kQrz | kHamQth, false},
     };
     return options;
 }

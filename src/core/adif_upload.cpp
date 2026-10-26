@@ -30,7 +30,8 @@ std::string trim(std::string_view s) {
 
 bool isStatusField(std::string_view name) {
     for (const char *f : {"QRZCOM_QSO_UPLOAD_STATUS", "QRZCOM_QSO_UPLOAD_DATE", "CLUBLOG_QSO_UPLOAD_STATUS",
-                          "CLUBLOG_QSO_UPLOAD_DATE", "LOTW_QSL_SENT", "LOTW_QSLSDATE", "EQSL_QSL_SENT", "EQSL_QSLSDATE"})
+                          "CLUBLOG_QSO_UPLOAD_DATE", "LOTW_QSL_SENT", "LOTW_QSLSDATE", "EQSL_QSL_SENT", "EQSL_QSLSDATE",
+                          "APP_ADIFLINT_WRL_QSO_UPLOAD_STATUS", "APP_ADIFLINT_WRL_QSO_UPLOAD_DATE"})
         if (equalsNoCase(name, f)) return true;
     return false;
 }
@@ -51,6 +52,7 @@ UploadFields uploadFields(UploadService s) {
         case UploadService::LoTW: return {"LOTW_QSL_SENT", "LOTW_QSLSDATE"};
         case UploadService::ClubLog: return {"CLUBLOG_QSO_UPLOAD_STATUS", "CLUBLOG_QSO_UPLOAD_DATE"};
         case UploadService::EQSL: return {"EQSL_QSL_SENT", "EQSL_QSLSDATE"};
+        case UploadService::WRL: return {"APP_ADIFLINT_WRL_QSO_UPLOAD_STATUS", "APP_ADIFLINT_WRL_QSO_UPLOAD_DATE"};
     }
     return {"", ""};
 }
@@ -61,6 +63,7 @@ const char *uploadServiceName(UploadService s) {
         case UploadService::LoTW: return "LoTW";
         case UploadService::ClubLog: return "Club Log";
         case UploadService::EQSL: return "eQSL";
+        case UploadService::WRL: return "World Radio League";
     }
     return "";
 }
@@ -324,6 +327,93 @@ std::string tqslExitMeaning(int code) {
         case 15: return tr("wrong certificate password");
         default: return trf("TQSL exit code {code}", {{"code", std::to_string(code)}});
     }
+}
+
+bool wrlImportFinished(std::string_view status) {
+    for (const char *s : {"complete", "complete_with_errors", "failed", "rejected", "expired", "cancelled"})
+        if (status == s) return true;
+    return false;
+}
+
+std::string wrlImportSummary(const WrlImport &imp) {
+    auto n = [](long long v) { return std::to_string(v < 0 ? 0 : v); };
+    const std::string &s = imp.status, &e = imp.errorCode;
+    if (s == "complete" || s == "complete_with_errors") {
+        std::string out = trp("World Radio League imported {imported} of {n} QSO", "World Radio League imported {imported} of {n} QSOs",
+                                    std::max(imp.total, 0LL), {{"imported", n(imp.imported)}});
+        if (imp.duplicates > 0) out += "; " + trp("{n} was already there", "{n} were already there", imp.duplicates);
+        if (imp.failed > 0)
+            out += "; " + trp("{n} could not be imported, and it doesn't say which", "{n} could not be imported, and it doesn't say which",
+                                    imp.failed);
+        return out + ".";
+    }
+    if (s == "rejected") {
+        // The codes the Import schema lists for a rejected file.
+        std::string why = e == "FILE_TOO_LARGE"           ? tr("the file is over 10 MB")
+                          : e == "NO_RECORDS"             ? tr("it found no records in the file")
+                          : e == "EXCEEDS_DAILY_LIMIT"    ? tr("the file holds more QSOs than your whole daily import allowance: send fewer at a time")
+                          : e == "IMPORT_QUOTA_EXHAUSTED" ? tr("today's import allowance is used up: upload again after 00:00 UTC")
+                          : e == "KEY_REVOKED"            ? tr("the API key was revoked: make a new one in World Radio League and save it in Settings")
+                          : e == "LOGBOOK_DELETED"        ? tr("the logbook was deleted before the file was imported")
+                          : e == "INTERNAL"               ? tr("it could not read the file after several tries")
+                          : e.empty()                     ? tr("no reason given")
+                                                          : e;
+        return trf("World Radio League refused the file ({why}). Nothing was imported or charged.", {{"why", why}});
+    }
+    if (s == "failed")
+        return e == "QUOTA_EXCEEDED" ? tr("The import stopped: your membership's import allowance was reached during it.")
+                                     : trf("The import failed ({why}).", {{"why", e.empty() ? tr("no reason given") : e}});
+    if (s == "expired") return tr("The import expired: World Radio League got no file within two hours.");
+    if (s == "cancelled") return tr("The import was cancelled in World Radio League.");
+    if (s == "awaiting_upload") return tr("World Radio League is waiting for the file...");
+    if (s == "uploaded") return tr("World Radio League has the file and is checking it...");
+    if (s == "queued") return tr("World Radio League has queued the import...");
+    if (s == "processing")
+        return imp.progress >= 0 ? trf("World Radio League is importing ({percent} done)...", {{"percent", std::to_string((int)imp.progress) + "%"}})
+                                 : tr("World Radio League is importing...");
+    return trf("World Radio League: {status}", {{"status", s}});
+}
+
+std::string wrlKeySummary(std::string_view tier, long long importPerDay, std::string_view resolution) {
+    std::string out = tier.empty() ? tr("World Radio League accepted the key.")
+                                   : trf("World Radio League accepted the key (membership: {tier}).", {{"tier", std::string(tier)}});
+    if (importPerDay == 0) out += " " + tr("This membership can't import ADIF files, which Upload needs.");
+    else if (importPerDay > 0) out += " " + trf("Uploads of up to {n} QSOs a day.", {{"n", std::to_string(importPerDay)}});
+    if (resolution == "ambiguous")
+        out += " " + tr("You have several logbooks and none is the default: choose one in World Radio League, as uploads go to the default.");
+    else if (resolution == "none") out += " " + tr("You have no logbook yet: create one in World Radio League first.");
+    else out += " " + tr("Uploads go to your default logbook.");
+    return out;
+}
+
+bool wrlImportAllIn(const WrlImport &imp, size_t sent) {
+    return imp.status == "complete" && imp.failed <= 0 && imp.imported >= 0 &&
+           (size_t)(imp.imported + std::max(imp.duplicates, 0LL)) == sent;
+}
+
+std::string wrlErrorText(int httpStatus, std::string_view code, std::string_view message, std::string_view hint, long long retryAfter) {
+    // The codes of the API's Error schema.
+    std::string out = code == "MISSING_CREDENTIALS" || code == "INVALID_KEY"
+                          ? tr("World Radio League did not accept the API key: check it in Settings.")
+                      : code == "KEY_REVOKED"
+                          ? tr("The API key was revoked: make a new one in World Radio League (Integrations, Developer API) and save it in Settings.")
+                      : code == "MEMBERSHIP_REQUIRED" ? tr("Your World Radio League membership doesn't include the API.")
+                      : code == "INSUFFICIENT_SCOPE"  ? tr("The API key isn't allowed to do this.")
+                      : code == "IP_NOT_ALLOWED"      ? tr("The API key isn't allowed from this network address.")
+                      : code == "CONFLICT"
+                          ? tr("Another import is running or waiting for its file in your account (one at a time), or the logbook is locked: "
+                               "try again when it's done.")
+                      : code == "RATE_LIMITED"
+                          ? (retryAfter > 0 ? trf("Too many requests: try again in {seconds} seconds.", {{"seconds", std::to_string(retryAfter)}})
+                                            : tr("Too many requests: try again later."))
+                      : code == "VALIDATION_ERROR" ? tr("World Radio League refused the request.")
+                      : code == "API_DISABLED" || code == "POLICY_UNAVAILABLE" || code == "INTERNAL_ERROR"
+                          ? tr("World Radio League's API isn't working just now: try again later.")
+                          : trf("World Radio League answered HTTP {status}.", {{"status", std::to_string(httpStatus)}});
+    std::string said(message);
+    if (!hint.empty()) said += (said.empty() ? "" : " ") + std::string(hint);
+    if (!said.empty()) out += " " + trf("It says: {text}", {{"text", said}});
+    return out;
 }
 
 std::vector<TextEdit> markUploaded(std::string_view text, const DocModel &m, const std::vector<int> &groups, UploadService s,

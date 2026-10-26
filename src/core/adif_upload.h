@@ -17,6 +17,8 @@
 //   TQSL command line (lotw.arrl.org/lotw-help/cmdline/): -x batch, -d no
 //     date dialog, -u upload, -l station location, -a action; exit 0 success,
 //     8 none processed (duplicates or out of date range), 9 some ignored.
+//   World Radio League API (its OpenAPI 3.1 description "World Radio League API"
+//     1.1.0 at api.worldradioleague.com/v1/openapi.json, read 2026-10-25): see WrlImport.
 //   ADIF 3.1.7: QSO_Upload_Status Y uploaded, N do not upload, M modified since
 //     upload; QSL_Sent Y, N, R requested, Q queued, I ignore or invalid.
 #pragma once
@@ -30,14 +32,16 @@
 
 namespace adif {
 
-enum class UploadService { QRZ, LoTW, ClubLog, EQSL };
+enum class UploadService { QRZ, LoTW, ClubLog, EQSL, WRL };
 
+// ADIF has no fields for World Radio League, so its are ADIF Lint's own (APP_ADIFLINT_WRL_...),
+// used as QSO_Upload_Status and its date are.
 struct UploadFields {
-    const char *status;  // QRZCOM_QSO_UPLOAD_STATUS, LOTW_QSL_SENT, CLUBLOG_QSO_UPLOAD_STATUS, EQSL_QSL_SENT
-    const char *date;    // QRZCOM_QSO_UPLOAD_DATE, LOTW_QSLSDATE, CLUBLOG_QSO_UPLOAD_DATE, EQSL_QSLSDATE
+    const char *status;  // QRZCOM_QSO_UPLOAD_STATUS, LOTW_QSL_SENT, CLUBLOG_QSO_UPLOAD_STATUS, EQSL_QSL_SENT, APP_ADIFLINT_WRL_QSO_UPLOAD_STATUS
+    const char *date;    // QRZCOM_QSO_UPLOAD_DATE, LOTW_QSLSDATE, CLUBLOG_QSO_UPLOAD_DATE, EQSL_QSLSDATE, APP_ADIFLINT_WRL_QSO_UPLOAD_DATE
 };
 UploadFields uploadFields(UploadService s);
-const char *uploadServiceName(UploadService s);  // "QRZ.com Logbook", "LoTW", "Club Log", "eQSL"
+const char *uploadServiceName(UploadService s);  // "QRZ.com Logbook", "LoTW", "Club Log", "eQSL", "World Radio League"
 
 struct UploadItem {
     int group = -1, record = 0;
@@ -99,6 +103,33 @@ std::string eqslInboxLink(std::string_view html, std::string *error);
 
 // TQSL's exit code in words.
 std::string tqslExitMeaning(int code);
+
+// World Radio League's ADIF import, in three steps: POST /v1/imports with {"programId"} (the
+// program's name, written as PROGRAMID on every QSO it imports) reserves an import and gives
+// upload.url; PUT the .adi file there (Content-Type text/plain, no API key, at most 10 MB, within
+// two hours); then GET /v1/imports/{id} every few seconds until it is finished. One import runs at
+// a time per account (409 CONFLICT). QSOs already in the account are skipped as duplicates, and
+// the import reports counts only, never which record failed.
+struct WrlImport {
+    std::string id, status, errorCode, uploadUrl;
+    long long total = -1, imported = -1, duplicates = -1, failed = -1;  // -1: not given (yet)
+    double progress = -1;                                                // 0 to 100 once processing
+};
+constexpr long long kWrlMaxBytes = 10485760;
+// complete, complete_with_errors, failed, rejected, expired or cancelled: stop polling.
+bool wrlImportFinished(std::string_view status);
+// What the import is doing or did, in words.
+std::string wrlImportSummary(const WrlImport &imp);
+// True when the import finished with all `sent` records in the account (imported, or already
+// there), so they can be marked uploaded; with any failed, nothing can be marked.
+bool wrlImportAllIn(const WrlImport &imp, size_t sent);
+// What GET /v1/me says about a key, for Settings: its membership tier, limits.importContactsPerDay
+// (0: no bulk import, which Upload uses; -1 unknown) and defaultLogbook.resolution (configured,
+// sole, ambiguous or none: where an import without a logbook goes).
+std::string wrlKeySummary(std::string_view tier, long long importPerDay, std::string_view resolution);
+// An API error in words: what its code means (Error.code), then WRL's own message and hint.
+// `retryAfter`: seconds from a 429's Retry-After, or 0.
+std::string wrlErrorText(int httpStatus, std::string_view code, std::string_view message, std::string_view hint, long long retryAfter = 0);
 
 // Set the service's status to Y and its date to `today` (YYYYMMDD) on these records.
 std::vector<TextEdit> markUploaded(std::string_view text, const DocModel &m, const std::vector<int> &groups, UploadService s,

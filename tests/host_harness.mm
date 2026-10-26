@@ -776,6 +776,7 @@ int main(int argc, char **argv) {
             {"Upload to LoTW (TQSL)...", "QSL Sync (Upload, Confirmations)...", @"LoTW (TQSL)"},
             {"Upload to Club Log...", "QSL Sync (Upload, Confirmations)...", @"Club Log"},
             {"Upload to eQSL...", "QSL Sync (Upload, Confirmations)...", @"eQSL"},
+            {"Upload to World Radio League...", "QSL Sync (Upload, Confirmations)...", @"World Radio League"},
             {"Enrich from QRZ.com...", "Enrich...", @"QRZ.com"},
             {"Enrich from HamQTH...", "Enrich...", @"HamQTH"},
             {"Enrich from Country Data...", "Enrich...", @"Country Data (offline)"},
@@ -2239,6 +2240,7 @@ int main(int argc, char **argv) {
             NSString *fake = @(argv[2]);
             NSString *logPath = [fake stringByAppendingPathComponent:@"uploads.log"];
             [[NSFileManager defaultManager] removeItemAtPath:logPath error:nil];
+            [[NSFileManager defaultManager] removeItemAtPath:[fake stringByAppendingPathComponent:@"wrl"] error:nil];  // a failed run's answers
             auto uploadsLog = [&]() {
                 return std::string(([NSString stringWithContentsOfFile:logPath encoding:NSUTF8StringEncoding error:nil] ?: @"").UTF8String);
             };
@@ -2275,6 +2277,14 @@ int main(int argc, char **argv) {
                 CHECK(eq && test && test.hidden, "eQSL has no sign-in test button");
                 NSView *ql = viewWithIdentifier(setw.contentView, @"settings.source.3");
                 CHECK(ql && !findButton(ql, @"Test Sign-In").hidden, "QRZ Logbook key can be tested");
+                openSettingsGroup(setw, @"settings.source.8");
+                NSView *wrl = viewWithIdentifier(setw.contentView, @"settings.source.8");
+                NSButton *wtest = wrl ? findButton(wrl, @"Test Sign-In") : nil;
+                [wtest performClick:nil];
+                for (int i = 0; i < 40 && !labelContaining(wrl, @"accepted the key"); ++i) pump(0.05);
+                NSString *said = labelContaining(wrl, @"accepted the key");
+                CHECK(wtest && !wtest.hidden && [said containsString:@"World Radio League accepted the key (membership: premium). Uploads of up to 50000 QSOs a day. Uploads go to your default logbook."],
+                      "the WRL key test reads /v1/me: %s", said.UTF8String);
                 closeSettings();
             }
 
@@ -2381,6 +2391,59 @@ int main(int argc, char **argv) {
                       "Club Log status: %s", status(cl).c_str());
                 snapshot(cl, "upload-clublog");
                 [cl orderOut:nil];
+            }
+
+            // World Radio League: start an import, send the file to its address, ask until it is done.
+            run("Upload to World Radio League...");
+            NSWindow *wl = windowTitled(@"Upload to World Radio League");
+            auto waitWrl = [&](NSWindow *w) {  // its steps say "..." until the run is over
+                for (int i = 0; i < 200 && (status(w).empty() || status(w).rfind("...") == status(w).size() - 3); ++i) pump(0.05);
+            };
+            if (wl) {
+                CHECK([labelContaining(wl.contentView, @"World Radio League API key saved") containsString:@"default logbook"],
+                      "the WRL account line");
+                [findButton(wl.contentView, [NSString stringWithFormat:@"Upload %zu QSOs", records - 1]) performClick:nil];
+                waitWrl(wl);
+                log = uploadsLog();
+                CHECK(count(log, "WRL START {\"programId\":\"ADIF Lint\"}") == 1 && count(log, "WRL PUT https://storage.example.test/upload") == 1 &&
+                          count(log, "<CALL:") >= records - 1,
+                      "WRL: one import started and its file sent");
+                std::string want = "World Radio League imported " + std::to_string(records - 2) + " of " + std::to_string(records - 1) +
+                                   " QSOs; 1 was already there.";
+                CHECK(count(H.doc, "<APP_ADIFLINT_WRL_QSO_UPLOAD_STATUS:1>Y") == records - 1 &&
+                          count(H.doc, "<APP_ADIFLINT_WRL_QSO_UPLOAD_DATE:8>" + utcDate()) == records - 1 && status(wl).find(want) == 0,
+                      "WRL status: %s", status(wl).c_str());
+                [wl.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(wl.contentView) == 0, "WRL controls do not overlap");
+                snapshot(wl, "upload-wrl");
+                // One import at a time: a second gets 409 CONFLICT, and nothing is marked.
+                NSString *wrlDir = [fake stringByAppendingPathComponent:@"wrl"];
+                [[NSFileManager defaultManager] createDirectoryAtPath:wrlDir withIntermediateDirectories:YES attributes:nil error:nil];
+                [@"HTTP 409\n\n{\"data\":null,\"meta\":null,\"error\":{\"code\":\"CONFLICT\",\"message\":\"An ADIF import is already running for this account.\"}}"
+                    writeToFile:[wrlDir stringByAppendingPathComponent:@"start.txt"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
+                NSButton *listSentW = nil;
+                NSMutableArray *wboxes = [NSMutableArray array];
+                collect(wl.contentView, NSButton.class, wboxes);
+                for (NSButton *b in wboxes)
+                    if ([b.title isEqualToString:@"Also list QSOs already sent"]) listSentW = b;
+                [listSentW performClick:nil];
+                std::string beforeW = H.doc;
+                [findButton(wl.contentView, [NSString stringWithFormat:@"Upload %zu QSOs", records - 1]) performClick:nil];
+                waitWrl(wl);
+                CHECK(H.doc == beforeW && status(wl).find("Another import is running") == 0 && status(wl).find("It says: An ADIF import is already running") != std::string::npos,
+                      "WRL conflict: %s", status(wl).c_str());
+                // A rejected file: its reason, nothing marked.
+                [[NSFileManager defaultManager] removeItemAtPath:[wrlDir stringByAppendingPathComponent:@"start.txt"] error:nil];
+                [@"{\"data\":{\"id\":\"8d2f4b1a-3c5e-4f60-9a7b-1c2d3e4f5a6b\",\"status\":\"rejected\",\"errorCode\":\"IMPORT_QUOTA_EXHAUSTED\"},\"meta\":null,\"error\":null}"
+                    writeToFile:[wrlDir stringByAppendingPathComponent:@"import.txt"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
+                [findButton(wl.contentView, @"Refresh") performClick:nil];
+                [findButton(wl.contentView, [NSString stringWithFormat:@"Upload %zu QSOs", records - 1]) performClick:nil];
+                waitWrl(wl);
+                CHECK(H.doc == beforeW && status(wl).find("World Radio League refused the file (today's import allowance is used up") == 0,
+                      "WRL rejected: %s", status(wl).c_str());
+                [[NSFileManager defaultManager] removeItemAtPath:wrlDir error:nil];
+                [listSentW performClick:nil];
+                [wl orderOut:nil];
             }
 
             // LoTW through a stand-in TQSL that records its arguments.
@@ -2530,7 +2593,7 @@ int main(int argc, char **argv) {
             runItem("QSL Sync (Upload, Confirmations)...");
             NSWindow *sync = windowTitled(@"QSL Sync");
             NSTableView *syncTable = sync ? findTable(sync.contentView) : nil;
-            CHECK(syncTable && [syncTable.dataSource numberOfRowsInTableView:syncTable] == 4 && [cell(syncTable, 3, @"0") isEqualToString:@"eQSL"] &&
+            CHECK(syncTable && [syncTable.dataSource numberOfRowsInTableView:syncTable] == 5 && [cell(syncTable, 3, @"0") isEqualToString:@"eQSL"] &&
                       [cell(syncTable, 3, @"4") isEqualToString:@(std::to_string(records - 1).c_str())] && [cell(syncTable, 2, @"6") isEqualToString:@"—"] &&
                       [cell(syncTable, 1, @"8") isEqualToString:@"never"],
                   "QSL Sync: eQSL uploaded %s, Club Log confirmations %s, LoTW last download %s", cell(syncTable, 3, @"4").UTF8String,

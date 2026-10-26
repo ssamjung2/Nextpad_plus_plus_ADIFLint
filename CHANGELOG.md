@@ -9,6 +9,15 @@ Versions before 0.8.0 were development builds and were not published.
 
 ## [Unreleased]
 
+### Added
+
+- **Upload to World Radio League** (Upload…, QSL Sync): the ticked QSOs as one ADIF import
+  into your default WRL logbook, by WRL's API (start, send the file, follow it until it's
+  done), with an API key in Settings whose Test Sign-In shows your membership, daily import
+  allowance and default logbook. ADIF has no WRL fields, so uploaded QSOs get
+  APP_ADIFLINT_WRL_QSO_UPLOAD_STATUS Y and its date; they are marked only when WRL has every
+  one. API read 2026-10-25.
+
 ## [1.6.0] - 2026-10-25
 
 ### Added

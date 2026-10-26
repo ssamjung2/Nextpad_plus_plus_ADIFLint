@@ -1643,16 +1643,19 @@ account is saved, the QSOs to upload (and how many changed since an upload), upl
 can't be sent, and confirmed (LOTW_QSL_RCVD or EQSL_QSL_RCVD Y or V, or QRZ.com Logbook's
 confirmed status as Import writes it), the newest upload date in the log, and when you last
 downloaded from it. Select a service, then **Upload…** (or double-click it) or **Download
-Confirmations…**, which opens its Import window. Club Log has no confirmations to download.
+Confirmations…**, which opens its Import window. Club Log and World Radio League have no
+confirmations to download.
 
 ![QSL Sync: QRZ.com Logbook, LoTW, Club Log and eQSL with their accounts, QSOs to upload, uploaded, confirmed and the last upload and download](images/qsl-sync.png)
 
-The upload windows (QRZ.com Logbook, LoTW (TQSL), Club Log, eQSL) list the QSOs not yet
-sent, by the ADIF status field, with the ones that can't be sent (no MODE…) in red.
-**Nothing is sent until you press Upload.** Each QSO's result is shown, and the accepted
-ones get the status field Y and today's date: QRZCOM_QSO_UPLOAD_STATUS and _DATE,
+The upload windows (QRZ.com Logbook, LoTW (TQSL), Club Log, eQSL, World Radio League) list
+the QSOs not yet sent, by the ADIF status field, with the ones that can't be sent (no MODE…)
+in red. **Nothing is sent until you press Upload.** Each QSO's result is shown, and the
+accepted ones get the status field Y and today's date: QRZCOM_QSO_UPLOAD_STATUS and _DATE,
 LOTW_QSL_SENT and LOTW_QSLSDATE, CLUBLOG_QSO_UPLOAD_STATUS and _DATE, EQSL_QSL_SENT and
-EQSL_QSLSDATE. **Copy ADIF** copies exactly what would be sent, and QSOs you untick stay
+EQSL_QSLSDATE. ADIF has no fields for World Radio League, so ADIF Lint writes its own:
+APP_ADIFLINT_WRL_QSO_UPLOAD_STATUS and APP_ADIFLINT_WRL_QSO_UPLOAD_DATE (N there means "do
+not upload", as for the others). **Copy ADIF** copies exactly what would be sent, and QSOs you untick stay
 unticked while you edit the log.
 
 ![Upload to QRZ.com Logbook: the QSOs to send, one that can't be sent in red, nothing sent until Upload](images/upload-qrz.png)
@@ -1696,6 +1699,15 @@ unticked while you edit the log.
   Password and an API key. Club Log gives each program its own key: request one at
   clublog.org/requestapikey.php, and never publish it. Club Log blocks programs that
   repeat failed requests, so the first error stops the run.
+- **World Radio League:** one ADIF import of the ticked QSOs, in WRL's three steps
+  ([WRL API](https://worldradioleague.com/developer), 1.1.0, read 2026-10-25): start an import
+  with your API key (`POST /v1/imports`, PROGRAMID "ADIF Lint"), send the file to the upload
+  address it gives (without the key; up to 10 MB), then ask how it goes every few seconds
+  until it's done. The QSOs go to your default WRL logbook; **Test Sign-In** in Settings says
+  which, what your membership allows and how many QSOs a day it imports. QSOs WRL already has
+  count as uploaded. WRL reports counts, not which QSO failed, so the records are marked only
+  when every one is in; otherwise its Activity Log shows the details. One import runs at a time
+  per account; **Stop** stops watching, not the import.
 - **eQSL:** one QSO per request to ImportADIF
   ([eQSL interface](https://www.eqsl.cc/qslcard/ImportADIF.txt)), with an optional QTH
   Nickname for users with several accounts. A QSO eQSL already has counts as sent; a
@@ -1841,9 +1853,11 @@ to find. The first time ADIF Lint runs, it opens with a welcome and Your Station
 - **Accounts**, one section each: QRZ.com and HamQTH (username and password, for Enrich
   and New QSO's lookup); LoTW (your LoTW website login, for Import); QRZ.com Logbook (API
   key); Club Log (email and Application Password) and Club
-  Log API key; eQSL (username and password); and the TQSL certificate password. **Save**
+  Log API key; eQSL (username and password); the TQSL certificate password; and World Radio
+  League (API key: Integrations → Developer API → Generate API key). **Save**
   stores them, **Test Sign-In** tries them where the service allows it (for QRZ.com it also
-  shows the XML subscription end date), and **Remove** deletes them.
+  shows the XML subscription end date; for World Radio League, your membership, daily import
+  allowance and default logbook), and **Remove** deletes them.
 
 Where things are kept:
 
