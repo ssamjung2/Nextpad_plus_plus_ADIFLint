@@ -9,6 +9,8 @@ Versions before 0.8.0 were development builds and were not published.
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-10-25
+
 ### Added
 
 - **Contests by their rules** (New QSO → Contest…): CQ WW (SSB, CW, RTTY), CQ WPX (SSB, CW,
@@ -851,7 +853,8 @@ First public release.
 - **Fix Lengths**, as one undo step, and **Count Lengths in Characters**.
 - The `adiflint` command-line tool.
 
-[Unreleased]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.4.1...v1.5.0
 [1.4.1]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.3.0...v1.4.0
