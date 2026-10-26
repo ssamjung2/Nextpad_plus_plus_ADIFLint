@@ -330,6 +330,12 @@ static std::string configPath() {
     return std::string(buf) + "/ADIFLint.ini";
 }
 
+// The ADIF version the checks follow and new logs declare (Settings): the newest, unless one is chosen.
+static void applySpecVersion() {
+    auto it = g.extra.find("adifVersion");
+    adif::useSpecVersion(it == g.extra.end() || it->second.empty() ? SIZE_MAX : adif::findSpecVersion(it->second));
+}
+
 static void loadSettings() {
     std::string path = configPath();
     if (path.empty()) return;
@@ -370,6 +376,7 @@ static void loadSettings() {
             }
         }
     }
+    applySpecVersion();
 }
 
 static void saveSettings() {
@@ -748,7 +755,7 @@ static const adif::LintResult &validateNow(NppHandle h, bool showDiagnostics = t
 static std::string summary(const adif::LintResult &r) {
     using adifhost::plural;
     std::string s = trf("ADIF {version}: {records}, {errors}, {warnings}, {notes}.",
-                        {{"version", adif::kSpecVersion}, {"records", plural(r.records, "record")}, {"errors", plural(r.errors, "error")},
+                        {{"version", adif::specVersion()}, {"records", plural(r.records, "record")}, {"errors", plural(r.errors, "error")},
                          {"warnings", plural(r.warnings, "warning")}, {"notes", plural(r.infos, "note")}});
     if (!r.fixes.empty()) s += "\n" + trf("Fix Lengths can correct {lengths}.", {{"lengths", plural(r.fixes.size(), "data length")}});
     if (r.truncated) s += "\n" + trf("Only the first {n} problems are marked.", {{"n", std::to_string(r.diagnostics.size())}});
@@ -2368,6 +2375,17 @@ static void ensureSettings() {
             adifhost::setSetting("uiLanguage", ADIFStd(code));
             ADIFLoadLanguage();
         };
+        g.settings.onAdifVersion = ^(NSString *version) {
+            adifhost::setSetting("adifVersion", ADIFStd(version));
+            applySpecVersion();
+            g.lastLength = -1;  // checked against another version: check again
+            if (isAdifBuffer(currentBuffer())) {
+                try {
+                    validateNow(currentScintilla(), true);
+                } catch (...) {
+                }
+            }
+        };
         g.settings.onMapDetailCheck = ^(NSString *choice, NSInteger zoom) {
             [g.settings setMapDetailState:@"Checking..." ok:YES checked:NO busy:YES];
             mapdetail::check(choice.UTF8String ?: "", (int)zoom, ^(BOOL ok, NSString *message) {
@@ -2410,6 +2428,7 @@ static void ensureSettings() {
     refreshSettingsOptions();
     [g.settings setOffline:ADIFOffline()];
     [g.settings setLanguage:ADIFString(adifhost::setting("uiLanguage"))];
+    [g.settings setAdifVersion:ADIFString(adifhost::setting("adifVersion"))];
     refreshMapDetail();
 }
 
@@ -2895,7 +2914,7 @@ static void cmdAbout() {
             @"QRZ.com, HamQTH or offline country data; upload to QRZ.com Logbook, LoTW (TQSL), Club Log and eQSL, sent "
             @"only when you press Upload. Accounts stay in your macOS Keychain.\n\n"
             @"Free software under the GNU GPL v3. Country data by Jim Reisert AD1C (MIT licence)."),
-            adif::kSpecVersion, adif::kSpecDate];
+            adif::specVersion(), adif::specDate()];
     [alert addButtonWithTitle:@"OK"];
     [alert addButtonWithTitle:T(@"Project Page")];
     [alert addButtonWithTitle:T(@"ADIF Specification")];

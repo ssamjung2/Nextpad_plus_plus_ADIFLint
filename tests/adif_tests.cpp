@@ -1997,7 +1997,7 @@ static std::string readFile(const char *path) {
     return ss.str();
 }
 
-// The official ADIF 3.1.7 test-QSO file must lint without errors or warnings,
+// The official ADIF 3.1.8 test-QSO file must lint without errors or warnings,
 // and breaking lengths in it must be repaired back to exactly the original.
 static void testOfficialFile(const char *path) {
     std::string text = readFile(path);
@@ -2005,7 +2005,7 @@ static void testOfficialFile(const char *path) {
     LintResult r = lint(text);
     CHECK(r.errors == 0 && r.warnings == 0, "official file: %zu errors, %zu warnings\n%s", r.errors, r.warnings,
           dump(r).substr(0, 4000).c_str());
-    CHECK(r.records == 6197, "official file records: %zu", r.records);
+    CHECK(r.records == 6202, "official file records: %zu", r.records);
     CHECK(r.fixes.empty(), "official file needs no fixes: %zu", r.fixes.size());
     testOfficialReformat(text);
 
@@ -3682,7 +3682,7 @@ static void testI18n() {
     ko.strings["Records"] = "레코드";
     use(std::make_shared<const Table>(de));
     LintResult r = lintRecord("<FOO:1>x ");
-    expect("translated message", r, Severity::Warning, "Unbekanntes Feld FOO: kein ADIF-3.1.7-Feld.");
+    expect("translated message", r, Severity::Warning, "Unbekanntes Feld FOO: kein ADIF-3.1.8-Feld.");
     expect("untranslated message", r, Severity::Info, "is usually written", 0);
     std::string log = std::string(kHeader) + record("");
     LintOptions mo;
@@ -4068,6 +4068,47 @@ static void testTqslCertificates() {
               lotwLocationProblem(q, loc, "k9xyz") == "STATION_CALLSIGN W9CLB (the certificate: K9XYZ)",
           "the QSO's call against -c's certificate, not the location's CALL: %s", lotwLocationProblem(q, loc, "k9xyz").c_str());
     CHECK(tqslExitMeaning(15) == "wrong certificate password" && tqslExitMeaning(13).find("busy") != std::string::npos, "TQSL's exit codes 12 to 15");
+}
+
+static void testSpecVersions() {
+    size_t n = 0;
+    const SpecVersion *v = specVersions(&n);
+    CHECK(n == 17 && std::string(v[0].name) == "3.0.2" && std::string(specVersion()) == "3.1.8" && std::string(specDate()) == "2026-10-12" &&
+              findSpecVersion("3.0.9") == 7 && findSpecVersion("3.0.0") == SIZE_MAX,
+          "ADIF versions 3.0.2 to 3.1.8, the newest in use (%zu, %s)", n, specVersion());
+    auto rec = [](const std::string &fields) { return std::string("h <EOH>\n<CALL:4>K1AB <QSO_DATE:8>20260101 <TIME_ON:4>1200 ") + fields + " <EOR>\n"; };
+    auto says = [](const LintResult &r, const std::string &text) {
+        for (const Diagnostic &d : r.diagnostics)
+            if (d.message.find(text) != std::string::npos) return true;
+        return false;
+    };
+    auto quiet = [](const LintResult &r) { return r.errors == 0 && r.warnings == 0; };
+    // A field from a later version.
+    useSpecVersion(findSpecVersion("3.1.3"));
+    LintResult r = lint(rec("<BAND:3>20m <MODE:2>CW <POTA_REF:7>US-1234"));
+    CHECK(says(r, "POTA_REF is not an ADIF 3.1.3 field. It was added in ADIF 3.1.4.") && r.warnings == 1, "POTA_REF before 3.1.4: %s", dump(r).c_str());
+    CHECK(std::string(specVersion()) == "3.1.3" && quiet(lint(rec("<BAND:3>20m <MODE:4>MFSK <SUBMODE:3>FT4"))), "FT4 is in 3.1.3");
+    // A value from a later version, and values that became import-only.
+    useSpecVersion(findSpecVersion("3.0.9"));
+    LintResult ft4 = lint(rec("<BAND:3>20m <MODE:4>MFSK <SUBMODE:3>FT4"));
+    CHECK(says(ft4, "It was added in ADIF 3.1.0."), "FT4 before 3.1.0: %s", dump(ft4).c_str());
+    useSpecVersion(findSpecVersion("3.1.7"));
+    CHECK(says(lint(rec("<BAND:3>20m <MODE:2>CW <CONTEST_ID:8>SKCC-SKS")), "It was added in ADIF 3.1.8."), "SKCC-SKS before 3.1.8");
+    useSpecVersion(findSpecVersion("3.1.2"));
+    CHECK(quiet(lint(rec("<BAND:3>20m <MODE:4>C4FM"))), "C4FM is a mode in 3.1.2");
+    useSpecVersion(findSpecVersion("3.0.3"));
+    CHECK(quiet(lint(rec("<BAND:3>20m <MODE:5>PSK31"))), "PSK31 is a mode in 3.0.3");
+    // A type a field had then: CQZ was a Number until 3.0.5.
+    useSpecVersion(findSpecVersion("3.0.5"));
+    LintResult cq = lint(rec("<BAND:3>20m <MODE:2>CW <CQZ:3>5.5"));
+    // Band edges then: 30m was 10.0 to 10.15 MHz until 3.0.4.
+    useSpecVersion(findSpecVersion("3.0.4"));
+    LintResult thirty = lint(rec("<BAND:3>30m <FREQ:5>10.05 <MODE:2>CW"));
+    useSpecVersion(newestSpecVersion());
+    CHECK(cq.errors == 0 && lint(rec("<BAND:3>20m <MODE:2>CW <CQZ:3>5.5")).errors > 0, "CQZ 5.5: a Number in 3.0.5, not a PositiveInteger now");
+    CHECK(quiet(thirty) && !quiet(lint(rec("<BAND:3>30m <FREQ:5>10.05 <MODE:2>CW"))), "30m from 10.0 MHz in 3.0.4, from 10.1 now");
+    LintResult now = lint(rec("<BAND:3>20m <MODE:5>PSK31"));
+    CHECK(says(now, "import-only") && std::string(specVersion()) == "3.1.8", "PSK31 is import-only now");
 }
 
 static void testWrl() {
@@ -4522,6 +4563,7 @@ int main(int argc, char **argv) {
     testContestDefs();
     testTqslCertificates();
     testWrl();
+    testSpecVersions();
     testHrdlogHamqth();
     testSolar();
     testProjections();

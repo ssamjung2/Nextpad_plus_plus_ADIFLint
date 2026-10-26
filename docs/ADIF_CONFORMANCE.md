@@ -1,17 +1,25 @@
-# ADIF 3.1.7 conformance
+# ADIF conformance
 
 What ADIF Lint checks, the section of the specification each rule comes from, and how it
-was verified. Section numbers are those of ADIF 3.1.7; "Resources" means the ADIF 3.1.7
-Resources document.
+was verified. Section numbers are those of ADIF 3.1.7, which 3.1.8 keeps; "Resources" means
+the ADIF 3.1.7 Resources document.
+
+ADIF 3.1.8 (2026-10-12) changed only enumeration values: submode JTTY (of MFSK), contest IDs
+SKCC-SKS, SKCC-SKSA, SKCC-SKSE and SKCC-WES, and WAE for European Turkey's region (its section
+1.F). The tables are now generated from 3.1.8's export, so the rules below hold as verified,
+with 3.1.8's values. Checks against an older version (Settings, `--adif`) use what that
+version's specification holds, read as `spec/adif-history.md` describes.
 
 ## Sources
 
 | Source | Where | Checked |
 |---|---|---|
-| ADIF 3.1.7 specification (released 2026-03-22) | `spec/adif-3.1.7/ADIF_317.htm`, from <https://www.adif.org/317/ADIF_317.htm> | 2026-10-10: byte-identical to the published page (SHA-256 `b7667032…c5c97`); adif.org lists 3.1.7 as current |
-| Exported tables (`all.json`) | `spec/adif-3.1.7/all.json`, from <https://adif.org.uk/317/resources> | 2026-10-10: `tools/gen_spec_tables.py` regenerates `src/core/adif_spec_317.cpp` byte for byte |
+| ADIF 3.1.7 specification (released 2026-03-22), the rules' text | <https://www.adif.org/317/ADIF_317.htm> (SHA-256 `b7667032…c5c97`) | 2026-10-10 |
+| ADIF 3.1.8 specification (released 2026-10-12) | `spec/adif-3.1.8/ADIF_318.htm`, from <https://adif.org.uk/318/ADIF_318.htm> | 2026-10-26: SHA-256 `9d130f55…7fe6`; adif.org lists 3.1.8 as current |
+| Exported tables (`all.json`) | `spec/adif-3.1.8/all.json`, from <https://adif.org.uk/318/ADIF_318_resources_2026_10_12.zip> | 2026-10-26: `tools/gen_spec_tables.py` regenerates `src/core/adif_spec_tables.cpp` byte for byte |
+| ADIF 3.0.2 to 3.1.8, what each holds | `spec/adif-history.json`, from each version's specification (`spec/adif-history.md`) | 2026-10-26: the reader matches the 3.1.5 to 3.1.8 exports |
 | ADIF 3.1.7 Resources (implementation notes) | <https://adif.org.uk/317/ADIF_317_resources.htm> (the spec's relative link 404s on adif.org) | 2026-10-10 |
-| Official test QSOs | `tests/fixtures/ADIF_317_test_QSOs_2026_03_22.adi` (6,197 QSOs, every field and value) | lints with 0 errors and 0 warnings |
+| Official test QSOs | `tests/fixtures/ADIF_318_test_QSOs_2026_10_12.adi` (6,202 QSOs, every field and value) | lints with 0 errors and 0 warnings |
 
 ## How it was verified (2026-10-10)
 
@@ -114,8 +122,8 @@ SAT_NAME, placeholders such as IOTA `none`, and a Field Day class written in ARR
 
 ```sh
 cmake --build build && ctest --test-dir build
-build/adiflint tests/fixtures/ADIF_317_test_QSOs_2026_03_22.adi
-python3 tools/gen_spec_tables.py spec/adif-3.1.7/all.json /tmp/regen.cpp && cmp /tmp/regen.cpp src/core/adif_spec_317.cpp
+build/adiflint tests/fixtures/ADIF_318_test_QSOs_2026_10_12.adi
+python3 tools/gen_spec_tables.py spec/adif-3.1.8/all.json /tmp/regen.cpp && cmp /tmp/regen.cpp src/core/adif_spec_tables.cpp
 ```
 
 A pass is all tests passing, `0 error(s), 0 warning(s)` for the official file, and no

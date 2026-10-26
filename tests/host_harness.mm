@@ -1320,7 +1320,7 @@ int main(int argc, char **argv) {
             qsoControl(qw, @"MODE").stringValue = @"SSB";
             [findButton(qw.contentView, @"Log QSO") performClick:nil];
             pump(0.2);
-            CHECK(H.doc.rfind("ADIF log created with ADIF Lint\n<ADIF_VER:5>3.1.7\n<PROGRAMID:9>ADIF Lint\n", 0) == 0 &&
+            CHECK(H.doc.rfind("ADIF log created with ADIF Lint\n<ADIF_VER:5>3.1.8\n<PROGRAMID:9>ADIF Lint\n", 0) == 0 &&
                       H.doc.find("<EOH>\n\n<CALL:4>W1AW ") != std::string::npos,
                   "new log with a header:\n%s", H.doc.c_str());
             CHECK(H.doc.find("<RST_SENT:2>59 ") != std::string::npos, "SSB report defaults to 59");
@@ -1328,6 +1328,43 @@ int main(int argc, char **argv) {
             {
                 std::string hl;
                 CHECK(noWarnings(&hl), "new log lints clean: %s", hl.c_str());
+            }
+            // ── The ADIF version the checks follow (Settings, Editor) ──
+            {
+                run("Settings...");
+                NSWindow *sw2 = settingsWindow();
+                openSettingsGroup(sw2, @"settings.editor");
+                NSPopUpButton *ver = (NSPopUpButton *)viewWithIdentifier(sw2.contentView, @"settings.adifversion");
+                [sw2.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(sw2.contentView) == 0, "Settings with the Editor card open does not overlap (%d)", overlaps(sw2.contentView));
+                snapshot(sw2, "settings-editor");
+                CHECK(ver && ver.numberOfItems == 17 && [ver.titleOfSelectedItem hasPrefix:@"ADIF 3.1.8 (the newest"] &&
+                          [[ver itemAtIndex:16].title isEqualToString:@"ADIF 3.0.2 (2012-06-09)"],
+                      "the ADIF versions offered: %s", ver.titleOfSelectedItem.UTF8String);
+                std::string saved = H.doc;
+                H.doc = "log\n<ADIF_VER:5>3.1.3\n<EOH>\n<CALL:4>W1AW <QSO_DATE:8>20261006 <TIME_ON:4>2300 <BAND:3>20m <MODE:2>CW "
+                        "<POTA_REF:7>US-1234 <EOR>\n";
+                notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+                pump(0.3);
+                std::string vh;
+                CHECK(noWarnings(&vh), "POTA_REF is an ADIF 3.1.8 field: %s", vh.c_str());
+                [ver selectItemAtIndex:[ver indexOfItemWithRepresentedObject:@"3.1.3"]];
+                [ver sendAction:ver.action to:ver.target];
+                pump(0.3);
+                CHECK(!noWarnings(&vh) && vh.rfind("0 errors, 1 warning", 0) == 0,
+                      "checked against ADIF 3.1.3, POTA_REF is too new: %s", vh.c_str());
+                NSString *ini = [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint.ini"] encoding:NSUTF8StringEncoding error:nil];
+                CHECK([ini containsString:@"adifVersion=3.1.3\n"] &&
+                          [labelContaining(sw2.contentView, @"of 4 on") containsString:@"ADIF 3.1.3"],
+                      "the version is kept, and the Editor card says it");
+                [ver selectItemAtIndex:0];
+                [ver sendAction:ver.action to:ver.target];
+                pump(0.3);
+                CHECK(noWarnings(&vh), "back to the newest: %s", vh.c_str());
+                H.doc = saved;
+                notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+                pump(0.2);
+                closeSettings();
             }
             // ── Choosing the New QSO fields ──
             H.doc = "log\n<ADIF_VER:5>3.1.7\n<EOH>\n<CALL:5>K1ABC <QSO_DATE:8>20261006 <TIME_ON:4>2300 <BAND:3>20m "
@@ -6310,6 +6347,8 @@ int main(int argc, char **argv) {
                         [dxccMenu sendAction:dxccMenu.action to:dxccMenu.target];
                         pump(0.3);
                         bool newBand = views.selectedRow == 3 && [rowsTable.dataSource numberOfRowsInTableView:rowsTable] == 1;
+                        std::string nbRows = std::to_string((long)views.selectedRow) + ":";
+                        for (NSInteger r = 0; r < [rowsTable.dataSource numberOfRowsInTableView:rowsTable]; ++r) nbRows += std::string(" ") + cell(rowsTable, r, @"call").UTF8String;
                         [dxccMenu selectItemAtIndex:0];
                         [dxccMenu sendAction:dxccMenu.action to:dxccMenu.target];
                         [potaMenu selectItemWithTitle:@"POTA only"];
@@ -6322,7 +6361,7 @@ int main(int argc, char **argv) {
                         pump(0.3);
                         CHECK(!dxccMenu.hidden && newBand && potaOnly && [clearTitle isEqualToString:@"Clear (1)"] && views.selectedRow == 0 &&
                                   [rowsTable.dataSource numberOfRowsInTableView:rowsTable] > 1,
-                              "Live's DXCC menu (New band: %d) and program menu (POTA only: %d; %s)", newBand, potaOnly, clearTitle.UTF8String);
+                              "Live's DXCC menu (New band: %d [%s]) and program menu (POTA only: %d; %s)", newBand, nbRows.c_str(), potaOnly, clearTitle.UTF8String);
                     }
                     {  // Live's toolbar: when the feeds last brought spots; how new and from which source.
                         NSPopUpButton *age = (NSPopUpButton *)viewWithIdentifier(mapw.contentView, @"map.filter.age");

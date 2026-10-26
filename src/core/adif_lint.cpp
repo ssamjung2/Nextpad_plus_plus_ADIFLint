@@ -40,6 +40,22 @@ using i18n::trf;
 using i18n::trp;
 namespace {
 
+// When ADIF versions other than the one checked have it: "It was added in ADIF 3.1.4." or "ADIF
+// 3.0.2 to 3.1.2 list it.", else "".
+static std::string versionNote(unsigned versions) {
+    if (!versions) return "";
+    size_t first = 0, last = 0, count = 0;
+    specVersions(&count);
+    for (size_t i = 0; i < count; ++i)
+        if ((versions >> i) & 1u) last = i;
+    while (!((versions >> first) & 1u)) ++first;
+    const SpecVersion *v = specVersions(&count);
+    if (first > specVersionIndex()) return " " + trf("It was added in ADIF {version}.", {{"version", v[first].name}});
+    return " " + (first == last ? trf("ADIF {version} lists it.", {{"version", v[first].name}})
+                                : trf("ADIF {first} to {last} list it.", {{"first", v[first].name}, {"last", v[last].name}}));
+}
+
+
 constexpr size_t npos = std::string_view::npos;
 constexpr size_t kMaxTagScan = 512;      // longest '<...>' accepted; bounds the work per '<'
 constexpr size_t kMaxLengthDigits = 18;  // always fits in uint64_t
@@ -970,6 +986,11 @@ void Linter::validateHeader(const std::vector<Spec> &group) {
             diagTag(Severity::Warning, sp, trf("Unknown header field {field}.", {{"field", sp.name}}));
             continue;
         }
+        if (!inSpecVersion(fd->versions)) {
+            diagTag(Severity::Warning, sp,
+                    trf("{field} is not an ADIF {spec} header field.", {{"field", sp.name}, {"spec", specVersion()}}) + versionNote(fd->versions));
+            continue;
+        }
         if (!fd->header) {
             diagTag(Severity::Warning, sp, trf("{field} is a QSO field, not a header field; importers may ignore it here.", {{"field", sp.name}}));
             continue;
@@ -983,10 +1004,10 @@ void Linter::validateHeader(const std::vector<Spec> &group) {
                   parts[2].size() == 1 && allDigits(parts[2]);
         const Spec *sp = f.at("ADIF_VER");
         if (!ok)
-            diagValue(Severity::Warning, *sp, sp->cleanE, tr("ADIF_VER should be X.Y.Z, e.g. 3.1.7."));
-        else if (compareNoCase(ver, kSpecVersion) > 0 && ver.size() == std::strlen(kSpecVersion))
+            diagValue(Severity::Warning, *sp, sp->cleanE, tr("ADIF_VER should be X.Y.Z, e.g. 3.1.8."));
+        else if (compareNoCase(ver, specVersion()) > 0 && ver.size() == std::strlen(specVersion()))
             diagValue(Severity::Info, *sp, sp->cleanE,
-                      trf("The file declares ADIF {version}; these checks follow ADIF {spec}.", {{"version", std::string(ver)}, {"spec", kSpecVersion}}));
+                      trf("The file declares ADIF {version}; these checks follow ADIF {spec}.", {{"version", std::string(ver)}, {"spec", specVersion()}}));
     }
     std::string_view ts = value(f, "CREATED_TIMESTAMP");
     if (!ts.empty()) {
@@ -1026,7 +1047,7 @@ void Linter::defineUserField(const Spec &sp) {
         diagValue(Severity::Error, sp, sp.cleanE, trf("{field} does not name a field.", {{"field", sp.name}}));
         return;
     }
-    if (findField(name)) {
+    if (const FieldDef *taken = findField(name); taken && inSpecVersion(taken->versions)) {
         diagValue(Severity::Error, sp, sp.cleanE, trf("'{name}' is an ADIF field name, so it cannot be a user-defined field (§IV.A.5).", {{"name", std::string(name)}}));
         return;
     }
@@ -1212,13 +1233,18 @@ DataType Linter::appFieldType(const Spec &sp) {
 
 void Linter::validateField(const Spec &sp, const Fields &f, bool inHeader) {
     const FieldDef *fd = findField(sp.name);
+    if (fd && !inSpecVersion(fd->versions)) {  // a field of another version than the one checked
+        diagTag(Severity::Warning, sp,
+                trf("{field} is not an ADIF {spec} field.", {{"field", sp.name}, {"spec", specVersion()}}) + versionNote(fd->versions));
+        return;
+    }
     const UserDef *ud = nullptr;
     DataType type;
     if (fd) {
-        type = fd->type;
+        type = fieldType(*fd);
         if (fd->header && !inHeader)
             diagTag(Severity::Warning, sp, trf("{field} is a header field; it does not belong in a record.", {{"field", sp.name}}));
-        if (fd->importOnly)
+        if (fieldImportOnly(*fd))
             diagTag(Severity::Warning, sp, trf("{field} is import-only (deprecated); exporters must not write it.", {{"field", sp.name}}));
         checkIndicator(sp, type);
     } else if (startsWithNoCase(sp.name, "USERDEF") && allDigits(std::string_view(sp.name).substr(7))) {
@@ -1233,7 +1259,7 @@ void Linter::validateField(const Spec &sp, const Fields &f, bool inHeader) {
     } else {
         diagTag(Severity::Warning, sp,
                 trf("Unknown field {field}: not an ADIF {spec} field, not APP_..., and not defined by a USERDEFn header field.",
-                    {{"field", sp.name}, {"spec", kSpecVersion}}));
+                    {{"field", sp.name}, {"spec", specVersion()}}));
         return;
     }
     if (type == DataType::Unknown) return;
@@ -1295,7 +1321,7 @@ void Linter::checkEnumeration(const Spec &sp, std::string_view v, size_t vEnd, c
     // DARC_DOK names no table (its values are an external list); Country is named
     // but not tabulated in the spec. Neither can be checked here.
     const EnumDef *e = fd.enumeration ? findEnum(fd.enumeration) : nullptr;
-    if (!e) return;
+    if (!e || !inSpecVersion(e->versions)) return;
     const bool dxccCodes = equalsNoCase(e->name, "DXCC_Entity_Code");
     auto normalize = [](std::string_view s) {
         if (allDigits(s)) {
@@ -1317,6 +1343,7 @@ void Linter::checkEnumeration(const Spec &sp, std::string_view v, size_t vEnd, c
         std::string when;
         const char *note = nullptr;
         for (const EnumValue *x = first; x != last; ++x) {
+            if (!inSpecVersion(x->versions)) continue;
             if (!scope.empty() && !(x->scope && equalsNoCase(x->scope, scope))) continue;
             if (validOn(*x, qsoDate)) return;
             when += (when.empty() ? std::string() : tr(", or ##joins validity dates")) + validityText(*x);
@@ -1333,7 +1360,7 @@ void Linter::checkEnumeration(const Spec &sp, std::string_view v, size_t vEnd, c
             std::string to(n.substr(12));
             auto [rf, rl] = enumValueRows(*e, to);
             for (const EnumValue *x = rf; x != rl; ++x)
-                if ((scope.empty() || (x->scope && equalsNoCase(x->scope, scope))) && validOn(*x, qsoDate)) {
+                if (inSpecVersion(x->versions) && (scope.empty() || (x->scope && equalsNoCase(x->scope, scope))) && validOn(*x, qsoDate)) {
                     annotate("deleted-code", sp.name, {setTo(sp.name, to)}, sp.name + " " + to);
                     return;
                 }
@@ -1341,7 +1368,7 @@ void Linter::checkEnumeration(const Spec &sp, std::string_view v, size_t vEnd, c
         annotate("deleted-code", sp.name);
     };
     auto importOnly = [&](const EnumValue *ev) {
-        if (!ev->importOnly) return;
+        if (!valueImportOnly(*ev)) return;
         std::string msg = trf("'{value}' is an import-only (deprecated) {field} value; exporters must not write it.",
                               {{"value", std::string(v)}, {"field", sp.name}});
         if (ev->note)
@@ -1380,9 +1407,15 @@ void Linter::checkEnumeration(const Spec &sp, std::string_view v, size_t vEnd, c
                 diagValue(Severity::Error, sp, vEnd,
                           trf("SUBMODE {submode} belongs to MODE {mode}, not {given}.", {{"submode", std::string(v)}, {"mode", other->scope}, {"given", scope}}));
                 annotate("submode-mode", "MODE", {setTo("MODE", other->scope)}, std::string("MODE ") + other->scope);
-            } else
+            } else {
+                unsigned elsewhere = 0;
+                auto [rf, rl] = enumValueRows(*e, key);
+                for (const EnumValue *x = rf; x != rl; ++x)
+                    if (x->scope && equalsNoCase(x->scope, scope)) elsewhere |= x->versions;
                 diagValue(Severity::Info, sp, vEnd,
-                          trf("'{value}' is not a registered ADIF submode of MODE {mode}.", {{"value", std::string(v)}, {"mode", scope}}));
+                          trf("'{value}' is not a registered ADIF submode of MODE {mode}.", {{"value", std::string(v)}, {"mode", scope}}) +
+                              versionNote(elsewhere));
+            }
             return;
         }
         if (enumHasScope(*e, scope)) {
@@ -1401,7 +1434,8 @@ void Linter::checkEnumeration(const Spec &sp, std::string_view v, size_t vEnd, c
                 const char *previous = "";
                 for (size_t i = 0; i < e->count; ++i) {  // sorted, so a repeated code is adjacent
                     const EnumValue &x = e->values[i];
-                    if (!x.scope || scope != x.scope || x.importOnly || std::strcmp(x.value, previous) == 0) continue;
+                    if (!x.scope || scope != x.scope || valueImportOnly(x) || !inSpecVersion(x.versions) || std::strcmp(x.value, previous) == 0)
+                        continue;
                     previous = x.value;
                     if (n++ < 10) codes += (codes.empty() ? "" : ", ") + std::string(x.value);
                 }
@@ -1424,7 +1458,8 @@ void Linter::checkEnumeration(const Spec &sp, std::string_view v, size_t vEnd, c
                 const char *same = nullptr;
                 for (size_t i = 0; i < e->count && !same; ++i) {
                     const EnumValue &x = e->values[i];
-                    if (x.scope && scope == x.scope && !x.importOnly && !x.before && letters(x.value) == want) same = x.value;
+                    if (x.scope && scope == x.scope && inSpecVersion(x.versions) && !valueImportOnly(x) && !x.before && letters(x.value) == want)
+                        same = x.value;
                 }
                 if (same) {
                     annotate("subdivision", sp.name, {setTo(sp.name, same)}, sp.name + " " + same);
@@ -1451,12 +1486,17 @@ void Linter::checkEnumeration(const Spec &sp, std::string_view v, size_t vEnd, c
     };
     const EnumValue *ev = findEnumValue(*e, key);
     if (!ev) {
+        unsigned elsewhere = 0;  // the versions that do list it
+        auto [rf, rl] = enumValueRows(*e, key);
+        for (const EnumValue *x = rf; x != rl; ++x) elsewhere |= x->versions;
         if (strict)
             diagValue(Severity::Error, sp, vEnd,
                       trf("'{value}' is not a valid {field} (ADIF {spec} {table} enumeration).",
-                          {{"value", std::string(v)}, {"field", sp.name}, {"spec", kSpecVersion}, {"table", e->name}}));
+                          {{"value", std::string(v)}, {"field", sp.name}, {"spec", specVersion()}, {"table", e->name}}) +
+                          versionNote(elsewhere));
         else
-            diagValue(Severity::Info, sp, vEnd, trf("'{value}' is not in ADIF's {table} list.", {{"value", std::string(v)}, {"table", e->name}}));
+            diagValue(Severity::Info, sp, vEnd,
+                      trf("'{value}' is not in ADIF's {table} list.", {{"value", std::string(v)}, {"table", e->name}}) + versionNote(elsewhere));
         submodeFix();
         // A Field Day class (1D, 2A, 12F) in ARRL_SECT: no section looks like that; it is CLASS.
         bool fieldDayClass = v.size() >= 2 && v.size() <= 3 && allDigits(v.substr(0, v.size() - 1)) &&
@@ -1473,7 +1513,7 @@ void Linter::checkEnumeration(const Spec &sp, std::string_view v, size_t vEnd, c
             std::string within;
             auto [first, last] = enumValueRows(*e, key);
             for (const EnumValue *x = first; x != last; ++x) {
-                if (!x->scope) continue;
+                if (!x->scope || !inSpecVersion(x->versions)) continue;
                 const char *name = dxccEntityName(x->scope);
                 within += (within.empty() ? std::string() : tr(" or ##joins DXCC entities")) +
                           (name && std::strcmp(x->scope, "0") != 0 ? trf("DXCC {code} ({country})", {{"code", x->scope}, {"country", titleCase(name)}})
@@ -1493,7 +1533,7 @@ void Linter::checkEnumeration(const Spec &sp, std::string_view v, size_t vEnd, c
         return;
     }
     importOnly(ev);
-    if (ev->importOnly) submodeFix();
+    if (valueImportOnly(*ev)) submodeFix();
     dated("");
 }
 
@@ -1808,7 +1848,7 @@ void Linter::checkSubdivisionAlt(const Spec &sp, std::string_view v, size_t vEnd
             if (c.size() > colon && c[colon] == ':' && equalsNoCase(c.substr(0, colon), name)) known = true, scope = alt->values[i].scope;
         }
         if (!known) {
-            diagValue(Severity::Info, sp, vEnd, trf("ADIF {spec} lists no {name} codes (§III.B.23).", {{"spec", kSpecVersion}, {"name", std::string(name)}}));
+            diagValue(Severity::Info, sp, vEnd, trf("ADIF {spec} lists no {name} codes (§III.B.23).", {{"spec", specVersion()}, {"name", std::string(name)}}));
         } else if (!dxcc.empty() && scope && dxcc != scope) {
             const char *country = dxccEntityName(scope);
             diagValue(Severity::Warning, sp, vEnd,

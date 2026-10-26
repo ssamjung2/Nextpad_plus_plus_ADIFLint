@@ -1,7 +1,7 @@
 // adiflint — check ADIF .adi files from the command line with the same rules
 // as the Nextpad++ plugin.
 //
-//   adiflint [--chars] [--quiet] [--fix OUT] [--reformat records|fields OUT] FILE...
+//   adiflint [--adif VERSION] [--chars] [--quiet] [--fix OUT] [--reformat records|fields OUT] FILE...
 //   adiflint [--sort OUT | --sort-by KEYS OUT | --field-order FIELDS OUT | --dedupe OUT
 //            | --csv OUT | --summary | --cabrillo OUT
 //            | --export pota|wwff|sota DIR | --from-csv OUT] [--call CALL] [--contest ID] FILE
@@ -31,7 +31,8 @@ namespace {
 
 void usage() {
     std::fprintf(stderr,
-                 "usage: adiflint [--chars] [--quiet] [--fix OUT] [--reformat records|fields OUT] FILE...\n"
+                 "usage: adiflint [--adif VERSION] [--chars] [--quiet] [--fix OUT] [--reformat records|fields OUT] FILE...\n"
+                 "  --adif VERSION  check against an older ADIF version, 3.0.2 to %s (and write it as ADIF_VER)\n"
                  "  --chars     data lengths count UTF-8 characters, not bytes\n"
                  "  --quiet     errors only\n"
                  "  --fix OUT   write FILE with corrected data lengths to OUT (one FILE only)\n"
@@ -56,8 +57,8 @@ void usage() {
                  "                       one upload file per park (reference, summit) and UTC day into DIR\n"
                  "                       (--call CALL for records without STATION_CALLSIGN or OPERATOR)\n"
                  "  --from-csv OUT       FILE is a CSV file: write it as an ADIF log to OUT\n"
-                 "Checks against ADIF %s (%s).\n",
-                 adif::kSpecVersion, adif::kSpecDate);
+                 "Checks against ADIF %s (%s) unless --adif says otherwise.\n",
+                 adif::specVersion(), adif::specVersion(), adif::specDate());
 }
 
 bool writeFile(const std::string &path, const std::string &data) {
@@ -99,7 +100,14 @@ int main(int argc, char **argv) {
     adif::Layout layout = adif::Layout::RecordPerLine;
     std::vector<const char *> files;
     for (int i = 1; i < argc; ++i) {
-        if (!std::strcmp(argv[i], "--chars")) opt.lengthUnit = adif::LengthUnit::Characters;
+        if (!std::strcmp(argv[i], "--adif") && i + 1 < argc) {
+            size_t v = adif::findSpecVersion(argv[++i]);
+            if (v == SIZE_MAX) {
+                std::fprintf(stderr, "adiflint: ADIF %s is not a version this build knows (3.0.2 to %s)\n", argv[i], adif::specVersion());
+                return 2;
+            }
+            adif::useSpecVersion(v);
+        } else if (!std::strcmp(argv[i], "--chars")) opt.lengthUnit = adif::LengthUnit::Characters;
         else if (!std::strcmp(argv[i], "--quiet")) quiet = true;
         else if (!std::strcmp(argv[i], "--fix") && i + 1 < argc) fixOut = argv[++i];
         else if (!std::strcmp(argv[i], "--reformat") && i + 2 < argc &&

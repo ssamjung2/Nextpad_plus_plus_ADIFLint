@@ -98,7 +98,8 @@ Also run, before a pull request that touches the plugin or the core:
 | `src/plugin/LogSpot.mm`, `Night.mm` | Spot when logging (New QSO's two boxes); Night Mode (every ADIF Lint window red on black) |
 | `src/plugin/Accordion.mm` | The cards and groups of the Map's sidebar and selected panel (Style Options and Settings among them), and the narrow panels' wrapping checkboxes and rows |
 | `src/cli/` | The `adiflint` command-line tool |
-| `spec/adif-3.1.7/` | ADIF's JSON export and HTML specification the tables are generated from (see `SOURCE.md`) |
+| `spec/adif-3.1.8/` | ADIF's JSON export and HTML specification the tables are generated from (see `SOURCE.md`) |
+| `spec/adif-history.json` | Which ADIF versions (3.0.2 on) have each field, value, data type and band edge, read from their specifications by `tools/adif_history.py` (see `adif-history.md`) |
 | `data/` | AD1C's country file (see `SOURCE.md`), the Map's 1:10m detail (`map-detail.bin`) and terrain (`relief.jpg`), `toolbar/`, the toolbar icons, and `lang/`, the language tables, all installed beside the plugin |
 | `third_party/` | The Nextpad++ plugin header and Scintilla headers, unchanged (see `README.md` there) |
 | `tests/` | The tests above, their fixtures and the official ADIF test file |
@@ -151,9 +152,17 @@ pieces, so a language can reorder them. A word with two meanings gets a context 
 
 ## Updating the ADIF specification
 
-Replace `spec/adif-3.1.7/all.json` (and `ADIF_317.htm`) with the new version's files from
-the ADIF website, run `cmake --build build --target regen-spec`, rebuild, and run the
-tests against the new official test file.
+1. Download the new version's resources archive and specification page, and put its
+   `all.json` and `ADIF_3XX.htm` in a new `spec/adif-3.x.y/` (with a `SOURCE.md` giving where
+   and when, and their SHA-256) in place of the old one; point `SRC` and `SPEC_HTML` in
+   `tools/gen_spec_tables.py` at them.
+2. Check the reader on it: `python3 -I tools/adif_spec_html.py ADIF_3XX.htm --compare all.json`
+   must say `same`.
+3. Add the version to `VERSIONS` in `tools/adif_history.py`, put its page beside the older ones
+   (listed with their hashes in `spec/adif-history.md`), and run
+   `python3 -I tools/adif_history.py PAGES spec/adif-history.json`.
+4. Run `cmake --build build --target regen-spec`, rebuild, replace the official test file in
+   `tests/fixtures/` (and `OFFICIAL_ADI` in `CMakeLists.txt`), and run the tests.
 
 ## Updating the country data
 

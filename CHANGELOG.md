@@ -11,6 +11,16 @@ Versions before 0.8.0 were development builds and were not published.
 
 ### Added
 
+- **ADIF 3.1.8** (2026-10-12): submode JTTY, the SKCC contest IDs (SKCC-SKS, SKCC-SKSA,
+  SKCC-SKSE, SKCC-WES) and WAE for European Turkey's region. Its official test file
+  (6,202 QSOs) lints clean.
+- **Check against an older ADIF version** (Settings → Editor → Check against; `--adif` for the
+  command-line checker): any version from 3.0.2 to 3.1.8, the newest by default. Fields,
+  values and bands that came later are marked with the version that brought them; each
+  version's import-only values, field types and band edges apply; autocomplete and the logs
+  ADIF Lint writes follow it. What each version holds was read from its specification and the
+  reader checked against ADIF's exports (`spec/adif-history.md`).
+
 - **Upload to World Radio League** (Upload…, QSL Sync): the ticked QSOs as one ADIF import
   into your default WRL logbook, by WRL's API (start, send the file, follow it until it's
   done), with an API key in Settings whose Test Sign-In shows your membership, daily import

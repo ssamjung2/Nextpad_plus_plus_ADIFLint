@@ -3,11 +3,11 @@
 
 <head>
   <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-  <meta name="adifversion" content="3.1.7" />
+  <meta name="adifversion" content="3.1.8" />
   <meta name="adifstatus" content="Released" />
-  <meta name="adifdate" content="2026-03-22" />
+  <meta name="adifdate" content="2026-10-12" />
   <meta name="robots" content="nofollow" />
-  <title>Released ADIF Version 3.1.7, updated 2026-03-22</title>
+  <title>Released ADIF Version 3.1.8, updated 2026-10-12</title>
 
   <!--
     This document is XHTML but written to be backwards-compatible with HTML 4.01 for any user agents that cannot handle XHTML as XML.
@@ -744,7 +744,7 @@
 <body>
 
   <p class="versiontitle">
-    (Released ADIF Version 3.1.7, updated 2026-03-22)
+    (Released ADIF Version 3.1.8, updated 2026-10-12)
   </p>
 
   <p>&nbsp;</p>
@@ -1289,6 +1289,23 @@
 
   <h3 id="Introduction_Changes_from_Previous_Versions"><span id="Introduction_Changes_from_Previous_Version">1.F. Changes from Previous Versions</span></h3>
   <p>The following changes from the previous versions may necessitate application code or data changes:</p>
+
+  <h4>3.1.8</h4>
+  <ul>
+    <li>
+      Addition of <a href="#Submode_Enumeration">Submode</a> JTTY to the <a href="#Mode_Enumeration">Mode</a> MFSK.
+    </li>
+    <li>
+      Addition of new <a href="#Contest_ID">Contest IDs</a>:<br />
+      <span style="white-space: nowrap">"<em>SKCC Straight Key Sprint</em>"</span>,
+      <span style="white-space: nowrap">"<em>SKCC Straight Key Sprint Asia</em>"</span>,
+      <span style="white-space: nowrap">"<em>SKCC Straight Key Sprint Europe</em>"</span>,
+      <span style="white-space: nowrap">"<em>SKCC Weekend Sprintathon</em>"</span>.
+    </li>
+    <li>
+      Addition of "WAE" to the ET (European Turkey) row in the <a href="#Region_Enumeration">Region</a> enumeration.
+    </li>
+  </ul>
 
   <h4>3.1.7</h4>
   <ul>
@@ -3923,6 +3940,14 @@
         </tr>
 
         <tr><td>ShortRY</td><td><span class="aRef"><a href="#XL_DARC" onclick="highlightLink(this)">DARC</a></span> RTTY Short Contest</td></tr>
+
+        <tr><td>SKCC-SKS</td><td><span class="aRef"><a href="#XL_SKCC" onclick="highlightLink(this)">SKCC</a></span> Straight Key Sprint</td></tr>
+        <tr><td>SKCC-SKSA</td><td><span class="aRef"><a href="#XL_SKCC" onclick="highlightLink(this)">SKCC</a></span> Straight Key Sprint Asia</td></tr>
+        <tr><td>SKCC-SKSE</td><td><span class="aRef"><a href="#XL_SKCC" onclick="highlightLink(this)">SKCC</a></span> Straight Key Sprint Europe</td></tr>
+        <tr><td>SKCC-WES</td><td><span class="aRef"><a href="#XL_SKCC" onclick="highlightLink(this)">SKCC</a></span> Weekend Sprintathon</td></tr>
+
+
+
 
         <tr>
           <td>SMP-AUG</td>
@@ -6854,7 +6879,8 @@
             FT2,
             FT4,
             JS8,
-            JTMS,
+            JTMS, 
+            JTTY,
             MFSK4,
             MFSK8,
             MFSK11,
@@ -17292,7 +17318,7 @@
         <tr><td>KO</td><td>296</td><td>Kosovo</td><td>YU8</td><td><span class="aRef"><a href="#XL_CQ_WAZ_LIST" onclick="highlightLink(this)">CQ</a></span>, <span class="aRef"><a href="#XL_DARC" onclick="highlightLink(this)">WAE</a></span></td><td>&nbsp;</td><td>2012-09-11</td></tr>
         <tr><td>KO</td><td>0</td><td>Kosovo</td><td>Z6</td><td><span class="aRef"><a href="#XL_CQ_WAZ_LIST" onclick="highlightLink(this)">CQ</a></span>, <span class="aRef"><a href="#XL_DARC" onclick="highlightLink(this)">WAE</a></span></td><td>2012-09-12</td><td>2018-01-20</td></tr>
         <tr><td>KO</td><td>522</td><td>Kosovo</td><td>Z6</td><td><span class="aRef"><a href="#XL_CQ_WAZ_LIST" onclick="highlightLink(this)">CQ</a></span>, <span class="aRef"><a href="#XL_DARC" onclick="highlightLink(this)">WAE</a></span></td><td>2018-01-21</td><td>&nbsp;</td></tr>
-        <tr><td>ET</td><td>390</td><td>European Turkey</td><td>TA1</td><td><span class="aRef"></span><span class="aRef"><a href="#XL_CQ_WAZ_LIST" onclick="highlightLink(this)">CQ</a></span></td><td>&nbsp;</td><td>&nbsp;</td></tr>
+        <tr><td>ET</td><td>390</td><td>European Turkey</td><td>TA1</td><td><span class="aRef"></span><span class="aRef"><a href="#XL_CQ_WAZ_LIST" onclick="highlightLink(this)">CQ</a></span>, <span class="aRef"><a href="#XL_DARC" onclick="highlightLink(this)">WAE</a></span></td><td>&nbsp;</td><td>&nbsp;</td></tr>
       </tbody>
     </table>
     <br />
@@ -18266,6 +18292,11 @@
         </tr>
         <tr>
           <td>JTMS</td>
+          <td>MFSK</td>
+          <td>&nbsp;</td>
+        </tr>
+        <tr>
+          <td>JTTY</td>
           <td>MFSK</td>
           <td>&nbsp;</td>
         </tr>
@@ -21316,7 +21347,7 @@
 
   <h4>IV.B.5. ADX XML Schema</h4>
 
-  <p>XML Schemas for ADX are available - see <a href="ADIF_317_resources.htm#ADXSchemas">ADX Schemas</a>.</p>
+  <p>XML Schemas for ADX are available - see <a href="ADIF_318_resources.htm#ADXSchemas">ADX Schemas</a>.</p>
 
   <hr />
 
@@ -21328,13 +21359,13 @@
 
   <h3>V.A. <a id="ADX_Schemas">ADX Schemas</a></h3>
 
-  <p>Two XML Schemas are provided for validating the ADX format files.&nbsp; For details, see the section <a href="ADIF_317_resources.htm#ADXSchemas">ADX Schemas</a> in the <a href="ADIF_317_resources.htm">ADIF Resources</a> document.</p>
+  <p>Two XML Schemas are provided for validating the ADX format files.&nbsp; For details, see the section <a href="ADIF_318_resources.htm#ADXSchemas">ADX Schemas</a> in the <a href="ADIF_318_resources.htm">ADIF Resources</a> document.</p>
 
   <p>&nbsp;</p>
 
   <h3>V.B. <a id="Implementation_Notes">Implementation Notes</a></h3>
 
-  <p>Implementation notes discussing the ADIF Number Data Type, ADI Field Length specifiers, and minimum fields are available in the <a href="ADIF_317_resources.htm">ADIF Resources</a> document section <a href="ADIF_317_resources.htm#ADIFImplementationNotes">Implementation Notes</a>.</p>
+  <p>Implementation notes discussing the ADIF Number Data Type, ADI Field Length specifiers, and minimum fields are available in the <a href="ADIF_318_resources.htm">ADIF Resources</a> document section <a href="ADIF_318_resources.htm#ADIFImplementationNotes">Implementation Notes</a>.</p>
 
   <p>&nbsp;</p>
 
@@ -21356,10 +21387,10 @@
     A ZIP archive that includes the files is available from
       <div class="indent">https://adif.org.uk/<em>version</em>/resources</div>
     where <em>version</em> is the ADIF version as a 3-digit number.&nbsp;
-    For example, for ADIF 3.1.7, the link is https://adif.org.uk/317/resources<br />
+    For example, for ADIF 3.1.8, the link is https://adif.org.uk/318/resources<br />
     <br />
     For more information, see
-    <a href="ADIF_317_resources.htm#AdifExports">Data Files Exported from ADIF Specification Tables</a>
+    <a href="ADIF_318_resources.htm#AdifExports">Data Files Exported from ADIF Specification Tables</a>
     in the ADIF Resources document.
   </div>
 
@@ -21377,10 +21408,10 @@
     A ZIP archive that includes the files is available from
       <div class="indent">https://adif.org.uk/<em>version</em>/resources</div>
     where <em>version</em> is the ADIF version as a 3-digit number.&nbsp;
-    For example, for ADIF 3.1.7, the link is https://adif.org.uk/317/resources<br />
+    For example, for ADIF 3.1.8, the link is https://adif.org.uk/318/resources<br />
     <br />
     For more information, see
-    <a href="ADIF_317_resources.htm#AdifTestQsos">Test QSO Files based on ADIF Specification Tables</a>
+    <a href="ADIF_318_resources.htm#AdifTestQsos">Test QSO Files based on ADIF Specification Tables</a>
     in the ADIF Resources document.
   </div>
 

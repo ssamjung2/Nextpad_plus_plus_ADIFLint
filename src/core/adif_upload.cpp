@@ -124,7 +124,7 @@ std::string recordAdi(std::string_view text, const DocModel &m, int group) {
 std::string uploadFile(std::string_view text, const DocModel &m, const std::vector<int> &groups, std::string_view programVersion,
                        std::string_view utcTimestamp, std::string_view extraHeader) {
     std::string out = "ADIF Lint upload\n";
-    out += makeSpecifier("ADIF_VER", kSpecVersion, LengthUnit::Bytes, false) + "\n";
+    out += makeSpecifier("ADIF_VER", specVersion(), LengthUnit::Bytes, false) + "\n";
     out += makeSpecifier("PROGRAMID", "ADIF Lint", LengthUnit::Bytes, false) + "\n";
     out += makeSpecifier("PROGRAMVERSION", programVersion, LengthUnit::Bytes, false) + "\n";
     out += makeSpecifier("CREATED_TIMESTAMP", utcTimestamp, LengthUnit::Bytes, false) + "\n";

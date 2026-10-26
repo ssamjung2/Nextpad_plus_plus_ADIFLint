@@ -1,8 +1,76 @@
 #include "adif_spec.h"
 
 #include <algorithm>
+#include <atomic>
+#include <cstdint>
+#include <cstring>
 
 namespace adif {
+
+namespace {
+std::atomic<size_t> gVersion{SIZE_MAX};  // SIZE_MAX: the newest
+}
+
+size_t newestSpecVersion() {
+    size_t n = 0;
+    specVersions(&n);
+    return n - 1;
+}
+
+void useSpecVersion(size_t index) { gVersion = index < newestSpecVersion() ? index : SIZE_MAX; }
+
+size_t specVersionIndex() {
+    size_t v = gVersion;
+    return v == SIZE_MAX ? newestSpecVersion() : v;
+}
+
+const char *specVersion() {
+    size_t n = 0;
+    return specVersions(&n)[specVersionIndex()].name;
+}
+
+const char *specDate() {
+    size_t n = 0;
+    const char *d = specVersions(&n)[specVersionIndex()].date;
+    return d ? d : "";
+}
+
+size_t findSpecVersion(std::string_view name) {
+    size_t n = 0;
+    const SpecVersion *v = specVersions(&n);
+    for (size_t i = 0; i < n; ++i)
+        if (name == v[i].name) return i;
+    return SIZE_MAX;
+}
+
+bool inSpecVersion(unsigned versions) { return (versions >> specVersionIndex()) & 1u; }
+
+const char *firstSpecVersion(unsigned versions) {
+    size_t n = 0;
+    const SpecVersion *v = specVersions(&n);
+    for (size_t i = 0; i < n; ++i)
+        if ((versions >> i) & 1u) return v[i].name;
+    return nullptr;
+}
+
+DataType fieldType(const FieldDef &f) {
+    size_t n = 0;
+    const FieldTypeVariant *t = fieldTypeVariants(&n);
+    for (size_t i = 0; i < n; ++i)
+        if (inSpecVersion(t[i].versions) && std::strcmp(t[i].field, f.name) == 0) return t[i].type;
+    return f.type;
+}
+
+bool fieldImportOnly(const FieldDef &f) { return inSpecVersion(f.importOnlyIn); }
+bool valueImportOnly(const EnumValue &v) { return inSpecVersion(v.importOnlyIn); }
+
+bool dataTypeInSpecVersion(DataType t) {
+    size_t n = 0;
+    const DataTypeVersions *d = dataTypeVersions(&n);
+    for (size_t i = 0; i < n; ++i)
+        if (d[i].type == t) return inSpecVersion(d[i].versions);
+    return true;
+}
 
 static inline unsigned char upperAscii(unsigned char c) {
     return (c >= 'a' && c <= 'z') ? (unsigned char)(c - 'a' + 'A') : c;
@@ -47,6 +115,7 @@ const EnumValue *findEnumValue(const EnumDef &e, std::string_view value, std::st
         return compareNoCase(v.value, key) < 0;
     });
     for (; it != end && compareNoCase(it->value, value) == 0; ++it) {
+        if (!inSpecVersion(it->versions)) continue;
         if (scope.empty() || (it->scope && equalsNoCase(it->scope, scope))) return it;
     }
     return nullptr;

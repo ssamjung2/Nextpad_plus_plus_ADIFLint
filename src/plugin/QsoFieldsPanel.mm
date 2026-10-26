@@ -71,7 +71,7 @@ static NSScrollView *scrolling(NSTableView *t) {
 
     NSTextField *intro = [NSTextField wrappingLabelWithString:
                                           T(@"Choose the fields New QSO asks for, and their order. CALL, QSO_DATE, TIME_ON and "
-                                          @"MODE are always included, and BAND or FREQ. Descriptions are from the ADIF 3.1.7 "
+                                          @"MODE are always included, and BAND or FREQ. Descriptions are from the ADIF 3.1.8 "
                                           @"specification; hover a row for the full text.")];
 
     // Left: the chosen fields.

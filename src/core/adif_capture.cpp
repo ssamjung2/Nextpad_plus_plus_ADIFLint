@@ -626,7 +626,7 @@ TextEdit minimalEdit(std::string_view before, std::string_view after) {
 
 std::string queueText(const std::vector<CapturedQso> &qsos, std::string_view programVersion, std::string_view timestamp) {
     std::string out = "ADIF Lint Monitor: QSOs waiting to be added to their log.\n";
-    out += makeSpecifier("ADIF_VER", kSpecVersion, LengthUnit::Bytes, false) + "\n";
+    out += makeSpecifier("ADIF_VER", specVersion(), LengthUnit::Bytes, false) + "\n";
     out += makeSpecifier("PROGRAMID", "ADIF Lint", LengthUnit::Bytes, false) + "\n";
     out += makeSpecifier("PROGRAMVERSION", programVersion, LengthUnit::Bytes, false) + "\n";
     out += makeSpecifier("CREATED_TIMESTAMP", timestamp, LengthUnit::Bytes, false) + "\n";

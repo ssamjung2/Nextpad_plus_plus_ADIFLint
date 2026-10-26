@@ -57,6 +57,9 @@
 
 // Language: "" for Nextpad++'s, else a code from ADIFLanguages() (L10n.h).
 @property(nonatomic, copy) void (^onLanguageChosen)(NSString *code);
+// The ADIF version chosen: its name ("3.0.9"), or "" for the newest.
+@property(nonatomic, copy) void (^onAdifVersion)(NSString *version);
+- (void)setAdifVersion:(NSString *)version;
 - (void)setLanguage:(NSString *)code;
 
 // Offline Mode: no network requests (Network.h).

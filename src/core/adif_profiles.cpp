@@ -91,7 +91,7 @@ std::vector<StationProfile> parseProfiles(std::string_view text) {
 std::string profilesText(const std::vector<StationProfile> &profiles, std::string_view programVersion,
                          std::string_view utcTimestamp) {
     std::string out = "ADIF Lint station profiles: one record per profile, named by APP_ADIFLINT_PROFILE.\n";
-    out += makeSpecifier("ADIF_VER", kSpecVersion, LengthUnit::Bytes, false) + "\n";
+    out += makeSpecifier("ADIF_VER", specVersion(), LengthUnit::Bytes, false) + "\n";
     out += makeSpecifier("PROGRAMID", "ADIF Lint", LengthUnit::Bytes, false) + "\n";
     out += makeSpecifier("PROGRAMVERSION", programVersion, LengthUnit::Bytes, false) + "\n";
     out += makeSpecifier("CREATED_TIMESTAMP", utcTimestamp, LengthUnit::Bytes, false) + "\n";

@@ -34,7 +34,7 @@ add_library(adif_core STATIC
     src/core/adif_spec.cpp
     src/core/adif_json.cpp
     src/core/adif_outlines.cpp
-    src/core/adif_spec_317.cpp
+    src/core/adif_spec_tables.cpp
     src/core/adif_lint.cpp
     src/core/adif_edit.cpp
     src/core/adif_enrich.cpp
@@ -77,13 +77,13 @@ target_link_libraries(adif_core PUBLIC ZLIB::ZLIB)
 target_compile_options(adif_core PRIVATE ${WARNINGS})
 set_target_properties(adif_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-# Regenerate the tables after replacing spec/adif-3.1.7/all.json.
+# Regenerate the tables after replacing spec/adif-3.1.8/all.json or spec/adif-history.json.
 find_package(Python3 COMPONENTS Interpreter)
 if(Python3_FOUND)
     add_custom_target(regen-spec
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/gen_spec_tables.py
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-        COMMENT "Generating src/core/adif_spec_317.cpp from the ADIF JSON export")
+        COMMENT "Generating src/core/adif_spec_tables.cpp from the ADIF JSON export and history")
 endif()
 
 # ── Command-line checker ─────────────────────────────────────────────────────
@@ -96,7 +96,7 @@ target_compile_options(adiflint_cli PRIVATE ${WARNINGS})
 
 # ── Tests ────────────────────────────────────────────────────────────────────
 enable_testing()
-set(OFFICIAL_ADI ${CMAKE_SOURCE_DIR}/tests/fixtures/ADIF_317_test_QSOs_2026_03_22.adi)
+set(OFFICIAL_ADI ${CMAKE_SOURCE_DIR}/tests/fixtures/ADIF_318_test_QSOs_2026_10_12.adi)
 add_executable(adif_tests tests/adif_tests.cpp)
 target_link_libraries(adif_tests PRIVATE adif_core)
 target_compile_options(adif_tests PRIVATE ${WARNINGS})

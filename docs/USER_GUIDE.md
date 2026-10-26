@@ -1,6 +1,6 @@
 # ADIF Lint user guide
 
-ADIF Lint checks and repairs amateur-radio logs in ADIF 3.1.7 ADI format in Nextpad++ on
+ADIF Lint checks and repairs amateur-radio logs in ADIF 3.1.8 ADI format in Nextpad++ on
 macOS, and adds logging, activations, spots, a map and QSL sync around them. This guide
 describes every window and option; the [README](../README.md) covers installing.
 
@@ -56,7 +56,8 @@ is saved to disk until you save the file.
 ## Checking and repairing a log
 
 ADIF Lint checks `.adi` and `.adif` files as you type, against the
-[ADIF 3.1.7 specification](https://www.adif.org/317/ADIF_317.htm) (2026-03-22).
+[ADIF 3.1.8 specification](https://www.adif.org/318/ADIF_318.htm) (2026-10-12), or the
+version chosen in Settings (see [ADIF versions](#adif-versions)).
 
 ![Check Log: errors, warnings and notes, each with its record, line, field and repair, ticked to repair together](images/check-log.png)
 
@@ -132,11 +133,31 @@ ADIF Lint checks `.adi` and `.adif` files as you type, against the
 
 ### What is checked
 
-Every rule comes from the ADIF 3.1.7 specification. Every field, data type, enumeration
+Every rule comes from the ADIF specification. Every field, data type, enumeration
 value, band edge, import-only flag and deletion date is generated from ADIF's official
-JSON export, not typed by hand. ADIF's own test file (6,197 QSOs using every field and
+JSON export, not typed by hand. ADIF's own test file (6,202 QSOs using every field and
 value) lints with no errors or warnings; [ADIF conformance](ADIF_CONFORMANCE.md) lists
 each rule with its section.
+
+### ADIF versions
+
+Settings → Editor → **Check against** chooses the ADIF version: **ADIF 3.1.8 (the newest)**,
+which moves on to newer versions as ADIF Lint learns them, or any older one back to 3.0.2
+(3.0.0 and 3.0.1 were never published). Choose an older one when your logs must suit a
+program that reads that version. Then:
+
+- A field, enumeration value (mode, submode, contest ID, subdivision…) or band that came
+  later is marked, with the version that brought it: "POTA_REF is not an ADIF 3.1.3 field.
+  It was added in ADIF 3.1.4."
+- Values that became import-only later are fine (MODE PSK31 is a mode in 3.0.3, import-only
+  from 3.0.4 on), and a field's type and the band edges are that version's (CQZ was a Number
+  until 3.0.5; 30m was 10.0 to 10.15 MHz until 3.0.4).
+- Autocomplete offers that version's fields and values, and the logs ADIF Lint writes (New
+  QSO's new logs, exports, uploads) declare it as ADIF_VER.
+
+What each version holds was read from its specification, as ADIF publishes table files only
+from 3.1.5 on; see [`spec/adif-history.md`](../spec/adif-history.md). Descriptions, notes and
+validity dates are 3.1.8's.
 
 - **Structure** (§IV.A): data specifier syntax, data lengths (too short, too long, past
   the end of file, including the line break), leading zeros in lengths (import-only),
@@ -1777,8 +1798,9 @@ to find. The first time ADIF Lint runs, it opens with a welcome and Your Station
   STATION_CALLSIGN and MY_GRIDSQUARE from them in a new log, distances are measured from the
   grid, and the activation and Cabrillo exports offer the callsign. Also the logs folder
   Worked Before searches.
-- **Editor:** checking while typing, syntax colouring, autocomplete, and counting lengths
-  in characters instead of bytes.
+- **Editor:** checking while typing, syntax colouring, autocomplete, counting lengths in
+  characters instead of bytes, and **Check against**, the ADIF version the checks follow (see
+  [ADIF versions](#adif-versions)).
 - **Language:** the language of ADIF Lint's menu, windows and messages (see
   [Language](#language)).
 - **Offline Mode:** **Work offline** makes no network requests at all (see
@@ -1966,6 +1988,7 @@ of problem, for scripts.
 | `--fix OUT` | Write a copy with corrected lengths |
 | `--fix-all OUT` | Write a copy with corrected lengths and every known repair (Check Log's); exit 1 if errors are left |
 | `--reformat records\|fields OUT` | Write a copy with one record (or field) per line |
+| `--adif VERSION` | Check against an older ADIF version (3.0.2 to 3.1.7), and write it as ADIF_VER |
 | `--chars` | Count lengths in characters instead of bytes |
 | `--quiet` | Show errors only |
 | `--sort OUT` | Write a copy sorted by date and time |

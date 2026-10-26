@@ -257,7 +257,7 @@ std::vector<std::string> fieldNameChoices(const DocModel &m, bool header) {
         out.push_back("EOH");
     } else {
         for (size_t i = 0; i < n; ++i) {
-            if (t[i].header || t[i].importOnly) continue;
+            if (t[i].header || fieldImportOnly(t[i]) || !inSpecVersion(t[i].versions)) continue;
             if (t[i].type == DataType::IntlString || t[i].type == DataType::IntlMultilineString) continue;
             out.emplace_back(t[i].name);
         }
@@ -311,7 +311,7 @@ std::vector<std::string> valueChoicesWith(const DocModel &m, std::string_view na
     }
     for (size_t i = 0; i < e->count; ++i) {
         const EnumValue &v = e->values[i];
-        if (v.importOnly || v.before) continue;  // deprecated, or deleted (only for QSOs before a date)
+        if (valueImportOnly(v) || !inSpecVersion(v.versions) || v.before) continue;  // deprecated, deleted, or not in the version in use
         if (!scope.empty() && !(v.scope && equalsNoCase(v.scope, scope))) continue;
         out.emplace_back(v.value);
     }
@@ -324,7 +324,7 @@ std::string describeField(const DocModel &m, std::string_view name) {
     if (const FieldDef *fd = findField(name)) {
         std::string s = n + " (" + typeName(fd->type) + ")";
         if (fd->description) s += std::string(": ") + fd->description;
-        if (fd->importOnly) s += " " + tr("[import-only]");
+        if (fieldImportOnly(*fd)) s += " " + tr("[import-only]");
         return s;
     }
     if (const UserFieldInfo *u = findUserField(m, name)) {
@@ -348,7 +348,7 @@ FieldInfo fieldInfo(const DocModel &m, std::string_view name) {
         fi.type = typeName(fd->type);
         fi.brief = fd->description ? fd->description : "";
         fi.details = fd->details ? fd->details : fi.brief;
-        if (fd->importOnly) fi.brief += " " + tr("(import-only)");
+        if (fieldImportOnly(*fd)) fi.brief += " " + tr("(import-only)");
     } else if (const UserFieldInfo *u = findUserField(m, name)) {
         fi.type = u->indicator ? typeName(typeFromIndicator(u->indicator)) : "";
         fi.brief = tr("User-defined field, from this log's header");
@@ -546,7 +546,7 @@ TextEdit appendRecord(std::string_view text, const DocModel &m, std::string_view
 std::string newLogHeader(std::string_view programVersion, std::string_view utcTimestamp, std::string_view eol) {
     std::string h = "ADIF log created with ADIF Lint";
     h += eol;
-    h += makeSpecifier("ADIF_VER", kSpecVersion, LengthUnit::Bytes, false) + std::string(eol);
+    h += makeSpecifier("ADIF_VER", specVersion(), LengthUnit::Bytes, false) + std::string(eol);
     h += makeSpecifier("PROGRAMID", "ADIF Lint", LengthUnit::Bytes, false) + std::string(eol);
     h += makeSpecifier("PROGRAMVERSION", programVersion, LengthUnit::Bytes, false) + std::string(eol);
     h += makeSpecifier("CREATED_TIMESTAMP", utcTimestamp, LengthUnit::Bytes, false) + std::string(eol);

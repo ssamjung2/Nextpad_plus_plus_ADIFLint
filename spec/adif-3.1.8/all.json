@@ -1,9 +1,9 @@
 {
   "Adif": {
-    "Version": "3.1.7",
+    "Version": "3.1.8",
     "Status": "Released",
-    "Date": "2026-03-22T00:00:00Z",
-    "Created": "2026-03-22T12:41:31Z",
+    "Date": "2026-10-12T00:00:00Z",
+    "Created": "2026-10-12T10:15:24Z",
     "DataTypes": {
       "Header": [
         "Data Type Name",
@@ -2213,6 +2213,26 @@
             "Enumeration Name": "Contest_ID",
             "Contest-ID": "SHORTRY",
             "Description": "DARC RTTY Short Contest"
+          },
+          "SKCC-SKS": {
+            "Enumeration Name": "Contest_ID",
+            "Contest-ID": "SKCC-SKS",
+            "Description": "SKCC Straight Key Sprint"
+          },
+          "SKCC-SKSA": {
+            "Enumeration Name": "Contest_ID",
+            "Contest-ID": "SKCC-SKSA",
+            "Description": "SKCC Straight Key Sprint Asia"
+          },
+          "SKCC-SKSE": {
+            "Enumeration Name": "Contest_ID",
+            "Contest-ID": "SKCC-SKSE",
+            "Description": "SKCC Straight Key Sprint Europe"
+          },
+          "SKCC-WES": {
+            "Enumeration Name": "Contest_ID",
+            "Contest-ID": "SKCC-WES",
+            "Description": "SKCC Weekend Sprintathon"
           },
           "SMP-AUG": {
             "Enumeration Name": "Contest_ID",
@@ -5259,7 +5279,7 @@
           "MFSK": {
             "Enumeration Name": "Mode",
             "Mode": "MFSK",
-            "Submodes": "FSQCALL,FST4,FST4W,FT2,FT4,JS8,JTMS,MFSK4,MFSK8,MFSK11,MFSK16,MFSK22,MFSK31,MFSK32,MFSK64,MFSK64L,MFSK128 MFSK128L,Q65"
+            "Submodes": "FSQCALL,FST4,FST4W,FT2,FT4,JS8,JTMS,JTTY,MFSK4,MFSK8,MFSK11,MFSK16,MFSK22,MFSK31,MFSK32,MFSK64,MFSK64L,MFSK128 MFSK128L,Q65"
           },
           "MSK144": {
             "Enumeration Name": "Mode",
@@ -19542,7 +19562,7 @@
             "DXCC Entity Code": "390",
             "Region": "European Turkey",
             "Prefix": "TA1",
-            "Applicability": "CQ"
+            "Applicability": "CQ, WAE"
           }
         }
       },
@@ -20929,6 +20949,11 @@
           "JTMS": {
             "Enumeration Name": "Submode",
             "Submode": "JTMS",
+            "Mode": "MFSK"
+          },
+          "JTTY": {
+            "Enumeration Name": "Submode",
+            "Submode": "JTTY",
             "Mode": "MFSK"
           },
           "LSB": {

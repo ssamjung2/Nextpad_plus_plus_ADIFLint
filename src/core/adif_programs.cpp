@@ -168,7 +168,7 @@ std::vector<PotaFile> programExport(Program p, std::string_view text, const DocM
                         displayDate(a.date) + (a.lastDate != a.date ? " to " + displayDate(a.lastDate) : std::string()) +
                         " UTC";
         h += eol;
-        h += makeSpecifier("ADIF_VER", kSpecVersion, LengthUnit::Bytes, false) + std::string(eol);
+        h += makeSpecifier("ADIF_VER", specVersion(), LengthUnit::Bytes, false) + std::string(eol);
         h += makeSpecifier("PROGRAMID", "ADIF Lint", LengthUnit::Bytes, false) + std::string(eol);
         h += makeSpecifier("PROGRAMVERSION", programVersion, LengthUnit::Bytes, false) + std::string(eol);
         h += makeSpecifier("CREATED_TIMESTAMP", utcTimestamp, LengthUnit::Bytes, false) + std::string(eol);

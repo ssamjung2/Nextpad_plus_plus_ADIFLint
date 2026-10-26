@@ -3,10 +3,10 @@
 [![Latest release](https://img.shields.io/github/v/release/ssamjung2/Nextpad_plus_plus_ADIFLint?label=release)](https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/releases/latest)
 [![Licence: GPL v3](https://img.shields.io/badge/licence-GPL%20v3-blue)](LICENSE)
 ![macOS 11+, Apple silicon and Intel](https://img.shields.io/badge/macOS-11%2B%20%C2%B7%20universal-lightgrey)
-![ADIF 3.1.7](https://img.shields.io/badge/ADIF-3.1.7-green)
+![ADIF 3.1.8](https://img.shields.io/badge/ADIF-3.1.8-green)
 
 **ADIF Lint** turns [Nextpad++](https://nextpad.org) into a logbook workbench for amateur
-radio. It checks [ADIF 3.1.7](https://www.adif.org/317/ADIF_317.htm) logs (`.adi`,
+radio. It checks [ADIF 3.1.8](https://www.adif.org/318/ADIF_318.htm) logs (`.adi`,
 `.adif`) as you type and repairs them, and it adds what you need around a log: logging
 contacts, POTA, WWFF and SOTA activations, spots, QSOs captured from WSJT-X and N1MM, an
 operating map of your log and of who's on the air now, and QSL sync with LoTW, QRZ.com, Club
@@ -20,9 +20,10 @@ Log and eQSL.
 
 - **Catches what breaks a log, and fixes it.** Every field is written `<NAME:LENGTH>data`,
   so changing `W1AW` to `W1AW/P` without changing `4` to `6` silently truncates the call,
-  and most programs never say. ADIF Lint marks that, and every other ADIF 3.1.7 rule, as you
-  type. **Check Log** repairs what it can in one undo step. ADIF's own 6,197-QSO test file
-  lints clean.
+  and most programs never say. ADIF Lint marks that, and every other ADIF 3.1.8 rule, as you
+  type, or those of any ADIF version back to 3.0.2 when your logs must suit an older program.
+  **Check Log** repairs what it can in one undo step. ADIF's own 6,202-QSO test file lints
+  clean.
 - **Logs contacts fast.** **New QSO** carries your station's fields over, looks the call up
   (offline country data, QRZ.com or HamQTH), warns of duplicates by POTA's park-to-park
   rule, and handles contests and Field Day.
@@ -74,7 +75,9 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
 ## Features
 
 **Checking and repairing**
-- Problems marked as you type against the ADIF 3.1.7 specification: data lengths,
+- Problems marked as you type against the ADIF 3.1.8 specification, or an older one chosen in
+  Settings (3.0.2 to 3.1.7; fields and values that came later are marked with the version
+  that brought them): data lengths,
   structure, field names, data types, enumerations (BAND, MODE and SUBMODE, QSL statuses,
   STATE for the DXCC entity…), FREQ against BAND, user-defined and `APP_` fields. Hover a
   mark to read why. Every rule is listed in [ADIF conformance](docs/ADIF_CONFORMANCE.md).
@@ -405,8 +408,10 @@ ADIF Lint is licensed under the [GNU General Public License v3](LICENSE), the li
 Nextpad++ and its plugins.
 
 - The validation tables and field descriptions are generated from the
-  [ADIF 3.1.7 specification](https://www.adif.org/317/ADIF_317.htm) and its JSON export,
-  published by the ADIF Development Group for developers.
+  [ADIF 3.1.8 specification](https://www.adif.org/318/ADIF_318.htm) and its JSON export, and
+  what each version from 3.0.2 on holds from those versions' specifications
+  ([`spec/adif-history.md`](spec/adif-history.md)), published by the ADIF Development Group
+  for developers.
 - `data/cty.csv` is Jim Reisert AD1C's [Big CTY](https://www.country-files.com/) country
   file, under the MIT licence ([`data/cty-copyright.txt`](data/cty-copyright.txt)).
 - The Map draws [Natural Earth](https://www.naturalearthdata.com)'s land, lakes, rivers,

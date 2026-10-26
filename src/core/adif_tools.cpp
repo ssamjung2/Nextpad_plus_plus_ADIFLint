@@ -1688,7 +1688,7 @@ std::vector<PotaFile> potaExport(std::string_view text, const DocModel &m, std::
         std::string h = "ADIF export for Parks on the Air: " + (f.station.empty() ? std::string("?") : f.station) + " at " +
                         a.park + " on " + displayDate(a.date) + " UTC";
         h += eol;
-        h += makeSpecifier("ADIF_VER", kSpecVersion, LengthUnit::Bytes, false) + std::string(eol);
+        h += makeSpecifier("ADIF_VER", specVersion(), LengthUnit::Bytes, false) + std::string(eol);
         h += makeSpecifier("PROGRAMID", "ADIF Lint", LengthUnit::Bytes, false) + std::string(eol);
         h += makeSpecifier("PROGRAMVERSION", programVersion, LengthUnit::Bytes, false) + std::string(eol);
         h += makeSpecifier("CREATED_TIMESTAMP", utcTimestamp, LengthUnit::Bytes, false) + std::string(eol);
