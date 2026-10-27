@@ -9,6 +9,8 @@ Versions before 0.8.0 were development builds and were not published.
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-10-26
+
 ### Added
 
 - **ADIF 3.1.8** (2026-10-12): submode JTTY, the SKCC contest IDs (SKCC-SKS, SKCC-SKSA,
@@ -901,7 +903,8 @@ First public release.
 - **Fix Lengths**, as one undo step, and **Count Lengths in Characters**.
 - The `adiflint` command-line tool.
 
-[Unreleased]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.4.1...v1.5.0
 [1.4.1]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.4.0...v1.4.1
