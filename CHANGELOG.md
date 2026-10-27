@@ -31,6 +31,31 @@ Versions before 0.8.0 were development builds and were not published.
   HRDLog callsign and upload code (Settings) or your HamQTH account (HamQTH's API v2).
   Uploaded QSOs get HRDLOG_ and HAMQTH_QSO_UPLOAD_STATUS Y and their dates; an edited one
   becomes M and the next upload updates it there. Read 2026-10-26.
+- **Map: move the cards.** Drag a card by its heading to put it elsewhere in its column (the
+  Map card above Layers; Awards above Selected), with a line showing where it will land and the
+  column scrolling at its edges. Right-click a heading for Move Up, Move Down, Move to Top,
+  Move to Bottom and Reset Card Order; ⌥↑ and ⌥↓ move the focused card, and VoiceOver offers the
+  moves as actions and says the new place. Each column's order is remembered.
+
+### Changed
+
+- **ADIF Lint menu:** commands now have named sections for operating, validation, log
+  management, analysis, integrations, preferences and help. The validation workflow keeps
+  Next Problem, Previous Problem, Fix Field Lengths, Bulk Edit and Shift QSO Times together;
+  **Reformat Log** groups its two layout commands in a submenu. Longer labels are now task
+  focused, including Spots & Hunting, Map & Contact Explorer, QSL Sync and Monitor External
+  Applications.
+- **Map: Spots is a layer like the others.** Its Show, Spotter lines and Labels boxes are a row
+  under Layers → Places, and the spots show only while Show is ticked, whichever Quick View is
+  chosen. The Filters card is gone: **POTA parks in** is in More Filters, under Programs.
+- **Map is a window of its own**, not a panel: it minimizes to the Dock and goes full screen.
+- **Map's cards:** Style Options and Settings are in a darker shade of the grey theme, their
+  groups flat and ruled, so Selected and Situation stay the operating context; the Layers'
+  groups are outlined sub-cards (the row for other programs is **Others**, its tooltip says
+  Other programs); **Awards** is a card of its own; every card has more padding at its sides and
+  bottom.
+- **Map:** the toolbar's buttons are larger and the same size, and the Space weather popover
+  fits its text.
 
 ## [1.6.0] - 2026-10-25
 

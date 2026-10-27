@@ -4,22 +4,25 @@ ADIF Lint checks and repairs amateur-radio logs in ADIF 3.1.8 ADI format in Next
 macOS, and adds logging, activations, spots, a map and QSL sync around them. This guide
 describes every window and option; the [README](../README.md) covers installing.
 
-Every command is on the **Plugins → ADIF Lint** menu, and New QSO, Log Table, Check Log and
-Spots also have toolbar buttons. **Import…**, **Export…** and **Enrich…** open the window
-you used last, and the pop-up at the top of each switches to the others; **QSL Sync…** opens
-each upload window. Every change a command makes to your log is one undo step, and nothing
-is saved to disk until you save the file.
+Every command is on the **Plugins → ADIF Lint** menu, grouped under **Logging & Operating**,
+**Validate & Edit**, **Organize & Manage Logs**, **Explore & Analyze**, **QSL & Integrations**,
+**Preferences & Display** and **Help**. **Reformat Log** opens the two layout commands in a
+submenu. New QSO, Log Table, Check Log and Spots also have toolbar buttons. **Import…**,
+**Export…** and **Enrich Log…** open the window you used last, and the pop-up at the top of
+each switches to the others; **QSL Sync…** opens each upload window. Every change a command
+makes to your log is one undo step, and nothing is saved to disk until you save the file.
 
 **A quick tour**
 
 1. Open an `.adi` file: problems are marked as you type
    ([Checking and repairing a log](#checking-and-repairing-a-log)).
-2. **Check Log…** repairs what it can, and **Fix Lengths** fixes the data lengths.
+2. **Check Log…** finds and repairs known problems. **Fix Field Lengths** (or the **Fix
+   Lengths** button in Check Log) corrects the ADIF data lengths.
 3. **Settings… → Your Station**: your callsign and grid ([Settings](#settings)).
 4. **New QSO…** logs contacts ([Logging with New QSO](#logging-with-new-qso)), and **Start
    Activation…** starts a park, reference or summit
    ([Station profiles and activations](#station-profiles-and-activations)).
-5. **Map (Grids, DXCC, Parks)…** shows where you've worked ([Map](#map)).
+5. **Map & Contact Explorer…** shows where you've worked ([Map](#map)).
 6. **QSL Sync…** uploads your QSOs and downloads confirmations
    ([QSL Sync and uploading](#qsl-sync-and-uploading)).
 
@@ -102,9 +105,9 @@ version chosen in Settings (see [ADIF versions](#adif-versions)).
   values, an invalid value with no obvious meaning.
 - **Record Panel** right-click: **Repair** applies the repair of the problem on that row
   (or **Repair Record** for one on the record as a whole).
-- **Fix Lengths** rewrites every wrong `<FIELD:LENGTH>` to match its data. For example,
-  `<CALL:4>W1AW/P` becomes `<CALL:6>W1AW/P`.
-- **Reformat: One Record per Line / One Field per Line** re-lays the file. Only the
+- **Fix Field Lengths** rewrites every wrong `<FIELD:LENGTH>` to match its data. For example,
+  `<CALL:4>W1AW/P` becomes `<CALL:6>W1AW/P`. In Check Log, the button is labelled **Fix Lengths**.
+- **Reformat Log → One Record per Line / One Field per Line** re-lays the file. Only the
   whitespace between fields changes: every data specifier and comment is copied byte for
   byte, and the header is kept. It refuses while any length is wrong.
 - **Colour ADIF syntax** (Settings → Editor, on by default): field names blue; `<`, `:LENGTH` and `>` grey;
@@ -125,7 +128,7 @@ version chosen in Settings (see [ADIF versions](#adif-versions)).
   heading to sort the rows by field name, value or problem (errors first); click **#** to
   return to the record's own order. Sorting only changes the view, not the record, and the
   choice is remembered.
-- **Check .adi Files While Typing** (on by default, also in Settings → Editor) turns the
+- **Check ADI Files While Typing** (on by default, also in Settings → Editor) turns the
   marks on or off.
 - The **Record Panel**'s second line sums up the whole log: its problems, the QSOs waiting
   for each upload service the log has used ("to upload: QRZ 4, LoTW 12"), and today's POTA
@@ -428,7 +431,7 @@ park ("KW9D · EN52wa · 5 W · Elecraft T1").
 
 ## Monitor: QSOs from WSJT-X and other programs
 
-**Monitor (WSJT-X, N1MM, Loggers)…** adds the QSOs other programs log to a log you choose,
+**Monitor External Applications…** adds the QSOs other programs log to a log you choose,
 as they log them. It listens for the message a program sends when you log a contact, or
 watches a log file a program adds to. It only listens: it never sends anything, and it
 takes messages only from this Mac unless you tick **Accept from other computers**.
@@ -504,7 +507,7 @@ macOS may ask whether Nextpad++ may accept incoming connections.
 
 ## Spots
 
-**Spots (POTA, WWFF, More)…** (or **Spots…** in New QSO) lists the activators spotted now,
+**Spots & Hunting…** (or **Spots…** in New QSO) lists the activators spotted now,
 with band and mode filters and a search box. (The Map can also show spots, from Spothole, a
 DX cluster and PSKReporter: see [Spots on the map](#spots-on-the-map).) The popup at the
 top chooses where from:
@@ -614,7 +617,7 @@ couple of minutes.
 
 ![The Map as a globe centred on your station: a pin at each contact, with a line to it, coloured by band](images/map-globe.png)
 
-**Map (Grids, DXCC, Parks)…** draws the open log on a world map, offline, over
+**Map & Contact Explorer…** draws the open log on a world map, offline, over
 [Natural Earth](https://www.naturalearthdata.com)'s maps (public domain; 1:110m for the whole
 world, 1:50m zoomed in, and 1:10m from 12× down to city level): land, lakes, rivers (the
 largest at first, smaller ones as you zoom in), country borders, state and province lines
@@ -639,7 +642,8 @@ Each keeps its own layers, colours, list, Quick View and spot program: switch an
 and each is as you left it. The first time, Live shows the spots and their list, with the
 countries and parks you worked shaded and the grey line on.
 
-The window, from the top:
+The window, from the top (the Map is a window like any other: it minimizes to the Dock and
+goes full screen with the green button):
 
 - **The header**: **Operating Map**, your callsign, the log and its QSOs; at the right,
   **Space weather** (see [Space weather and propagation](#space-weather-and-propagation)), when
@@ -683,19 +687,21 @@ The window, from the top:
     the list. **Save View…** under them keeps the layers, colours and filters as they are
     (and in Live which spots show) as a Quick View of your own in that workflow, after the
     others; right-click one of yours to remove it.
-  - **Spots** (Live): the Spots layer's boxes, **Heat map** (see [Space weather and
+  - **Spots** (Live): **Heat map** (see [Space weather and
     propagation](#space-weather-and-propagation)), **Sources and Filters…**, refresh,
     **Only spots of** (see [Spots on the map](#spots-on-the-map)), and **Watch List…** (see
-    [The watch list](#the-watch-list)).
-  - **Layers**: a row for each layer (see [Layers](#layers-worked-all-and-labels)), then
+    [The watch list](#the-watch-list)). The layer's own boxes are the **Spots** row of
+    **Layers**, as every layer's are.
+  - **Layers**: a row for each layer, the **Spots** layer's too (see
+    [Layers](#layers-worked-all-and-labels)), then
     **Contacts** (QSO markers, contact paths, your home station), **Sun and propagation**
     (the grey line, day and night, the aurora and the NCDXF beacons) and **Base map**
     (**Terrain**, subtle or strong; see [Style Options and export](#style-options-and-export)).
     Each group (**Worked areas**, **Programs**, **Places**, **Contacts**, **Sun and
-    propagation**, **Base map**) closes on its own with its heading.
+    propagation**, **Base map**) is a card of its own inside the card, closing on its own
+    with its heading.
   - **Map**: the palettes, a swatch each (one click; see [Colours](#colours)), **Colour by**,
     the projection, and **Region**.
-  - **Filters**: **POTA parks in** (see [POTA parks in](#pota-parks-in-fewer-parks)).
 - **The map**, with the zoom buttons at its top left: **+**, the zoom, **−**, then
   **Home**, **Fit Log** and **World** (see [Moving around](#moving-around)). The legend is
   at its top right (Style Options can put it at the bottom left), a distance scale at its
@@ -704,8 +710,9 @@ The window, from the top:
   saying how many each has.
 - **On the right**, the selected panel, in cards as the sidebar is: **Selected** and
   **Situation** (see [the selected panel and the situation](#the-selected-panel-and-the-situation)),
-  then **Style Options** (see [Style Options and export](#style-options-and-export)) and
-  **Settings** (see [Settings](#settings)), both closed until you open them.
+  **Awards** (in History; see the same section), then **Style Options** (see [Style Options
+  and export](#style-options-and-export)) and **Settings** (see [Settings](#settings)), both
+  closed until you open them.
 - **The footer**: whether the spots are live and how fresh, as a dot (green when the newest
   is less than 15 minutes old and every source you turned on is answering; orange when the
   spots are older or a source's last request failed, the toolbar then naming it, such as
@@ -718,11 +725,22 @@ The window, from the top:
 Drag the dividers to give the sidebar, the list or the selected panel more room. Every
 choice, the cards and groups open or closed and where the dividers were left are remembered.
 
+**Moving the cards.** The cards of each column can be put in the order you work in: the Map
+card above Layers, Awards above Selected. Drag a card by its heading (a grip appears there
+when you point at it; a line shows where the card will land, and the column scrolls when you
+hold the card near its top or bottom). Or, without dragging, right-click (or Control-click)
+the heading for **Move Up**, **Move Down**, **Move to Top** and **Move to Bottom**, or press
+**⌥↑** or **⌥↓** with the heading focused (Tab reaches it with macOS's keyboard navigation
+on); VoiceOver offers the same moves as actions on the heading and says the card's new place.
+**Reset Card Order**, in the same menu, puts the column back as it was. Each column's order
+is remembered. A card that isn't showing (Spots outside Live, Awards outside History) goes
+with the card above it, and is where it was when it shows again.
+
 ### Layers: Worked, All and Labels
 
-Each layer in the sidebar's **Layers** section has up to three boxes, in three groups
-(**Worked areas**, **Programs**, **Places**, each closed with its heading); the Spots
-layer's are in the **Spots** section:
+Each layer in the sidebar's **Layers** card has up to three boxes, in three groups
+(**Worked areas**, **Programs**, **Places**, each a card of its own, closed with its heading);
+the Spots layer's boxes are in **Places**, with Cities (see [Spots on the map](#spots-on-the-map)):
 
 - **Worked** marks what you worked on that layer: the worked grid squares, countries, states,
   counties and zones shaded in the map's colours, the POTA parks you worked badged, the IOTA
@@ -735,8 +753,8 @@ layer's are in the **Spots** section:
   city names, park references, IOTA references. Labels work while the layer shows: with
   Worked and All both unticked, the Labels box is faded.
 
-**Other programs**, the last row of Programs, has a box of its own for every other
-program's references at once (see [Contacts](#contacts)); its name is the menu of which.
+**Others**, the last row of Programs (**Other programs**, its tooltip says), has a box of its own for
+every other program's references at once (see [Contacts](#contacts)); its name is the menu of which.
 
 Right-click a layer's name for its menu: its boxes, **Only This Layer** (it alone, with its
 labels), and how strongly worked areas are shaded.
@@ -778,7 +796,7 @@ The **Contacts** group, under the layers:
   colour of the contact's marker (see [Style Options](#style-options-and-export)).
 - **Home station**: a star at each MY_GRIDSQUARE.
 
-**Other programs**, in the Programs group of the layers: its name is a list with a colour and
+**Other programs** (**Others**, in the Programs group of the layers): its name is a list with a colour and
 a count for each: WWFF parks, SOTA summits, IOTA islands, GMA, WWBOTA bunkers, HEMA, SiOTA
 silos, WCA castles, ILLW and ARLHS lighthouses, MOTA mills, ZLOTA, WOTA, and any other SIG
 in the log, each a diamond at the QSO's GRIDSQUARE. Tick the ones to show (**Show All**,
@@ -828,7 +846,7 @@ The toolbar's **continent** menu chooses one continent (More Filters can choose 
 The button shows how many places are chosen ("More Filters (2)…"), and each place chosen is
 a tag in the toolbar that removes it when clicked; **Clear** shows every QSO again.
 
-**POTA parks in**, in the sidebar's Filters section, is the parks' own filter (see
+**POTA parks in**, under Programs in More Filters, is the parks' own filter (see
 [POTA parks in](#pota-parks-in-fewer-parks)).
 
 ### Spots on the map
@@ -870,8 +888,10 @@ country's too) has a rough distance: **≈** before it in the list, "about … (
 centre: the spot gives no grid)" in its description, and the selected panel's **Grid** says
 it is at its country's centre.
 
-The sidebar's **Spots** section (in Live) holds the layer's three boxes (**Show**, **Spotter lines**, **Labels**),
-**Heat map**, **Sources and Filters…**, the refresh arrow, **Only spots of** and **Watch List…**.
+The layer's three boxes (**Show**, **Spotter lines**, **Labels**) are the **Spots** row under
+**Places** in the sidebar's **Layers** card, as the other layers' boxes are. The sidebar's
+**Spots** card (in Live) holds **Heat map**, **Sources and Filters…**, the refresh arrow,
+**Only spots of** and **Watch List…**.
 
 **Sources and Filters…** chooses which spots show:
 
@@ -1118,7 +1138,7 @@ On the globe:
 ### POTA parks in: fewer parks
 
 POTA has tens of thousands of parks, and a map of several states is crowded with them.
-**POTA parks in** (in the sidebar's Filters section) chooses where the parks you haven't worked show, on the map
+**POTA parks in** (under Programs in **More Filters…**, in the toolbar) chooses where the parks you haven't worked show, on the map
 and in the list beside it; the parks you worked always show. Its button names the places
 chosen ("US-IL…", "US-NJ, 1 county…", "everywhere…"); click it to change them:
 
@@ -1152,7 +1172,7 @@ how many it has, as the filters leave them:
 - **Contacts**: the QSOs in view, by their LAT and LON, else their GRIDSQUARE, in the map's
   colours. Choosing one chooses its marker (with Contacts ticked) or its grid square.
 - **Parks**: the POTA parks the map marks (with Worked, the parks you worked; with All,
-  the others too, as POTA parks in and the Filters let them show), in their colours on the map.
+  the others too, as POTA parks in and More Filters let them show), in their colours on the map.
 - **Spots** (while the Spots layer shows): the stations spotted in view, in their colours
   (POTA's tree for a POTA activator), the most wanted first (**Why it matters**: a new DXCC,
   then a new band, mode or park). Choosing one chooses the spot, as a click on it does.
@@ -1260,9 +1280,9 @@ The panel on the right shows what you clicked (pointing only describes it, in th
   **the sun at your station**: how high it is, when it next rises or sets, and when the grey
   line is over you.
 
-**Awards** (in History, closed with its triangle) shows how far the log, as the filters keep
-it, is toward awards whose rules were read from their sponsors on 2026-10-24 (point at a row
-for its rule and source):
+**Awards**, a card of its own under Situation (in History, with a log in the Map), shows how far
+the log, as the filters keep it, is toward awards whose rules were read from their sponsors on
+2026-10-24, each with its count and a bar (point at a row for its rule and source):
 
 - **DXCC**: 100 current entities confirmed by LoTW or a QSL card (eQSL isn't accepted), of
   340 (ARRL).
@@ -1456,7 +1476,7 @@ names.
 
 ## Activations: POTA, WWFF and SOTA
 
-**Activation Tracker (POTA, WWFF, SOTA)…** counts activations with each program's rule.
+**Activation Tracker…** counts activations with each program's rule.
 Choose the program at the top; it is remembered.
 
 ![Activation Tracker: a POTA park-day with 10 QSOs, activated](images/activation-tracker.png)
@@ -1659,7 +1679,7 @@ What each site gives:
 
 ## QSL Sync and uploading
 
-**QSL Sync (Upload, Confirmations)…** shows each service for the open log: whether its
+**QSL Sync…** shows each service for the open log: whether its
 account is saved, the QSOs to upload (and how many changed since an upload), uploaded, that
 can't be sent, and confirmed (LOTW_QSL_RCVD or EQSL_QSL_RCVD Y or V, or QRZ.com Logbook's
 confirmed status as Import writes it), the newest upload date in the log, and when you last
@@ -1749,7 +1769,7 @@ unticked while you edit the log.
 
 ## Enrich
 
-**Enrich…**, from QRZ.com, HamQTH or Country Data (chosen in **Enrich from**), adds fields a record lacks: NAME, QTH,
+**Enrich Log…**, from QRZ.com, HamQTH or Country Data (chosen in **Enrich from**), adds fields a record lacks: NAME, QTH,
 STATE, CNTY, GRIDSQUARE, DXCC and COUNTRY, CQZ, ITUZ, IOTA, CONT and, optionally, LAT and
 LON. Every proposed change is listed for review; nothing changes until you press
 **Apply**. Confirmations from LoTW, QRZ.com Logbook and eQSL come in through
@@ -1849,8 +1869,8 @@ to find. The first time ADIF Lint runs, it opens with a welcome and Your Station
 - **Map Detail:** OpenStreetMap streets and buildings for the regions you download (see
   [Map Detail](#map-detail-streets-and-buildings)).
 - **Spots:** where the Map's Spots layer gets its spots (see
-  [Spots on the map](#spots-on-the-map)); nothing is fetched until you tick Show in the Map's
-  Spots section.
+  [Spots on the map](#spots-on-the-map)); nothing is fetched until you tick Show on the Spots
+  row of the Map's Layers card.
   - **Spothole** (ticked at first): spothole.app's spots every 2 minutes, from POTA, WWFF,
     GMA and other programs, and the DX clusters and Reverse Beacon Network it reads; SOTA
     left out. It never sends a login.

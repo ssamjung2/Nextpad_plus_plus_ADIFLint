@@ -96,37 +96,37 @@ enum {
     kCmdSpots,
     kCmdStartActivation,
     kCmdLayout,
-    kSepLog,
-    kCmdLogTable,
+    kSepValidate,
     kCmdCheckLog,
-    kCmdFixLengths,
     kCmdNextProblem,
     kCmdPreviousProblem,
-    kSepEdit,
+    kCmdFixLengths,
     kCmdBulkEdit,
     kCmdTimeShift,
+    kSepManage,
     kCmdOrganize,
     kCmdDupes,
     kCmdMerge,
-    kSepReports,
-    kCmdSummary,
-    kCmdTracker,
-    kCmdWorkedBefore,
-    kCmdMap,
-    kSepServices,
     kCmdImport,
     kCmdExport,
+    kCmdReformatRecords,
+    kCmdReformatFields,
+    kSepExplore,
+    kCmdLogTable,
+    kCmdSummary,
+    kCmdWorkedBefore,
+    kCmdMap,
+    kCmdTracker,
+    kSepIntegrations,
     kCmdUpload,
     kCmdEnrich,
     kCmdMonitor,
-    kSepView,
+    kSepPreferences,
     kCmdRecordPanel,
-    kCmdReformatRecords,
-    kCmdReformatFields,
     kCmdAutoValidate,
     kCmdOffline,
     kCmdNight,
-    kSepSettings,
+    kSepHelp,
     kCmdSettings,
     kCmdAbout,
     kCmdCount
@@ -136,8 +136,7 @@ static std::string gMenuNames[kCmdCount];    // as the host shows them
 static const char *gMenuEnglish[kCmdCount];  // the same in English, the tables' keys
 
 // A menu name in the language in use, cut on a character boundary to fit the host's buffer.
-static std::string menuName(const char *english) {
-    std::string name = adif::i18n::tr(english);
+static std::string menuNameText(std::string name) {
     if (name.size() > NPP_MENU_ITEM_SIZE - 1) {
         size_t n = NPP_MENU_ITEM_SIZE - 1;
         while (n > 0 && ((unsigned char)name[n] & 0xC0) == 0x80) --n;  // not inside a UTF-8 character
@@ -145,6 +144,7 @@ static std::string menuName(const char *english) {
     }
     return name;
 }
+static std::string menuName(const char *english) { return menuNameText(adif::i18n::tr(english)); }
 
 
 // Indicators, offset from the allocated base.
@@ -2759,7 +2759,7 @@ static void openEnrich(ADIFSource source) {
     }
 }
 
-// Enrich...: the source used last (QRZ.com at first); the window's popup switches.
+// Enrich Log...: the source used last (QRZ.com at first); the window's popup switches.
 static void cmdEnrich() {
     std::string last = adifhost::setting("enrichLast");
     long source = last.empty() ? ADIFSourceQRZ : std::atol(last.c_str());
@@ -2780,9 +2780,20 @@ static void setAutoValidate(bool on) {
 
 static void cmdToggleAutoValidate() { setAutoValidate(!g.autoValidate); }
 
+static std::string menuSectionName(NSString *identifier) {
+    if ([identifier isEqualToString:@"org.nextpad.adiflint.section.operating"]) return menuNameText(tr("Logging & Operating"));
+    if ([identifier isEqualToString:@"org.nextpad.adiflint.section.validate"]) return menuNameText(tr("Validate & Edit"));
+    if ([identifier isEqualToString:@"org.nextpad.adiflint.section.organize"]) return menuNameText(tr("Organize & Manage Logs"));
+    if ([identifier isEqualToString:@"org.nextpad.adiflint.section.explore"]) return menuNameText(tr("Explore & Analyze"));
+    if ([identifier isEqualToString:@"org.nextpad.adiflint.section.integrations"]) return menuNameText(tr("QSL & Integrations"));
+    if ([identifier isEqualToString:@"org.nextpad.adiflint.section.preferences"]) return menuNameText(tr("Preferences & Display"));
+    if ([identifier isEqualToString:@"org.nextpad.adiflint.section.help"]) return menuNameText(tr("Help"));
+    return {};
+}
+
 // The language changed: our items in the Plugins menu take their new names. The host builds
 // the menu from the names it was given at start and has no message to rename one, so they are
-// found in the app's menus: in the ADIF Lint submenu, by the names they have now.
+// found in the app's menus: in the ADIF Lint menu and its submenus, by the names they have now.
 static void retitleMenus() {
     std::function<void(NSMenu *, bool)> walk = [&](NSMenu *menu, bool ours) {
         for (NSMenuItem *item in menu.itemArray) {
@@ -2793,10 +2804,121 @@ static void retitleMenus() {
                         item.title = @(gMenuNames[i].c_str());
                         break;
                     }
+            if (ours && item.identifier) {
+                std::string title = menuSectionName(item.identifier);
+                if (!title.empty()) item.title = @(title.c_str());
+                if ([item.identifier isEqualToString:@"org.nextpad.adiflint.menu.reformat"]) {
+                    item.title = @(menuNameText(tr("Reformat Log")).c_str());
+                    item.submenu.title = item.title;
+                }
+            }
             if (item.submenu) walk(item.submenu, ours || [item.title isEqualToString:@(kPluginName)]);
         }
     };
     if (NSApp.mainMenu) walk(NSApp.mainMenu, false);
+}
+
+static NSMenu *findPluginMenu(NSMenu *root) {
+    for (NSMenuItem *item in root.itemArray) {
+        if ([item.title isEqualToString:@(kPluginName)] && item.submenu) return item.submenu;
+        if (item.submenu)
+            if (NSMenu *found = findPluginMenu(item.submenu)) return found;
+    }
+    return nil;
+}
+
+static void installPluginMenuStructure() {
+    NSMenu *pluginMenu = NSApp.mainMenu ? findPluginMenu(NSApp.mainMenu) : nil;
+    if (!pluginMenu) {
+        NSLog(@"ADIF Lint could not find its host menu to install the menu sections.");
+        return;
+    }
+
+    std::array<NSMenuItem *, kCmdCount> commands{};
+    NSMutableArray<NSMenuItem *> *otherItems = [NSMutableArray array];
+    std::function<void(NSMenu *)> collect = [&](NSMenu *menu) {
+        for (NSMenuItem *item in menu.itemArray) {
+            bool found = false;
+            for (int i = 0; i < kCmdCount; ++i) {
+                if (gMenuEnglish[i] && *gMenuEnglish[i] && [item.title isEqualToString:@(gMenuNames[i].c_str())]) {
+                    commands[i] = item;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found && item.submenu)
+                collect(item.submenu);
+            else if (!found && !item.isSeparatorItem && item.title.length && !item.identifier)
+                [otherItems addObject:item];
+        }
+    };
+    collect(pluginMenu);
+    for (int i = 0; i < kCmdCount; ++i) {
+        if (gMenuEnglish[i] && *gMenuEnglish[i] && !commands[i]) {
+            NSLog(@"ADIF Lint could not find menu command %@.", @(gMenuNames[i].c_str()));
+            return;
+        }
+    }
+
+    [pluginMenu removeAllItems];
+    auto addSection = [&](NSString *identifier, bool first = false) {
+        if (!first) [pluginMenu addItem:NSMenuItem.separatorItem];
+        NSMenuItem *heading = [[NSMenuItem alloc] initWithTitle:@(menuSectionName(identifier).c_str()) action:nil keyEquivalent:@""];
+        heading.identifier = identifier;
+        heading.enabled = NO;
+        [pluginMenu addItem:heading];
+    };
+    auto add = [&](int command) { [pluginMenu addItem:commands[command]]; };
+
+    addSection(@"org.nextpad.adiflint.section.operating", true);
+    add(kCmdNewQso);
+    add(kCmdSpots);
+    add(kCmdStartActivation);
+    add(kCmdLayout);
+
+    addSection(@"org.nextpad.adiflint.section.validate");
+    add(kCmdCheckLog);
+    add(kCmdNextProblem);
+    add(kCmdPreviousProblem);
+    add(kCmdFixLengths);
+    add(kCmdBulkEdit);
+    add(kCmdTimeShift);
+
+    addSection(@"org.nextpad.adiflint.section.organize");
+    add(kCmdOrganize);
+    add(kCmdDupes);
+    add(kCmdMerge);
+    add(kCmdImport);
+    add(kCmdExport);
+    NSMenuItem *reformat = [[NSMenuItem alloc] initWithTitle:@(menuNameText(tr("Reformat Log")).c_str()) action:nil keyEquivalent:@""];
+    reformat.identifier = @"org.nextpad.adiflint.menu.reformat";
+    reformat.submenu = [[NSMenu alloc] initWithTitle:reformat.title];
+    [reformat.submenu addItem:commands[kCmdReformatRecords]];
+    [reformat.submenu addItem:commands[kCmdReformatFields]];
+    [pluginMenu addItem:reformat];
+
+    addSection(@"org.nextpad.adiflint.section.explore");
+    add(kCmdLogTable);
+    add(kCmdSummary);
+    add(kCmdWorkedBefore);
+    add(kCmdMap);
+    add(kCmdTracker);
+
+    addSection(@"org.nextpad.adiflint.section.integrations");
+    add(kCmdUpload);
+    add(kCmdEnrich);
+    add(kCmdMonitor);
+
+    addSection(@"org.nextpad.adiflint.section.preferences");
+    add(kCmdSettings);
+    add(kCmdRecordPanel);
+    add(kCmdAutoValidate);
+    add(kCmdOffline);
+    add(kCmdNight);
+
+    addSection(@"org.nextpad.adiflint.section.help");
+    add(kCmdAbout);
+    for (NSMenuItem *item in otherItems) [pluginMenu addItem:item];
 }
 
 // Offline Mode (the menu item and Settings): the tick and the Settings box follow the setting.
@@ -2971,41 +3093,41 @@ extern "C" NPP_EXPORT void setInfo(NppData data) {
     loadSettings();
     ADIFLoadLanguage();
     setItem(kCmdNewQso, "New QSO...", cmdNewQso);
-    setItem(kCmdSpots, "Spots (POTA, WWFF, More)...", logtools::cmdPotaSpots);
+    setItem(kCmdSpots, "Spots & Hunting...", logtools::cmdPotaSpots);
     setItem(kCmdStartActivation, "Start Activation...", station::cmdStartActivation);
     setItem(kCmdLayout, "Logging Layout", cmdLoggingLayout, false);
-    setItem(kSepLog, "", nullptr);
-    setItem(kCmdLogTable, "Log Table...", logtools::cmdLogTable);
+    setItem(kSepValidate, "", nullptr);
     setItem(kCmdCheckLog, "Check Log...", checklog::cmdCheckLog);
-    setItem(kCmdFixLengths, "Fix Lengths", cmdFixLengths);
     setItem(kCmdNextProblem, "Next Problem", cmdNextProblem);
     setItem(kCmdPreviousProblem, "Previous Problem", cmdPreviousProblem);
-    setItem(kSepEdit, "", nullptr);
+    setItem(kCmdFixLengths, "Fix Field Lengths", cmdFixLengths);
     setItem(kCmdBulkEdit, "Bulk Edit...", logtools::cmdBulkEdit);
-    setItem(kCmdTimeShift, "Time Shift...", logtools::cmdTimeShift);
-    setItem(kCmdOrganize, "Sort and Organize...", logtools::cmdOrganize);
+    setItem(kCmdTimeShift, "Shift QSO Times...", logtools::cmdTimeShift);
+    setItem(kSepManage, "", nullptr);
+    setItem(kCmdOrganize, "Sort & Organize...", logtools::cmdOrganize);
     setItem(kCmdDupes, "Remove Duplicates...", logtools::cmdRemoveDuplicates);
     setItem(kCmdMerge, "Compare and Merge Logs...", logtools::cmdCompareLogs);
-    setItem(kSepReports, "", nullptr);
-    setItem(kCmdSummary, "Log Summary...", logtools::cmdSummary);
-    setItem(kCmdTracker, "Activation Tracker (POTA, WWFF, SOTA)...", logtools::cmdActivationTracker);
-    setItem(kCmdWorkedBefore, "Worked Before...", logtools::cmdWorkedBefore);
-    setItem(kCmdMap, "Map (Grids, DXCC, Parks)...", worldmap::cmdMap);
-    setItem(kSepServices, "", nullptr);
     setItem(kCmdImport, "Import...", families::cmdImport);
     setItem(kCmdExport, "Export...", families::cmdExport);
-    setItem(kCmdUpload, "QSL Sync (Upload, Confirmations)...", uploads::cmdQslSync);
-    setItem(kCmdEnrich, "Enrich...", cmdEnrich);
-    setItem(kCmdMonitor, "Monitor (WSJT-X, N1MM, Loggers)...", monitor::cmdMonitor);
-    setItem(kSepView, "", nullptr);
-    setItem(kCmdRecordPanel, "Record Panel", cmdRecordPanel, g.panelWanted);
     setItem(kCmdReformatRecords, "Reformat: One Record per Line", cmdReformatRecords);
     setItem(kCmdReformatFields, "Reformat: One Field per Line", cmdReformatFields);
-    setItem(kCmdAutoValidate, "Check .adi Files While Typing", cmdToggleAutoValidate, g.autoValidate);
+    setItem(kSepExplore, "", nullptr);
+    setItem(kCmdLogTable, "Log Table...", logtools::cmdLogTable);
+    setItem(kCmdSummary, "Log Summary...", logtools::cmdSummary);
+    setItem(kCmdWorkedBefore, "Worked Before...", logtools::cmdWorkedBefore);
+    setItem(kCmdMap, "Map & Contact Explorer...", worldmap::cmdMap);
+    setItem(kCmdTracker, "Activation Tracker...", logtools::cmdActivationTracker);
+    setItem(kSepIntegrations, "", nullptr);
+    setItem(kCmdUpload, "QSL Sync...", uploads::cmdQslSync);
+    setItem(kCmdEnrich, "Enrich Log...", cmdEnrich);
+    setItem(kCmdMonitor, "Monitor External Applications...", monitor::cmdMonitor);
+    setItem(kSepPreferences, "", nullptr);
+    setItem(kCmdSettings, "Settings...", cmdSettings);
+    setItem(kCmdRecordPanel, "Record Panel", cmdRecordPanel, g.panelWanted);
+    setItem(kCmdAutoValidate, "Check ADI Files While Typing", cmdToggleAutoValidate, g.autoValidate);
     setItem(kCmdOffline, "Offline Mode", cmdToggleOffline, ADIFOffline());
     setItem(kCmdNight, "Night Mode", cmdToggleNight, ADIFNightMode());
-    setItem(kSepSettings, "", nullptr);
-    setItem(kCmdSettings, "Settings...", cmdSettings);
+    setItem(kSepHelp, "", nullptr);
     setItem(kCmdAbout, "About ADIF Lint...", cmdAbout);
 }
 
@@ -3028,6 +3150,7 @@ extern "C" NPP_EXPORT void beNotified(SCNotification *n) {
                 setCheck(kCmdRecordPanel, g.panelWanted);
                 setCheck(kCmdOffline, ADIFOffline());
                 setCheck(kCmdNight, ADIFNightMode());
+                installPluginMenuStructure();
                 static id languageObservers[2];
                 if (!languageObservers[0]) {
                     // Nextpad++ posts this when its language changes (Settings → Preferences).

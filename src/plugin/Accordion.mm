@@ -5,14 +5,28 @@
 #include <algorithm>
 #include <cmath>
 
+// What a card being dragged puts on the pasteboard: its identifier. Private to the Map's columns.
+static NSPasteboardType const kCardPasteboardType = @"io.github.ssamjung2.adiflint.card";
+
+// Apple: a drag image once the pointer has moved about three points.
+static const CGFloat kDragStartDistance = 3;
+
+static bool reduceMotion() {
+    return NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
+}
+
+@interface ADIFAccordionHeader () <NSDraggingSource, NSMenuItemValidation>
+@end
+
 @implementation ADIFAccordionHeader {
     NSInteger _level;
     NSString *_spoken;
-    NSImageView *_chevron, *_icon;
+    NSImageView *_chevron, *_icon, *_grip;
     NSTextField *_summaryField;
     NSStackView *_row;
     NSTrackingArea *_tracking;
     BOOL _hover, _pressed;
+    NSPoint _downAt;  // in the window, where the pointer went down
     NSMutableArray<NSView *> *_accessories;
 }
 
@@ -40,7 +54,7 @@
     [_summaryField setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow - 1 forOrientation:NSLayoutConstraintOrientationHorizontal];
     _row = [[NSStackView alloc] initWithFrame:NSZeroRect];
     _row.spacing = 5;
-    _row.edgeInsets = level == 2 ? NSEdgeInsetsMake(10, 12, 10, 12) : level ? NSEdgeInsetsMake(4, 2, 4, 2) : NSEdgeInsetsMake(7, 8, 7, 6);
+    _row.edgeInsets = level == 2 ? NSEdgeInsetsMake(10, 12, 10, 12) : level ? NSEdgeInsetsMake(4, 2, 4, 2) : NSEdgeInsetsMake(10, 16, 8, 14);
     _row.spacing = level == 2 ? 7 : 5;
     [_row addView:_chevron inGravity:NSStackViewGravityLeading];
     if (symbol.length) {
@@ -76,7 +90,7 @@
 - (void)setRule:(BOOL)rule {
     _rule = rule;
     NSEdgeInsets e = _row.edgeInsets;
-    e.top = _level == 1 ? (rule ? 8 : 4) : _level == 2 ? 10 : 7;
+    e.top = _level == 1 ? (rule ? 8 : 4) : _level == 2 ? 10 : 10;
     _row.edgeInsets = e;
     [self setNeedsDisplay:YES];
 }
@@ -115,13 +129,30 @@
 
 - (void)mouseDown:(NSEvent *)event {
     _pressed = YES;
+    _downAt = event.locationInWindow;
     [self setNeedsDisplay:YES];
 }
 
+// A card's header dragged a few points starts moving the card; a click anywhere on it toggles.
+- (void)mouseDragged:(NSEvent *)event {
+    ADIFAccordion *card = self.card;
+    if (!_reorderable || !_pressed || !card) return;
+    NSPoint at = event.locationInWindow;
+    if (std::hypot(at.x - _downAt.x, at.y - _downAt.y) < kDragStartDistance) return;
+    _pressed = NO;
+    [self showGrip:YES];
+    NSPasteboardItem *board = [[NSPasteboardItem alloc] init];
+    [board setString:card.identifier ?: @"" forType:kCardPasteboardType];
+    NSDraggingItem *item = [[NSDraggingItem alloc] initWithPasteboardWriter:board];
+    [item setDraggingFrame:self.bounds contents:[self dragImage]];
+    [self beginDraggingSessionWithItems:@[ item ] event:event source:self];  // the card slides back if it isn't dropped in its column
+}
+
 - (void)mouseUp:(NSEvent *)event {
+    BOOL wasPressed = _pressed;
     _pressed = NO;
     [self setNeedsDisplay:YES];
-    if (NSPointInRect([self convertPoint:event.locationInWindow fromView:nil], self.bounds)) [self toggle];
+    if (wasPressed && NSPointInRect([self convertPoint:event.locationInWindow fromView:nil], self.bounds)) [self toggle];
 }
 
 - (void)performClick:(id)sender {
@@ -140,11 +171,13 @@
 
 - (void)mouseEntered:(NSEvent *)event {
     _hover = YES;
+    [self showGrip:YES];
     [self setNeedsDisplay:YES];
 }
 
 - (void)mouseExited:(NSEvent *)event {
     _hover = NO;
+    [self showGrip:NO];
     [self setNeedsDisplay:YES];
 }
 
@@ -171,7 +204,9 @@
 
 - (void)keyDown:(NSEvent *)event {
     unsigned short k = event.keyCode;
-    if (k == 49 || k == 36 || k == 76) [self toggle];
+    NSEventModifierFlags mods = event.modifierFlags & (NSEventModifierFlagOption | NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagShift);
+    if (_reorderable && mods == NSEventModifierFlagOption && (k == 126 || k == 125)) [self moveBy:k == 126 ? ADIFCardMoveUp : ADIFCardMoveDown];
+    else if (k == 49 || k == 36 || k == 76) [self toggle];
     else if (k == 124 && !_open) [self toggle];
     else if (k == 123 && _open) [self toggle];
     else [super keyDown:event];
@@ -210,11 +245,178 @@
     return YES;
 }
 
+#pragma mark Moving the card
+
+- (ADIFAccordion *)card {
+    return [self.superview isKindOfClass:ADIFAccordion.class] ? (ADIFAccordion *)self.superview : nil;
+}
+
+- (ADIFCardColumn *)column {
+    NSView *up = self.card.superview;
+    return [up isKindOfClass:ADIFCardColumn.class] ? (ADIFCardColumn *)up : nil;
+}
+
+- (void)setReorderable:(BOOL)reorderable {
+    if (reorderable == _reorderable) return;
+    _reorderable = reorderable;
+    if (reorderable && !_grip) {  // at the far end, whatever else is there; seen only while the pointer is over the header
+        _grip = [NSImageView imageViewWithImage:[NSImage imageWithSystemSymbolName:@"line.3.horizontal" accessibilityDescription:nil] ?: [NSImage new]];
+        _grip.symbolConfiguration = [NSImageSymbolConfiguration configurationWithPointSize:10 weight:NSFontWeightRegular];
+        _grip.contentTintColor = NSColor.secondaryLabelColor;
+        _grip.accessibilityElement = NO;
+        _grip.toolTip = T(@"Drag to move this card");
+        _grip.alphaValue = 0;
+        [_grip.widthAnchor constraintEqualToConstant:14].active = YES;
+        [_grip setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
+        [_row addView:_grip inGravity:NSStackViewGravityTrailing];
+    }
+    _grip.hidden = !reorderable;
+    self.menu = reorderable ? [self cardMenu] : nil;
+}
+
+- (void)showGrip:(BOOL)show {
+    _grip.alphaValue = show ? 1 : 0;
+}
+
+// The moves for those who can't or don't drag: the header's menu, its keys (shown there), VoiceOver's actions.
+- (NSMenu *)cardMenu {
+    NSMenu *menu = [[NSMenu alloc] initWithTitle:@""];
+    auto add = [&](NSString *title, SEL action, unichar arrow) {
+        NSMenuItem *item = [menu addItemWithTitle:title action:action keyEquivalent:arrow ? [NSString stringWithCharacters:&arrow length:1] : @""];
+        item.target = self;
+        if (arrow) item.keyEquivalentModifierMask = NSEventModifierFlagOption;
+    };
+    add(T(@"Move Up"), @selector(moveCardUp:), NSUpArrowFunctionKey);
+    add(T(@"Move Down"), @selector(moveCardDown:), NSDownArrowFunctionKey);
+    add(T(@"Move to Top"), @selector(moveCardToTop:), 0);
+    add(T(@"Move to Bottom"), @selector(moveCardToBottom:), 0);
+    [menu addItem:NSMenuItem.separatorItem];
+    add(T(@"Reset Card Order"), @selector(resetCardOrder:), 0);
+    return menu;
+}
+
+- (BOOL)validateMenuItem:(NSMenuItem *)item {
+    ADIFAccordion *card = self.card;
+    ADIFCardColumn *column = self.column;
+    if (!card || !column) return NO;
+    SEL action = item.action;
+    if (action == @selector(moveCardUp:)) return [column canMoveCard:card by:ADIFCardMoveUp];
+    if (action == @selector(moveCardDown:)) return [column canMoveCard:card by:ADIFCardMoveDown];
+    if (action == @selector(moveCardToTop:)) return [column canMoveCard:card by:ADIFCardMoveToTop];
+    if (action == @selector(moveCardToBottom:)) return [column canMoveCard:card by:ADIFCardMoveToBottom];
+    if (action == @selector(resetCardOrder:)) return ![column.order isEqualToArray:column.defaultOrder];
+    return YES;
+}
+
+- (BOOL)moveBy:(ADIFCardMove)move {
+    ADIFAccordion *card = self.card;
+    ADIFCardColumn *column = self.column;
+    if (!card || !column || ![column moveCard:card by:move]) return NO;
+    NSInteger place = 0, count = 0;
+    for (NSView *v in column.arrangedSubviews) {
+        if (v.hidden) continue;
+        ++count;
+        if (v == card) place = count;
+    }
+    NSAccessibilityPostNotificationWithUserInfo(
+        self, NSAccessibilityAnnouncementRequestedNotification,
+        @{ NSAccessibilityAnnouncementKey : TF(@"{name}, position {n} of {count}", @{@"name" : _spoken, @"n" : @(place), @"count" : @(count)}),
+           NSAccessibilityPriorityKey : @(NSAccessibilityPriorityHigh) });
+    return YES;
+}
+
+- (void)moveCardUp:(id)sender {
+    [self moveBy:ADIFCardMoveUp];
+}
+
+- (void)moveCardDown:(id)sender {
+    [self moveBy:ADIFCardMoveDown];
+}
+
+- (void)moveCardToTop:(id)sender {
+    [self moveBy:ADIFCardMoveToTop];
+}
+
+- (void)moveCardToBottom:(id)sender {
+    [self moveBy:ADIFCardMoveToBottom];
+}
+
+- (void)resetCardOrder:(id)sender {
+    [self.column resetOrder];
+}
+
+- (NSString *)accessibilityHelp {
+    return _reorderable ? T(@"Option-Up Arrow and Option-Down Arrow move this card") : nil;
+}
+
+- (NSArray<NSAccessibilityCustomAction *> *)accessibilityCustomActions {
+    ADIFAccordion *card = self.card;
+    ADIFCardColumn *column = self.column;
+    if (!_reorderable || !card || !column) return @[];
+    NSMutableArray<NSAccessibilityCustomAction *> *actions = [NSMutableArray array];
+    NSArray<NSString *> *names = @[ T(@"Move Up"), T(@"Move Down"), T(@"Move to Top"), T(@"Move to Bottom") ];
+    const ADIFCardMove moves[] = { ADIFCardMoveUp, ADIFCardMoveDown, ADIFCardMoveToTop, ADIFCardMoveToBottom };
+    __weak ADIFAccordionHeader *weak = self;
+    for (NSUInteger i = 0; i < names.count; i++) {
+        ADIFCardMove move = moves[i];
+        if (![column canMoveCard:card by:move]) continue;
+        [actions addObject:[[NSAccessibilityCustomAction alloc] initWithName:names[i] handler:^BOOL {
+            return [weak moveBy:move];
+        }]];
+    }
+    return actions;
+}
+
+// What is dragged: the header on a translucent card of its own (the card itself stays put, dimmed).
+- (NSImage *)dragImage {
+    NSRect bounds = self.bounds;
+    _hover = _pressed = NO;
+    NSBitmapImageRep *rep = [self bitmapImageRepForCachingDisplayInRect:bounds];
+    [self cacheDisplayInRect:bounds toBitmapImageRep:rep];
+    NSImage *content = [[NSImage alloc] initWithSize:bounds.size];
+    [content addRepresentation:rep];
+    NSAppearance *appearance = self.effectiveAppearance;
+    return [NSImage imageWithSize:bounds.size
+                          flipped:NO
+                   drawingHandler:^BOOL(NSRect r) {
+                       [appearance performAsCurrentDrawingAppearance:^{
+                           NSBezierPath *card = [NSBezierPath bezierPathWithRoundedRect:NSInsetRect(r, 0.5, 0.5) xRadius:8 yRadius:8];
+                           [[NSColor.windowBackgroundColor colorWithAlphaComponent:0.9] setFill];
+                           [card fill];
+                           [NSColor.separatorColor setStroke];
+                           [card stroke];
+                           [content drawInRect:r fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:0.92];
+                       }];
+                       return YES;
+                   }];
+}
+
+- (NSDragOperation)draggingSession:(NSDraggingSession *)session sourceOperationMaskForDraggingContext:(NSDraggingContext)context {
+    return context == NSDraggingContextWithinApplication ? NSDragOperationMove : NSDragOperationNone;
+}
+
+- (BOOL)ignoreModifierKeysForDraggingSession:(NSDraggingSession *)session {
+    return YES;  // a card only moves: Option doesn't make it a copy
+}
+
+- (void)draggingSession:(NSDraggingSession *)session willBeginAtPoint:(NSPoint)screenPoint {
+    self.card.alphaValue = 0.35;  // it stays where it is, dim, to show where it comes from
+}
+
+- (void)draggingSession:(NSDraggingSession *)session endedAtPoint:(NSPoint)screenPoint operation:(NSDragOperation)operation {
+    self.card.alphaValue = 1;
+    _pressed = NO;
+    _hover = self.window && NSPointInRect([self convertPoint:[self.window convertPointFromScreen:NSEvent.mouseLocation] fromView:nil], self.bounds);
+    [self showGrip:_hover];
+    [self setNeedsDisplay:YES];
+}
+
 @end
 
 @implementation ADIFAccordion {
     NSInteger _level;
-    NSLayoutConstraint *_openBottom, *_closedBottom;
+    NSLayoutConstraint *_openBottom, *_closedBottom, *_bodyLeading, *_bodyTrailing;
+    NSColor *_cardTint;
 }
 
 - (instancetype)initWithIdentifier:(NSString *)ident title:(NSString *)title symbol:(NSString *)symbol body:(NSView *)body level:(NSInteger)level {
@@ -241,16 +443,18 @@
         v.translatesAutoresizingMaskIntoConstraints = NO;
         [self addSubview:v];
     }
-    CGFloat inset = level == 1 ? 0 : 1, side = level == 1 ? 0 : level == 2 ? 12 : 10, below = level == 1 ? 6 : 12;
+    CGFloat inset = level == 1 ? 0 : 1, side = level == 1 ? 0 : level == 2 ? 12 : 16, below = level == 1 ? 6 : 16;
     _openBottom = [body.bottomAnchor constraintEqualToAnchor:self.bottomAnchor constant:-below];
     _closedBottom = [_header.bottomAnchor constraintEqualToAnchor:self.bottomAnchor constant:-inset];
+    _bodyLeading = [body.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:side];
+    _bodyTrailing = [body.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-side];
     [NSLayoutConstraint activateConstraints:@[
         [_header.topAnchor constraintEqualToAnchor:self.topAnchor constant:inset],
         [_header.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:inset],
         [_header.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-inset],
         [body.topAnchor constraintEqualToAnchor:_header.bottomAnchor constant:level == 1 ? 2 : level == 2 ? 10 : 0],
-        [body.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:side],
-        [body.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-side],
+        _bodyLeading,
+        _bodyTrailing,
     ]];
     [self showBody:YES];
     return self;
@@ -285,6 +489,25 @@
     _header.rule = rule;
 }
 
+- (CGFloat)bodyInset {
+    return _bodyLeading.constant;
+}
+
+- (void)setBodyInset:(CGFloat)bodyInset {
+    _bodyLeading.constant = bodyInset;
+    _bodyTrailing.constant = -bodyInset;
+    _openBottom.constant = -bodyInset;
+}
+
+- (NSColor *)cardTint {
+    return _cardTint;
+}
+
+- (void)setCardTint:(NSColor *)cardTint {
+    _cardTint = cardTint;
+    [self setNeedsDisplay:YES];
+}
+
 - (void)drawRect:(NSRect)dirty {
     if (_level == 1) return;
     bool dark = [[self.effectiveAppearance bestMatchFromAppearancesWithNames:@[ NSAppearanceNameAqua, NSAppearanceNameDarkAqua ]]
@@ -293,10 +516,17 @@
     if (_level == 0) {  // the card: the system's fill for a group's area, and a hairline edge
         NSBezierPath *card = [NSBezierPath bezierPathWithRoundedRect:NSInsetRect(self.bounds, half, half) xRadius:10 yRadius:10];
         NSColor *fill = nil;
-        if (@available(macOS 14.0, *)) fill = NSColor.quaternarySystemFillColor;
-        [(fill ?: [NSColor.labelColor colorWithAlphaComponent:0.05]) setFill];
+        NSColor *edge = NSColor.separatorColor;
+        if (_cardTint) {
+            fill = [_cardTint colorWithAlphaComponent:dark ? 0.24 : 0.08];
+            edge = [_cardTint colorWithAlphaComponent:dark ? 0.45 : 0.18];
+        } else {
+            if (@available(macOS 14.0, *)) fill = NSColor.quaternarySystemFillColor;
+            fill = fill ?: [NSColor.labelColor colorWithAlphaComponent:0.05];
+        }
+        [fill setFill];
         [card fill];
-        [NSColor.separatorColor setStroke];
+        [edge setStroke];
         card.lineWidth = pixel;
         [card stroke];
         return;
@@ -326,6 +556,403 @@
 - (void)viewDidChangeEffectiveAppearance {
     [super viewDidChangeEffectiveAppearance];
     self.needsDisplay = YES;
+}
+
+@end
+
+#pragma mark - Cards that move
+
+// Shows where a dragged card will go: a line in the accent colour in the gap between two cards.
+@interface ADIFDropLine : NSView
+@end
+
+@implementation ADIFDropLine
+
+- (NSView *)hitTest:(NSPoint)point {
+    return nil;
+}
+
+- (BOOL)isAccessibilityElement {
+    return NO;
+}
+
+- (void)drawRect:(NSRect)dirty {
+    [NSColor.controlAccentColor setFill];
+    CGFloat radius = NSHeight(self.bounds) / 2;
+    [[NSBezierPath bezierPathWithRoundedRect:self.bounds xRadius:radius yRadius:radius] fill];
+}
+
+@end
+
+// A card's top and bottom edges, as how far down the column they are (the column may or may not be flipped).
+static void edges(NSView *column, NSView *card, CGFloat *top, CGFloat *bottom) {
+    NSRect f = card.frame;
+    *top = column.isFlipped ? NSMinY(f) : NSHeight(column.bounds) - NSMaxY(f);
+    *bottom = *top + NSHeight(f);
+}
+
+@implementation ADIFCardColumn {
+    NSArray<NSString *> *_defaultOrder;
+    ADIFDropLine *_line;
+    NSTimer *_scroller;
+    NSPoint _pointer;         // where the drag is, in the window
+    ADIFAccordion *_dragged;  // the card being dragged, while the drag is over this column
+    ADIFAccordion *_before;   // the card it would go ahead of; nil: at the end
+    BOOL _changes;            // dropping it now would change the order
+}
+
++ (NSPasteboardType)pasteboardType {
+    return kCardPasteboardType;
+}
+
++ (instancetype)columnWithCards:(NSArray<ADIFAccordion *> *)cards spacing:(CGFloat)spacing {
+    ADIFCardColumn *column = [[self alloc] initWithFrame:NSZeroRect];
+    column.orientation = NSUserInterfaceLayoutOrientationVertical;
+    column.alignment = NSLayoutAttributeLeading;
+    column.spacing = spacing;
+    NSMutableArray<NSString *> *names = [NSMutableArray array];
+    for (ADIFAccordion *card in cards) {
+        [column addArrangedSubview:card];
+        card.header.reorderable = YES;
+        [names addObject:card.identifier ?: @""];
+    }
+    column->_defaultOrder = names;
+    return column;
+}
+
+- (instancetype)initWithFrame:(NSRect)frame {
+    if (!(self = [super initWithFrame:frame])) return nil;
+    [self registerForDraggedTypes:@[ kCardPasteboardType ]];
+    return self;
+}
+
+- (void)dealloc {
+    [_scroller invalidate];
+}
+
+- (NSArray<NSString *> *)defaultOrder {
+    return _defaultOrder;
+}
+
+- (NSArray<NSString *> *)order {
+    NSMutableArray<NSString *> *names = [NSMutableArray array];
+    for (NSView *v in self.arrangedSubviews)
+        if ([v isKindOfClass:ADIFAccordion.class]) [names addObject:v.identifier ?: @""];
+    return names;
+}
+
+// The cards that take room, top to bottom.
+- (NSArray<ADIFAccordion *> *)shownCards {
+    NSMutableArray<ADIFAccordion *> *shown = [NSMutableArray array];
+    for (NSView *v in self.arrangedSubviews)
+        if ([v isKindOfClass:ADIFAccordion.class] && !v.hidden) [shown addObject:(ADIFAccordion *)v];
+    return shown;
+}
+
+#pragma mark Moving
+
+// Changes the arrangement, sliding the cards to their new places unless that would only distract.
+- (void)rearrange:(void (^)(void))change animated:(BOOL)animated {
+    if (!animated || !self.window.visible || reduceMotion()) {
+        change();
+        return;
+    }
+    [NSAnimationContext runAnimationGroup:^(NSAnimationContext *context) {
+        context.duration = 0.2;
+        context.allowsImplicitAnimation = YES;
+        change();
+        [self layoutSubtreeIfNeeded];
+    }];
+}
+
+// Puts the card ahead of the one given, or last when there is none. A hidden card goes with the
+// showing one above it (Spots with Quick Views): moving a card down and up again leaves everything
+// as it was, hidden cards too.
+- (void)place:(ADIFAccordion *)card before:(ADIFAccordion *)before animated:(BOOL)animated {
+    NSMutableArray<NSView *> *rest = [self.arrangedSubviews mutableCopy];
+    NSUInteger at = [rest indexOfObject:card];
+    if (at == NSNotFound) return;
+    NSRange group = NSMakeRange(at, 1);
+    while (NSMaxRange(group) < rest.count && rest[NSMaxRange(group)].hidden) ++group.length;
+    NSArray<NSView *> *moving = [rest subarrayWithRange:group];
+    [rest removeObjectsInRange:group];
+    NSUInteger index = before ? [rest indexOfObject:before] : rest.count;
+    if (index == NSNotFound) return;
+    [self rearrange:^{
+        for (NSView *v in moving) [self removeArrangedSubview:v];  // they stay subviews, and keep the constraints that size them
+        for (NSUInteger i = 0; i < moving.count; ++i) [self insertArrangedSubview:moving[i] atIndex:index + i];
+    } animated:animated];
+}
+
+// The card a move would put this one ahead of (nil: at the end); NO when there is no card showing that way.
+- (BOOL)destinationOf:(ADIFAccordion *)card by:(ADIFCardMove)move before:(ADIFAccordion **)before {
+    NSArray<ADIFAccordion *> *shown = [self shownCards];
+    NSUInteger at = [shown indexOfObject:card];
+    if (at == NSNotFound) return NO;
+    bool up = move == ADIFCardMoveUp || move == ADIFCardMoveToTop;
+    if (up ? at == 0 : at + 1 >= shown.count) return NO;
+    switch (move) {
+        case ADIFCardMoveUp: *before = shown[at - 1]; break;
+        case ADIFCardMoveToTop: *before = shown[0]; break;
+        case ADIFCardMoveDown: *before = at + 2 < shown.count ? shown[at + 2] : nil; break;
+        case ADIFCardMoveToBottom: *before = nil; break;
+    }
+    return YES;
+}
+
+- (BOOL)canMoveCard:(ADIFAccordion *)card by:(ADIFCardMove)move {
+    ADIFAccordion *before = nil;
+    return [self destinationOf:card by:move before:&before];
+}
+
+- (BOOL)moveCard:(ADIFAccordion *)card by:(ADIFCardMove)move {
+    ADIFAccordion *before = nil;
+    if (![self destinationOf:card by:move before:&before]) return NO;
+    [self place:card before:before animated:YES];
+    [self reordered];
+    return YES;
+}
+
+- (void)reordered {
+    if (_onReorder) _onReorder(self.order);
+}
+
+- (void)arrange:(NSArray<NSString *> *)identifiers animated:(BOOL)animated {
+    NSMutableArray<NSView *> *rest = [self.arrangedSubviews mutableCopy], *wanted = [NSMutableArray array];
+    for (NSString *ident in identifiers) {
+        NSUInteger i = [rest indexOfObjectPassingTest:^BOOL(NSView *v, NSUInteger, BOOL *) {
+            return [v isKindOfClass:ADIFAccordion.class] && [v.identifier isEqualToString:ident];
+        }];
+        if (i == NSNotFound) continue;
+        [wanted addObject:rest[i]];
+        [rest removeObjectAtIndex:i];
+    }
+    [wanted addObjectsFromArray:rest];
+    [self rearrange:^{
+        for (NSUInteger i = 0; i < wanted.count; ++i) {
+            if (self.arrangedSubviews[i] == wanted[i]) continue;
+            [self removeArrangedSubview:wanted[i]];
+            [self insertArrangedSubview:wanted[i] atIndex:i];
+        }
+    } animated:animated];
+}
+
+- (void)arrangeInOrder:(NSArray<NSString *> *)identifiers {
+    [self arrange:identifiers animated:NO];
+}
+
+- (void)resetOrder {
+    if ([self.order isEqualToArray:_defaultOrder]) return;
+    [self arrange:_defaultOrder animated:YES];
+    [self reordered];
+}
+
+#pragma mark Dropping
+
+// The card of this column being dragged, nil for anything else.
+- (ADIFAccordion *)cardDragged:(id<NSDraggingInfo>)info {
+    NSString *ident = [info.draggingPasteboard stringForType:kCardPasteboardType];
+    if (!ident.length) return nil;
+    for (NSView *v in self.arrangedSubviews)
+        if ([v isKindOfClass:ADIFAccordion.class] && [v.identifier isEqualToString:ident]) return (ADIFAccordion *)v;
+    return nil;
+}
+
+// With the pointer where it is: the card the dragged one would go ahead of (the first, below the
+// pointer, whose middle is under it), and the line between the cards that shows it. Nothing shows
+// where the card would stay as it is.
+- (void)showDestination {
+    NSArray<ADIFAccordion *> *shown = [self shownCards];
+    NSUInteger at = _dragged ? [shown indexOfObject:_dragged] : NSNotFound;
+    if (at == NSNotFound) {
+        _changes = NO;
+        _line.hidden = YES;
+        return;
+    }
+    NSPoint p = [self convertPoint:_pointer fromView:nil];
+    CGFloat y = self.isFlipped ? p.y : NSHeight(self.bounds) - p.y;
+    _before = nil;
+    for (ADIFAccordion *c in shown) {
+        if (c == _dragged) continue;
+        CGFloat top, bottom;
+        edges(self, c, &top, &bottom);
+        if (y < (top + bottom) / 2) {
+            _before = c;
+            break;
+        }
+    }
+    _changes = _before != (at + 1 < shown.count ? shown[at + 1] : nil);
+    if (!_changes) {
+        _line.hidden = YES;
+        return;
+    }
+    // Midway through the gap it would go into.
+    CGFloat gap, top, bottom, unused;
+    if (_before) {
+        NSUInteger i = [shown indexOfObject:_before];
+        edges(self, _before, &top, &unused);
+        if (i) {
+            edges(self, shown[i - 1], &unused, &bottom);
+            gap = (bottom + top) / 2;
+        } else {
+            gap = top - self.spacing / 2;
+        }
+    } else {
+        edges(self, shown.lastObject, &unused, &bottom);
+        gap = bottom + self.spacing / 2;
+    }
+    if (!_line) {
+        _line = [[ADIFDropLine alloc] initWithFrame:NSMakeRect(0, 0, 0, 3)];
+        _line.hidden = YES;
+    }
+    if (self.subviews.lastObject != _line) [self addSubview:_line positioned:NSWindowAbove relativeTo:nil];  // over the cards, not under
+    NSEdgeInsets inset = self.edgeInsets;
+    CGFloat thickness = 3, topEdge = gap - thickness / 2;
+    _line.frame = NSMakeRect(inset.left, self.isFlipped ? topEdge : NSHeight(self.bounds) - topEdge - thickness,
+                             NSWidth(self.bounds) - inset.left - inset.right, thickness);
+    _line.hidden = NO;
+}
+
+- (NSDragOperation)trackDrag:(id<NSDraggingInfo>)info {
+    ADIFAccordion *card = [self cardDragged:info];
+    if (!card) {  // another column's card, or something else: no drop here
+        [self finishDrag];
+        return NSDragOperationNone;
+    }
+    _dragged = card;
+    _pointer = info.draggingLocation;
+    [self startScrolling];
+    [self showDestination];
+    return NSDragOperationMove;
+}
+
+- (void)finishDrag {
+    [self stopScrolling];
+    _line.hidden = YES;
+    _dragged = nil;
+    _before = nil;
+    _changes = NO;
+}
+
+- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)info {
+    return [self trackDrag:info];
+}
+
+- (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)info {
+    return [self trackDrag:info];
+}
+
+- (void)draggingExited:(id<NSDraggingInfo>)info {
+    [self finishDrag];
+}
+
+- (void)draggingEnded:(id<NSDraggingInfo>)info {
+    [self finishDrag];
+}
+
+- (BOOL)wantsPeriodicDraggingUpdates {
+    return NO;  // the timer scrolls it, which a drag held still can't ask for
+}
+
+- (BOOL)prepareForDragOperation:(id<NSDraggingInfo>)info {
+    return [self cardDragged:info] != nil;
+}
+
+// A drop that changes nothing isn't one: the image goes back to where the card is.
+- (BOOL)performDragOperation:(id<NSDraggingInfo>)info {
+    _dragged = [self cardDragged:info];
+    _pointer = info.draggingLocation;
+    [self showDestination];
+    ADIFAccordion *card = _dragged, *before = _before;
+    BOOL changes = _changes;
+    [self finishDrag];
+    if (!card || !changes) return NO;
+    [self place:card before:before animated:YES];
+    [self reordered];
+    return YES;
+}
+
+#pragma mark Scrolling while dragging
+
+- (void)startScrolling {
+    if (_scroller || !self.enclosingScrollView) return;
+    __weak ADIFCardColumn *weak = self;
+    _scroller = [NSTimer timerWithTimeInterval:1.0 / 60 repeats:YES block:^(NSTimer *timer) {
+        ADIFCardColumn *me = weak;
+        if (me) [me scrollTowardPointer];
+        else [timer invalidate];
+    }];
+    [NSRunLoop.mainRunLoop addTimer:_scroller forMode:NSRunLoopCommonModes];  // a drag runs in its own mode
+}
+
+- (void)stopScrolling {
+    [_scroller invalidate];
+    _scroller = nil;
+}
+
+// The pointer within a few points of the top or bottom of what shows scrolls the column that way,
+// faster the nearer the edge; the card's place is found again for what is now under the pointer.
+- (void)scrollTowardPointer {
+    NSScrollView *scroll = self.enclosingScrollView;
+    if (!_dragged || !scroll) {
+        [self stopScrolling];
+        return;
+    }
+    NSClipView *clip = scroll.contentView;
+    NSRect visible = clip.bounds;
+    NSPoint at = [clip convertPoint:_pointer fromView:nil];
+    CGFloat fromTop = clip.isFlipped ? at.y - NSMinY(visible) : NSMaxY(visible) - at.y;
+    CGFloat fromBottom = NSHeight(visible) - fromTop;
+    const CGFloat zone = 44, fastest = 14;
+    CGFloat step = 0;  // down is positive
+    if (fromTop < zone) step = -(zone - std::max<CGFloat>(fromTop, 0)) / zone * fastest;
+    else if (fromBottom < zone) step = (zone - std::max<CGFloat>(fromBottom, 0)) / zone * fastest;
+    if (step == 0) return;
+    NSRect wanted = visible;
+    wanted.origin.y += clip.isFlipped ? step : -step;
+    NSPoint origin = [clip constrainBoundsRect:wanted].origin;
+    if (origin.y == visible.origin.y) return;
+    [clip scrollToPoint:origin];
+    [scroll reflectScrolledClipView:clip];
+    [self showDestination];
+}
+
+@end
+
+@implementation ADIFCardScrollView
+
+- (instancetype)initWithFrame:(NSRect)frame {
+    if (!(self = [super initWithFrame:frame])) return nil;
+    [self registerForDraggedTypes:@[ kCardPasteboardType ]];
+    return self;
+}
+
+- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)info {
+    return [self.column draggingEntered:info];
+}
+
+- (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)info {
+    return [self.column draggingUpdated:info];
+}
+
+- (void)draggingExited:(id<NSDraggingInfo>)info {
+    [self.column draggingExited:info];
+}
+
+- (void)draggingEnded:(id<NSDraggingInfo>)info {
+    [self.column draggingEnded:info];
+}
+
+- (BOOL)wantsPeriodicDraggingUpdates {
+    return NO;
+}
+
+- (BOOL)prepareForDragOperation:(id<NSDraggingInfo>)info {
+    return [self.column prepareForDragOperation:info];
+}
+
+- (BOOL)performDragOperation:(id<NSDraggingInfo>)info {
+    return [self.column performDragOperation:info];
 }
 
 @end

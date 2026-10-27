@@ -80,7 +80,7 @@ static std::vector<std::string> splitList(const std::string &text) {
     return out;
 }
 
-// A group of the Settings card: a card of its own, its heading naming it with an icon and what is
+// A group of the Settings card: a flat group like the Layers pane's, its heading naming it with an icon and what is
 // set in it; closed, its controls keep their values. Its views run the panel's width (a push button
 // goes in a row of its own size); the groups open are remembered ("settingsOpen").
 static ADIFAccordion *sectionStack(NSString *title, NSString *symbol, NSArray<NSView *> *views, NSString *identifier) {
@@ -98,7 +98,7 @@ static ADIFAccordion *sectionStack(NSString *title, NSString *symbol, NSArray<NS
         [v.widthAnchor constraintEqualToAnchor:body.widthAnchor].active = YES;
         [v setContentCompressionResistancePriority:200 forOrientation:NSLayoutConstraintOrientationHorizontal];  // the panel's width rules
     }
-    ADIFAccordion *group = [[ADIFAccordion alloc] initWithIdentifier:identifier title:title symbol:symbol body:body level:2];
+    ADIFAccordion *group = [[ADIFAccordion alloc] initWithIdentifier:identifier title:title symbol:symbol body:body level:1];
     std::string name = ADIFStd(identifier);
     std::vector<std::string> open = splitList(adifhost::setting("settingsOpen"));
     group.open = std::find(open.begin(), open.end(), name) != open.end();

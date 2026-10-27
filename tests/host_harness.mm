@@ -699,6 +699,15 @@ static NSInteger tableRowNamed(NSTableView *t, NSString *name) {
 
 static bool contains(const std::vector<std::string> &v, const char *x) { return std::find(v.begin(), v.end(), x) != v.end(); }
 
+// What a drag destination is told of a drag in progress: where the pointer is (in the window) and what is on the
+// pasteboard. The real NSDraggingInfo comes only from a mouse drag the window server tracks.
+@interface FakeDrag : NSObject
+@property NSPoint draggingLocation;
+@property(strong) NSPasteboard *draggingPasteboard;
+@end
+@implementation FakeDrag
+@end
+
 int main(int argc, char **argv) {
     @autoreleasepool {
         [NSApplication sharedApplication];
@@ -751,7 +760,7 @@ int main(int argc, char **argv) {
             CHECK(f && f->_pFunc, "menu item %s exists", name);
             if (f && f->_pFunc) f->_pFunc();
         };
-        // Windows reached through Import..., Export..., Upload... and Enrich...: the menu
+        // Windows reached through Import..., Export..., Upload... and Enrich Log...: the menu
         // item opens the one used last, and its popup switches (the way a user gets there).
         struct Hub {
             const char *old, *menu;
@@ -772,21 +781,21 @@ int main(int argc, char **argv) {
             {"Export CSV...", "Export...", @"CSV"},
             {"Export Cabrillo...", "Export...", @"Cabrillo"},
             {"Print QSL Labels...", "Export...", @"QSL labels (PDF)"},
-            {"Upload to QRZ.com Logbook...", "QSL Sync (Upload, Confirmations)...", @"QRZ.com Logbook"},
-            {"Upload to LoTW (TQSL)...", "QSL Sync (Upload, Confirmations)...", @"LoTW (TQSL)"},
-            {"Upload to Club Log...", "QSL Sync (Upload, Confirmations)...", @"Club Log"},
-            {"Upload to eQSL...", "QSL Sync (Upload, Confirmations)...", @"eQSL"},
-            {"Upload to World Radio League...", "QSL Sync (Upload, Confirmations)...", @"World Radio League"},
-            {"Upload to HRDLog.net...", "QSL Sync (Upload, Confirmations)...", @"HRDLog.net"},
-            {"Upload to HamQTH...", "QSL Sync (Upload, Confirmations)...", @"HamQTH"},
-            {"Enrich from QRZ.com...", "Enrich...", @"QRZ.com"},
-            {"Enrich from HamQTH...", "Enrich...", @"HamQTH"},
-            {"Enrich from Country Data...", "Enrich...", @"Country Data (offline)"},
+            {"Upload to QRZ.com Logbook...", "QSL Sync...", @"QRZ.com Logbook"},
+            {"Upload to LoTW (TQSL)...", "QSL Sync...", @"LoTW (TQSL)"},
+            {"Upload to Club Log...", "QSL Sync...", @"Club Log"},
+            {"Upload to eQSL...", "QSL Sync...", @"eQSL"},
+            {"Upload to World Radio League...", "QSL Sync...", @"World Radio League"},
+            {"Upload to HRDLog.net...", "QSL Sync...", @"HRDLog.net"},
+            {"Upload to HamQTH...", "QSL Sync...", @"HamQTH"},
+            {"Enrich from QRZ.com...", "Enrich Log...", @"QRZ.com"},
+            {"Enrich from HamQTH...", "Enrich Log...", @"HamQTH"},
+            {"Enrich from Country Data...", "Enrich Log...", @"Country Data (offline)"},
         };
         auto run = [&](const char *name) {
             for (const Hub &hub : kHubs) {
                 if (std::strcmp(hub.old, name) != 0) continue;
-                if (!std::strcmp(hub.menu, "QSL Sync (Upload, Confirmations)...")) {  // the service's row, then Upload...
+                if (!std::strcmp(hub.menu, "QSL Sync...")) {  // the service's row, then Upload...
                     runItem(hub.menu);
                     pump(0.05);
                     NSWindow *qw = windowTitled(@"QSL Sync");
@@ -851,16 +860,18 @@ int main(int argc, char **argv) {
             *h = checkLogHeadline();
             return *h == "No problems found." || h->rfind("0 errors, 0 warnings", 0) == 0;
         };
-        for (const char *name : {"New QSO...", "Spots (POTA, WWFF, More)...", "Start Activation...", "Log Table...", "Check Log...", "Fix Lengths", "Next Problem",
-                                 "Previous Problem", "Bulk Edit...", "Time Shift...", "Sort and Organize...", "Remove Duplicates...",
-                                 "Compare and Merge Logs...", "Log Summary...", "Activation Tracker (POTA, WWFF, SOTA)...", "Worked Before...", "Map (Grids, DXCC, Parks)...",
-                                 "Import...", "Export...", "QSL Sync (Upload, Confirmations)...", "Enrich...", "Monitor (WSJT-X, N1MM, Loggers)...", "Record Panel", "Reformat: One Record per Line",
-                                 "Reformat: One Field per Line", "Check .adi Files While Typing", "Offline Mode", "Settings...", "About ADIF Lint..."})
-            CHECK(byName.count(name), "menu item %s", name);
-        CHECK(byName.count("Check .adi Files While Typing") && byName["Check .adi Files While Typing"]->_init2Check &&
-                  byName.count("Record Panel") && !byName["Record Panel"]->_init2Check && byName.count("Offline Mode") &&
-                  !byName["Offline Mode"]->_init2Check,
-              "default settings");
+        if (!getenv("ADIFLINT_TEST_LANG_REPORT")) {
+            for (const char *name : {"New QSO...", "Spots & Hunting...", "Start Activation...", "Log Table...", "Check Log...", "Fix Field Lengths", "Next Problem",
+                                     "Previous Problem", "Bulk Edit...", "Shift QSO Times...", "Sort & Organize...", "Remove Duplicates...",
+                                     "Compare and Merge Logs...", "Log Summary...", "Activation Tracker...", "Worked Before...", "Map & Contact Explorer...",
+                                     "Import...", "Export...", "QSL Sync...", "Enrich Log...", "Monitor External Applications...", "Record Panel", "Reformat: One Record per Line",
+                                     "Reformat: One Field per Line", "Check ADI Files While Typing", "Offline Mode", "Settings...", "About ADIF Lint..."})
+                CHECK(byName.count(name), "menu item %s", name);
+            CHECK(byName.count("Check ADI Files While Typing") && byName["Check ADI Files While Typing"]->_init2Check &&
+                      byName.count("Record Panel") && !byName["Record Panel"]->_init2Check && byName.count("Offline Mode") &&
+                      !byName["Offline Mode"]->_init2Check,
+                  "default settings");
+        }
 
         {   // The layout check itself must catch a real overlap.
             NSWindow *w = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 200, 100) styleMask:NSWindowStyleMaskTitled
@@ -874,9 +885,49 @@ int main(int argc, char **argv) {
             b.frame = NSMakeRect(100, 10, 80, 30);
             CHECK(overlaps(w.contentView) == 0, "and accepts separate ones");
         }
+        NSApp.mainMenu = [[NSMenu alloc] initWithTitle:@"Main"];
+        NSMenuItem *pluginMenuItem = [[NSMenuItem alloc] initWithTitle:@"ADIF Lint" action:nil keyEquivalent:@""];
+        NSMenu *pluginMenu = [[NSMenu alloc] initWithTitle:@"ADIF Lint"];
+        pluginMenuItem.submenu = pluginMenu;
+        [NSApp.mainMenu addItem:pluginMenuItem];
+        for (int i = 0; i < n; ++i) {
+            if (!items[i]._itemName[0]) {
+                [pluginMenu addItem:NSMenuItem.separatorItem];
+            } else {
+                NSMenuItem *menuItem = [[NSMenuItem alloc] initWithTitle:@(items[i]._itemName) action:nil keyEquivalent:@""];
+                menuItem.state = items[i]._init2Check ? NSControlStateValueOn : NSControlStateValueOff;
+                [pluginMenu addItem:menuItem];
+            }
+        }
         setenv("ADIFLINT_TEST_WELCOME", "1", 1);  // a first run: no ADIFLint.ini yet
         notify(NPPN_READY);
         unsetenv("ADIFLINT_TEST_WELCOME");
+        auto menuIndexWithIdentifier = [&](NSString *identifier) {
+            for (NSInteger i = 0; i < pluginMenu.numberOfItems; ++i)
+                if ([[pluginMenu itemAtIndex:i].identifier isEqualToString:identifier]) return i;
+            return (NSInteger)-1;
+        };
+        CHECK(pluginMenu.numberOfItems > 0 && menuIndexWithIdentifier(@"org.nextpad.adiflint.section.operating") == 0 &&
+                  menuIndexWithIdentifier(@"org.nextpad.adiflint.section.validate") > menuIndexWithIdentifier(@"org.nextpad.adiflint.section.operating") &&
+                  menuIndexWithIdentifier(@"org.nextpad.adiflint.section.organize") > menuIndexWithIdentifier(@"org.nextpad.adiflint.section.validate") &&
+                  menuIndexWithIdentifier(@"org.nextpad.adiflint.section.explore") > menuIndexWithIdentifier(@"org.nextpad.adiflint.section.organize") &&
+                  menuIndexWithIdentifier(@"org.nextpad.adiflint.section.integrations") > menuIndexWithIdentifier(@"org.nextpad.adiflint.section.explore") &&
+                  menuIndexWithIdentifier(@"org.nextpad.adiflint.section.preferences") > menuIndexWithIdentifier(@"org.nextpad.adiflint.section.integrations") &&
+                  menuIndexWithIdentifier(@"org.nextpad.adiflint.section.help") > menuIndexWithIdentifier(@"org.nextpad.adiflint.section.preferences"),
+              "native menu has ordered, non-command section headings");
+        NSMenuItem *reformatMenu = nil;
+        for (NSMenuItem *item in pluginMenu.itemArray)
+            if ([item.identifier isEqualToString:@"org.nextpad.adiflint.menu.reformat"]) reformatMenu = item;
+        CHECK(reformatMenu && reformatMenu.submenu.numberOfItems == 2,
+              "Reformat Log contains both reformat commands in a submenu");
+        if (!getenv("ADIFLINT_TEST_LANG_REPORT"))
+            CHECK(reformatMenu && [reformatMenu.submenu itemWithTitle:@"Reformat: One Record per Line"] &&
+                      [reformatMenu.submenu itemWithTitle:@"Reformat: One Field per Line"] &&
+                      ![pluginMenu itemWithTitle:@"Reformat: One Record per Line"] &&
+                      ![pluginMenu itemWithTitle:@"Reformat: One Field per Line"] && [pluginMenu itemWithTitle:@"Check Log..."] &&
+                      [pluginMenu itemWithTitle:@"Check Log..."].enabled &&
+                      [pluginMenu itemWithTitle:@"Check ADI Files While Typing"].state == NSControlStateValueOn,
+                  "submenu commands and checkable preference retain their native state");
 
         // Language report (ADIFLINT_TEST_LANG_REPORT, with ADIFLINT_TEST_HOST_LANGUAGE and
         // ADIFLINT_LANG_DIR; tools/lang-report.sh): every window in that language, the texts
@@ -904,6 +955,9 @@ int main(int argc, char **argv) {
                     if ([f.toolTip isEqualToString:t]) t = nil;  // cut short by design, all of it in its tooltip
                 }
                 CGFloat need = v.intrinsicContentSize.width;
+                // An icon alone shows no title (it is the accessibility label): it only has to fit its button.
+                if ([v isKindOfClass:NSButton.class] && ![v isKindOfClass:NSPopUpButton.class] && ((NSButton *)v).imagePosition == NSImageOnly && ((NSButton *)v).image)
+                    need = ((NSButton *)v).image.size.width;
                 if (t.length && need != NSViewNoIntrinsicMetric && need > NSWidth(v.frame) + 1)
                     out.insert(std::string(t.UTF8String) + " (" + std::to_string((int)need) + " > " + std::to_string((int)NSWidth(v.frame)) + ")");
                 for (NSView *sub in v.subviews) clips(sub, out);
@@ -1049,7 +1103,7 @@ int main(int argc, char **argv) {
         CHECK(filledAt(kComment, 0) && filledAt(kComment, 3) && !filledAt(kComment, 4), "header text coloured");
         CHECK(!filledAt(kName, callTag + 9), "data not coloured");
 
-        // ── Hover, Next Problem, Fix Lengths ──
+        // ── Hover, Next Problem, Fix Field Lengths ──
         notify(SCN_DWELLSTART, 0, callTag + 2);
         CHECK(H.tip.find("Error: Length 4 does not match the data 'VE3AAA'") == 0, "hover tip: %s", H.tip.c_str());
         notify(SCN_DWELLEND);
@@ -1057,7 +1111,7 @@ int main(int argc, char **argv) {
         H.pos = 0;
         run("Next Problem");
         CHECK(H.pos == callTag, "caret moved to the problem: %ld", (long)H.pos);
-        run("Fix Lengths");
+        run("Fix Field Lengths");
         CHECK(H.doc.find("<CALL:6>VE3AAA") != std::string::npos, "length fixed");
         CHECK(H.undoDepth == 0 && H.undoActions == 1, "one balanced undo action");
         CHECK(H.tip.find("Fixed 1 data length") == 0, "fix tip: %s", H.tip.c_str());
@@ -1764,7 +1818,7 @@ int main(int argc, char **argv) {
             }
 
             // Activation Tracker: 10 unique QSOs (the repeat doesn't count).
-            run("Activation Tracker (POTA, WWFF, SOTA)...");
+            run("Activation Tracker...");
             NSWindow *aw = windowTitled(@"Activation Tracker");
             NSTableView *at = aw ? findTable(aw.contentView) : nil;
             CHECK(at && tableRows(at) == 1, "one park-day");
@@ -1782,7 +1836,7 @@ int main(int argc, char **argv) {
 
             // Sort by date and time: one undo step.
             int undo = H.undoActions;
-            run("Sort and Organize...");
+            run("Sort & Organize...");
             NSWindow *sow = windowTitled(@"Sort and Organize");
             NSButton *fieldsBox = sow ? findButton(sow.contentView, @"Put the fields of every record in this order:") : nil;
             if (fieldsBox.state == NSControlStateValueOn) [fieldsBox performClick:nil];
@@ -1845,7 +1899,7 @@ int main(int argc, char **argv) {
                 CHECK(status(bw).find("Applied 10 changes to 10 records") == 0, "applied: %s", status(bw).c_str());
 
                 // Time Shift: the same window, 30 minutes later.
-                run("Time Shift...");
+                run("Shift QSO Times...");
                 CHECK([bw.title isEqualToString:@"Time Shift"], "titled Time Shift");
                 NSPopUpButton *convert = nil;
                 NSMutableArray *pops = [NSMutableArray array];
@@ -2078,7 +2132,7 @@ int main(int argc, char **argv) {
             }
 
             // POTA spots (fixture): the malformed spot is dropped; one fills New QSO.
-            run("Spots (POTA, WWFF, More)...");
+            run("Spots & Hunting...");
             NSWindow *spw = windowTitled(@"Spots");
             NSTableView *spt = spw ? findTable(spw.contentView) : nil;
             for (int i = 0; i < 40 && spt && [spt.dataSource numberOfRowsInTableView:spt] == 0; ++i) pump(0.05);
@@ -2683,7 +2737,7 @@ int main(int argc, char **argv) {
             unsetenv("ADIFLINT_TEST_OPEN_FILE");
 
             // QSL Sync sums the log up per service.
-            runItem("QSL Sync (Upload, Confirmations)...");
+            runItem("QSL Sync...");
             NSWindow *sync = windowTitled(@"QSL Sync");
             NSTableView *syncTable = sync ? findTable(sync.contentView) : nil;
             CHECK(syncTable && [syncTable.dataSource numberOfRowsInTableView:syncTable] == 7 && [cell(syncTable, 3, @"0") isEqualToString:@"eQSL"] &&
@@ -3013,7 +3067,7 @@ int main(int argc, char **argv) {
             }
 
             // Sort and Organize: records by CALL (descending), CALL first in every record.
-            run("Sort and Organize...");
+            run("Sort & Organize...");
             NSWindow *ow = windowTitled(@"Sort and Organize");
             NSTableView *ot = ow ? findTable(ow.contentView) : nil;
             if (ow && ot) {
@@ -3101,7 +3155,7 @@ int main(int argc, char **argv) {
             H.path = "/tmp/programs.adi";
             notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
             pump(0.5);
-            run("Activation Tracker (POTA, WWFF, SOTA)...");
+            run("Activation Tracker...");
             NSWindow *aw = windowTitled(@"Activation Tracker");
             NSTableView *at = aw ? findTable(aw.contentView) : nil;
             NSPopUpButton *prog = aw ? findPopup(aw.contentView) : nil;
@@ -3598,7 +3652,7 @@ int main(int argc, char **argv) {
                 pump(0.3);
             };
             activate(logPath, "station\n<ADIF_VER:5>3.1.7\n<EOH>\n", {});
-            run("Monitor (WSJT-X, N1MM, Loggers)...");
+            run("Monitor External Applications...");
             NSWindow *mw = windowTitled(@"Monitor");
             NSTableView *mt = mw ? findTable(mw.contentView) : nil;
             CHECK(mw.visible && mt, "Monitor opens");
@@ -4048,7 +4102,7 @@ int main(int argc, char **argv) {
             notify(NPPN_BUFFERACTIVATED);
             notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
             pump(0.3);
-            run("Map (Grids, DXCC, Parks)...");
+            run("Map & Contact Explorer...");
             NSWindow *mapw = windowIdentified(@"map.window");
             auto mapSummary = [&]() -> NSString * {  // the log at a glance, as the selected panel's rows have it
                 return ((NSTextField *)viewWithIdentifier(mapw.contentView, @"map.situation")).stringValue;
@@ -4070,8 +4124,9 @@ int main(int argc, char **argv) {
                 [bx sendAction:bx.action to:bx.target];
             };
             NSString *mapStatus = mapw ? mapSummary() : nil;
+            NSButton *othersPullDown = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.programs");  // the Others pull-down, in the Programs card
             CHECK(mapw.visible && [mapStatus hasPrefix:@"4 grid squares (1 confirmed"] && [mapStatus containsString:@"1 POTA park"] &&
-                      [mapStatus containsString:@"1 other reference (WWFF, IOTA"] && findButton(mapw.contentView, @"Other programs").state == NSControlStateValueOff &&
+                      [mapStatus containsString:@"1 other reference (WWFF, IOTA"] && othersPullDown && othersPullDown.state == NSControlStateValueOff &&
                       [mapStatus containsString:@"1 DXCC (1 confirmed"] && [mapStatus containsString:@"1 QSO without GRIDSQUARE"] &&
                       [mapStatus containsString:@"1 QSO with an exact place (Contacts)"],
                   "the map's summary: %s", mapStatus.UTF8String);
@@ -4100,6 +4155,347 @@ int main(int argc, char **argv) {
                       overlaps(mapw.contentView), (long)workflowSwitch.selectedSegment, shown(@"map.sidebar"), !shown(@"map.group.spots"),
                       shown(@"map.list"), shown(@"map.selected"));
                 snapshot(mapw, "map");
+            }
+
+            // Cards that move: the sidebar's and the selected panel's, by a card's menu, the Option-arrow keys and VoiceOver's
+            // actions, and by a drag (as its destination is told of one: the window server isn't here to run a real one). The
+            // order is kept in the settings; Reset Card Order is the way back to the first.
+            if (mapw) {
+                NSStackView *side = (NSStackView *)viewWithIdentifier(mapw.contentView, @"map.group.views").superview;
+                NSStackView *panel = (NSStackView *)viewWithIdentifier(mapw.contentView, @"map.group.selected").superview;
+                auto card = [&](NSString *name) { return viewWithIdentifier(mapw.contentView, [@"map.group." stringByAppendingString:name]); };
+                auto header = [&](NSString *name) { return (NSControl *)[card(name) valueForKey:@"header"]; };
+                auto order = [&](NSStackView *column) -> NSString * {  // the cards' names, top to bottom; (those not showing)
+                    NSMutableArray<NSString *> *names = [NSMutableArray array];
+                    for (NSView *v in column.arrangedSubviews) {
+                        NSString *name = [v.identifier substringFromIndex:@"map.group.".length];
+                        [names addObject:v.hidden ? [NSString stringWithFormat:@"(%@)", name] : name];
+                    }
+                    return [names componentsJoinedByString:@","];
+                };
+                auto saved = [&](NSString *key) -> NSString * {  // as ADIFLint.ini has it
+                    NSString *ini = [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint.ini"] encoding:NSUTF8StringEncoding error:nil];
+                    for (NSString *l in [ini componentsSeparatedByString:@"\n"])
+                        if ([l hasPrefix:[key stringByAppendingString:@"="]]) return [l substringFromIndex:key.length + 1];
+                    return @"";
+                };
+                auto working = [&](NSString *name) -> NSString * {  // which of a card's menu items work (up, down, top, bottom, reset), as 1s and 0s
+                    NSMenu *menu = header(name).menu;
+                    [menu update];
+                    NSMutableString *s = [NSMutableString string];
+                    for (NSMenuItem *i in menu.itemArray)
+                        if (!i.isSeparatorItem) [s appendString:i.enabled ? @"1" : @"0"];
+                    return s;
+                };
+                auto choose = [&](NSString *name, NSString *title) -> bool {  // an item of a card's menu, as a click on it; the cards slide
+                    NSMenu *menu = header(name).menu;
+                    [menu update];
+                    for (NSMenuItem *i in menu.itemArray)
+                        if ([i.title isEqualToString:title] && i.enabled && [NSApp sendAction:i.action to:i.target from:i]) {
+                            pump(0.4);
+                            return true;
+                        }
+                    return false;
+                };
+                auto press = [&](NSString *name, unichar arrow, NSEventModifierFlags flags) {  // an arrow key, at a card's header
+                    NSString *chars = [NSString stringWithCharacters:&arrow length:1];
+                    NSEvent *e = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:mapw.windowNumber
+                                                   context:nil characters:chars charactersIgnoringModifiers:chars isARepeat:NO
+                                                   keyCode:arrow == NSUpArrowFunctionKey ? 126 : 125];
+                    [header(name) keyDown:e];
+                    pump(0.4);
+                };
+                auto click = [&](NSControl *h, CGFloat moved) {  // a press and release on a header, the pointer moving that far between
+                    NSRect r = [h convertRect:h.bounds toView:nil];
+                    NSPoint down = NSMakePoint(NSMinX(r) + 40, NSMidY(r)), up = NSMakePoint(down.x + moved, down.y);
+                    auto event = [&](NSEventType type, NSPoint at) {
+                        return [NSEvent mouseEventWithType:type location:at modifierFlags:0 timestamp:0 windowNumber:mapw.windowNumber context:nil eventNumber:0
+                                                clickCount:1 pressure:1];
+                    };
+                    [h mouseDown:event(NSEventTypeLeftMouseDown, down)];
+                    if (moved) [h mouseDragged:event(NSEventTypeLeftMouseDragged, up)];
+                    [h mouseUp:event(NSEventTypeLeftMouseUp, up)];
+                };
+                auto stacked = [&](NSStackView *column) -> bool {  // the cards showing are laid out one under another, in that order
+                    [mapw.contentView layoutSubtreeIfNeeded];
+                    bool ok = true;
+                    NSRect above = NSZeroRect;
+                    for (NSView *v in column.arrangedSubviews) {
+                        if (v.hidden) continue;
+                        NSRect r = [v convertRect:v.bounds toView:nil];
+                        if (NSHeight(r) < 20 || (!NSIsEmptyRect(above) && NSMaxY(r) > NSMinY(above) + 0.5)) ok = false;
+                        above = r;
+                    }
+                    return ok;
+                };
+                auto actionNames = [&](NSString *name) -> NSString * {  // what VoiceOver can do with a card, besides open it
+                    NSMutableArray<NSString *> *names = [NSMutableArray array];
+                    for (NSAccessibilityCustomAction *a in header(name).accessibilityCustomActions) [names addObject:a.name];
+                    return [names componentsJoinedByString:@","];
+                };
+                std::function<NSView *(NSView *)> gripIn = [&](NSView *v) -> NSView * {
+                    if ([v.toolTip isEqualToString:@"Drag to move this card"]) return v;
+                    for (NSView *sub in v.subviews)
+                        if (NSView *found = gripIn(sub)) return found;
+                    return nil;
+                };
+                NSString *awards = card(@"awards").hidden ? @"(awards)" : @"awards";  // not showing without a log, or in Live
+                NSString *sideFirst = @"views,(spots),layers,map", *panelFirst = [NSString stringWithFormat:@"selected,situation,%@,style,settings", awards];
+
+                CHECK(side && panel && [NSStringFromClass(side.class) isEqualToString:@"ADIFCardColumn"] && [NSStringFromClass(panel.class) isEqualToString:@"ADIFCardColumn"] &&
+                          [order(side) isEqualToString:sideFirst] && [order(panel) isEqualToString:panelFirst] && saved(@"mapSidebarOrder").length == 0 &&
+                          saved(@"mapPanelOrder").length == 0 && stacked(side) && stacked(panel),
+                      "Cards at first: the sidebar's (%s) and the selected panel's (%s) in the order they were made, laid out, nothing saved",
+                      order(side).UTF8String, order(panel).UTF8String);
+                NSMutableArray<NSString *> *titles = [NSMutableArray array];
+                NSMenu *cardMenu = header(@"map").menu;
+                for (NSMenuItem *i in cardMenu.itemArray) [titles addObject:i.title];
+                NSMenuItem *upItem = cardMenu.itemArray.firstObject;
+                NSArray<NSString *> *menuTitles = @[ @"Move Up", @"Move Down", @"Move to Top", @"Move to Bottom", @"", @"Reset Card Order" ];
+                CHECK([titles isEqualToArray:menuTitles] &&
+                          upItem.keyEquivalentModifierMask == NSEventModifierFlagOption && upItem.keyEquivalent.length == 1 &&
+                          [upItem.keyEquivalent characterAtIndex:0] == NSUpArrowFunctionKey &&
+                          [working(@"views") isEqualToString:@"01010"] && [working(@"layers") isEqualToString:@"11110"] && [working(@"map") isEqualToString:@"10100"],
+                      "A card's menu: %s; what works for the first card (%s), one between (%s) and the last (%s)", [titles componentsJoinedByString:@" | "].UTF8String,
+                      working(@"views").UTF8String, working(@"layers").UTF8String, working(@"map").UTF8String);
+
+                {  // The Map card above the Layers card, from the Map card's menu; Reset puts everything back (and nothing is saved).
+                    bool moved = choose(@"map", @"Move Up");
+                    NSString *now = order(side), *keep = saved(@"mapSidebarOrder");
+                    snapshot(mapw, "map-reordered");
+                    CHECK(moved && [now isEqualToString:@"views,(spots),map,layers"] && [keep isEqualToString:@"views,spots,map,layers"] &&
+                              saved(@"mapPanelOrder").length == 0 && stacked(side) && [working(@"map") isEqualToString:@"11111"],
+                          "Move Up: the Map card is above Layers (%s), kept (%s), laid out in that order", now.UTF8String, keep.UTF8String);
+                    bool reset = choose(@"map", @"Reset Card Order");
+                    CHECK(reset && [order(side) isEqualToString:sideFirst] && saved(@"mapSidebarOrder").length == 0 && stacked(side) &&
+                              [working(@"map") isEqualToString:@"10100"],
+                          "Reset Card Order: the cards as they were (%s), nothing kept (%s)", order(side).UTF8String, saved(@"mapSidebarOrder").UTF8String);
+                }
+                {  // A card that isn't showing (Spots, in History) goes with the one above it, and is in its place when it shows.
+                    bool down = choose(@"views", @"Move Down");
+                    NSString *now = order(side), *keep = saved(@"mapSidebarOrder");
+                    card(@"spots").hidden = NO;  // as Live shows it
+                    bool under = stacked(side) && fabs(NSMinY(inWindow(@"map.group.views")) - NSMaxY(inWindow(@"map.group.spots")) - 8) < 1.5;
+                    NSString *showing = order(side);
+                    card(@"spots").hidden = YES;
+                    bool back = choose(@"views", @"Move Up");
+                    CHECK(down && [now isEqualToString:@"layers,views,(spots),map"] && [keep isEqualToString:@"layers,views,spots,map"] &&
+                              [showing isEqualToString:@"layers,views,spots,map"] && under && back && [order(side) isEqualToString:sideFirst] &&
+                              saved(@"mapSidebarOrder").length == 0,
+                          "A card not showing goes with the one above it: %s (kept %s); showing: %s, under Quick Views (%d); and back: %s", now.UTF8String,
+                          keep.UTF8String, showing.UTF8String, under, order(side).UTF8String);
+                }
+                {  // The keyboard: Option-Down Arrow moves the card down, Option-Up Arrow up; at the end of the column nothing moves.
+                    NSEventModifierFlags option = NSEventModifierFlagOption | NSEventModifierFlagNumericPad | NSEventModifierFlagFunction;  // as an arrow key reports
+                    press(@"views", NSUpArrowFunctionKey, option);
+                    bool first = [order(side) isEqualToString:sideFirst];
+                    press(@"views", NSDownArrowFunctionKey, option);
+                    NSString *now = order(side), *keep = saved(@"mapSidebarOrder");
+                    press(@"views", NSUpArrowFunctionKey, option);
+                    CHECK(first && [now isEqualToString:@"layers,views,(spots),map"] && [keep isEqualToString:@"layers,views,spots,map"] &&
+                              [order(side) isEqualToString:sideFirst] && saved(@"mapSidebarOrder").length == 0 && stacked(side),
+                          "Option-Up Arrow at the top does nothing; Option-Down Arrow: %s (kept %s); Option-Up Arrow: back to %s", now.UTF8String, keep.UTF8String,
+                          order(side).UTF8String);
+                }
+                {  // VoiceOver's actions: those that work for the card, and they move it.
+                    NSAccessibilityCustomAction *toTop = nil;
+                    for (NSAccessibilityCustomAction *a in header(@"layers").accessibilityCustomActions)
+                        if ([a.name isEqualToString:@"Move to Top"]) toTop = a;
+                    CHECK([actionNames(@"layers") isEqualToString:@"Move Up,Move Down,Move to Top,Move to Bottom"] &&
+                              [actionNames(@"views") isEqualToString:@"Move Down,Move to Bottom"] && [actionNames(@"map") isEqualToString:@"Move Up,Move to Top"] &&
+                              [header(@"layers").accessibilityHelp isEqualToString:@"Option-Up Arrow and Option-Down Arrow move this card"] && toTop && toTop.handler,
+                          "VoiceOver: the card's moves that work (layers: %s; first card: %s; last: %s)", actionNames(@"layers").UTF8String,
+                          actionNames(@"views").UTF8String, actionNames(@"map").UTF8String);
+                    bool did = toTop && toTop.handler && toTop.handler();
+                    pump(0.4);
+                    CHECK(did && [order(side) isEqualToString:@"layers,views,(spots),map"] && stacked(side), "VoiceOver: Move to Top (%s)", order(side).UTF8String);
+                    choose(@"layers", @"Reset Card Order");
+                    NSControl *sub = (NSControl *)viewWithIdentifier(mapw.contentView, @"map.layergroup.areas.header");
+                    CHECK(sub && !sub.menu && sub.accessibilityCustomActions.count == 0 && !gripIn(sub) && [order(side) isEqualToString:sideFirst],
+                          "A card in a card (a Layers group) has no moves of its own, and the order is back as it was (%s)", order(side).UTF8String);
+                }
+                {  // The grip is there for a pointer over the header to see; a click or a few points' movement still opens and closes a card.
+                    NSControl *h = header(@"layers");
+                    NSView *grip = gripIn(h);
+                    bool hidden = grip && grip.alphaValue == 0;
+                    auto pointer = [&](NSEventType type) {  // the pointer entering or leaving the header
+                        return [NSEvent enterExitEventWithType:type location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:mapw.windowNumber context:nil
+                                                   eventNumber:0 trackingNumber:0 userData:NULL];
+                    };
+                    [h mouseEntered:pointer(NSEventTypeMouseEntered)];
+                    bool seen = grip.alphaValue == 1;
+                    [h mouseExited:pointer(NSEventTypeMouseExited)];
+                    bool gone = grip.alphaValue == 0;
+                    bool open0 = [[h valueForKey:@"open"] boolValue];
+                    click(h, 0);
+                    bool open1 = [[h valueForKey:@"open"] boolValue];
+                    click(h, 2);
+                    bool open2 = [[h valueForKey:@"open"] boolValue];
+                    CHECK(hidden && seen && gone && open1 != open0 && open2 == open0 && [order(side) isEqualToString:sideFirst],
+                          "A card's header: the grip shows for the pointer (%d, %d, %d); a click opens or closes it (%d, then %d), as before", hidden, seen, gone,
+                          open1 != open0, open2 == open0);
+                }
+
+                // A drag, as its destination is told of it: the pointer's place in the window and the card on the pasteboard.
+                FakeDrag *fake = [[FakeDrag alloc] init];
+                fake.draggingPasteboard = [NSPasteboard pasteboardWithUniqueName];
+                id<NSDraggingInfo> info = (id<NSDraggingInfo>)(id)fake;
+                NSPasteboardType cardType = side.registeredDraggedTypes.firstObject;
+                NSScrollView *sideScroll = side.enclosingScrollView, *panelScroll = panel.enclosingScrollView;
+                auto pickUp = [&](NSString *name) {
+                    [fake.draggingPasteboard clearContents];
+                    [fake.draggingPasteboard setString:[@"map.group." stringByAppendingString:name] forType:cardType];
+                };
+                auto where = [&](NSString *name, CGFloat fromTop) {  // that far down a card (0 to 1), in the window
+                    NSRect r = inWindow([@"map.group." stringByAppendingString:name]);
+                    return NSMakePoint(NSMidX(r), NSMaxY(r) - NSHeight(r) * fromTop);
+                };
+                auto over = [&](id target, NSPoint at) -> NSDragOperation {
+                    fake.draggingLocation = at;
+                    return [(id<NSDraggingDestination>)target draggingUpdated:info];
+                };
+                auto leave = [&](id target) { [(id<NSDraggingDestination>)target draggingExited:info]; };
+                auto drop = [&](id target) -> bool { return [(id<NSDraggingDestination>)target performDragOperation:info]; };
+                auto lineOf = [&](NSView *column) -> NSView * {  // the line that shows where the card would go, if it is showing
+                    for (NSView *v in column.subviews)
+                        if ([NSStringFromClass(v.class) isEqualToString:@"ADIFDropLine"] && !v.hidden) return v;
+                    return nil;
+                };
+                auto inGap = [&](NSView *line, NSString *above, NSString *below) {  // the line between those cards (top to bottom), not touching them
+                    if (!line) return false;
+                    NSRect l = [line convertRect:line.bounds toView:nil];
+                    NSRect a = inWindow([@"map.group." stringByAppendingString:above]), b = inWindow([@"map.group." stringByAppendingString:below]);
+                    return NSMinY(l) >= NSMaxY(b) - 0.5 && NSMaxY(l) <= NSMinY(a) + 0.5 && NSWidth(l) > 100;
+                };
+                CHECK(cardType && [side.registeredDraggedTypes isEqualToArray:panel.registeredDraggedTypes] &&
+                          [sideScroll.registeredDraggedTypes containsObject:cardType] && [panelScroll.registeredDraggedTypes containsObject:cardType],
+                      "The columns, and the scroll views round them, take a dragged card");
+                {  // Over a place that changes the order a line shows between the cards; over the card's own place, none; leaving takes it away.
+                    pickUp(@"map");
+                    NSDragOperation toLayers = over(side, where(@"layers", 0.25));
+                    bool line = inGap(lineOf(side), @"views", @"layers");
+                    snapshot(mapw, "map-dragging");
+                    leave(side);
+                    bool lineGone = !lineOf(side);
+                    pickUp(@"views");
+                    NSDragOperation own = over(side, where(@"layers", 0.25));
+                    bool none = !lineOf(side);
+                    bool noOp = !drop(side);
+                    CHECK(toLayers == NSDragOperationMove && line && lineGone && own == NSDragOperationMove && none && noOp &&
+                              [order(side) isEqualToString:sideFirst] && saved(@"mapSidebarOrder").length == 0,
+                          "Dragging the Map card over Layers' upper half: a line between Quick Views and Layers (%d), gone when it leaves (%d); a card over its own "
+                          "place: no line (%d), a drop there changes nothing (%d)",
+                          line, lineGone, none, noOp);
+                }
+                {  // A drop moves the card (a hidden card with it), and is kept.
+                    pickUp(@"views");
+                    NSDragOperation op = over(side, where(@"layers", 0.75));
+                    bool line = inGap(lineOf(side), @"layers", @"map");
+                    bool ok = drop(side);
+                    pump(0.4);
+                    NSString *now = order(side), *keep = saved(@"mapSidebarOrder");
+                    CHECK(op == NSDragOperationMove && line && ok && [now isEqualToString:@"layers,views,(spots),map"] && [keep isEqualToString:@"layers,views,spots,map"] &&
+                              !lineOf(side) && stacked(side),
+                          "Quick Views dragged to Layers' lower half: a line between Layers and Map (%d), dropped (%d): %s (kept %s), no line left, laid out", line, ok,
+                          now.UTF8String, keep.UTF8String);
+                    choose(@"views", @"Move Up");
+                    CHECK([order(side) isEqualToString:sideFirst] && saved(@"mapSidebarOrder").length == 0, "Quick Views moved up again: back to the first order (%s)",
+                          order(side).UTF8String);
+                }
+                {  // Below the last card is the end of the column; the scroll view round the column hands a drop on to it.
+                    pickUp(@"views");
+                    NSRect last = inWindow(@"map.group.map");
+                    NSDragOperation op = over(side, NSMakePoint(NSMidX(last), NSMinY(last) - 300));
+                    NSRect l = lineOf(side) ? [lineOf(side) convertRect:lineOf(side).bounds toView:nil] : NSZeroRect;
+                    bool below = !NSIsEmptyRect(l) && NSMaxY(l) <= NSMinY(last) + 0.5;
+                    bool ok = drop(side);
+                    pump(0.4);
+                    NSString *now = order(side);
+                    pickUp(@"views");  // the last card now, and the first place is above Layers
+                    NSDragOperation scrollOp = over(sideScroll, where(@"layers", 0.25));
+                    bool scrollLine = lineOf(side) != nil;
+                    bool viaScroll = [(id<NSDraggingDestination>)sideScroll prepareForDragOperation:info] && drop(sideScroll);
+                    pump(0.4);
+                    CHECK(op == NSDragOperationMove && below && ok && [now isEqualToString:@"layers,map,views,(spots)"] && scrollOp == NSDragOperationMove && scrollLine &&
+                              viaScroll && [order(side) isEqualToString:sideFirst] && saved(@"mapSidebarOrder").length == 0 && stacked(side),
+                          "Below the cards: the end (%d, %d: %s); the scroll view hands a drop on (%d, %d), which brings back the first order (%s, kept %s)", below, ok,
+                          now.UTF8String, scrollLine, viaScroll, order(side).UTF8String, saved(@"mapSidebarOrder").UTF8String);
+                }
+                {  // A card of the other column, or anything else, is not taken: no drop, no line; the panel takes its own.
+                    pickUp(@"style");
+                    NSDragOperation other = over(side, where(@"layers", 0.75));
+                    bool noLine = !lineOf(side);
+                    bool refused = ![(id<NSDraggingDestination>)side prepareForDragOperation:info] && !drop(side);
+                    [fake.draggingPasteboard clearContents];
+                    [fake.draggingPasteboard setString:@"map.group.nothing" forType:cardType];
+                    NSDragOperation nothing = over(side, where(@"layers", 0.75));
+                    [fake.draggingPasteboard clearContents];
+                    NSDragOperation empty = over(side, where(@"layers", 0.75));
+                    pickUp(@"settings");
+                    NSDragOperation own = over(panel, where(@"situation", 0.25));
+                    bool line = inGap(lineOf(panel), @"selected", @"situation");
+                    bool ok = drop(panel);
+                    pump(0.4);
+                    NSString *now = order(panel), *keep = saved(@"mapPanelOrder");
+                    NSString *expected = [NSString stringWithFormat:@"selected,settings,situation,%@,style", awards];
+                    CHECK(other == NSDragOperationNone && noLine && refused && nothing == NSDragOperationNone && empty == NSDragOperationNone && own == NSDragOperationMove &&
+                              line && ok && [now isEqualToString:expected] && [keep isEqualToString:@"selected,settings,situation,awards,style"] &&
+                              [order(side) isEqualToString:sideFirst] && saved(@"mapSidebarOrder").length == 0 && stacked(panel),
+                          "The sidebar takes only its own cards (%ld, %d, %d, %ld, %ld); Settings dragged above Situation: line (%d), dropped (%d): %s (kept %s)",
+                          (long)other, noLine, refused, (long)nothing, (long)empty, line, ok, now.UTF8String, keep.UTF8String);
+                    choose(@"settings", @"Reset Card Order");
+                    bool top = choose(@"style", @"Move to Top");
+                    NSString *topNow = order(panel), *topKeep = saved(@"mapPanelOrder");
+                    NSString *topFirst = [NSString stringWithFormat:@"style,selected,situation,%@,settings", awards];
+                    bool reset = choose(@"style", @"Reset Card Order");
+                    CHECK(top && [topNow isEqualToString:topFirst] &&
+                              [topKeep isEqualToString:@"style,selected,situation,awards,settings"] && reset && [order(panel) isEqualToString:panelFirst] &&
+                              saved(@"mapPanelOrder").length == 0 && stacked(panel),
+                          "The panel: Style moved to the top (%s, kept %s), and Reset Card Order (%s)", topNow.UTF8String, topKeep.UTF8String, order(panel).UTF8String);
+                    [fake.draggingPasteboard releaseGlobally];
+                }
+                {  // A drag held near the bottom of what shows scrolls the panel down, near the top up; neither once it has moved away or ended.
+                    NSClipView *clip = panelScroll.contentView;
+                    NSControl *styleHeader = header(@"style");
+                    bool wasOpen = [[styleHeader valueForKey:@"open"] boolValue];
+                    if (!wasOpen) [styleHeader performClick:nil];
+                    pump(0.3);
+                    [clip scrollToPoint:NSZeroPoint];
+                    [panelScroll reflectScrolledClipView:clip];
+                    [mapw.contentView layoutSubtreeIfNeeded];
+                    NSRect visible = clip.bounds;
+                    CGFloat room = NSHeight(panelScroll.documentView.frame) - NSHeight(visible);
+                    fake.draggingPasteboard = [NSPasteboard pasteboardWithUniqueName];
+                    pickUp(@"situation");
+                    over(panelScroll, [clip convertPoint:NSMakePoint(NSMidX(visible), clip.isFlipped ? NSMaxY(visible) - 4 : NSMinY(visible) + 4) toView:nil]);
+                    pump(0.3);
+                    CGFloat down = fabs(clip.bounds.origin.y);
+                    leave(panelScroll);
+                    CGFloat parked = clip.bounds.origin.y;
+                    pump(0.2);
+                    bool stopped = clip.bounds.origin.y == parked && !lineOf(panel);
+                    visible = clip.bounds;
+                    over(panelScroll, [clip convertPoint:NSMakePoint(NSMidX(visible), clip.isFlipped ? NSMinY(visible) + 4 : NSMaxY(visible) - 4) toView:nil]);
+                    pump(0.3);
+                    CGFloat up = fabs(clip.bounds.origin.y);
+                    leave(panelScroll);
+                    CHECK(room > 40 && down > 20 && stopped && up < down - 20,
+                          "A drag near the bottom of the panel scrolls it down (%.0f of %.0f points), stops when it leaves (%d), near the top scrolls it up (to %.0f)",
+                          down, room, stopped, up);
+                    [clip scrollToPoint:NSZeroPoint];
+                    [panelScroll reflectScrolledClipView:clip];
+                    if (!wasOpen) [styleHeader performClick:nil];
+                    pump(0.2);
+                    [fake.draggingPasteboard releaseGlobally];
+                }
+                pump(0.2);  // what opened scrolled itself into sight; the panes are back at their tops, as they began
+                for (NSScrollView *s in @[ sideScroll, panelScroll ]) {
+                    [s.contentView scrollToPoint:NSZeroPoint];
+                    [s reflectScrolledClipView:s.contentView];
+                }
+                CHECK([order(side) isEqualToString:sideFirst] && [order(panel) isEqualToString:panelFirst] && saved(@"mapSidebarOrder").length == 0 &&
+                          saved(@"mapPanelOrder").length == 0 && overlaps(mapw.contentView) == 0,
+                      "After moving cards about: the cards in their first order, nothing kept, nothing overlapping (%d)", overlaps(mapw.contentView));
             }
 
             // Interacting: zoom, a click on a square lists its QSOs, a hover names a DXCC, the list goes to the record.
@@ -4680,8 +5076,9 @@ int main(int argc, char **argv) {
             [(NSButton *)viewWithIdentifier(mapw.contentView, @"map.filter.clear") performClick:nil];
             CHECK([mapSummary() hasPrefix:@"4 grid squares"] && [moreFilters.title isEqualToString:@"More Filters..."],
                   "Clear shows every QSO again");
+            CHECK(viewWithIdentifier(filtersView, @"map.parkplaces.open") && !viewWithIdentifier(mapw.contentView, @"map.group.filters"),
+                  "POTA parks in is a row of More Filters, and the sidebar has no Filters card");
             [filtersView.window orderOut:nil];
-            CHECK(shown(@"map.group.filters"), "More Filters... opened the Filters section it is in");
 
             // US counties and cities, down to city level (the 1:10m detail): Madison, Wisconsin.
             NSButton *countiesBox = mapBox(@"overlay", @"counties"), *citiesBox = mapBox(@"overlay", @"cities");
@@ -4820,7 +5217,7 @@ int main(int argc, char **argv) {
             H.doc += "<CALL:5>W9ACT <QSO_DATE:8>20261010 <TIME_ON:4>1300 <BAND:3>40m <MODE:2>CW <MY_POTA_REF:7>US-2004 <EOR>\n";
             notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
             pump(0.3);
-            run("Map (Grids, DXCC, Parks)...");
+            run("Map & Contact Explorer...");
             [findButton(mapw.contentView, @"World") performClick:nil];
             snapshot(mapw, "map-pota-world");
             showBox(-75.6, 40.2, -73.8, 41.5);
@@ -4842,11 +5239,12 @@ int main(int argc, char **argv) {
                 return nil;
             };
             {
-                NSButton *placesButton = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.parkplaces.open");
+                NSButton *placesButton = (NSButton *)anyWindowView(@"map.parkplaces.open");  // a row of More Filters
                 [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-74.60, 41.05), 0)];
                 CHECK([placesButton.title isEqualToString:@"US-IL\u2026"] && ![hoverText() containsString:@"US-2001"],
                       "POTA parks in: your station's location at first (%s); a New Jersey park not worked is hidden: %s", placesButton.title.UTF8String,
                       hoverText().UTF8String);
+                [placesButton.window orderFront:nil];  // its popover opens from the button, in the window that has it
                 [placesButton performClick:nil];
                 pump(0.2);
                 NSTokenField *locations = (NSTokenField *)anyWindowView(@"map.parkplaces.locations");
@@ -4868,6 +5266,7 @@ int main(int argc, char **argv) {
                 CHECK([placesButton.title isEqualToString:@"everywhere\u2026"] && [locations.objectValue count] == 0 && [counties.objectValue count] == 0,
                       "Everywhere: every park again (%s)", placesButton.title.UTF8String);
                 [anyWindowView(@"map.parkplaces").window orderOut:nil];
+                [placesButton.window orderOut:nil];
             }
             [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-74.60, 41.05), 0)];
             CHECK([labelContaining(mapw.contentView, @"US-2001") hasPrefix:@"POTA US-2001 Test Park North (US-NJ): not worked."],
@@ -5244,7 +5643,7 @@ int main(int argc, char **argv) {
             H.doc = mapDoc;
             notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
             pump(0.3);
-            run("Map (Grids, DXCC, Parks)...");
+            run("Map & Contact Explorer...");
             [findButton(mapw.contentView, @"World") performClick:nil];
             snapshot(mapw, "map-light-band");
             CHECK(!menuState(programsMenu, @"IOTA (islands): 1") && menuAction(programsMenu, @"IOTA (islands)") &&
@@ -5268,8 +5667,8 @@ int main(int argc, char **argv) {
             }
             {  // The Layers section's groups close on their own (remembered); a Labels box off for a hidden
                // layer is faded; the palettes are a click each, as Style Options has them.
-                NSButton *areas = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.layergroup.areas");
-                NSButton *sun = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.layergroup.sun");
+                NSControl *areas = (NSControl *)viewWithIdentifier(mapw.contentView, @"map.layergroup.areas.header");
+                NSControl *sun = (NSControl *)viewWithIdentifier(mapw.contentView, @"map.layergroup.sun.header");
                 NSButton *gridBox = mapBox(@"show", @"grid");
                 auto hiddenIn = [](NSView *v) { return v.isHiddenOrHasHiddenAncestor || v.frame.size.height < 1; };
                 bool openFirst = !hiddenIn(gridBox) && !hiddenIn(viewWithIdentifier(mapw.contentView, @"map.greyline"));
@@ -5430,7 +5829,7 @@ int main(int argc, char **argv) {
                     NSButton *was = findButton(awards, @"WAS");
                     [was performClick:nil];
                     pump(0.2);
-                    CHECK(shown(@"map.awards.section") && [all containsString:@" / 100"] && [all containsString:@" / 50"] && [all containsString:@" / 40"] &&
+                    CHECK(shown(@"map.group.awards") && [all containsString:@" / 100"] && [all containsString:@" / 50"] && [all containsString:@" / 40"] &&
                               was && views.selectedRow == 4 && on(@"show", @"states"),
                           "Awards: %s; WAS shows the US states (%ld)", all.UTF8String, (long)views.selectedRow);
                     chooseView(0);
@@ -6680,7 +7079,7 @@ int main(int argc, char **argv) {
                 notify(NPPN_BUFFERACTIVATED);
                 notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
                 pump(0.3);
-                run("Map (Grids, DXCC, Parks)...");
+                run("Map & Contact Explorer...");
                 if (NSSegmentedControl *wf = (NSSegmentedControl *)viewWithIdentifier(mapw.contentView, @"map.workflow")) {  // History: the log
                     wf.selectedSegment = 0;
                     [wf sendAction:wf.action to:wf.target];
@@ -6880,7 +7279,7 @@ int main(int argc, char **argv) {
             };
             runItem("Offline Mode");
             CHECK(ticked() && ini(), "Offline Mode: ticked and saved");
-            run("Spots (POTA, WWFF, More)...");
+            run("Spots & Hunting...");
             NSWindow *spw = windowTitled(@"Spots");
             [findButton(spw.contentView, @"Refresh") performClick:nil];
             for (int i = 0; i < 40 && !labelContaining(spw.contentView, @"Offline mode is on"); ++i) pump(0.05);

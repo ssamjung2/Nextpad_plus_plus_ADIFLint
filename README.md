@@ -236,9 +236,9 @@ To uninstall, quit Nextpad++ and delete the `ADIFLint` folder.
 1. Open an `.adi` file. Problems are marked within half a second; rest the mouse on a mark
    to read it.
 2. **Plugins → ADIF Lint → Check Log…** lists every problem and repairs what it can;
-   **Fix Lengths** repairs the data lengths.
+   **Fix Field Lengths** repairs the data lengths.
 3. **New QSO…** starts logging. The first time, Settings asks for your callsign and grid.
-4. **Map (Grids, DXCC, Parks)…** shows the log on a world map; choose **Globe** in the
+4. **Map & Contact Explorer…** shows the log on a world map; choose **Globe** in the
    projection pop-up and drag to turn it.
 5. To use an online service, add your account in **Settings…** first.
 
@@ -253,36 +253,44 @@ tab); Settings suggests some.
 
 | Command | Does |
 |---|---|
+| **Logging & Operating** | |
 | New QSO… | Log contacts one after another |
-| Spots (POTA, WWFF, More)… | Activators spotted now, from POTA, WWFF, or Spothole for GMA, WWBOTA, IOTA and dozens more; pick one to fill New QSO |
+| Spots & Hunting… | Activators spotted now, from POTA, WWFF, or Spothole for GMA, WWBOTA, IOTA and dozens more; pick one to fill New QSO |
 | Start Activation… | A POTA, WWFF or SOTA activation: a new log, your station profile and the activation's fields in every QSO; Finish checks and exports |
-| Log Table… | The log as a spreadsheet: sort, filter, edit, copy and paste, add and delete rows and columns |
+| Logging Layout | Arrange New QSO, the Map and Log Table for operating |
+| **Validate & Edit** | |
 | Check Log… | Every problem in one list, with its repair; repair the ticked ones in one step |
-| Fix Lengths | Correct every data length |
 | Next Problem / Previous Problem | Move between marks |
+| Fix Field Lengths | Correct every data length |
 | Bulk Edit… | Set, replace, remove or rename a field, or fill DISTANCE, with a preview |
-| Time Shift… | Convert times between UTC and a time zone, or shift by a fixed amount |
-| Sort and Organize… | Sort the records (by date and time in one click, or by any fields), and put every record's fields in one order |
+| Shift QSO Times… | Convert times between UTC and a time zone, or shift by a fixed amount |
+| **Organize & Manage Logs** | |
+| Sort & Organize… | Sort the records (by date and time in one click, or by any fields), and put every record's fields in one order |
 | Remove Duplicates… | Find QSOs logged twice and remove them after review |
 | Compare and Merge Logs… | Compare with another log: add the QSOs only it has, copy the fields this log lacks |
-| Log Summary… | Counts by band, mode, day, entity and park; confirmations and uploads |
-| Activation Tracker (POTA, WWFF, SOTA)… | Activations counted by each program's rule |
-| Worked Before… | Search a folder of logs for a call |
-| Map (Grids, DXCC, Parks)… | The operating map: in History the squares, countries, US states and counties, CQ and ITU zones, POTA parks and IOTA groups worked, with awards progress; in Live, DX Chase and POTA the stations spotted now and which your log needs, with a watch list; filters by band, mode, date, confirmation and place; four projections, including a globe you turn by dragging; terrain, flags, space weather, the aurora, the NCDXF beacons, day and night and the grey line; PNG export |
 | Import… | From LoTW, QRZ.com Logbook or eQSL (your QSOs and confirmations), a CSV file, or WSJT-X's log |
 | Export… | Activation logs for POTA, WWFF or SOTA, CSV, a Cabrillo contest log, or QSL labels (PDF) |
-| QSL Sync (Upload, Confirmations)… | Each service at a glance; upload to QRZ.com Logbook, LoTW (TQSL), Club Log, eQSL, World Radio League, HRDLog.net or HamQTH (list what would be sent, upload when you say so, mark it uploaded) and download confirmations |
-| Enrich… | Fill missing station details from QRZ.com or HamQTH, or DXCC, zones and continent from country data (offline) |
-| Monitor (WSJT-X, N1MM, Loggers)… | Add the QSOs WSJT-X, JS8Call, N1MM Logger+, GridTracker and other programs log to a log you choose, as they log them |
+| Reformat Log → One Record per Line / One Field per Line | Re-lay the file without touching data |
+| **Explore & Analyze** | |
+| Log Table… | The log as a spreadsheet: sort, filter, edit, copy and paste, add and delete rows and columns |
+| Log Summary… | Counts by band, mode, day, entity and park; confirmations and uploads |
+| Worked Before… | Search a folder of logs for a call |
+| Map & Contact Explorer… | The operating map: in History the squares, countries, US states and counties, CQ and ITU zones, POTA parks and IOTA groups worked, with awards progress; in Live, DX Chase and POTA the stations spotted now and which your log needs, with a watch list; filters by band, mode, date, confirmation and place; four projections, including a globe you turn by dragging; terrain, flags, space weather, the aurora, the NCDXF beacons, day and night and the grey line; PNG export |
+| Activation Tracker… | Activations counted by each program's rule |
+| **QSL & Integrations** | |
+| QSL Sync… | Each service at a glance; upload to QRZ.com Logbook, LoTW (TQSL), Club Log, eQSL, World Radio League, HRDLog.net or HamQTH (list what would be sent, upload when you say so, mark it uploaded) and download confirmations |
+| Enrich Log… | Fill missing station details from QRZ.com or HamQTH, or DXCC, zones and continent from country data (offline) |
+| Monitor External Applications… | Add the QSOs WSJT-X, JS8Call, N1MM Logger+, GridTracker and other programs log to a log you choose, as they log them |
+| **Preferences & Display** | |
+| Settings… | Your station, editor options, language, offline mode, keyboard shortcuts, country data, LoTW users, POTA parks and their outlines, IOTA groups, Map Detail, spot sources, and accounts for the online services |
 | Record Panel | Show or hide the docked record table |
-| Reformat: One Record per Line / One Field per Line | Re-lay the file without touching data |
-| Check .adi Files While Typing | Problem marks as you type (on by default) |
+| Check ADI Files While Typing | Problem marks as you type (on by default) |
 | Offline Mode | No network requests at all, for off-grid operating (off by default) |
 | Night Mode | Every ADIF Lint window red on black and the Map in its Night palette, to keep night vision (off by default) |
-| Settings… | Your station, editor options, language, offline mode, keyboard shortcuts, country data, LoTW users, POTA parks and their outlines, IOTA groups, Map Detail, spot sources, and accounts for the online services |
+| **Help** | |
 | About ADIF Lint… | Version, licence and links |
 
-Import…, Export… and Enrich… open the window you used last; the popup at its top switches to
+Import…, Export… and Enrich Log… open the window you used last; the popup at its top switches to
 the others. QSL Sync opens each upload window. The toolbar gets buttons for New QSO, Log Table, Check Log and
 Spots.
 
