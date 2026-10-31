@@ -1,7 +1,7 @@
 # Windowing and UI Architecture
 
-Status: **proposal for review** (2026-10-31). Nothing here is built yet beyond what
-"Where we are" describes.
+Status: **accepted direction** (2026-10-31), four of five decisions made (see the end).
+Nothing here is built yet beyond what "Where we are" describes.
 
 ## Purpose
 
@@ -82,7 +82,8 @@ Every surface is one of these kinds, each with its own rules:
 
 Rules that follow (HIG):
 - Typing-heavy panels (New QSO, Log Table) are operating panels in a frame or a normal window,
-  not floating `NSPanel`s that hide when the app is inactive.
+  not floating `NSPanel`s that hide when the app is inactive. **New QSO becomes a normal
+  window** (decided 2026-10-31).
 - Settings that apply app-wide belong in Settings; settings of what is in view belong in an
   inspector; a quick one-off choice belongs in a popover.
 - Task windows are never docked and never part of a layout.
@@ -118,12 +119,16 @@ One versioned value describes what shows where:
 
 ```text
 Arrangement (version 1)
-  console     a split tree: rows and columns with shares; each leaf a panel id (later: tabs)
+  console     a split tree: rows and columns with shares; each leaf a stack: one or more panel
+              ids shown as tabs, and which is in front
   windows     panels in their own windows, with their frames
   panes       each panel's panes shown or hidden (the Map's sidebar, list, selected panel)
   sizes       divider positions by node
 ```
 
+- **Stacks (tabs)**: a frame can hold several panels as tabs: the Map with its Map Style
+  panel, say, or Settings sections beside a panel. A panel moves between stacks by dragging
+  its tab (or its frame header, as today's swap). A stack of one shows no tab bar.
 - It lives in the core (`src/core/adif_layout`) as plain data with parse, write, validate and
   migrate, so it is unit-tested without AppKit, like `adif_styles`.
 - The plugin restores it itself, from one setting. NSWindowRestoration may not suit a plugin the
@@ -175,6 +180,9 @@ Profile
   layout     a named arrangement, or none ("keep my layout")
 ```
 
+- **Choosing a style arranges the panels by default** (decided 2026-10-31). A setting,
+  **Styles arrange the panels**, on at first, turns it off; each style can also keep your
+  layout instead of its own.
 - Choosing a style applies its profile through the controller, as one change: Info shows it,
   Restore Previous Layout undoes it, Save keeps it (including the arrangement), Reset restores
   it. This is the plan's Stage 6 ("cross-window orchestration"), with the opt-out it requires:
@@ -217,7 +225,7 @@ A small set of **tokens**, defined once (`src/plugin/Theme.{h,mm}`), used by eve
 | Content | Today | Proposed home | Why |
 |---|---|---|---|
 | Map → Settings card | A card in the Map's selected panel | Settings window sections (Map data, spot sources, park data) | App-wide preferences |
-| Map → Style Options | A card in the selected panel | An inspector: the Map's own pane, or a **Map Style** panel | Settings of what's in view |
+| Map → Style Options | A card in the selected panel | A **Map Style** panel (decided 2026-10-31), stackable with the Map as a tab | Settings of what's in view |
 | Spots → Sources and Filters popover | Popover from the Map's sidebar | Stays a popover; its settings also in Settings | Quick choice next to its control |
 | Operating Aids | A strip in New QSO | Stays in New QSO, and available as a panel of its own | Some will want it beside the map |
 
@@ -269,18 +277,22 @@ Each phase leaves the plugin working and tested.
 | E. Theme | Tokens; hosts apply appearance and Night Mode; panels use tokens | `ADIFNightTrack` per window, ad hoc fonts and margins |
 | F. Content | Map Settings to Settings; Style Options to an inspector; new panels through the registry | The cards' bespoke hosting |
 
-## Decisions for review
+## Decisions
 
-1. **Should styles arrange panels by default?** The plan's Stage 6 requires an opt-out; the
-   proposal is a setting, on at first, plus "keep my layout" per style.
-2. **New QSO's window.** HIG advises against typing in floating panels. Proposal: when not in
-   the console, New QSO is a normal window (still on top while logging, if you choose).
-3. **Tabs in console frames** (several panels in one frame, as Qt and JetBrains allow): now, or
-   later?
-4. **Where Style Options goes**: a pane of the Map (closest to today) or a Map Style panel you
-   can put anywhere.
+Made 2026-10-31:
+
+1. **Styles arrange the panels by default**, with a setting to turn it off and "keep my layout"
+   per style.
+2. **New QSO is a normal window** when it isn't in the console.
+3. **Tabs (stacked panels) are in scope now**: a console frame can hold several panels as tabs,
+   first for the Map Style panel and Settings sections. Phase A's arrangement includes stacks;
+   Phase B's console frame host shows a tab bar when a stack holds more than one panel.
+4. **A Map Style panel** replaces the Style Options card.
+
+Open:
+
 5. **Toolbar order**: sidebar button to the far left (HIG), selected-panel button at the far
-   right, panel buttons between.
+   right, panel buttons between. An illustration of the two orders is with the review.
 
 ## Sources
 
