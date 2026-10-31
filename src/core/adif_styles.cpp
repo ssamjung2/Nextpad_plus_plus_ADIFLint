@@ -86,8 +86,29 @@ void forget(OperatingStyle s, const std::vector<std::string> &owned, const Sette
     set(savedKey(s, "Saved"), "");
 }
 
+std::string mineKey(OperatingStyle s, std::string_view key) { return savedKey(s, "Mine") + std::string(key); }
+
+bool hasMine(OperatingStyle s, const Getter &get) { return get(mineKey(s, "")) == "1"; }
+
+void saveMine(OperatingStyle s, const std::vector<std::string> &owned, const Getter &get, const Setter &set) {
+    for (const std::string &k : owned) set(mineKey(s, k), get(k));
+    set(mineKey(s, ""), "1");
+}
+
+void forgetMine(OperatingStyle s, const std::vector<std::string> &owned, const Setter &set) {
+    for (const std::string &k : owned) set(mineKey(s, k), "");
+    set(mineKey(s, ""), "");
+}
+
+Settings startingPoint(OperatingStyle s, const std::vector<std::string> &owned, const Getter &get) {
+    if (!hasMine(s, get)) return defaults(s);
+    Settings out;
+    for (const std::string &k : owned) out[k] = get(mineKey(s, k));
+    return out;
+}
+
 Settings target(OperatingStyle s, const std::vector<std::string> &owned, const Getter &get) {
-    if (!hasSaved(s, get)) return defaults(s);
+    if (!hasSaved(s, get)) return startingPoint(s, owned, get);
     Settings out;
     for (const std::string &k : owned) out[k] = get(savedKey(s, k));
     return out;
@@ -119,7 +140,9 @@ Transition reversed(const Transition &t) {
     return r;
 }
 
-bool customized(OperatingStyle s, const Getter &get) {
+bool customized(OperatingStyle s, const Getter &get, const std::vector<std::string> &owned) {
+    if (hasMine(s, get) && !owned.empty())
+        return std::any_of(owned.begin(), owned.end(), [&](const std::string &k) { return get(k) != get(mineKey(s, k)); });
     const Settings &d = defaults(s);
     return std::any_of(d.begin(), d.end(), [&](const auto &kv) { return get(kv.first) != kv.second; });
 }

@@ -720,8 +720,9 @@ countries and parks you worked shaded and the grey line on.
 
 The four segments at the very left of the toolbar, **Social**, **Chasing**, **Contest** and
 **Portable**, set the Map up for the way you are operating: click one to choose it, and click
-the chosen one again for no style. The menu beside them (**⋯**) has **No Style**, **Reset**,
-**Restore Previous Layout** and **What Changed…**. A style chooses the workflow and its Quick View, the
+the chosen one again for no style. The chosen one takes its style's colour: Social purple,
+Chasing orange, Contest red, Portable green (the workflows stay blue). The menu beside them
+(**⋯**) has **No Style**, then **Reset**, **Save** and **Info…**. A style chooses the workflow and its Quick View, the
 layers, the sun's shading, the palette, the text size and the distance rings; nothing else.
 
 | Style | For | The first time |
@@ -734,10 +735,14 @@ layers, the sun's shading, the palette, the text size and the distance rings; no
 - **Your changes stay with the style.** Change a layer or the palette while a style is
   chosen and its segment says so with a dot ("Chasing •"). Choose another style and come back, or
   quit and come back, and it is as you left it.
-- **Reset** gives the style its own settings again and forgets your changes to it.
-- **Restore Previous Layout** undoes the last change of style (or the last Reset): every
-  setting it changed, and which style was chosen.
-- **What Changed…** lists each setting the last change of style changed, before and after.
+- **Reset** gives the style its defaults again and forgets your changes to it.
+- **Save** makes the settings as they are now the style's own defaults: what it starts from,
+  and what Reset gives back. The dot goes, and comes back when you change something.
+- **Info…** says what the style is for, whose defaults it uses (the recommended ones, or
+  yours from Save) and which settings differ from them now, then the last change of style,
+  setting by setting, before and after. Its **Restore Previous Layout** undoes that change (or
+  the last Reset): every setting it changed, and which style was chosen. After a Save, **Use
+  Recommended Defaults** forgets yours and resets the style to the recommended ones.
 - **No Style** changes nothing: the Map stays as it is, and is yours to set as before.
 
 A style never moves the map or changes its zoom, the band and mode, or what is chosen (a
@@ -764,9 +769,7 @@ goes full screen with the green button):
   arrow out of a box), **Settings** (the gear: its card in the selected panel), **Help** (this guide, in your browser), and three buttons that
   show or hide the sidebar, the list and the selected panel. The window's title names the
   log too.
-- **The toolbar**: the operating style (see [Operating styles](#operating-styles)); **History**, **Live**, **DX Chase** or **POTA**; what the map shows (in History, the QSOs and the
-  dates they span; in Live, the stations spotted and when a feed last brought spots; while
-  the filters keep fewer, how many of how many, such as "40 of 257 QSOs on the map"); the
+- **The toolbar**: the operating style (see [Operating styles](#operating-styles)); **History**, **Live**, **DX Chase** or **POTA**; the
   filters (band and mode, which say **Band:** and **Mode:** while they filter; in History the
   dates and confirmation; in Live **DXCC** (which spots by what they mean for your DXCC, as
   the Quick Views), **Spots** (any program, POTA only, new POTA parks, or plain DX only), how
@@ -823,14 +826,16 @@ goes full screen with the green button):
   **Awards** (in History; see the same section), then **Style Options** (see [Style Options
   and export](#style-options-and-export)) and **Settings** (see [Settings](#settings)), both
   closed until you open them.
-- **The footer**: whether the spots are live and how fresh, as a dot (green when the newest
-  is less than 15 minutes old and every source you turned on is answering; orange when the
-  spots are older or a source's last request failed, the toolbar then naming it, such as
-  "DX cluster not answering", or saying Offline Mode is on; grey with spots off; the toolbar
-  has it too), and what is under the pointer, or a hint for the workflow you're in. Point at
-  the live status for what each feed did and when; click it for Sources and Filters. The
-  live time is when a spot source last brought spots; the header's **QSL synced** is when
-  your log's confirmations were last downloaded.
+- **The status bar**, under the map: what the map shows, then what is under the pointer (or a
+  hint for the workflow you're in). In History, the QSOs and the dates they span; in Live, the
+  stations spotted and when a feed last brought spots. While the filters keep fewer, it says
+  how many of how many, such as "40 of 257 QSOs on the map". In Live a dot before it says how
+  fresh the spots are: green when the newest is less than 15 minutes old and every source you
+  turned on is answering; orange when the spots are older or a source's last request failed
+  (then named, such as "DX cluster not answering", or Offline Mode on); grey with spots off.
+  Point at it for what each feed did and when; click it for Sources and Filters. The time is
+  when a spot source last brought spots; the header's **QSL synced** is when your log's
+  confirmations were last downloaded.
 
 Drag the dividers to give the sidebar, the list or the selected panel more room. Every
 choice, the cards and groups open or closed and where the dividers were left are remembered.

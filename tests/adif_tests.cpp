@@ -4789,6 +4789,21 @@ static void testOperatingStyles() {
     forget(OperatingStyle::Social, owned, set);
     CHECK(!hasSaved(OperatingStyle::Social, get) && target(OperatingStyle::Social, owned, get) == defaults(OperatingStyle::Social), "reset");
     CHECK(diff(std::nullopt, std::nullopt, before, before).changes.empty(), "nothing changed: an empty report");
+
+    // Save: the settings now become the style's own defaults: its starting point, what Reset gives back, and what "changed" is measured from.
+    apply(defaults(OperatingStyle::Social));
+    ini["mapPalette"] = "1";
+    CHECK(customized(OperatingStyle::Social, get, owned), "changed from the recommended");
+    saveMine(OperatingStyle::Social, owned, get, set);
+    CHECK(hasMine(OperatingStyle::Social, get) && !customized(OperatingStyle::Social, get, owned) && startingPoint(OperatingStyle::Social, owned, get)["mapPalette"] == "1",
+          "saved: not changed now; its starting point has the palette");
+    ini["mapPalette"] = "0";  // the recommended value, but not the style's own any more
+    CHECK(customized(OperatingStyle::Social, get, owned), "changed from your own defaults, even back to the recommended");
+    forget(OperatingStyle::Social, owned, set);
+    CHECK(target(OperatingStyle::Social, owned, get)["mapPalette"] == "1", "Reset gives your own defaults back");
+    forgetMine(OperatingStyle::Social, owned, set);
+    CHECK(!hasMine(OperatingStyle::Social, get) && target(OperatingStyle::Social, owned, get) == defaults(OperatingStyle::Social),
+          "the recommended again once your own are forgotten");
 }
 
 int main(int argc, char **argv) {

@@ -17,5 +17,8 @@ if [ "$lang" = qps ]; then
 elif [ "$lang" != en ]; then
     cp "$root/data/lang/$lang.json" "$dir/"
 fi
+# A copy of the lookup fixtures: the windows it opens may ask for spots, and the fake network notes
+# each request in its folder (uploads.log), which must not land in the repository.
+cp -R "$root/tests/fixtures/lookup" "$dir/lookup"
 ADIFLINT_TEST_LANG_REPORT=1 ADIFLINT_TEST_HOST_LANGUAGE="$lang" ADIFLINT_LANG_DIR="$dir" \
-    "$root/build/host_harness" "$root/build/ADIFLint.dylib" "$root/tests/fixtures/lookup" | grep -E '^(UNTRANSLATED|OVERLAP|CLIPPED)' || true
+    "$root/build/host_harness" "$root/build/ADIFLint.dylib" "$dir/lookup" | grep -E '^(UNTRANSLATED|OVERLAP|CLIPPED)' || true

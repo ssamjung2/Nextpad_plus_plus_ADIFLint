@@ -108,6 +108,14 @@ void ADIFOnAction(NSControl *control, void (^block)(void)) {
     control.action = @selector(fire:);
 }
 
+void ADIFOnClick(NSView *view, void (^block)(void)) {
+    static char kKey;
+    ADIFBlockTarget *t = [[ADIFBlockTarget alloc] init];
+    t.block = block;
+    objc_setAssociatedObject(view, &kKey, t, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [view addGestureRecognizer:[[NSClickGestureRecognizer alloc] initWithTarget:t action:@selector(fire:)]];
+}
+
 void ADIFBlockMenuItem(NSMenuItem *item, void (^block)(void)) {
     static char kKey;
     ADIFBlockTarget *t = [[ADIFBlockTarget alloc] init];

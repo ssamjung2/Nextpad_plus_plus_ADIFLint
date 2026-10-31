@@ -503,8 +503,8 @@ struct {
     NSMenu *viewsMenu = nil;          // a Quick View's own (right-click): remove one of yours
     NSPopover *saveViewPopover = nil;  // Save View...: its name
     NSTextField *saveViewName = nil;
-    NSTextField *hover = nil, *summaryLabel = nil, *scopeLabel = nil;
-    NSButton *liveLabel = nil;  // the footer's live status, a dot of its colour; clicked, the feeds' state
+    NSTextField *hover = nil, *summaryLabel = nil;
+    NSTextField *scopeLabel = nil;  // the status bar's: what the map shows; in Live a dot of the feeds' health, clicked their state
     NSPopUpButton *continentPopup = nil;  // the toolbar's continent (one of More Filters' continents)
     NSPopUpButton *spotAgeBar = nil, *spotSourceBar = nil;  // Live's: how new the spots, from which source (as Sources and Filters)
     NSPopUpButton *dxccBar = nil, *potaBar = nil;          // Live's: which DXCC needs (the Quick View), which program
@@ -2540,8 +2540,6 @@ void refresh() {
             if (!first.empty()) scope += "  \u00B7  " + (first == last ? day(first) : day(first) + " \u2013 " + day(last));
             mw.scopeLabel.stringValue = ADIFString(scope);
             mw.scopeLabel.toolTip = mw.data.qsos.size() < logQsos ? T(@"The filters keep these QSOs; Clear shows them all") : nil;
-            mw.liveLabel.attributedTitle = dotted(tr("History") + "  \u00B7  " + documentName(), NSColor.secondaryLabelColor, mw.liveLabel.font);
-            mw.liveLabel.toolTip = nil;
         }
         fillQuickViews();
         applyParkPlaces();  // home may have changed
@@ -3376,12 +3374,9 @@ void refreshSpots() {
             live += "  \u00B7  " + trf("{sources} not answering", {{"sources", names}});
         }
         mw.scopeLabel.attributedStringValue = dotted(live, dot, mw.scopeLabel.font);
-        mw.liveLabel.attributedTitle = dotted(show ? tr("Live data") + (newest > 0 ? "  \u00B7  " + utcAt(newest, "%Y-%m-%d %H:%M UTC") : "") : tr("Live: spots off"), dot,
-                                              mw.liveLabel.font);
-        mw.liveLabel.toolTip = show ? ADIFString(spotfeeds::status()) : nil;  // each feed: what it did, and when
         mw.scopeLabel.toolTip = show ? ADIFString(tr("Live data: when a spot source last brought spots, and each source's state (the header's "
                                                      "QSL synced is when your log's confirmations were last downloaded):") +
-                                                  "\n" + spotfeeds::status())
+                                                  "\n" + spotfeeds::status() + "\n" + tr("Click for Sources and Filters."))
                                      : nil;
         [mw.spotAgeBar selectItemAtIndex:spotAgeChoice()];
         fillDxccPotaBars();
@@ -5699,6 +5694,31 @@ void resetOperatingStyle() {
     std::vector<std::string> keys = styleKeys();
     styles::Settings before = styles::snapshot(keys, styleGet);
     styles::forget(*s, keys, styleSet);
+    setStyleValues(styles::startingPoint(*s, keys, styleGet), !styles::hasMine(*s, styleGet));  // yours (Save), else the recommended
+    noteStyleChange(s, s, before);
+}
+
+// Save: the settings now become the style's own defaults, what it starts from and what Reset gives back.
+void saveOperatingStyle() {
+    std::optional<styles::OperatingStyle> s = operatingStyle();
+    if (!s) return;
+    std::vector<std::string> keys = styleKeys();
+    styles::saveMine(*s, keys, styleGet, styleSet);
+    styles::save(*s, keys, styleGet, styleSet);
+    fillOperatingStyleBar();
+    NSString *said = TF(@"{style}: these settings are now its own defaults", @{@"style" : T(ADIFString(styles::title(*s)))});
+    if (mw.window) NSAccessibilityPostNotificationWithUserInfo(mw.window, NSAccessibilityAnnouncementRequestedNotification,
+                                                         @{NSAccessibilityAnnouncementKey : said, NSAccessibilityPriorityKey : @(NSAccessibilityPriorityHigh)});
+}
+
+// The recommended defaults again: your own (Save) forgotten, and the style reset to them.
+void recommendedOperatingStyle() {
+    std::optional<styles::OperatingStyle> s = operatingStyle();
+    if (!s) return;
+    std::vector<std::string> keys = styleKeys();
+    styles::Settings before = styles::snapshot(keys, styleGet);
+    styles::forgetMine(*s, keys, styleSet);
+    styles::forget(*s, keys, styleSet);
     setStyleValues(styles::defaults(*s), true);
     noteStyleChange(s, s, before);
 }
@@ -5760,48 +5780,55 @@ std::pair<std::string, std::string> describeStyleSetting(const std::string &key,
     return {key, value.empty() ? tr("as at first") : value};
 }
 
-// What the last change of style changed, a row a setting, in a popover under the style menu.
-void showStyleChanges() {
-    if (!lastStyleChange || !mw.operatingStyleMenu) return;
-    const styles::Transition &t = *lastStyleChange;
-    int wfBefore = 0, wfAfter = 0;
-    for (const styles::Change &c : t.changes)
-        if (c.key == "mapWorkflow") wfBefore = std::clamp(std::atoi(c.before.c_str()), 0, 3), wfAfter = std::clamp(std::atoi(c.after.c_str()), 0, 3);
-    if (std::none_of(t.changes.begin(), t.changes.end(), [](const styles::Change &c) { return c.key == "mapWorkflow"; })) wfBefore = wfAfter = workflow();
-    NSMutableArray<NSArray<NSView *> *> *rows = [NSMutableArray array];
-    auto cell = [](const std::string &s, bool head) {
-        NSTextField *f = [NSTextField labelWithString:ADIFString(s)];
-        f.font = head ? [NSFont systemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightSemibold] : [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+// Each style's colour, on its segment when chosen: Social purple (people), Chasing orange (the hunt),
+// Contest red (competition), Portable green (outdoors). Apart from the workflows' blue.
+NSColor *styleColour(styles::OperatingStyle s) {
+    switch (s) {
+        case styles::OperatingStyle::Social: return NSColor.systemPurpleColor;
+        case styles::OperatingStyle::Chasing: return NSColor.systemOrangeColor;
+        case styles::OperatingStyle::Contest: return NSColor.systemRedColor;
+        case styles::OperatingStyle::Portable: break;
+    }
+    return NSColor.systemGreenColor;
+}
+
+static NSString *const kStyleTips[styles::kStyleCount] = {
+    N(@"Social: a comfortable QSO with context. Your log's contacts and lines to them, with distance and bearing; spots quiet"),
+    N(@"Chasing: the next needed contact. DX Chase, the stations needed on their band first, with DXCC shading and the grey line"),
+    N(@"Contest: valid contacts quickly. Live, every spot with its call, CQ zones, high contrast; nothing else moves"),
+    N(@"Portable: operate in the field. Your log's contacts, distance rings, larger high-contrast text; no feed starts by itself")};
+
+// Info: the style chosen and what it is for; whose defaults it starts from (the recommended, or
+// yours from Save) and what differs from them now; the last change of style, setting by setting.
+// Its buttons: Restore Previous Layout, and the recommended defaults again once you saved your own.
+void showStyleInfo() {
+    if (!mw.operatingStyleMenu) return;
+    std::optional<styles::OperatingStyle> now = operatingStyle();
+    std::vector<std::string> keys = styleKeys();
+    auto label = [](NSString *text, CGFloat size, NSFontWeight weight, NSColor *colour) {
+        NSTextField *f = [NSTextField wrappingLabelWithString:text ?: @""];
+        f.font = [NSFont systemFontOfSize:size weight:weight];
+        f.textColor = colour;
+        f.preferredMaxLayoutWidth = 380;
+        return f;
+    };
+    const CGFloat small = NSFont.smallSystemFontSize;
+    auto cell = [&](const std::string &text, bool head) {
+        NSTextField *f = [NSTextField labelWithString:ADIFString(text)];
+        f.font = [NSFont systemFontOfSize:small weight:head ? NSFontWeightSemibold : NSFontWeightRegular];
         if (head) f.textColor = NSColor.secondaryLabelColor;
         return f;
     };
-    [rows addObject:@[ cell(tr("Setting"), true), cell(tr("Before"), true), cell(tr("After"), true) ]];
-    size_t shown = 0;
-    std::vector<styles::Change> changes = t.changes;  // the workflow and its Quick View first: they set the rest
-    std::stable_partition(changes.begin(), changes.end(), [](const styles::Change &c) { return c.key == "mapWorkflow" || c.key == "mapQuickView"; });
-    std::stable_partition(changes.begin(), changes.end(), [](const styles::Change &c) { return c.key == "mapWorkflow"; });
-    for (const styles::Change &c : changes) {
-        auto [name, before] = describeStyleSetting(c.key, c.before, wfBefore);
-        std::string after = describeStyleSetting(c.key, c.after, wfAfter).second;
-        if (before == after) continue;  // not set, and set to what it was anyway
-        [rows addObject:@[ cell(name, false), cell(before, false), cell(after, false) ]];
-        ++shown;
-    }
-    auto name = [](std::optional<styles::OperatingStyle> s) { return s ? tr(styles::title(*s)) : tr("No style"); };
-    std::string heading = t.from == t.to ? trf("{style}, reset to its defaults", {{"style", name(t.to)}})
-                                         : trf("{from} to {to}", {{"from", name(t.from)}, {"to", name(t.to)}});
-    NSTextField *title = [NSTextField labelWithString:ADIFString(heading)];
-    title.font = [NSFont systemFontOfSize:NSFont.systemFontSize weight:NSFontWeightSemibold];
-    NSTextField *count = [NSTextField labelWithString:shown ? TP(@"{n} setting changed", @"{n} settings changed", (long long)shown) : T(@"Nothing on the map changed")];
-    count.textColor = NSColor.secondaryLabelColor;
-    count.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
-    NSGridView *grid = [NSGridView gridViewWithViews:rows];
-    grid.columnSpacing = 14;
-    grid.rowSpacing = 4;
-    grid.identifier = @"map.operatingStyle.changes";
-    NSView *list = grid;
-    NSSize fit = grid.fittingSize;
-    if (fit.height > 360) {  // a change of workflow sets many: they scroll
+    // A table of settings (its heading row first), scrolling when long.
+    auto table = [&](NSArray<NSArray<NSView *> *> *rows, NSString *ident) -> NSView * {
+        NSGridView *grid = [NSGridView gridViewWithViews:rows];
+        grid.columnSpacing = 14;
+        grid.rowSpacing = 4;
+        grid.identifier = ident;
+        [grid setContentHuggingPriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];  // its columns as wide as their words
+        NSSize fit = grid.fittingSize;
+        [grid.widthAnchor constraintEqualToConstant:fit.width].active = YES;
+        if (fit.height <= 260) return grid;
         grid.frame = NSMakeRect(0, 0, fit.width, fit.height);
         NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
         scroll.documentView = grid;
@@ -5809,40 +5836,132 @@ void showStyleChanges() {
         scroll.hasVerticalScroller = YES;
         scroll.autohidesScrollers = YES;
         [scroll.widthAnchor constraintEqualToConstant:fit.width + 16].active = YES;
-        [scroll.heightAnchor constraintEqualToConstant:360].active = YES;
-        [grid scrollPoint:NSMakePoint(0, fit.height)];  // its first rows
-        list = scroll;
+        [scroll.heightAnchor constraintEqualToConstant:260].active = YES;
+        [grid scrollPoint:NSMakePoint(0, fit.height)];
+        return scroll;
+    };
+    auto keysFirst = [](std::vector<styles::Change> changes) {  // the workflow and its Quick View first: they set the rest
+        std::stable_partition(changes.begin(), changes.end(), [](const styles::Change &c) { return c.key == "mapWorkflow" || c.key == "mapQuickView"; });
+        std::stable_partition(changes.begin(), changes.end(), [](const styles::Change &c) { return c.key == "mapWorkflow"; });
+        return changes;
+    };
+    auto workflowOf = [](const styles::Settings &v) {
+        auto it = v.find("mapWorkflow");
+        return it == v.end() || it->second.empty() ? 0 : std::clamp(std::atoi(it->second.c_str()), 0, 3);
+    };
+    NSMutableArray<NSView *> *parts = [NSMutableArray array];
+    // The style, what it is for, and whose defaults.
+    [parts addObject:label(now ? T(ADIFString(styles::title(*now))) : T(@"No style"), NSFont.systemFontSize + 1, NSFontWeightSemibold,
+                           now ? styleColour(*now) : NSColor.labelColor)];
+    if (now) {
+        [parts addObject:label(T(kStyleTips[(int)*now]), small, NSFontWeightRegular, NSColor.secondaryLabelColor)];
+        bool mine = styles::hasMine(*now, styleGet);
+        [parts addObject:label(mine ? T(@"Its defaults: yours, saved with Save") : T(@"Its defaults: the recommended ones"), small, NSFontWeightMedium,
+                               NSColor.labelColor)];
+        // What differs from them now.
+        styles::Settings start = styles::startingPoint(*now, keys, styleGet), current;
+        for (const auto &kv : start) current[kv.first] = styleGet(kv.first);
+        styles::Transition differs = styles::diff(now, now, start, current);
+        int wfStart = workflowOf(start), wfNow = workflow();
+        NSMutableArray *rows = [NSMutableArray arrayWithObject:@[ cell(tr("Setting"), true), cell(tr("Its default"), true), cell(tr("Now"), true) ]];
+        for (const styles::Change &c : keysFirst(differs.changes)) {
+            auto [name, was] = describeStyleSetting(c.key, c.before, wfStart);
+            std::string is = describeStyleSetting(c.key, c.after, wfNow).second;
+            if (was != is) [rows addObject:@[ cell(name, false), cell(was, false), cell(is, false) ]];
+        }
+        if (rows.count > 1) {
+            [parts addObject:label(TP(@"{n} setting differs from its defaults (Save keeps them, Reset undoes them):",
+                                      @"{n} settings differ from its defaults (Save keeps them, Reset undoes them):", (long long)rows.count - 1),
+                                   small, NSFontWeightRegular, NSColor.secondaryLabelColor)];
+            [parts addObject:table(rows, @"map.operatingStyle.differs")];
+        } else {
+            [parts addObject:label(T(@"Nothing differs from its defaults."), small, NSFontWeightRegular, NSColor.secondaryLabelColor)];
+        }
+    } else {
+        [parts addObject:label(T(@"The map as you set it. Choose a style to set it up for Social, Chasing, Contest or Portable operating."), small,
+                               NSFontWeightRegular, NSColor.secondaryLabelColor)];
     }
-    NSStackView *body = [NSStackView stackViewWithViews:shown ? @[ title, count, list ] : @[ title, count ]];
+    // The last change of style.
+    if (lastStyleChange) {
+        const styles::Transition &t = *lastStyleChange;
+        int wfBefore = workflow(), wfAfter = workflow();
+        for (const styles::Change &c : t.changes)
+            if (c.key == "mapWorkflow") wfBefore = std::clamp(std::atoi(c.before.c_str()), 0, 3), wfAfter = std::clamp(std::atoi(c.after.c_str()), 0, 3);
+        NSMutableArray *rows = [NSMutableArray arrayWithObject:@[ cell(tr("Setting"), true), cell(tr("Before"), true), cell(tr("After"), true) ]];
+        for (const styles::Change &c : keysFirst(t.changes)) {
+            auto [name, before] = describeStyleSetting(c.key, c.before, wfBefore);
+            std::string after = describeStyleSetting(c.key, c.after, wfAfter).second;
+            if (before != after) [rows addObject:@[ cell(name, false), cell(before, false), cell(after, false) ]];
+        }
+        auto name = [](std::optional<styles::OperatingStyle> s) { return s ? tr(styles::title(*s)) : tr("No style"); };
+        std::string heading = t.from == t.to ? trf("Last change: {style}, reset to its defaults", {{"style", name(t.to)}})
+                                             : trf("Last change: {from} to {to}", {{"from", name(t.from)}, {"to", name(t.to)}});
+        NSTextField *h = label(ADIFString(heading), small, NSFontWeightSemibold, NSColor.labelColor);
+        [parts addObject:h];
+        [parts addObject:label(rows.count > 1 ? TP(@"{n} setting changed", @"{n} settings changed", (long long)rows.count - 1) : T(@"Nothing on the map changed"),
+                               small, NSFontWeightRegular, NSColor.secondaryLabelColor)];
+        if (rows.count > 1) [parts addObject:table(rows, @"map.operatingStyle.changes")];
+    }
+    // Its buttons.
+    NSMutableArray<NSView *> *buttons = [NSMutableArray array];
+    __block NSPopover *pop = nil;
+    NSButton *restore = [NSButton buttonWithTitle:T(@"Restore Previous Layout") target:nil action:nil];
+    restore.controlSize = NSControlSizeSmall;
+    restore.font = [NSFont systemFontOfSize:small];
+    restore.identifier = @"map.operatingStyle.restore";
+    restore.toolTip = T(@"Undo the last change of style: the map's settings, and the style chosen, as they were before it");
+    restore.enabled = lastStyleChange.has_value();
+    ADIFOnAction(restore, ^{
+        [pop close];
+        restorePreviousStyle();
+    });
+    [buttons addObject:restore];
+    if (now && styles::hasMine(*now, styleGet)) {
+        NSButton *recommended = [NSButton buttonWithTitle:T(@"Use Recommended Defaults") target:nil action:nil];
+        recommended.controlSize = NSControlSizeSmall;
+        recommended.font = [NSFont systemFontOfSize:small];
+        recommended.identifier = @"map.operatingStyle.recommended";
+        recommended.toolTip = T(@"Forget the defaults you saved for this style, and reset it to the recommended ones");
+        ADIFOnAction(recommended, ^{
+            [pop close];
+            recommendedOperatingStyle();
+        });
+        [buttons addObject:recommended];
+    }
+    NSStackView *buttonRow = [NSStackView stackViewWithViews:buttons];
+    buttonRow.spacing = 8;
+    [parts addObject:buttonRow];
+    NSStackView *body = [NSStackView stackViewWithViews:parts];
     body.orientation = NSUserInterfaceLayoutOrientationVertical;
     body.alignment = NSLayoutAttributeLeading;
     body.spacing = 6;
     body.edgeInsets = NSEdgeInsetsMake(12, 14, 12, 14);
+    body.identifier = @"map.operatingStyle.info";
+    for (NSView *v in parts)
+        if ([v isKindOfClass:NSTextField.class] && ((NSTextField *)v).cell.wraps) [body setCustomSpacing:8 afterView:v];
     NSViewController *vc = [[NSViewController alloc] init];
     vc.view = body;
-    NSPopover *p = [[NSPopover alloc] init];
-    p.behavior = NSPopoverBehaviorTransient;
-    p.contentViewController = vc;
+    pop = [[NSPopover alloc] init];
+    pop.behavior = NSPopoverBehaviorTransient;
+    pop.contentViewController = vc;
     [body layoutSubtreeIfNeeded];
-    CGFloat wide = std::max({list.fittingSize.width, title.fittingSize.width, count.fittingSize.width});
-    p.contentSize = NSMakeSize(wide + body.edgeInsets.left + body.edgeInsets.right, body.fittingSize.height);  // the rows inside its margins
-    [p showRelativeToRect:mw.operatingStyleMenu.bounds ofView:mw.operatingStyleMenu preferredEdge:NSRectEdgeMaxY];
-    mw.styleChangesPopover = p;
+    CGFloat wide = 0;
+    for (NSView *v in parts) wide = std::max(wide, std::min<CGFloat>(380, v.fittingSize.width));
+    for (NSView *v in parts)
+        if (![v isKindOfClass:NSTextField.class]) wide = std::max(wide, v.fittingSize.width);
+    pop.contentSize = NSMakeSize(wide + body.edgeInsets.left + body.edgeInsets.right, body.fittingSize.height);
+    [pop showRelativeToRect:mw.operatingStyleMenu.bounds ofView:mw.operatingStyleMenu preferredEdge:NSRectEdgeMaxY];
+    mw.styleChangesPopover = pop;
 }
 
 // The styles' segments (the one chosen selected, a dot after its name once its settings were
 // changed), and their menu: No Style, Reset, Restore Previous Layout, What Changed.
-static NSString *const kStyleTips[styles::kStyleCount] = {
-    N(@"Social: a comfortable QSO with context. Your log's contacts and lines to them, with distance and bearing; spots quiet"),
-    N(@"Chasing: the next needed contact. DX Chase, the stations needed on their band first, with DXCC shading and the grey line"),
-    N(@"Contest: valid contacts quickly. Live, every spot with its call, CQ zones, high contrast; nothing else moves"),
-    N(@"Portable: operate in the field. Your log's contacts, distance rings, larger high-contrast text; no feed starts by itself")};
-
 void fillOperatingStyleBar() {
     NSSegmentedControl *bar = mw.operatingStyleBar;
     if (!bar) return;
     std::optional<styles::OperatingStyle> now = operatingStyle();
-    bool changed = now && styles::customized(*now, styleGet);
+    bool changed = now && styles::customized(*now, styleGet, styleKeys());
+    bar.selectedSegmentBezelColor = now ? styleColour(*now) : nil;  // the style's own colour, not the workflows' blue
     for (int i = 0; i < styles::kStyleCount; ++i) {
         auto s = (styles::OperatingStyle)i;
         NSString *name = T(ADIFString(styles::title(s)));
@@ -5869,20 +5988,22 @@ void fillOperatingStyleBar() {
     none.toolTip = T(@"The map as you set it: choosing no style changes nothing");
     ADIFBlockMenuItem(none, ^{ chooseOperatingStyle(std::nullopt); });
     [menu addItem:NSMenuItem.separatorItem];
-    NSMenuItem *reset = [menu addItemWithTitle:now ? TF(@"Reset {style}", @{@"style" : T(ADIFString(styles::title(*now)))}) : T(@"Reset Style")
-                                        action:nil
-                                 keyEquivalent:@""];
+    NSString *styleName = now ? T(ADIFString(styles::title(*now))) : nil;
+    NSMenuItem *reset = [menu addItemWithTitle:T(@"Reset") action:nil keyEquivalent:@""];
     reset.enabled = changed || (now && styles::hasSaved(*now, styleGet));
-    reset.toolTip = T(@"The style's own settings again, as at first: the changes you made to it are forgotten");
+    reset.toolTip = now ? TF(@"{style} as at first: its defaults again (yours from Save, else the recommended); the changes you made since are forgotten",
+                             @{@"style" : styleName})
+                        : T(@"Choose a style first");
     ADIFBlockMenuItem(reset, ^{ resetOperatingStyle(); });
-    NSMenuItem *restore = [menu addItemWithTitle:T(@"Restore Previous Layout") action:nil keyEquivalent:@""];
-    restore.enabled = lastStyleChange.has_value();
-    restore.toolTip = T(@"Undo the last change of style: the map's settings, and the style chosen, as they were before it");
-    ADIFBlockMenuItem(restore, ^{ restorePreviousStyle(); });
-    NSMenuItem *what = [menu addItemWithTitle:T(@"What Changed...") action:nil keyEquivalent:@""];
-    what.enabled = lastStyleChange.has_value();
-    what.toolTip = T(@"Each setting the last change of style changed, before and after");
-    ADIFBlockMenuItem(what, ^{ showStyleChanges(); });
+    NSMenuItem *save = [menu addItemWithTitle:T(@"Save") action:nil keyEquivalent:@""];
+    save.enabled = changed;
+    save.toolTip = now ? TF(@"Keep these settings as {style}'s own defaults: what it starts from, and what Reset gives back (Info has the recommended ones again)",
+                            @{@"style" : styleName})
+                       : T(@"Choose a style first");
+    ADIFBlockMenuItem(save, ^{ saveOperatingStyle(); });
+    NSMenuItem *info = [menu addItemWithTitle:T(@"Info...") action:nil keyEquivalent:@""];
+    info.toolTip = T(@"What the style is for, how the map differs from its defaults, and the last change of style (with Restore Previous Layout)");
+    ADIFBlockMenuItem(info, ^{ showStyleInfo(); });
 }
 
 // ── The watch list: the calls, references and DXCC entities you want to know are on the air ──
@@ -7330,8 +7451,7 @@ void cmdMap() {
         mw.operatingStyleMenu.bordered = NO;
         mw.operatingStyleMenu.identifier = @"map.operatingStyle.menu";
         mw.operatingStyleMenu.accessibilityLabel = T(@"Operating style options");
-        mw.operatingStyleMenu.toolTip = T(@"No Style, Reset the style chosen, Restore Previous Layout (undo the last change of style), and What "
-                                          @"Changed (each setting it set)");
+        mw.operatingStyleMenu.toolTip = T(@"No Style; Reset, Save and Info for the style chosen");
         mw.operatingStyleMenu.menu.delegate = mw.listRows;
         fillOperatingStyleBar();
         mw.summaryLabel = [NSTextField labelWithString:@""];
@@ -7443,9 +7563,15 @@ void cmdMap() {
 
         // The toolbar under the header: History or Live; what the map shows now (the QSOs and their
         // dates, or the stations spotted); the filters, the ones it can't show as tags; Clear.
+        // What the map shows (in the status bar, under the map): History's QSOs and their dates; Live's
+        // stations, a dot of the feeds' health, and a click for Sources and Filters.
         mw.scopeLabel = [NSTextField labelWithString:@""];
         mw.scopeLabel.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightMedium];
+        mw.scopeLabel.lineBreakMode = NSLineBreakByTruncatingTail;
         mw.scopeLabel.identifier = @"map.scope";
+        ADIFOnClick(mw.scopeLabel, ^{
+            if (live()) showSpotsPopover();
+        });
         mw.continentPopup = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
         mw.continentPopup.toolTip = T(@"Keep the QSOs and spots on one continent (More Filters can choose several)");
         mw.continentPopup.identifier = @"map.filter.continent";
@@ -7494,7 +7620,7 @@ void cmdMap() {
         [mw.focusButton setButtonType:NSButtonTypePushOnPushOff];
         toolbarIcon(mw.focusButton, @"arrow.up.left.and.arrow.down.right");
         mw.focusButton.identifier = @"map.toolbar.focus";
-        for (NSView *v in @[ cluster(@[ mw.operatingStyleBar, mw.operatingStyleMenu ]), mw.workflow, mw.scopeLabel, cluster(@[ mw.band, mw.mode, mw.dates, mw.confirmed, mw.dxccBar, mw.potaBar, mw.spotAgeBar, mw.spotSourceBar, mw.continentPopup, mw.moreFilters ]),
+        for (NSView *v in @[ cluster(@[ mw.operatingStyleBar, mw.operatingStyleMenu ]), mw.workflow, cluster(@[ mw.band, mw.mode, mw.dates, mw.confirmed, mw.dxccBar, mw.potaBar, mw.spotAgeBar, mw.spotSourceBar, mw.continentPopup, mw.moreFilters ]),
                              cluster(@[ mw.chips, mw.clearFilters ]), cluster(@[ keepView, copyButton, mw.focusButton ]) ])
             [toolbar addSubview:v];
 
@@ -8005,20 +8131,14 @@ void cmdMap() {
         ]];
         mw.view.clearInsets = NSEdgeInsetsMake(0, mw.nav.fittingSize.width + 20, 0, 0);  // Fit Log and the rest keep clear of the buttons
 
-        // The footer: the workflow's state, then what is under the pointer.
-        mw.liveLabel = smallButton(@"", @"", ^{  // in Live, what each feed is doing (Sources and Filters)
-            if (live()) showSpotsPopover();
-        });
-        mw.liveLabel.bordered = NO;
-        mw.liveLabel.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightMedium];
-        mw.liveLabel.identifier = @"map.live";
+        // The status bar: what the map shows (the feeds' health in Live), then what is under the pointer.
         mw.hover = [NSTextField labelWithString:@""];
         mw.hover.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
         mw.hover.textColor = NSColor.secondaryLabelColor;
         mw.hover.lineBreakMode = NSLineBreakByTruncatingTail;
         [mw.hover setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
         mw.hover.identifier = @"map.hover";
-        NSStackView *footer = line(@[ mw.liveLabel, mw.hover ]);
+        NSStackView *footer = line(@[ mw.scopeLabel, mw.hover ]);
         footer.spacing = 18;
         footer.edgeInsets = NSEdgeInsetsMake(4, 12, 5, 12);
         footer.identifier = @"map.footer";

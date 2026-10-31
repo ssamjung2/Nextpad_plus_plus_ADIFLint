@@ -555,6 +555,11 @@ toolbar (Stage 2); they are still open to review.
     VoiceOver ("Suggestion: …").
   - Not done, for later stages: "Sync failed" (the upload windows don't keep a failure), a
     minimal-logging path, and the personal prompt libraries and pinned prompts (Stage 7).
+- **After Stage 3 (2026-10-31), from review:** the styles are a segmented control in each
+  style's colour, with a menu of No Style, Reset, Save and Info. **Save** brings forward
+  Stage 7's "use my current layout as this style's default" (`saveMine`, `startingPoint` in
+  `adif_styles`); **Info** replaces What Changed and holds Restore Previous Layout and Use
+  Recommended Defaults.
 - **Next:** Stage 4 (Chasing: ranked, explained opportunities).
 
 ## Initial backlog

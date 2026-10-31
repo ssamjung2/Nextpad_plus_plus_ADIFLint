@@ -44,8 +44,17 @@ void save(OperatingStyle s, const std::vector<std::string> &owned, const Getter 
 // Forget the operator's changes to a style (Reset).
 void forget(OperatingStyle s, const std::vector<std::string> &owned, const Setter &set);
 
-// What choosing a style sets: its saved state when it has one, else its defaults. Owned keys
-// neither names are left as they are.
+// The operator's own defaults for a style (Save): what it starts from, and what Reset gives
+// back, in place of the recommended ones. Kept as "mapStyle" + Id + "Mine" + key.
+std::string mineKey(OperatingStyle s, std::string_view key);
+bool hasMine(OperatingStyle s, const Getter &get);
+void saveMine(OperatingStyle s, const std::vector<std::string> &owned, const Getter &get, const Setter &set);
+void forgetMine(OperatingStyle s, const std::vector<std::string> &owned, const Setter &set);
+// A style's starting point: the operator's own defaults when saved, else the recommended.
+Settings startingPoint(OperatingStyle s, const std::vector<std::string> &owned, const Getter &get);
+
+// What choosing a style sets: its saved state when it has one, else its starting point. Owned
+// keys neither names are left as they are.
 Settings target(OperatingStyle s, const std::vector<std::string> &owned, const Getter &get);
 
 // The owned keys' values now: before and after a change of style, for its report.
@@ -63,8 +72,8 @@ Transition diff(std::optional<OperatingStyle> from, std::optional<OperatingStyle
 // The same transition backwards: Restore previous layout.
 Transition reversed(const Transition &t);
 
-// Whether the operator changed a style's defaults (the customized mark): a default key whose
-// value now differs.
-bool customized(OperatingStyle s, const Getter &get);
+// Whether the settings now differ from the style's starting point (the changed mark): with the
+// operator's own defaults, any owned key; else a recommended key.
+bool customized(OperatingStyle s, const Getter &get, const std::vector<std::string> &owned = {});
 
 }  // namespace adif::styles

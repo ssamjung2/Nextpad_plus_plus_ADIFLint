@@ -58,6 +58,8 @@ void ADIFSuggestAsYouType(NSComboBox *box, ADIFSuggestBlock suggest);
 // Run `block` when the control sends its action (popup choice, checkbox click,
 // search text...). The control keeps the block alive.
 void ADIFOnAction(NSControl *control, void (^block)(void));
+// A click on a view that isn't a control (a label, say) runs the block.
+void ADIFOnClick(NSView *view, void (^block)(void));
 // The same for a menu item.
 void ADIFBlockMenuItem(NSMenuItem *item, void (^block)(void));
 

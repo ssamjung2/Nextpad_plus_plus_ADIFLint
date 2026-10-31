@@ -7246,13 +7246,17 @@ int main(int argc, char **argv) {
                         };
                         NSArray *actions = mapView.accessibilityCustomActions;
                         bool hideNewDxcc = legendAction(@"Hide in the legend: new DXCC") != nil, showIota = false;
-                        if (NSAccessibilityCustomAction *hide = legendAction(@"Hide in the legend: IOTA")) {
-                            hide.handler();
+                        // IOTA's action, whichever is on offer (the rows clicked above may have left it hidden), then back.
+                        bool hidden = legendAction(@"Show in the legend: IOTA") != nil;
+                        NSString *first = hidden ? @"Show in the legend: IOTA" : @"Hide in the legend: IOTA",
+                                 *second = hidden ? @"Hide in the legend: IOTA" : @"Show in the legend: IOTA";
+                        if (NSAccessibilityCustomAction *a = legendAction(first)) {
+                            a.handler();
                             pump(0.2);
                             [mapView display];
-                            if (NSAccessibilityCustomAction *show = legendAction(@"Show in the legend: IOTA")) {
+                            if (NSAccessibilityCustomAction *b = legendAction(second)) {
                                 showIota = true;
-                                show.handler();
+                                b.handler();
                                 pump(0.2);
                                 [mapView display];
                             }
@@ -7422,7 +7426,26 @@ int main(int argc, char **argv) {
                         if ([[styleActions.menu itemAtIndex:k].title hasPrefix:title]) return k;
                     return -1;
                 };
-                auto styleMenu = [&](NSString *titleOrId) {
+                auto inPopover = [&](NSString *ident) -> NSView * {
+                    for (NSWindow *w in NSApp.windows)
+                        if (w.visible)
+                            if (NSView *v = viewWithIdentifier(w.contentView, ident)) return v;
+                    return nil;
+                };
+                auto closePopovers = [&]() {
+                    for (NSWindow *w in [NSApp.windows copy])
+                        if (viewWithIdentifier(w.contentView, @"map.operatingStyle.info")) [w orderOut:nil];
+                };
+                std::function<bool(NSString *)> styleMenu = [&](NSString *titleOrId) -> bool {
+                    if ([titleOrId isEqualToString:@"Restore Previous Layout"]) {  // Info's button
+                        styleMenu(@"Info...");
+                        NSButton *b = (NSButton *)inPopover(@"map.operatingStyle.restore");
+                        bool ok = b.enabled;
+                        if (ok) [b performClick:nil];
+                        pump(0.3);
+                        closePopovers();
+                        return ok;
+                    }
                     NSUInteger seg = [styleIds indexOfObject:titleOrId];
                     if (seg != NSNotFound) {
                         [styleBar setSelected:YES forSegment:(NSInteger)seg];
@@ -7445,16 +7468,17 @@ int main(int argc, char **argv) {
                 std::string start = values(), where = place();
                 CHECK(styleShown().empty(), "the styles: none chosen at first (%s)", styleShown().c_str());
                 CHECK(styleBar.accessibilityLabel.length && styleBar.segmentCount == 4 && [[styleBar labelForSegment:0] isEqualToString:@"Social"] &&
-                          [[styleBar labelForSegment:3] isEqualToString:@"Portable"] && styleActions && styleItem(@"Restore Previous Layout") > 0 &&
-                          ![styleActions.menu itemAtIndex:styleItem(@"Restore Previous Layout")].enabled,
-                      "the styles: four segments, as the workflows', labelled for VoiceOver; their menu, nothing to restore yet");
+                          [[styleBar labelForSegment:3] isEqualToString:@"Portable"] && styleActions && styleItem(@"No Style") == 1 && styleItem(@"Reset") > 1 &&
+                          styleItem(@"Save") > styleItem(@"Reset") && styleItem(@"Info...") > styleItem(@"Save") &&
+                          ![styleActions.menu itemAtIndex:styleItem(@"Save")].enabled,
+                      "the styles: four segments, as the workflows', labelled for VoiceOver; their menu No Style, Reset, Save, Info");
 
                 styleMenu(@"chasing");
                 CHECK(wfBar.selectedSegment == 2 && quick.selectedRow == 1 && iniValue("mapOperatingStyle") == "chasing" && iniValue("mapGreyLine") == "1" &&
                           styleShown() == "Chasing",
                       "Chasing: DX Chase, Needed on its band, the grey line (%s)", values().c_str());
                 CHECK(place() == where, "a style leaves the map where it was (%s, was %s)", place().c_str(), where.c_str());
-                styleMenu(@"What Changed...");
+                styleMenu(@"Info...");
                 NSGridView *changes = nil;
                 for (NSWindow *w in NSApp.windows)
                     if (!changes) changes = (NSGridView *)viewWithIdentifier(w.contentView, @"map.operatingStyle.changes");
@@ -7467,8 +7491,7 @@ int main(int argc, char **argv) {
                       changes ? (long)changes.numberOfRows : -1L);
                 snapshot(mapw, "map-style-chasing");
                 if (changes) snapshot(changes.window, "map-style-changes");
-                for (NSWindow *w in [NSApp.windows copy])
-                    if (viewWithIdentifier(w.contentView, @"map.operatingStyle.changes")) [w orderOut:nil];
+                closePopovers();
                 styleMenu(@"Restore Previous Layout");
                 CHECK(values() == start && wfBar.selectedSegment == 1 && iniValue("mapOperatingStyle").empty(),
                       "Restore Previous Layout: exactly as before (%s; was %s)", values().c_str(), start.c_str());
@@ -7505,6 +7528,42 @@ int main(int argc, char **argv) {
                 CHECK(values() == chasing && iniValue("mapOperatingStyle").empty() && styleShown().empty(),
                       "No Style: the map stays as it is (%s)", values().c_str());
 
+                // Save: these settings the style's own defaults; Reset gives them back; Info has the recommended again.
+                styleMenu(@"chasing");
+                setBox(greyLine, true);
+                setBox(greyLine, false);
+                pump(0.2);
+                bool changedBefore = styleShown() == "Chasing \u2022";
+                styleMenu(@"Save");
+                CHECK(changedBefore && styleShown() == "Chasing" && iniValue("mapStyleChasingMine") == "1" &&
+                          [styleBar.selectedSegmentBezelColor isEqual:NSColor.systemOrangeColor],
+                      "Save: Chasing's own defaults now (no dot), its segment in Chasing's orange (%s)", styleShown().c_str());
+                setBox(greyLine, true);
+                pump(0.2);
+                styleMenu(@"Reset");
+                CHECK(iniValue("mapGreyLine") == "0" && styleShown() == "Chasing", "Reset: Chasing's saved defaults, the grey line off (%s)", iniValue("mapGreyLine").c_str());
+                styleMenu(@"Info...");
+                NSTextField *infoTitle = nil;
+                bool yours = false;
+                if (NSView *info = inPopover(@"map.operatingStyle.info"))
+                    for (NSView *v in ((NSStackView *)info).arrangedSubviews)
+                        if ([v isKindOfClass:NSTextField.class]) {
+                            if (!infoTitle) infoTitle = (NSTextField *)v;
+                            yours |= [((NSTextField *)v).stringValue isEqualToString:@"Its defaults: yours, saved with Save"];
+                        }
+                NSButton *recommended = (NSButton *)inPopover(@"map.operatingStyle.recommended");
+                setBox(greyLine, true);  // something that differs, for the picture
+                if (NSView *info = inPopover(@"map.operatingStyle.info")) snapshot(info.window, "map-style-info");
+                snapshot(mapw, "map-style-colour");
+                setBox(greyLine, false);
+                CHECK([infoTitle.stringValue isEqualToString:@"Chasing"] && yours && recommended, "Info: Chasing, its defaults yours, the recommended on offer");
+                [recommended performClick:nil];
+                pump(0.3);
+                closePopovers();
+                CHECK(iniValue("mapGreyLine") == "1" && iniValue("mapStyleChasingMine").empty() && styleShown() == "Chasing",
+                      "Use Recommended Defaults: yours forgotten, the grey line on again");
+                styleMenu(@"No Style");
+
                 // What a style keeps (criterion 6): the band chosen and what is chosen on the map. Contest
                 // stops what moves by itself (criterion 7): the beacons, which take turns every 10 seconds.
                 NSPopUpButton *bandMenu = findPopupWith(mapw.contentView, @"All bands");
@@ -7540,8 +7599,8 @@ int main(int argc, char **argv) {
                           [chosenTitle.stringValue isEqualToString:chosenSocial],
                       "Contest: the beacons off, so nothing moves by itself; the band, what is chosen (%s) and the map's place (%s) kept",
                       chosenTitle.stringValue.UTF8String, place().c_str());
-                // VoiceOver (criterion 8): What Changed reads as words, each cell a label.
-                styleMenu(@"What Changed...");
+                // VoiceOver (criterion 8): Info reads as words, each cell a label.
+                styleMenu(@"Info...");
                 NSGridView *said = nil;
                 for (NSWindow *w in NSApp.windows)
                     if (!said && w.visible) said = (NSGridView *)viewWithIdentifier(w.contentView, @"map.operatingStyle.changes");
@@ -7557,8 +7616,7 @@ int main(int argc, char **argv) {
                                                                  std::to_string(v.isAccessibilityElement) + "/" + [v.accessibilityValue description].UTF8String;
                     }
                 CHECK(cellsSpoken, "VoiceOver: What Changed reads as words, a label a cell (%ld rows;%s)", said ? (long)said.numberOfRows : -1L, unspoken.c_str());
-                for (NSWindow *w in [NSApp.windows copy])
-                    if (viewWithIdentifier(w.contentView, @"map.operatingStyle.changes")) [w orderOut:nil];
+                closePopovers();
                 styleMenu(@"Restore Previous Layout");
                 CHECK(iniValue("mapBeacons") == "1" && beacons.state == NSControlStateValueOn, "Restore Previous Layout: the beacons on again (%s, box %ld, style %s)",
                       iniValue("mapBeacons").c_str(), (long)beacons.state, iniValue("mapOperatingStyle").c_str());
