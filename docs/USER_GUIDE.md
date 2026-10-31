@@ -337,6 +337,45 @@ In **POTA_REF** and **MY_POTA_REF**, type part of a park's name or reference ("y
 first and inactive parks last; choosing one puts its reference in. After a comma, the next
 park the same way (a two-fer). It needs POTA's park list (Settings → POTA Parks).
 
+### Operating Aids
+
+With the Map's operating style set to **Social** or **Portable** (see
+[Operating styles](#operating-styles)), New QSO shows **Operating Aids** under the lookup's
+facts: a few facts about the QSO, then one to three suggestions. They are cues, never a
+script or a requirement, chosen from a small fixed library of the familiar exchange (name and
+QTH, the report, station and antenna, conditions, weather, how they got started, interests,
+clubs and nets, the area, QSL, a courteous close). Nothing is fetched and nothing leaves your
+computer.
+
+- **Social** shows your earlier QSOs with the call in this log (how many, the last) and what
+  you noted then. Suggestions skip anything the notes already cover, this QSO's or earlier
+  ones', and say so when that is why ("Not in your notes from 2 earlier QSOs with K1ABC").
+- **Portable** shows the station's state: the activation's progress, **Ready to log** (or what
+  is missing), the duplicate check, **Saved locally** or **Not saved yet**, and, for the upload
+  services this log uses, **Synced** or **Waiting to sync** (or, offline, how many wait). Its
+  suggestions are fewer and shorter. While Portable is chosen the Map's spots come from
+  Spothole every 5 minutes instead of 2, and the DX cluster and PSKReporter's live feed, which
+  stay connected all the time, are off.
+
+Beside each suggestion:
+
+- **Note** starts a note on that topic in NOTES (or COMMENT), such as "Station: ", with the
+  caret after it for you to finish or delete. That topic isn't suggested again for the call.
+- **Skip** brings the next suggestion.
+- **Dismiss** stops suggesting it; **Options → Bring Back Dismissed Suggestions** undoes that.
+
+**Hide** hides the aids until ADIF Lint starts again. **Options**, for each style:
+
+- **Suggestions at once**: Off, Minimal (one), Standard (two) or More (three).
+- **New suggestions**: at natural pauses (a new call, the lookup's answer, a QSO logged),
+  after each QSO, or only when you press Skip. They never change while you type.
+- **Topics**: each topic on or off. Work and projects, and stage of life, are off until you
+  turn them on, and are worded for when the other operator brings them up.
+- In Portable, **Night Mode** and **Offline Mode** too.
+
+Your notes appear only on your screen. VoiceOver reads each suggestion as "Suggestion: …", so
+it isn't mistaken for a fact.
+
 ### Contests and Field Day
 
 **Contest…** in New QSO, or **Start Contest…** on the menu (which opens the logging layout
@@ -668,8 +707,10 @@ The Map has two ways of working, chosen at the left of its toolbar:
 - **DX Chase** is Live for the DXCC entities and bands you need: it opens on **Needed on its
   band**, with plain DX spots (no programs), no parks, and the grey line.
 - **POTA** is Live for the parks: it opens on **POTA activators**, with every park (those you
-  worked badged) and no DXCC shading. Its **Best opportunity** puts the parks you haven't
-  hunted first, then the other activators (elsewhere a new DXCC comes first).
+  worked badged) and no DXCC shading. It only ever shows POTA's activators: **Clear** keeps
+  that, and the program menu offers POTA only or New POTA parks (Live has every program's
+  spots). Its **Best opportunity** puts the parks you haven't hunted first, then the other
+  activators (elsewhere a new DXCC comes first).
 
 Each keeps its own layers, colours, list, Quick View and spot program: switch and come back,
 and each is as you left it. The first time, Live shows the spots and their list, with the
@@ -677,8 +718,10 @@ countries and parks you worked shaded and the grey line on.
 
 ### Operating styles
 
-The menu at the very left of the toolbar (**Operating Style** until you choose one) sets the
-Map up for the way you are operating. A style chooses the workflow and its Quick View, the
+The four segments at the very left of the toolbar, **Social**, **Chasing**, **Contest** and
+**Portable**, set the Map up for the way you are operating: click one to choose it, and click
+the chosen one again for no style. The menu beside them (**⋯**) has **No Style**, **Reset**,
+**Restore Previous Layout** and **What Changed…**. A style chooses the workflow and its Quick View, the
 layers, the sun's shading, the palette, the text size and the distance rings; nothing else.
 
 | Style | For | The first time |
@@ -689,7 +732,7 @@ layers, the sun's shading, the palette, the text size and the distance rings; no
 | **Portable** | Operating in the field | History, Contacts, distance rings, large high-contrast text; no spots, space weather, aurora or grid, so no feed starts by itself |
 
 - **Your changes stay with the style.** Change a layer or the palette while a style is
-  chosen and the menu says so ("Chasing (changed)"). Choose another style and come back, or
+  chosen and its segment says so with a dot ("Chasing •"). Choose another style and come back, or
   quit and come back, and it is as you left it.
 - **Reset** gives the style its own settings again and forgets your changes to it.
 - **Restore Previous Layout** undoes the last change of style (or the last Reset): every
@@ -697,10 +740,15 @@ layers, the sun's shading, the palette, the text size and the distance rings; no
 - **What Changed…** lists each setting the last change of style changed, before and after.
 - **No Style** changes nothing: the Map stays as it is, and is yours to set as before.
 
-A style never moves the map or changes its zoom, the band and mode, or what is chosen, and
-never touches Offline Mode, the spot sources, your accounts, the log, an activation or a
-contest. Night Mode still wins: while it is on the Map uses the Night palette, whatever the
-style says. VoiceOver announces each change of style and how many settings it changed.
+A style never moves the map or changes its zoom, the band and mode, or what is chosen (a
+square, a contact or a spotted station stays chosen while it is still on the map), and never
+touches Offline Mode, the spot sources, your accounts, the log, an activation or a contest.
+Night Mode still wins: while it is on the Map uses the Night palette, whatever the style says.
+
+From the keyboard, the styles are the first control in the toolbar (Tab to them with
+Keyboard navigation on, then the arrow keys and Space). VoiceOver reads them as "Operating
+style" with the style chosen, and announces each change of style and how many settings it
+changed.
 
 The window, from the top (the Map is a window like any other: it minimizes to the Dock and
 goes full screen with the green button):
@@ -950,10 +998,11 @@ country's too) has a rough distance: **≈** before it in the list, "about … (
 centre: the spot gives no grid)" in its description, and the selected panel's **Grid** says
 it is at its country's centre.
 
-The layer's three boxes (**Show**, **Spotter lines**, **Labels**) are the **Spots** row under
-**Places** in the sidebar's **Layers** card, as the other layers' boxes are. The sidebar's
-**Spots** card (in Live) holds **Heat map**, **Sources and Filters…**, the refresh arrow,
-**Only spots of** and **Watch List…**.
+The layer's boxes are the **Spots** row under **Places** in the sidebar's **Layers** card:
+**All** shows the stations spotted, **Labels** their calls. Spots are never "worked", so the
+row has nothing under Worked. The sidebar's **Spots** card (in Live) holds **Heat map**,
+**Lines from the spotters**, **Sources and Filters…**, the refresh arrow, **Only spots of**
+and **Watch List…**.
 
 **Sources and Filters…** chooses which spots show:
 

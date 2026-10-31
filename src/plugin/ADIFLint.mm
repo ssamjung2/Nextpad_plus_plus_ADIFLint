@@ -63,6 +63,7 @@
 #import "Workspace.h"
 #include "adif_facts.h"
 #include "adif_needs.h"
+#include "adif_aids.h"
 #include "adif_world.h"
 #include "adif_edit.h"
 #include "adif_enrich.h"
@@ -82,7 +83,9 @@
 #include <functional>
 #include <initializer_list>
 #include <map>
+#include <optional>
 #include <set>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -1582,6 +1585,8 @@ struct QsoCheck {
     std::string summary;
     int severity = -1;
     std::string worked;  // the call in this log on other bands, modes or days, and in the logs folder (the lookup's facts)
+    bool duplicate = false;            // the same contact already in the log (or the contest)
+    std::vector<std::string> missing;  // the required fields still empty
     std::vector<std::pair<std::string, std::string>> fields;  // the values to log
 };
 
@@ -1622,8 +1627,9 @@ static QsoCheck checkQso(NppHandle h) {
             if (c.fields[i].first == name && c.rows[i].first < severity) c.rows[i] = {severity, message};
     };
     for (const char *req : {"CALL", "QSO_DATE", "TIME_ON", "MODE"})
-        if (get(req).empty()) mark(req, 2, tr("Required"));
+        if (get(req).empty()) mark(req, 2, tr("Required")), c.missing.push_back(req);
     if (get("BAND").empty() && get("FREQ").empty()) {
+        c.missing.push_back(tr("BAND or FREQ"));
         mark("BAND", 2, tr("BAND or FREQ is required"));
         mark("FREQ", 2, tr("BAND or FREQ is required"));
     }
@@ -1676,6 +1682,7 @@ static QsoCheck checkQso(NppHandle h) {
         std::vector<int> dup = adif::contestDupes(text, doc.model, contestNow, qso);
         std::string cat = adif::modeCategory(get("MODE"));
         if (!dup.empty()) {
+            c.duplicate = true;
             c.summary = trf("{call} is already in the contest on {band} {mode} (record {n}): {rule}.",
                             {{"call", call}, {"band", adif::effectiveBand(qso)}, {"mode", cat == "CW" ? "CW" : cat == "PH" ? tr("Phone") : tr("Digital")},
                              {"n", std::to_string(dup.back())}, {"rule", adif::dupeRuleText(contestNow)}});
@@ -1691,6 +1698,7 @@ static QsoCheck checkQso(NppHandle h) {
         qso.fields = c.fields;
         std::vector<int> same = adif::sameContactAs(text, doc.model, qso);
         if (!same.empty()) {
+            c.duplicate = true;
             c.summary = trf("{call} is already in this log on {band} {mode} this UTC day (record {n}).",
                             {{"call", call}, {"band", get("BAND")}, {"mode", get("MODE")}, {"n", std::to_string(same.back())}});
             c.severity = 1;
@@ -1733,6 +1741,13 @@ static void refreshSpotBoxes(const adif::FieldList &shown) {
 
 static void showLookupInfo();
 static void updateQsoDetails();
+static void updateAids(bool pause, bool logged);
+static void aidPressed(NSString *action, NSInteger row);
+// The last check of New QSO's values, for Operating Aids: whether it is a duplicate, what is missing.
+static struct {
+    bool duplicate = false;
+    std::vector<std::string> missing;
+} gQsoState;
 // The lookup's last facts, for QSO Details.
 static struct {
     std::string call, name, qth, state, country;
@@ -1743,10 +1758,12 @@ static void showQsoCheck(const QsoCheck &c) {
     [g.qso setRowStatus:c.rows];
     [g.qso setSummary:c.summary severity:c.severity];
     refreshSpotBoxes(c.fields);
+    gQsoState = {c.duplicate, c.missing};
     if (c.worked != g.lookup.worked) {
         g.lookup.worked = c.worked;
         showLookupInfo();
     }
+    updateAids(false, false);
 }
 
 static void scheduleQsoCheck() {
@@ -1848,6 +1865,7 @@ static void logQso() {
         refreshQsoTarget();
         workspace::setStatus(done + "  ·  " + g.qsoTargetLine);
         [g.qso focusField:"CALL"];
+        updateAids(true, true);
         if (workspace::active()) {  // the new QSO chosen on the Map and in the Log Table
             worldmap::showRecord((int)adif::recordCount(after.model));
             logtools::showRecordInTable(start);
@@ -1959,6 +1977,15 @@ static void showQsoRows(NppHandle h, const adif::LintResult &r) {
             g.qso.lookupSource = s == "off" ? 0 : s == "qrz" ? 2 : s == "hamqth" ? 3 : 1;  // country data by default
         }
         g.qso.onLog = ^{ logQso(); };
+        g.qso.onAid = ^(NSString *action, NSInteger row) { aidPressed(action, row); };
+        [[NSNotificationCenter defaultCenter] addObserverForName:ADIFOperatingStyleChangedNotification
+                                                          object:nil
+                                                           queue:nil
+                                                      usingBlock:^(NSNotification *) { updateAids(true, false); }];
+        [[NSNotificationCenter defaultCenter] addObserverForName:ADIFOfflineChangedNotification  // Portable says so
+                                                          object:nil
+                                                           queue:nil
+                                                      usingBlock:^(NSNotification *) { updateAids(false, false); }];
         g.qso.onStationChosen = ^(NSInteger index) {
             if (index >= 0) {
                 station::chooseProfile(index);
@@ -2152,6 +2179,7 @@ static void showLookupInfo() {
     [g.qso setLookupFacts:rows message:ADIFString(g.lookup.message) severity:-1];
     gDetailsLookup = {call, s.name, s.qth, s.state, s.country.empty() && s.entity ? s.entity->name : s.country, facts};
     updateQsoDetails();
+    updateAids(true, false);  // the lookup filled what it could: a natural pause
 }
 
 // QSO Details (the Operating Console): who New QSO's call is and where, why the contact is worth
@@ -2300,6 +2328,326 @@ static void runLookup() {
                      showLookupInfo();
                      scheduleQsoCheck();
                  }];
+}
+
+// ── Operating Aids (adif_aids.h): New QSO's strip in the Social and Portable operating styles ──
+
+namespace aids = adif::aids;
+
+static struct {
+    bool hidden = false;  // Hide: until ADIF Lint starts again
+    size_t skip = 0;      // Skip pressed since the suggestions were chosen afresh
+    std::string call;     // the call they are for
+    bool chosen = false;  // chosen at least once
+    std::vector<aids::Suggestion> shown;
+    size_t facts = 0;  // the strip's fact rows, before the suggestions
+    // The earlier QSOs with the call in this log: how many, the last, their notes.
+    std::string earlierFor;
+    uint64_t earlierEdit = 0;
+    intptr_t earlierBuffer = 0;
+    size_t earlier = 0;
+    std::string earlierNotes, lastQso;
+    // The log's uploads: the services it uses, and the QSOs not yet uploaded to them.
+    uint64_t syncEdit = 0;
+    intptr_t syncBuffer = 0;
+    std::vector<std::string> services;
+    size_t waiting = 0;
+} gAids;
+
+// A setting's comma-separated words.
+static std::vector<std::string> aidsList(const std::string &v) {
+    std::vector<std::string> out;
+    std::stringstream in(v);
+    for (std::string t; std::getline(in, t, ',');)
+        if (!t.empty()) out.push_back(t);
+    return out;
+}
+
+static std::optional<adif::styles::OperatingStyle> aidsStyle() {
+    std::optional<adif::styles::OperatingStyle> s = adif::styles::parse(adifhost::setting("mapOperatingStyle"));
+    if (s == adif::styles::OperatingStyle::Social || s == adif::styles::OperatingStyle::Portable) return s;
+    return std::nullopt;
+}
+// Each style's own choices: "aidsLevelSocial", "aidsTimingPortable", "aidsTopicsOffSocial".
+static std::string aidsKey(const char *what, adif::styles::OperatingStyle s) {
+    std::string id(adif::styles::id(s));
+    id[0] = (char)std::toupper((unsigned char)id[0]);
+    return std::string("aids") + what + id;
+}
+static std::set<std::string> aidsTopicsOff(adif::styles::OperatingStyle s) {
+    std::set<std::string> off;
+    std::string v = adifhost::setting(aidsKey("TopicsOff", s));
+    if (v.empty()) {  // as at first: age and career off
+        for (int i = 0; i < aids::kCategoryCount; ++i)
+            if (!aids::onAtFirst((aids::Category)i)) off.insert(std::string(aids::categoryId((aids::Category)i)));
+    } else if (v != "-") {
+        for (const std::string &t : aidsList(v)) off.insert(t);
+    }
+    return off;
+}
+static void saveTopicsOff(adif::styles::OperatingStyle s, const std::set<std::string> &off) {
+    std::string v;
+    for (const std::string &t : off) v += (v.empty() ? "" : ",") + t;
+    adifhost::setSetting(aidsKey("TopicsOff", s), v.empty() ? "-" : v);
+}
+static std::set<std::string> aidsDismissed() {
+    std::set<std::string> out;
+    for (const std::string &t : aidsList(adifhost::setting("aidsDismissed"))) out.insert(t);
+    return out;
+}
+
+// The earlier QSOs with the call in this log (worked out again when the log changes).
+static void aidsEarlier(NppHandle h, const std::string &call) {
+    if (call == gAids.earlierFor && g.editCount == gAids.earlierEdit && currentBuffer() == gAids.earlierBuffer) return;
+    gAids.earlierFor = call, gAids.earlierEdit = g.editCount, gAids.earlierBuffer = currentBuffer();
+    gAids.earlier = 0, gAids.earlierNotes.clear(), gAids.lastQso.clear();
+    if (call.empty()) return;
+    std::string me = adif::lookupCall(call), lastWhen;
+    for (const adif::Record &rec : adif::records(docText(h), freshLint(h).model)) {
+        if (adif::lookupCall(rec.get("CALL")) != me) continue;
+        ++gAids.earlier;
+        for (const char *f : {"NOTES", "COMMENT"})
+            if (std::string n = rec.get(f); !n.empty()) gAids.earlierNotes += (gAids.earlierNotes.empty() ? "" : "  ·  ") + n;
+        std::string when = rec.get("QSO_DATE") + rec.get("TIME_ON");
+        if (when >= lastWhen) {
+            lastWhen = when;
+            std::string d = rec.get("QSO_DATE");
+            if (d.size() == 8) d = d.substr(0, 4) + "-" + d.substr(4, 2) + "-" + d.substr(6, 2);
+            gAids.lastQso = trf("{date} on {band} {mode}", {{"date", d}, {"band", rec.get("BAND")}, {"mode", rec.get("MODE")}});
+        }
+    }
+}
+
+// The upload services this log uses (any QSO uploaded to it), and the QSOs not yet uploaded to them.
+static void aidsSync(NppHandle h) {
+    if (g.editCount == gAids.syncEdit && currentBuffer() == gAids.syncBuffer && gAids.syncBuffer) return;
+    gAids.syncEdit = g.editCount, gAids.syncBuffer = currentBuffer();
+    gAids.services.clear(), gAids.waiting = 0;
+    std::string_view text = docText(h);
+    const adif::DocModel &m = freshLint(h).model;
+    std::set<int> waiting;
+    for (adif::UploadService s : {adif::UploadService::QRZ, adif::UploadService::LoTW, adif::UploadService::ClubLog, adif::UploadService::EQSL,
+                                  adif::UploadService::WRL, adif::UploadService::HRDLog, adif::UploadService::HamQTH}) {
+        std::vector<adif::UploadItem> items = adif::uploadItems(text, m, s);
+        if (std::none_of(items.begin(), items.end(), [](const adif::UploadItem &i) { return i.done; })) continue;
+        gAids.services.push_back(adif::uploadServiceName(s));
+        for (const adif::UploadItem &i : items)
+            if (adif::uploadWanted(i)) waiting.insert(i.group);
+    }
+    gAids.waiting = waiting.size();
+}
+
+// The field Note writes in: NOTES, else COMMENT; "" when New QSO asks for neither.
+static std::string aidsNoteField() { return [g.qso hasField:"NOTES"] ? "NOTES" : [g.qso hasField:"COMMENT"] ? "COMMENT" : ""; }
+
+static NSMenu *aidsMenu(adif::styles::OperatingStyle style);
+
+// The strip as things are: Portable's facts or the earlier QSOs (each check), the suggestions (afresh
+// at a natural pause: a new call or the lookup's answer, a QSO logged; or only after each QSO; or
+// only on Skip, as its timing says). `pause`: a natural pause now; `logged`: a QSO was just logged.
+static void updateAids(bool pause, bool logged) {
+    if (!g.qso) return;
+    std::optional<adif::styles::OperatingStyle> style = aidsStyle();
+    if (!style) return [g.qso setAidsTitle:nil rows:{} menu:nil hidden:NO];
+    NSString *styleName = T(ADIFString(adif::styles::title(*style)));
+    if (gAids.hidden) return [g.qso setAidsTitle:TF(@"Operating Aids ({style}): hidden", @{@"style" : styleName}) rows:{} menu:nil hidden:YES];
+    aids::Level level = aids::parseLevel(adifhost::setting(aidsKey("Level", *style)));
+    aids::Timing timing = aids::parseTiming(adifhost::setting(aidsKey("Timing", *style)));
+    std::vector<ADIFAidRow> rows;
+    try {
+        NppHandle h = currentScintilla();
+        std::string call = qsoValue("CALL");
+        for (char &c : call) c = (char)std::toupper((unsigned char)c);
+        aidsEarlier(h, call);
+        if (level != aids::Level::Off) {
+            if (*style == adif::styles::OperatingStyle::Portable) {
+                aidsSync(h);
+                aids::PortableState ps;
+                ps.activation = station::activationProgress(docText(h), freshLint(h).model);
+                ps.callEntered = !call.empty();
+                ps.duplicate = gQsoState.duplicate;
+                ps.missing = gQsoState.missing;
+                ps.saved = !sci(h, SCI_GETMODIFY);
+                ps.offline = ADIFOffline();
+                ps.services = gAids.services;
+                ps.waiting = gAids.waiting;
+                ps.spots = spotfeeds::wanted();
+                static NSString *const kSymbols[] = {@"flag.checkered", @"checkmark.circle", @"doc.on.doc", @"internaldrive",
+                                                     @"arrow.triangle.2.circlepath", @"wifi.slash", @"antenna.radiowaves.left.and.right"};
+                for (const aids::Cue &c : aids::portableCues(ps)) {
+                    ADIFAidRow r;
+                    r.text = c.text, r.severity = c.severity, r.symbol = kSymbols[c.kind];
+                    rows.push_back(r);
+                }
+            } else if (!call.empty()) {  // Social: your QSOs with them before, and what you noted
+                ADIFAidRow r;
+                r.symbol = gAids.earlier ? @"clock.arrow.circlepath" : @"sparkles";
+                r.text = gAids.earlier ? trp("Before: {n} QSO with {call}, the last {last}", "Before: {n} QSOs with {call}, the last {last}",
+                                             (long long)gAids.earlier, {{"call", call}, {"last", gAids.lastQso}})
+                                       : trf("First QSO with {call} in this log", {{"call", call}});
+                rows.push_back(r);
+                if (!gAids.earlierNotes.empty()) {
+                    ADIFAidRow n;
+                    n.symbol = @"note.text";
+                    std::string notes = gAids.earlierNotes.size() > 160 ? gAids.earlierNotes.substr(0, 157) + "..." : gAids.earlierNotes;
+                    n.text = trf("Your notes then: {notes}", {{"notes", notes}});
+                    n.why = gAids.earlierNotes;
+                    rows.push_back(n);
+                }
+            }
+        }
+        // The suggestions: afresh at the moments the timing allows, else as they were.
+        bool callChanged = call != gAids.call;
+        if (callChanged) gAids.call = call, gAids.skip = 0;
+        bool afresh = !gAids.chosen || (timing == aids::Timing::Pauses && (callChanged || pause)) || (timing != aids::Timing::Manual && logged);
+        if (afresh) {
+            aids::Context c;
+            c.style = *style;
+            c.call = call;
+            c.name = !qsoValue("NAME").empty();
+            c.qth = !qsoValue("QTH").empty();
+            c.report = !qsoValue("RST_SENT").empty() && !qsoValue("RST_RCVD").empty();
+            c.notes = qsoValue("NOTES") + " " + qsoValue("COMMENT");
+            c.earlierNotes = gAids.earlierNotes;
+            c.earlier = gAids.earlier;
+            c.dismissed = aidsDismissed();
+            c.off = aidsTopicsOff(*style);
+            for (const aids::Prompt &p : aids::library()) c.noteWords.push_back(*p.note ? tr(p.note) : std::string());
+            c.skip = gAids.skip;
+            c.level = level;
+            gAids.shown = aids::suggest(c);
+            gAids.chosen = true;
+        }
+        std::string noteField = aidsNoteField();
+        gAids.facts = rows.size();
+        for (const aids::Suggestion &x : gAids.shown) {
+            if (level == aids::Level::Off) break;
+            ADIFAidRow r;
+            r.text = tr(x.prompt->text), r.why = x.why, r.suggestion = true;
+            r.note = *x.prompt->note && !noteField.empty();
+            rows.push_back(r);
+        }
+    } catch (...) {
+    }
+    NSString *title = level == aids::Level::Off ? TF(@"Operating Aids ({style}): off", @{@"style" : styleName})
+                                                : TF(@"Operating Aids ({style})", @{@"style" : styleName});
+    [g.qso setAidsTitle:title rows:rows menu:aidsMenu(*style) hidden:NO];
+}
+
+// Choose the suggestions again now (Skip, Dismiss, Note, an option changed).
+static void aidsAfresh() {
+    gAids.chosen = false;
+    updateAids(false, false);
+}
+
+static void aidPressed(NSString *action, NSInteger row) {
+    std::optional<adif::styles::OperatingStyle> style = aidsStyle();
+    if ([action isEqualToString:@"hide"] || [action isEqualToString:@"show"]) {
+        gAids.hidden = [action isEqualToString:@"hide"];
+        return aidsAfresh();
+    }
+    if (!style || row < (NSInteger)gAids.facts || (size_t)row - gAids.facts >= gAids.shown.size()) return;
+    const aids::Prompt &p = *gAids.shown[(size_t)row - gAids.facts].prompt;
+    if ([action isEqualToString:@"skip"]) {
+        ++gAids.skip;
+    } else if ([action isEqualToString:@"dismiss"]) {
+        std::set<std::string> d = aidsDismissed();
+        d.insert(p.id);
+        std::string v;
+        for (const std::string &t : d) v += (v.empty() ? "" : ",") + t;
+        adifhost::setSetting("aidsDismissed", v);
+    } else if ([action isEqualToString:@"note"]) {
+        // A few words in NOTES (or COMMENT), the caret after them: yours to finish, or to delete.
+        std::string field = aidsNoteField();
+        if (field.empty() || !*p.note) return;
+        [g.qso appendText:tr(p.note) toField:field];
+    }
+    aidsAfresh();
+}
+
+// The strip's Options: how many suggestions, when they change, which topics, the dismissed ones.
+static NSMenu *aidsMenu(adif::styles::OperatingStyle style) {
+    NSMenu *menu = [[NSMenu alloc] init];
+    menu.autoenablesItems = NO;
+    auto heading = [&](NSString *title) {
+        NSMenuItem *h = [menu addItemWithTitle:title action:nil keyEquivalent:@""];
+        h.enabled = NO;
+    };
+    auto choice = [&](NSString *title, bool on, void (^choose)(void)) {
+        NSMenuItem *i = [menu addItemWithTitle:title action:nil keyEquivalent:@""];
+        i.state = on ? NSControlStateValueOn : NSControlStateValueOff;
+        i.indentationLevel = 1;
+        ADIFBlockMenuItem(i, choose);
+        return i;
+    };
+    aids::Level level = aids::parseLevel(adifhost::setting(aidsKey("Level", style)));
+    heading(T(@"Suggestions at once"));
+    static NSString *const kLevels[] = {N(@"Off##aids"), N(@"Minimal (one)"), N(@"Standard (two)"), N(@"More (three)")};
+    for (int i = 0; i < 4; ++i) {
+        aids::Level l = (aids::Level)i;
+        choice(T(kLevels[i]), level == l, ^{
+            adifhost::setSetting(aidsKey("Level", style), std::string(aids::levelId(l)));
+            aidsAfresh();
+        });
+    }
+    [menu addItem:NSMenuItem.separatorItem];
+    aids::Timing timing = aids::parseTiming(adifhost::setting(aidsKey("Timing", style)));
+    heading(T(@"New suggestions"));
+    static NSString *const kTimings[] = {N(@"At natural pauses (a new call, a QSO logged)"), N(@"After each QSO"), N(@"Only when I press Skip")};
+    for (int i = 0; i < 3; ++i) {
+        aids::Timing t = (aids::Timing)i;
+        choice(T(kTimings[i]), timing == t, ^{
+            adifhost::setSetting(aidsKey("Timing", style), std::string(aids::timingId(t)));
+            aidsAfresh();
+        });
+    }
+    [menu addItem:NSMenuItem.separatorItem];
+    NSMenuItem *topics = [menu addItemWithTitle:T(@"Topics") action:nil keyEquivalent:@""];
+    NSMenu *sub = [[NSMenu alloc] init];
+    sub.autoenablesItems = NO;
+    std::set<std::string> off = aidsTopicsOff(style);
+    for (int i = 0; i < aids::kCategoryCount; ++i) {
+        aids::Category c = (aids::Category)i;
+        std::string id(aids::categoryId(c));
+        NSMenuItem *t = [sub addItemWithTitle:T(ADIFString(aids::categoryTitle(c))) action:nil keyEquivalent:@""];
+        t.state = off.count(id) ? NSControlStateValueOff : NSControlStateValueOn;
+        if (!aids::onAtFirst(c)) t.toolTip = T(@"Off at first: a personal topic, for when the other operator brings it up");
+        ADIFBlockMenuItem(t, ^{
+            std::set<std::string> now = aidsTopicsOff(style);
+            if (now.count(id)) now.erase(id);
+            else now.insert(id);
+            saveTopicsOff(style, now);
+            aidsAfresh();
+        });
+    }
+    topics.submenu = sub;
+    if (style == adif::styles::OperatingStyle::Portable) {  // the field's own switches, said here too
+        [menu addItem:NSMenuItem.separatorItem];
+        NSMenuItem *night = [menu addItemWithTitle:T(@"Night Mode (red, for your night vision)") action:nil keyEquivalent:@""];
+        night.state = ADIFNightMode() ? NSControlStateValueOn : NSControlStateValueOff;
+        ADIFBlockMenuItem(night, ^{
+            ADIFSetNightMode(!ADIFNightMode());
+            aidsAfresh();
+        });
+        NSMenuItem *offline = [menu addItemWithTitle:T(@"Offline Mode (nothing fetched or sent)") action:nil keyEquivalent:@""];
+        offline.state = ADIFOffline() ? NSControlStateValueOn : NSControlStateValueOff;
+        ADIFBlockMenuItem(offline, ^{
+            ADIFSetOffline(!ADIFOffline());
+            aidsAfresh();
+        });
+    }
+    [menu addItem:NSMenuItem.separatorItem];
+    size_t dismissed = aidsDismissed().size();
+    NSMenuItem *back = [menu addItemWithTitle:dismissed ? TF(@"Bring Back Dismissed Suggestions ({n})", @{@"n" : @(dismissed)})
+                                                        : T(@"Bring Back Dismissed Suggestions")
+                                       action:nil
+                                keyEquivalent:@""];
+    back.enabled = dismissed > 0;
+    ADIFBlockMenuItem(back, ^{
+        adifhost::setSetting("aidsDismissed", "");
+        aidsAfresh();
+    });
+    return menu;
 }
 
 static void scheduleLookup() {
@@ -3101,6 +3449,7 @@ static void setCountCharacters(bool on) {
 }
 
 static void cmdAbout() {
+    if (getenv("ADIFLINT_TEST_LANG_REPORT")) return;  // the language report opens every command; About is a modal alert nothing would close
     NSAlert *alert = [[NSAlert alloc] init];
     alert.messageText = [NSString stringWithFormat:T(@"ADIF Lint %s"), ADIFLINT_VERSION];
     alert.informativeText = [NSString

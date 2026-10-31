@@ -108,6 +108,8 @@ const size_t kNodeCount = sizeof kNodes / sizeof kNodes[0];
 namespace {
 
 constexpr double kSpotholeEvery = 120;  // Spothole reads POTA every 2 minutes; asking faster gains nothing
+constexpr double kSpotholeLowPower = 300;  // the Portable style: every 5 minutes
+double spotholeEvery() { return lowPower() ? kSpotholeLowPower : kSpotholeEvery; }
 constexpr double kSpotholeRefresh = 60;  // Refresh asks Spothole again at most once a minute
 constexpr long long kPskEvery = 300;    // PSKReporter: "no more often than once every five minutes"
 constexpr long long kPskGridWindow = 1800;  // around a square: the last half hour (an hour can be 1,500 reports)
@@ -186,7 +188,7 @@ std::string myCall(const Config &c) {
 void spotholeFetch() {
     if (f.spotholeBusy) return;
     double now = CFAbsoluteTimeGetCurrent();
-    if (f.spotholeAsked > 0 && now - f.spotholeAsked < kSpotholeEvery - 5) return;
+    if (f.spotholeAsked > 0 && now - f.spotholeAsked < spotholeEvery() - 5) return;
     f.spotholeBusy = true;
     f.spotholeAsked = now;
     void (^fetch)(void) = ^{
@@ -376,6 +378,7 @@ void clusterReceive(nw_connection_t conn, int gen) {
 }
 
 void clusterConnect() {
+    if (lowPower()) return;  // Portable: no connection kept open (restart says so)
     Config c = config();
     std::string call = myCall(c);
     if (c.host.empty() || c.port <= 0 || c.port > 65535) {
@@ -625,7 +628,7 @@ void mqttReceive(nw_connection_t conn, int gen) {
 void mqttStart() {
     mqttClose();
     Config c = config();
-    if (!f.wanted || !c.psk || ADIFOffline()) return;
+    if (!f.wanted || !c.psk || ADIFOffline() || lowPower()) return;
     f.pskArea = adif::PskArea();
     if (mqttTopics(c).empty()) return;  // no callsign, grid or area yet: the query says so
     f.mqttMe = c.pskQuery == 0 ? pskCall(c) : "";
@@ -683,15 +686,17 @@ void restart() {
     }
     if (c.spothole) {
         spotholeFetch();  // unless it was asked in the last 2 minutes
-        f.spotholeTimer = [NSTimer scheduledTimerWithTimeInterval:kSpotholeEvery repeats:YES block:^(NSTimer *) { spotholeFetch(); }];
+        f.spotholeTimer = [NSTimer scheduledTimerWithTimeInterval:spotholeEvery() repeats:YES block:^(NSTimer *) { spotholeFetch(); }];
     }
-    if (c.cluster) {
+    if (c.cluster && !lowPower()) {  // Portable: no connection kept open
         f.stopped = false, f.failures = 0;
         clusterConnect();
+    } else if (c.cluster) {
+        f.clusterStatus = tr("DX cluster: off in the Portable style, to save power and data.");
     }
     if (c.psk) {
         pskFetch();
-        mqttStart();
+        if (!lowPower()) mqttStart();
         f.pskTimer = [NSTimer scheduledTimerWithTimeInterval:30 repeats:YES block:^(NSTimer *) { pskFetch(); }];  // asks only every five minutes
     }
     f.prune = [NSTimer scheduledTimerWithTimeInterval:60 repeats:YES block:^(NSTimer *) {
@@ -703,6 +708,12 @@ void restart() {
 }
 
 }  // namespace
+
+bool lowPower() { return setting("mapOperatingStyle") == "portable"; }
+
+void policyChanged() {
+    if (f.wanted) restart();
+}
 
 void setWanted(bool w) {
     if (w == f.wanted) return;
@@ -724,7 +735,10 @@ void setFocusCall(const std::string &call) {
         f.list.clear(adif::SpotSource::PskReporter);
         f.pskStatus.clear();
         f.pskBackfilled = false;
-        if (f.wanted && config().psk && !ADIFOffline()) pskFetch(), mqttStart();
+        if (f.wanted && config().psk && !ADIFOffline()) {
+            pskFetch();
+            if (!lowPower()) mqttStart();
+        }
         changed();
     }
 }
@@ -780,7 +794,7 @@ std::string refreshNow() {
             f.spotholeAsked = 0;
             spotholeFetch();
             [f.spotholeTimer invalidate];  // the next round 2 minutes from now
-            f.spotholeTimer = [NSTimer scheduledTimerWithTimeInterval:kSpotholeEvery repeats:YES block:^(NSTimer *) { spotholeFetch(); }];
+            f.spotholeTimer = [NSTimer scheduledTimerWithTimeInterval:spotholeEvery() repeats:YES block:^(NSTimer *) { spotholeFetch(); }];
             said.push_back(tr("Spothole: asking now."));
         }
     }

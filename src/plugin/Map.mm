@@ -436,6 +436,8 @@ struct ADIFQuickRow {
 }
 @end
 
+NSString *const ADIFOperatingStyleChangedNotification = @"ADIFOperatingStyleChangedNotification";
+
 namespace worldmap {
 namespace {
 
@@ -480,7 +482,8 @@ struct {
     // The workflows (History: the log; Live: the spots), the sidebar with its Quick Views and
     // sections, the selected panel, the zoom buttons on the map, and the footer.
     NSSegmentedControl *workflow = nil;
-    NSPopUpButton *operatingStyleBar = nil;  // the toolbar's style menu: Social, Chasing, Contest, Portable (operatingStyle)
+    NSSegmentedControl *operatingStyleBar = nil;  // the toolbar's styles: Social, Chasing, Contest, Portable (operatingStyle)
+    NSPopUpButton *operatingStyleMenu = nil;      // beside them: No Style, Reset, Restore Previous Layout, What Changed
     NSPopover *styleChangesPopover = nil;    // its What Changed
     NSView *sidebar = nil, *selectedPanel = nil, *nav = nil, *spotsSection = nil;
     NSButton *paneToggle[3] = {};  // the sidebar, the list, the selected panel
@@ -2829,7 +2832,7 @@ void updateFilterButton() {
     } else {
         if (mw.spotLens > 0 && mw.quickRows && (size_t)mw.spotLens < mw.quickRows.rows.size()) active.push_back(mw.quickRows.rows[(size_t)mw.spotLens].title);
         std::string program = setting("mapSpotsProgram");
-        if (!program.empty()) active.push_back(program == "-" ? tr("Plain DX only") : program);
+        if (!program.empty() && workflow() != 3) active.push_back(program == "-" ? tr("Plain DX only") : program);
         if (!setting("mapSpotsHidden").empty() && mw.spotSourceBar.indexOfSelectedItem > 0) active.push_back(ADIFStd(mw.spotSourceBar.titleOfSelectedItem));
     }
     if (n) active.push_back(trp("{n} more filter", "{n} more filters", (long long)n));
@@ -3192,6 +3195,7 @@ adif::SpotFilter spotFilter() {
     std::string program = setting("mapSpotsProgram");
     if (program == "-") f.programs = {""};
     else if (!program.empty()) f.programs = {program};
+    if (workflow() == 3) f.programs = {"POTA"};  // POTA is Live for the parks: their activators only, whatever else was chosen
     if (flag("mapSpotsOnly", false)) {  // one station's spots: who heard it
         std::string call = setting("mapSpotsOnlyCall");
         f.onlyCall = call.empty() ? setting("stationCall") : call;
@@ -3216,12 +3220,17 @@ void fillSpotsPopover() {
         if (!sp.program.empty()) programs.insert(sp.program);
     std::string chosen = setting("mapSpotsProgram");
     if (!chosen.empty() && chosen != "-") programs.insert(chosen);
+    if (workflow() == 3) programs.insert("POTA");
     [mw.spotProgram removeAllItems];
     [mw.spotProgram addItemWithTitle:T(@"All programs")];
     [mw.spotProgram addItemWithTitle:T(@"Plain DX spots")];
     for (const std::string &p : programs) [mw.spotProgram addItemWithTitle:ADIFString(p)];
     if (chosen == "-") [mw.spotProgram selectItemAtIndex:1];
     else if (!chosen.empty()) [mw.spotProgram selectItemWithTitle:ADIFString(chosen)];
+    bool pota = workflow() == 3;
+    if (pota) [mw.spotProgram selectItemWithTitle:@"POTA"];
+    mw.spotProgram.enabled = !pota;  // POTA's own: Live has the others
+    mw.spotProgram.toolTip = pota ? T(@"POTA shows POTA's activators only: Live has every program's spots") : nil;
     std::string st = spotfeeds::status();
     if (!c.spothole && !c.cluster && !c.psk) st = tr("No spot source is turned on: choose them in Settings (Spots).");
     else if (st.empty()) st = tr("Tick Show under Spots to fetch them.");
@@ -5203,6 +5212,7 @@ void switchWorkflow(int to) {
     setSetting((fromKey + "Saved").c_str(), "1");
     bool saved = setting((toKey + "Saved").c_str()) == "1";
     for (const std::string &k : workflowKeys()) setSetting(k.c_str(), saved ? setting((toKey + k).c_str()) : workflowDefault(k, to));
+    if (to == 3) setSetting("mapSpotsProgram", "POTA");  // POTA's own, whatever Clear or a program menu left in its keeping
     setSetting("mapWorkflow", std::to_string(to));
     syncControls();
 }
@@ -5577,6 +5587,8 @@ void chooseQuickView(NSInteger row) {
 
 namespace styles = adif::styles;
 
+void styleChangedElsewhere() { [[NSNotificationCenter defaultCenter] postNotificationName:ADIFOperatingStyleChangedNotification object:nil]; }
+
 std::optional<styles::OperatingStyle> operatingStyle() { return styles::parse(setting("mapOperatingStyle")); }
 std::vector<std::string> styleKeys() { return styles::ownedKeys(workflowKeys()); }
 std::string styleGet(const std::string &key) { return setting(key.c_str()); }
@@ -5676,6 +5688,8 @@ void chooseOperatingStyle(std::optional<styles::OperatingStyle> to) {
     setSetting("mapOperatingStyle", to ? std::string(styles::id(*to)) : "");
     if (to) setStyleValues(styles::target(*to, keys, styleGet), !styles::hasSaved(*to, styleGet));
     noteStyleChange(from, to, before);
+    if (from == styles::OperatingStyle::Portable || to == styles::OperatingStyle::Portable) spotfeeds::policyChanged();  // its lighter spots
+    styleChangedElsewhere();
 }
 
 // Reset: the style's defaults again, its saved changes forgotten.
@@ -5702,6 +5716,8 @@ void restorePreviousStyle() {
     setStyleValues(values, false);
     lastStyleChange.reset();
     fillOperatingStyleBar();
+    if (back.from == styles::OperatingStyle::Portable || back.to == styles::OperatingStyle::Portable) spotfeeds::policyChanged();
+    styleChangedElsewhere();
 }
 
 // A setting as What Changed names it, and its value, in the words of the sidebar, the toolbar and
@@ -5746,7 +5762,7 @@ std::pair<std::string, std::string> describeStyleSetting(const std::string &key,
 
 // What the last change of style changed, a row a setting, in a popover under the style menu.
 void showStyleChanges() {
-    if (!lastStyleChange || !mw.operatingStyleBar) return;
+    if (!lastStyleChange || !mw.operatingStyleMenu) return;
     const styles::Transition &t = *lastStyleChange;
     int wfBefore = 0, wfAfter = 0;
     for (const styles::Change &c : t.changes)
@@ -5810,43 +5826,48 @@ void showStyleChanges() {
     [body layoutSubtreeIfNeeded];
     CGFloat wide = std::max({list.fittingSize.width, title.fittingSize.width, count.fittingSize.width});
     p.contentSize = NSMakeSize(wide + body.edgeInsets.left + body.edgeInsets.right, body.fittingSize.height);  // the rows inside its margins
-    [p showRelativeToRect:mw.operatingStyleBar.bounds ofView:mw.operatingStyleBar preferredEdge:NSRectEdgeMaxY];
+    [p showRelativeToRect:mw.operatingStyleMenu.bounds ofView:mw.operatingStyleMenu preferredEdge:NSRectEdgeMaxY];
     mw.styleChangesPopover = p;
 }
 
-// The style menu: no style, the four, then Reset, Restore Previous Layout and What Changed; its
-// title the style chosen, marked when its settings were changed since.
+// The styles' segments (the one chosen selected, a dot after its name once its settings were
+// changed), and their menu: No Style, Reset, Restore Previous Layout, What Changed.
+static NSString *const kStyleTips[styles::kStyleCount] = {
+    N(@"Social: a comfortable QSO with context. Your log's contacts and lines to them, with distance and bearing; spots quiet"),
+    N(@"Chasing: the next needed contact. DX Chase, the stations needed on their band first, with DXCC shading and the grey line"),
+    N(@"Contest: valid contacts quickly. Live, every spot with its call, CQ zones, high contrast; nothing else moves"),
+    N(@"Portable: operate in the field. Your log's contacts, distance rings, larger high-contrast text; no feed starts by itself")};
+
 void fillOperatingStyleBar() {
-    NSPopUpButton *bar = mw.operatingStyleBar;
+    NSSegmentedControl *bar = mw.operatingStyleBar;
     if (!bar) return;
-    NSMenu *menu = bar.menu;
-    [menu removeAllItems];
-    menu.autoenablesItems = NO;
     std::optional<styles::OperatingStyle> now = operatingStyle();
     bool changed = now && styles::customized(*now, styleGet);
-    NSString *title = now ? (changed ? TF(@"{style} (changed)", @{@"style" : T(ADIFString(styles::title(*now)))}) : T(ADIFString(styles::title(*now))))
-                          : T(@"Operating Style");
-    [menu addItemWithTitle:title action:nil keyEquivalent:@""];  // a pull-down's title
-    bar.accessibilityValue = now ? title : T(@"None");
+    for (int i = 0; i < styles::kStyleCount; ++i) {
+        auto s = (styles::OperatingStyle)i;
+        NSString *name = T(ADIFString(styles::title(s)));
+        bool chosen = now == s;
+        [bar setLabel:chosen && changed ? [name stringByAppendingString:@" •"] : name forSegment:i];
+        [bar setSelected:chosen forSegment:i];
+        NSString *tip = T(kStyleTips[i]);
+        if (chosen) tip = [tip stringByAppendingFormat:@"\n%@", changed ? T(@"• You changed its settings: Reset gives its own back (the menu beside)")
+                                                                        : T(@"Chosen: click it again for no style")];
+        [bar setToolTip:tip forSegment:i];
+    }
+    bar.accessibilityValue = now ? (changed ? TF(@"{style}, changed", @{@"style" : T(ADIFString(styles::title(*now)))}) : T(ADIFString(styles::title(*now))))
+                                 : T(@"None");
+    [bar invalidateIntrinsicContentSize];
+    NSPopUpButton *actions = mw.operatingStyleMenu;
+    if (!actions) return;
+    NSMenu *menu = actions.menu;
+    [menu removeAllItems];
+    menu.autoenablesItems = NO;
+    NSMenuItem *face = [menu addItemWithTitle:@"" action:nil keyEquivalent:@""];  // a pull-down's title: its icon
+    face.image = [NSImage imageWithSystemSymbolName:@"ellipsis.circle" accessibilityDescription:T(@"Operating style options")];
     NSMenuItem *none = [menu addItemWithTitle:T(@"No Style") action:nil keyEquivalent:@""];
     none.state = now ? NSControlStateValueOff : NSControlStateValueOn;
     none.toolTip = T(@"The map as you set it: choosing no style changes nothing");
     ADIFBlockMenuItem(none, ^{ chooseOperatingStyle(std::nullopt); });
-    static NSString *const kSymbols[styles::kStyleCount] = {@"person.2", @"scope", @"trophy", @"backpack"};
-    static NSString *const kTips[styles::kStyleCount] = {
-        N(@"Social: a comfortable QSO with context. Your log's contacts and lines to them, with distance and bearing; spots quiet"),
-        N(@"Chasing: the next needed contact. DX Chase, the stations needed on their band first, with DXCC shading and the grey line"),
-        N(@"Contest: valid contacts quickly. Live, every spot with its call, CQ zones, high contrast; nothing else moves"),
-        N(@"Portable: operate in the field. Your log's contacts, distance rings, larger high-contrast text; no feed starts by itself")};
-    for (int i = 0; i < styles::kStyleCount; ++i) {
-        auto s = (styles::OperatingStyle)i;
-        NSMenuItem *item = [menu addItemWithTitle:T(ADIFString(styles::title(s))) action:nil keyEquivalent:@""];
-        item.image = [NSImage imageWithSystemSymbolName:kSymbols[i] accessibilityDescription:nil];
-        item.state = now == s ? NSControlStateValueOn : NSControlStateValueOff;
-        item.toolTip = T(kTips[i]);
-        item.representedObject = ADIFString(std::string(styles::id(s)));
-        ADIFBlockMenuItem(item, ^{ chooseOperatingStyle(s); });
-    }
     [menu addItem:NSMenuItem.separatorItem];
     NSMenuItem *reset = [menu addItemWithTitle:now ? TF(@"Reset {style}", @{@"style" : T(ADIFString(styles::title(*now)))}) : T(@"Reset Style")
                                         action:nil
@@ -5862,7 +5883,6 @@ void fillOperatingStyleBar() {
     what.enabled = lastStyleChange.has_value();
     what.toolTip = T(@"Each setting the last change of style changed, before and after");
     ADIFBlockMenuItem(what, ^{ showStyleChanges(); });
-    [bar invalidateIntrinsicContentSize];
 }
 
 // ── The watch list: the calls, references and DXCC entities you want to know are on the air ──
@@ -6359,7 +6379,15 @@ void fillDxccPotaBars() {
         if (kDxccLens[i] == mw.spotLens) at = i;
     [mw.dxccBar selectItemAtIndex:at];
     std::string program = setting("mapSpotsProgram");
+    bool pota = workflow() == 3;  // POTA: its activators, all of them or the parks not worked; never the others' spots
+    if (pota) program = "POTA";
     [mw.potaBar selectItemAtIndex:program == "-" ? 3 : program == "POTA" ? (mw.spotLens == 5 ? 2 : 1) : 0];
+    mw.potaBar.menu.autoenablesItems = NO;
+    for (NSInteger i : {0, 3})
+        if (NSMenuItem *item = [mw.potaBar itemAtIndex:i]) {
+            item.enabled = !pota;
+            item.toolTip = pota ? T(@"POTA shows POTA's activators only: Live has every program's spots") : nil;
+        }
     for (NSPopUpButton *p in @[ mw.dxccBar, mw.potaBar ]) [p invalidateIntrinsicContentSize];  // "DXCC: New band" is wider than "New band"
     for (NSView *v = mw.dxccBar.superview; v; v = v.superview)
         if ([v isKindOfClass:ADIFFlowView.class]) v.needsLayout = YES;
@@ -6429,9 +6457,15 @@ void fillLayerMenu(NSMenu *menu) {
         });
     };
     menu.autoenablesItems = NO;
-    toggle(N(@"Worked"), mw.show[id]);
-    toggle(N(@"All"), mw.overlay[id]);
-    toggle(N(@"Labels"), mw.labels[id]);
+    if (id == kLayerSpots) {  // as its row: All, Labels; and the lines from the spotters
+        toggle(N(@"All"), mw.show[id]);
+        toggle(N(@"Labels"), mw.labels[id]);
+        toggle(N(@"Lines from the spotters"), mw.overlay[id]);
+    } else {
+        toggle(N(@"Worked"), mw.show[id]);
+        toggle(N(@"All"), mw.overlay[id]);
+        toggle(N(@"Labels"), mw.labels[id]);
+    }
     [menu addItem:NSMenuItem.separatorItem];
     NSMenuItem *only = [menu addItemWithTitle:T(@"Only This Layer") action:nil keyEquivalent:@""];
     ADIFBlockMenuItem(only, ^{  // this one shown, with its labels; the other layers (not the spots) off
@@ -6589,6 +6623,14 @@ void cmdMap() {
             name.toolTip = T(@"Right-click for this layer's menu: its boxes, this layer only, the shading");
             name.identifier = [@"map.layername." stringByAppendingString:l.ident];
             [mw.layerMenus addObject:name.menu];
+            if (l.id == kLayerSpots) {  // spots are never "worked": All shows them, Labels their calls; the lines from the spotters are in Spots
+                mw.show[l.id].toolTip = T(@"All: the stations spotted now, from the sources chosen in Spots (Spothole, a DX cluster, PSKReporter), "
+                                          @"coloured as Colour by says");
+                [layerGroups[group].rows addObject:@[ name, [NSGridCell emptyContentView], mw.show[l.id], mw.labels[l.id] ]];
+                mw.overlay[l.id].title = T(@"Lines from the spotters");
+                mw.overlay[l.id].accessibilityLabel = nil;  // its title says it now
+                continue;
+            }
             [layerGroups[group].rows addObject:@[ name, mw.show[l.id] ?: [NSGridCell emptyContentView], mw.overlay[l.id], mw.labels[l.id] ]];
         }
         NSMutableArray<NSView *> *layerCards = [NSMutableArray array];
@@ -6854,8 +6896,8 @@ void cmdMap() {
         mw.moreFilters.identifier = @"map.filter.more";
         mw.clearFilters = smallButton(@"Clear", @"Show every QSO again: all bands, modes, dates and places (and in Live, every spot)", ^{
             for (NSPopUpButton *p in @[ mw.band, mw.mode, mw.dates, mw.confirmed ]) [p selectItemAtIndex:0];
-            if (live()) {  // every spot again: any program and source too
-                setSetting("mapSpotsProgram", "");
+            if (live()) {  // every spot again: any program (POTA's own in POTA) and source too
+                setSetting("mapSpotsProgram", workflow() == 3 ? "POTA" : "");
                 setSetting("mapSpotsHidden", "");
                 fillSpotsPopover();
                 if (mw.spotLens > 0) chooseQuickView(0);
@@ -7093,7 +7135,7 @@ void cmdMap() {
                 else if (menu == mw.homeMenu) fillHomeMenu(menu);
                 else if (menu == mw.findMenu) fillFindMenu(menu);
                 else if (menu == mw.viewsMenu) fillViewsMenu(menu);
-                else if (menu == mw.operatingStyleBar.menu) fillOperatingStyleBar();
+                else if (menu == mw.operatingStyleMenu.menu) fillOperatingStyleBar();
                 else if ([menu.title hasPrefix:@"layer:"]) fillLayerMenu(menu);
                 else fillColumnsMenu(menu, menu == columnsMenu);
             };
@@ -7260,13 +7302,37 @@ void cmdMap() {
         mw.workflow.selectedSegment = workflow();
         mw.workflow.identifier = @"map.workflow";
         ADIFOnAction(mw.workflow, ^{ switchWorkflow((int)mw.workflow.selectedSegment); });
-        // The operating style: what the Map shows for a way of operating, and back.
-        mw.operatingStyleBar = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:YES];
+        // The operating style: what the Map shows for a way of operating, a segment each, like the
+        // workflows'; the chosen one clicked again is no style. Its menu beside: Reset, Restore, What Changed.
+        mw.operatingStyleBar = [NSSegmentedControl segmentedControlWithLabels:@[ @"", @"", @"", @"" ]
+                                                                 trackingMode:NSSegmentSwitchTrackingSelectAny
+                                                                       target:nil
+                                                                       action:nil];
+        {
+            static NSString *const kStyleSymbols[styles::kStyleCount] = {@"person.2", @"binoculars", @"trophy", @"backpack"};
+            for (int i = 0; i < styles::kStyleCount; ++i)
+                [mw.operatingStyleBar setImage:[NSImage imageWithSystemSymbolName:kStyleSymbols[i] accessibilityDescription:nil] forSegment:i];
+        }
         mw.operatingStyleBar.identifier = @"map.operatingStyle";
         mw.operatingStyleBar.accessibilityLabel = T(@"Operating style");
-        mw.operatingStyleBar.toolTip = T(@"Operating style: the map set up for Social, Chasing, Contest or Portable operating. Each keeps your "
-                                         @"changes to it; Restore Previous Layout undoes a change of style, What Changed lists what it set");
-        mw.operatingStyleBar.menu.delegate = mw.listRows;
+        ADIFOnAction(mw.operatingStyleBar, ^{
+            // The segment whose state now differs from the style chosen is the one clicked: on, that style; off, none.
+            std::optional<styles::OperatingStyle> now = operatingStyle();
+            for (int i = 0; i < styles::kStyleCount; ++i) {
+                bool on = [mw.operatingStyleBar isSelectedForSegment:i], was = now == (styles::OperatingStyle)i;
+                if (on == was) continue;
+                chooseOperatingStyle(on ? std::optional<styles::OperatingStyle>((styles::OperatingStyle)i) : std::nullopt);
+                break;
+            }
+            fillOperatingStyleBar();
+        });
+        mw.operatingStyleMenu = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:YES];
+        mw.operatingStyleMenu.bordered = NO;
+        mw.operatingStyleMenu.identifier = @"map.operatingStyle.menu";
+        mw.operatingStyleMenu.accessibilityLabel = T(@"Operating style options");
+        mw.operatingStyleMenu.toolTip = T(@"No Style, Reset the style chosen, Restore Previous Layout (undo the last change of style), and What "
+                                          @"Changed (each setting it set)");
+        mw.operatingStyleMenu.menu.delegate = mw.listRows;
         fillOperatingStyleBar();
         mw.summaryLabel = [NSTextField labelWithString:@""];
         mw.summaryLabel.font = [NSFont systemFontOfSize:NSFont.systemFontSize weight:NSFontWeightSemibold];
@@ -7428,7 +7494,7 @@ void cmdMap() {
         [mw.focusButton setButtonType:NSButtonTypePushOnPushOff];
         toolbarIcon(mw.focusButton, @"arrow.up.left.and.arrow.down.right");
         mw.focusButton.identifier = @"map.toolbar.focus";
-        for (NSView *v in @[ mw.operatingStyleBar, mw.workflow, mw.scopeLabel, cluster(@[ mw.band, mw.mode, mw.dates, mw.confirmed, mw.dxccBar, mw.potaBar, mw.spotAgeBar, mw.spotSourceBar, mw.continentPopup, mw.moreFilters ]),
+        for (NSView *v in @[ cluster(@[ mw.operatingStyleBar, mw.operatingStyleMenu ]), mw.workflow, mw.scopeLabel, cluster(@[ mw.band, mw.mode, mw.dates, mw.confirmed, mw.dxccBar, mw.potaBar, mw.spotAgeBar, mw.spotSourceBar, mw.continentPopup, mw.moreFilters ]),
                              cluster(@[ mw.chips, mw.clearFilters ]), cluster(@[ keepView, copyButton, mw.focusButton ]) ])
             [toolbar addSubview:v];
 
@@ -7636,7 +7702,7 @@ void cmdMap() {
             if (mw.layerGroupCards[ADIFString(n)]) setLayerGroupOpen(ADIFString(n), false);
         NSArray<NSView *> *sectionViews = @[
             section(@"views", N(@"Quick Views"), @"bookmark", viewsBody),
-            mw.spotsSection = section(@"spots", N(@"Spots"), @"antenna.radiowaves.left.and.right", rows(@[ mw.heatBox, spotsLine, onlyLine, mw.watchEdit ], 8)),
+            mw.spotsSection = section(@"spots", N(@"Spots"), @"antenna.radiowaves.left.and.right", rows(@[ mw.heatBox, mw.overlay[kLayerSpots], spotsLine, onlyLine, mw.watchEdit ], 8)),
             section(@"layers", N(@"Layers"), @"square.3.stack.3d", layerSection), section(@"map", N(@"Map"), @"map", mapRows)
         ];
         mw.spotsSection.hidden = !live();

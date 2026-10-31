@@ -46,6 +46,7 @@ enum : uintptr_t { kNpp = 1, kSciMain = 2, kSciSecond = 3 };
 
 static struct Host {
     std::string doc;
+    bool modified = false;  // the document has changes not saved (SCI_GETMODIFY)
     std::string path = "/tmp/test.adi";
     std::string configDir;
     intptr_t pos = 0;
@@ -149,6 +150,7 @@ static intptr_t sendMessage(uintptr_t handle, uint32_t msg, uintptr_t w, intptr_
     } else if (handle == kSciMain || handle == kSciSecond) {
         switch (msg) {
             case SCI_GETLENGTH: return (intptr_t)H.doc.size();
+            case SCI_GETMODIFY: return H.modified;
             case SCI_GETCHARACTERPOINTER: return (intptr_t)H.doc.c_str();
             case SCI_GETCODEPAGE: return SC_CP_UTF8;
             case SCI_GETEOLMODE: return SC_EOL_LF;
@@ -1033,7 +1035,7 @@ int main(int argc, char **argv) {
             };
             for (int i = 0; i < n; ++i) {
                 std::string item = items[i]._itemName;
-                if (!items[i]._pFunc || i == n - 1) continue;  // separators; About (an alert)
+                if (!items[i]._pFunc) continue;  // separators (About shows nothing while the report runs: a modal alert)
                 closeAll();
                 items[i]._pFunc();
                 pump(0.3);
@@ -5769,6 +5771,22 @@ int main(int argc, char **argv) {
                 CHECK(stateShow.state == NSControlStateValueOff && stateAll.state == NSControlStateValueOff && !stateLabels.enabled &&
                           stateLabels.alphaValue < 0.6 && mapBox(@"labels", @"grid").alphaValue == 1,
                       "a Labels box for a hidden layer is faded (%.2f), a working one isn't", stateLabels.alphaValue);
+                {  // Spots in Places: never worked, so nothing under Worked; All shows them, Labels their calls; the lines from the
+                   // spotters a box of their own in the Spots section
+                    NSGridView *places = (NSGridView *)viewWithIdentifier(mapw.contentView, @"map.layers.places");
+                    NSInteger spotsRow = -1;
+                    for (NSInteger r = 0; places && r < places.numberOfRows; ++r)
+                        if ([[places cellAtColumnIndex:0 rowIndex:r].contentView.identifier isEqualToString:@"map.layername.spots"]) spotsRow = r;
+                    NSView *worked = spotsRow >= 0 ? [places cellAtColumnIndex:1 rowIndex:spotsRow].contentView : nil;
+                    NSView *all = spotsRow >= 0 ? [places cellAtColumnIndex:2 rowIndex:spotsRow].contentView : nil;
+                    NSView *labels = spotsRow >= 0 ? [places cellAtColumnIndex:3 rowIndex:spotsRow].contentView : nil;
+                    NSButton *lines = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.overlay.spots");
+                    CHECK(spotsRow >= 0 && ![worked isKindOfClass:NSButton.class] && [all.identifier isEqualToString:@"map.show.spots"] &&
+                              [labels.identifier isEqualToString:@"map.labels.spots"] && [lines.title isEqualToString:@"Lines from the spotters"] &&
+                              [lines isDescendantOf:viewWithIdentifier(mapw.contentView, @"map.group.spots")],
+                          "Spots in Places: All and Labels (nothing under Worked); the lines from the spotters in the Spots section (%s, %s)",
+                          all.identifier.UTF8String, labels.identifier.UTF8String);
+                }
                 NSSegmentedControl *palettes = (NSSegmentedControl *)viewWithIdentifier(mapw.contentView, @"map.palette");
                 NSInteger was = palettes.selectedSegment;
                 palettes.selectedSegment = 3;
@@ -7322,6 +7340,13 @@ int main(int argc, char **argv) {
                         toWorkflow(3);
                         std::string pota = listedCalls();
                         bool potaView = views.selectedRow == 6 && isOn(@"show", @"pota") && isOn(@"overlay", @"pota") && !isOn(@"show", @"countries");
+                        {  // POTA is its activators only: Clear keeps that, and the program menu offers no other spots
+                            NSPopUpButton *programs = (NSPopUpButton *)viewWithIdentifier(mapw.contentView, @"map.filter.pota");
+                            [(NSButton *)viewWithIdentifier(mapw.contentView, @"map.filter.clear") performClick:nil];
+                            std::string cleared = listedCalls();
+                            CHECK(cleared == "K9ABC" && ![programs itemAtIndex:0].enabled && ![programs itemAtIndex:3].enabled && [programs itemAtIndex:1].enabled,
+                                  "POTA: Clear keeps its activators only (%s); Any program and Plain DX only not offered", cleared.c_str());
+                        }
                         toWorkflow(1);
                         CHECK(wf.segmentCount == 4 && dxView && dxChase == "1A0KM" && potaView && pota == "K9ABC" && views.selectedRow == 0 && isOn(@"show", @"countries"),
                               "DX Chase lists %s (Needed on its band, plain DX), POTA lists %s (the activators), Live as it was", dxChase.c_str(), pota.c_str());
@@ -7355,7 +7380,8 @@ int main(int argc, char **argv) {
             // Previous Layout and What Changed; the map's place never moves.
             run("Map & Explorer...");
             pump(0.2);
-            if (NSPopUpButton *styleBar = (NSPopUpButton *)viewWithIdentifier(mapw.contentView, @"map.operatingStyle")) {
+            if (NSSegmentedControl *styleBar = (NSSegmentedControl *)viewWithIdentifier(mapw.contentView, @"map.operatingStyle")) {
+                NSPopUpButton *styleActions = (NSPopUpButton *)viewWithIdentifier(mapw.contentView, @"map.operatingStyle.menu");
                 auto iniValue = [&](const std::string &key) {
                     NSString *f = [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint.ini"] encoding:NSUTF8StringEncoding error:nil];
                     std::string s = "\n" + std::string((f ?: @"").UTF8String), at = "\n" + key + "=";
@@ -7388,32 +7414,44 @@ int main(int argc, char **argv) {
                     snprintf(b, sizeof b, "%.3f,%.3f,%.3f", lon, lat, zoom);
                     return std::string(b);
                 };
-                auto styleItem = [&](NSString *titleOrId) -> NSInteger {
-                    [styleBar.menu.delegate menuNeedsUpdate:styleBar.menu];  // as when it opens
-                    NSInteger i = [styleBar.menu indexOfItemWithRepresentedObject:titleOrId];
-                    if (i < 0) i = [styleBar.menu indexOfItemWithTitle:titleOrId];
-                    for (NSInteger k = 1; i < 0 && k < styleBar.menu.numberOfItems; ++k)
-                        if ([[styleBar.menu itemAtIndex:k].title hasPrefix:titleOrId]) i = k;
-                    return i;
+                // A style: its segment clicked. Anything else: the menu beside them (No Style, Reset, Restore, What Changed).
+                NSArray<NSString *> *const styleIds = @[ @"social", @"chasing", @"contest", @"portable" ];
+                auto styleItem = [&](NSString *title) -> NSInteger {
+                    [styleActions.menu.delegate menuNeedsUpdate:styleActions.menu];  // as when it opens
+                    for (NSInteger k = 1; k < styleActions.menu.numberOfItems; ++k)
+                        if ([[styleActions.menu itemAtIndex:k].title hasPrefix:title]) return k;
+                    return -1;
                 };
                 auto styleMenu = [&](NSString *titleOrId) {
+                    NSUInteger seg = [styleIds indexOfObject:titleOrId];
+                    if (seg != NSNotFound) {
+                        [styleBar setSelected:YES forSegment:(NSInteger)seg];
+                        [styleBar sendAction:styleBar.action to:styleBar.target];
+                        pump(0.3);
+                        return true;
+                    }
                     NSInteger i = styleItem(titleOrId);
-                    if (i > 0 && [styleBar.menu itemAtIndex:i].enabled) [styleBar.menu performActionForItemAtIndex:i];
+                    if (i > 0 && [styleActions.menu itemAtIndex:i].enabled) [styleActions.menu performActionForItemAtIndex:i];
                     pump(0.3);
                     return i > 0;
+                };
+                auto styleShown = [&]() -> std::string {  // the chosen segment's label ("" none)
+                    for (NSInteger k = 0; k < styleBar.segmentCount; ++k)
+                        if ([styleBar isSelectedForSegment:k]) return [styleBar labelForSegment:k].UTF8String;
+                    return "";
                 };
                 NSSegmentedControl *wfBar = (NSSegmentedControl *)viewWithIdentifier(mapw.contentView, @"map.workflow");
                 NSTableView *quick = (NSTableView *)viewWithIdentifier(mapw.contentView, @"map.views");
                 std::string start = values(), where = place();
-                CHECK([styleBar.titleOfSelectedItem isEqualToString:@"Operating Style"] || [[styleBar itemAtIndex:0].title isEqualToString:@"Operating Style"],
-                      "the style menu: none chosen at first (%s)", [styleBar itemAtIndex:0].title.UTF8String);
-                CHECK(styleBar.accessibilityLabel.length && styleItem(@"social") > 0 && styleItem(@"chasing") > 0 && styleItem(@"contest") > 0 &&
-                          styleItem(@"portable") > 0 && ![styleBar.menu itemAtIndex:styleItem(@"Restore Previous Layout")].enabled,
-                      "the style menu: four styles, labelled for VoiceOver, nothing to restore yet");
+                CHECK(styleShown().empty(), "the styles: none chosen at first (%s)", styleShown().c_str());
+                CHECK(styleBar.accessibilityLabel.length && styleBar.segmentCount == 4 && [[styleBar labelForSegment:0] isEqualToString:@"Social"] &&
+                          [[styleBar labelForSegment:3] isEqualToString:@"Portable"] && styleActions && styleItem(@"Restore Previous Layout") > 0 &&
+                          ![styleActions.menu itemAtIndex:styleItem(@"Restore Previous Layout")].enabled,
+                      "the styles: four segments, as the workflows', labelled for VoiceOver; their menu, nothing to restore yet");
 
                 styleMenu(@"chasing");
                 CHECK(wfBar.selectedSegment == 2 && quick.selectedRow == 1 && iniValue("mapOperatingStyle") == "chasing" && iniValue("mapGreyLine") == "1" &&
-                          [[styleBar itemAtIndex:0].title isEqualToString:@"Chasing"],
+                          styleShown() == "Chasing",
                       "Chasing: DX Chase, Needed on its band, the grey line (%s)", values().c_str());
                 CHECK(place() == where, "a style leaves the map where it was (%s, was %s)", place().c_str(), where.c_str());
                 styleMenu(@"What Changed...");
@@ -7439,18 +7477,18 @@ int main(int argc, char **argv) {
                 NSButton *greyLine = findButton(mapw.contentView, @"Grey line");
                 setBox(greyLine, false);
                 pump(0.2);
-                CHECK(iniValue("mapGreyLine") == "0" && [[styleBar itemAtIndex:0].title isEqualToString:@"Chasing (changed)"],
-                      "a change to Chasing marks it changed (%s)", [styleBar itemAtIndex:0].title.UTF8String);
+                CHECK(iniValue("mapGreyLine") == "0" && styleShown() == "Chasing \u2022",
+                      "a change to Chasing marks it changed (%s)", styleShown().c_str());
                 styleMenu(@"contest");
                 CHECK(wfBar.selectedSegment == 1 && quick.selectedRow == 0 && iniValue("mapPalette") == "2" && iniValue("mapSpotLabels") == "1" &&
                           iniValue("mapShowCq") == "1" && iniValue("mapDxcc") == "0" && iniValue("mapStyleChasingSaved") == "1",
                       "Contest: Live, All spots, high contrast, spot labels and CQ zones; Chasing kept (%s)", values().c_str());
                 styleMenu(@"chasing");
                 CHECK(wfBar.selectedSegment == 2 && iniValue("mapGreyLine") == "0" && iniValue("mapPalette") == "0" &&
-                          [[styleBar itemAtIndex:0].title isEqualToString:@"Chasing (changed)"],
+                          styleShown() == "Chasing \u2022",
                       "Chasing again as it was left: the grey line off (%s)", values().c_str());
                 styleMenu(@"Reset");
-                CHECK(iniValue("mapGreyLine") == "1" && [[styleBar itemAtIndex:0].title isEqualToString:@"Chasing"] && iniValue("mapStyleChasingSaved").empty(),
+                CHECK(iniValue("mapGreyLine") == "1" && styleShown() == "Chasing" && iniValue("mapStyleChasingSaved").empty(),
                       "Reset Chasing: its defaults again (%s)", values().c_str());
                 styleMenu(@"Restore Previous Layout");
                 CHECK(iniValue("mapGreyLine") == "0", "Restore Previous Layout undoes Reset (grey line %s)", iniValue("mapGreyLine").c_str());
@@ -7464,7 +7502,7 @@ int main(int argc, char **argv) {
                 styleMenu(@"Restore Previous Layout");
                 CHECK(values() == chasing && iniValue("mapOperatingStyle") == "chasing", "Restore Previous Layout: Chasing exactly as it was (%s)", values().c_str());
                 styleMenu(@"No Style");
-                CHECK(values() == chasing && iniValue("mapOperatingStyle").empty() && [[styleBar itemAtIndex:0].title isEqualToString:@"Operating Style"],
+                CHECK(values() == chasing && iniValue("mapOperatingStyle").empty() && styleShown().empty(),
                       "No Style: the map stays as it is (%s)", values().c_str());
 
                 // What a style keeps (criterion 6): the band chosen and what is chosen on the map. Contest
@@ -7476,18 +7514,26 @@ int main(int argc, char **argv) {
                     [bandMenu sendAction:bandMenu.action to:bandMenu.target];
                 }
                 NSButton *beacons = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.beacons");
-                setBox(beacons, true);
                 styleMenu(@"social");
-                NSPoint fn31 = pointFor(-72.4, 41.8);
-                [mapView mouseDown:mouse(NSEventTypeLeftMouseDown, fn31, 1)];
-                [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, fn31, 1)];
-                pump(0.3);
+                {  // a contact chosen, from the list's Contacts (its first row), as a click on it would
+                    NSSegmentedControl *kinds = (NSSegmentedControl *)viewWithIdentifier(mapw.contentView, @"map.list.kind");
+                    NSTableView *listed = (NSTableView *)viewWithIdentifier(mapw.contentView, @"map.list.table");
+                    kinds.selectedSegment = 1;
+                    [kinds sendAction:kinds.action to:kinds.target];
+                    pump(0.2);
+                    if ([listed.dataSource numberOfRowsInTableView:listed] > 0) {
+                        [listed selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
+                        [listed.delegate tableViewSelectionDidChange:[NSNotification notificationWithName:NSTableViewSelectionDidChangeNotification object:listed]];
+                    }
+                    pump(0.3);
+                }
                 NSTextField *chosenTitle = (NSTextField *)viewWithIdentifier(mapw.contentView, @"map.contact.title");
                 NSString *chosenSocial = [chosenTitle.stringValue copy] ?: @"";
                 styleMenu(@"portable");
                 CHECK(band20 > 0 && bandMenu.indexOfSelectedItem == band20 && chosenSocial.length && [chosenTitle.stringValue isEqualToString:chosenSocial],
                       "Social to Portable: the band (%s) and what is chosen (%s, was %s) stay", bandMenu.titleOfSelectedItem.UTF8String,
                       chosenTitle.stringValue.UTF8String, chosenSocial.UTF8String);
+                setBox(beacons, true);  // on in Portable: Contest turns them off
                 std::string placed = place();
                 styleMenu(@"contest");
                 CHECK(iniValue("mapBeacons") == "0" && beacons.state == NSControlStateValueOff && bandMenu.indexOfSelectedItem == band20 && place() == placed &&
@@ -7504,14 +7550,18 @@ int main(int argc, char **argv) {
                 for (NSInteger r = 0; said && r < said.numberOfRows; ++r)
                     for (NSInteger c = 0; c < said.numberOfColumns; ++c) {
                         NSView *v = [said cellAtColumnIndex:c rowIndex:r].contentView;
-                        if (![v isKindOfClass:NSTextField.class] || !((NSTextField *)v).stringValue.length || !v.isAccessibilityElement)
-                            cellsSpoken = false, unspoken += " " + std::to_string(r) + ":" + std::to_string(c);
+                        // AppKit gives a label's accessibility to its cell: static text, its value the words.
+                        if (![v isKindOfClass:NSTextField.class] || ![[((NSTextField *)v).cell accessibilityRole] isEqualToString:NSAccessibilityStaticTextRole] ||
+                            ![[v.accessibilityValue description] isEqualToString:((NSTextField *)v).stringValue] || !((NSTextField *)v).stringValue.length)
+                            cellsSpoken = false, unspoken += " " + std::to_string(r) + ":" + std::to_string(c) + "=" + v.accessibilityRole.UTF8String + "/" +
+                                                                 std::to_string(v.isAccessibilityElement) + "/" + [v.accessibilityValue description].UTF8String;
                     }
                 CHECK(cellsSpoken, "VoiceOver: What Changed reads as words, a label a cell (%ld rows;%s)", said ? (long)said.numberOfRows : -1L, unspoken.c_str());
                 for (NSWindow *w in [NSApp.windows copy])
                     if (viewWithIdentifier(w.contentView, @"map.operatingStyle.changes")) [w orderOut:nil];
                 styleMenu(@"Restore Previous Layout");
-                CHECK(iniValue("mapBeacons") == "1" && beacons.state == NSControlStateValueOn, "Restore Previous Layout: the beacons on again");
+                CHECK(iniValue("mapBeacons") == "1" && beacons.state == NSControlStateValueOn, "Restore Previous Layout: the beacons on again (%s, box %ld, style %s)",
+                      iniValue("mapBeacons").c_str(), (long)beacons.state, iniValue("mapOperatingStyle").c_str());
                 setBox(beacons, false);
                 [bandMenu selectItemAtIndex:0];
                 [bandMenu sendAction:bandMenu.action to:bandMenu.target];
@@ -7529,19 +7579,180 @@ int main(int argc, char **argv) {
                 } while (k && k != loopStart && step < 5000);
                 CHECK(styleAt >= 0 && workflowAt > styleAt && !styleBar.refusesFirstResponder,
                       "the keyboard: the style menu in the Tab order, before the workflow (%ld, %ld)", (long)styleAt, (long)workflowAt);
-                [styleBar.menu.delegate menuNeedsUpdate:styleBar.menu];
-                bool named = true;
-                for (NSInteger i = 1; i < styleBar.menu.numberOfItems; ++i) {
-                    NSMenuItem *mi = [styleBar.menu itemAtIndex:i];
+                [styleActions.menu.delegate menuNeedsUpdate:styleActions.menu];
+                bool named = styleActions.accessibilityLabel.length > 0;
+                for (NSInteger i = 1; i < styleActions.menu.numberOfItems; ++i) {
+                    NSMenuItem *mi = [styleActions.menu itemAtIndex:i];
                     if (!mi.separatorItem && !mi.title.length) named = false;
                 }
+                for (NSInteger i = 0; i < styleBar.segmentCount; ++i)
+                    if (![styleBar labelForSegment:i].length || ![styleBar toolTipForSegment:i].length) named = false;
                 NSString *spokenValue = [styleBar.accessibilityValue description] ?: @"";
-                CHECK(([styleBar.accessibilityRole isEqualToString:NSAccessibilityMenuButtonRole] || [styleBar.accessibilityRole isEqualToString:NSAccessibilityPopUpButtonRole]) &&
-                          [styleBar.accessibilityLabel isEqualToString:@"Operating style"] &&
-                          [spokenValue isEqualToString:[styleBar itemAtIndex:0].title] && named && styleBar.toolTip.length,
-                      "VoiceOver: the style menu (%s) labelled (%s), its value the style (%s, titled %s), every item named", styleBar.accessibilityRole.UTF8String,
-                      styleBar.accessibilityLabel.UTF8String, spokenValue.UTF8String, [styleBar itemAtIndex:0].title.UTF8String);
+                std::string shown = styleShown();
+                std::string bare = shown.substr(0, shown.find(" \u2022"));
+                CHECK([styleBar.accessibilityLabel isEqualToString:@"Operating style"] && spokenValue.length && [spokenValue hasPrefix:@(bare.c_str())] && named,
+                      "VoiceOver: the styles labelled (%s), their value the style (%s, shown %s), every segment and menu item named and explained",
+                      styleBar.accessibilityLabel.UTF8String, spokenValue.UTF8String, shown.c_str());
                 styleMenu(@"No Style");
+
+                // Operating Aids (Stage 3): New QSO's strip in Social and Portable, on a log of its own (NOTES
+                // among its fields; K1ABC worked before with notes; one QSO uploaded to QRZ.com, one not).
+                {
+                    std::string wasDoc = H.doc, wasPath = H.path;
+                    H.doc = "aids\n<ADIF_VER:5>3.1.7\n<EOH>\n"
+                            "<CALL:5>K1ABC <QSO_DATE:8>20261001 <TIME_ON:4>1200 <BAND:3>40m <MODE:3>SSB <NAME:3>Bob <QTH:6>Boston <RST_SENT:2>59 "
+                            "<RST_RCVD:2>57 <NOTES:31>talked about his 3-element yagi <QRZCOM_QSO_UPLOAD_STATUS:1>Y <EOR>\n"
+                            "<CALL:4>W9XY <QSO_DATE:8>20261002 <TIME_ON:4>1300 <BAND:3>20m <MODE:2>CW <NAME:3>Ann <QTH:7>Madison <RST_SENT:3>599 "
+                            "<RST_RCVD:3>579 <NOTES:0> <EOR>\n";
+                    H.path = std::string(tmp.UTF8String) + "/aids.adi";
+                    notify(NPPN_BUFFERACTIVATED);
+                    notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+                    pump(0.3);
+                    run("New QSO...");
+                    pump(0.3);
+                    NSWindow *aw = qsoWindow();
+                    auto text = [&](NSString *ident) {
+                        NSControl *c = aw ? (NSControl *)viewWithIdentifier(aw.contentView, ident) : nil;
+                        return std::string((c ? c.stringValue : @"").UTF8String);
+                    };
+                    auto press = [&](NSString *ident) {
+                        NSButton *b = aw ? (NSButton *)viewWithIdentifier(aw.contentView, ident) : nil;
+                        [b performClick:nil];
+                        pump(0.2);
+                        return b != nil;
+                    };
+                    auto rowsSaid = [&]() {
+                        std::string all;
+                        for (int k = 0; k < 12; ++k)
+                            if (NSView *v = viewWithIdentifier(aw.contentView, [NSString stringWithFormat:@"newqso.aids.row.%d", k]))
+                                all += std::string(all.empty() ? "" : " | ") + ((NSTextField *)v).stringValue.UTF8String;
+                        return all;
+                    };
+                    auto typeCall = [&](NSString *call) {
+                        NSTextField *f = qsoControl(aw, @"CALL");
+                        f.stringValue = call;
+                        [[NSNotificationCenter defaultCenter] postNotificationName:NSControlTextDidChangeNotification object:f];
+                        pump(0.5);
+                    };
+                    auto optionsItem = [&](NSString *prefix) -> std::pair<NSMenu *, NSInteger> {
+                        NSPopUpButton *m = aw ? (NSPopUpButton *)viewWithIdentifier(aw.contentView, @"newqso.aids.menu") : nil;
+                        std::function<std::pair<NSMenu *, NSInteger>(NSMenu *)> seek = [&](NSMenu *menu) -> std::pair<NSMenu *, NSInteger> {
+                            for (NSInteger k = 0; k < menu.numberOfItems; ++k) {
+                                NSMenuItem *mi = [menu itemAtIndex:k];
+                                if (k > 0 && [mi.title hasPrefix:prefix]) return {menu, k};
+                                if (mi.submenu)
+                                    if (auto f = seek(mi.submenu); f.first) return f;
+                            }
+                            return {nil, -1};
+                        };
+                        return m ? seek(m.menu) : std::pair<NSMenu *, NSInteger>{nil, -1};
+                    };
+                    auto option = [&](NSString *prefix) {
+                        auto [menu, k] = optionsItem(prefix);
+                        if (menu) [menu performActionForItemAtIndex:k];
+                        pump(0.2);
+                        return menu != nil;
+                    };
+                    CHECK(aw && text(@"newqso.aids.title").empty(), "Operating Aids: none with no style chosen");
+                    styleMenu(@"social");
+                    typeCall(@"K1ABC");
+                    snapshot(aw, "newqso-aids-social");
+                    std::string social = rowsSaid();
+                    CHECK(text(@"newqso.aids.title") == "Operating Aids (Social)" && social.find("Before: 1 QSO with K1ABC, the last 2026-10-01 on 40m SSB") == 0 &&
+                              social.find("Your notes then: talked about his 3-element yagi") != std::string::npos,
+                          "Social: your QSO with K1ABC before, and what you noted (%s)", social.c_str());
+                    std::string first = text(@"newqso.aids.row.2"), second = text(@"newqso.aids.row.3");
+                    CHECK(!first.empty() && !second.empty() && social.find("rig and antenna") == std::string::npos &&
+                              [((NSTextField *)viewWithIdentifier(aw.contentView, @"newqso.aids.row.2")).accessibilityLabel hasPrefix:@"Suggestion: "],
+                          "Social: two suggestions, none about the antenna the notes have, each said to VoiceOver as a suggestion (%s; %s)", first.c_str(),
+                          second.c_str());
+                    press(@"newqso.aids.skip.2");
+                    CHECK(text(@"newqso.aids.row.2") == second, "Skip: the next suggestion moves up (%s)", text(@"newqso.aids.row.2").c_str());
+                    // Note: a few words in NOTES, for you to finish; that topic isn't suggested again.
+                    NSInteger noteRow = -1;
+                    for (int k = 2; k < 6 && noteRow < 0; ++k)
+                        if (viewWithIdentifier(aw.contentView, [NSString stringWithFormat:@"newqso.aids.note.%d", k])) noteRow = k;
+                    std::string noted = noteRow >= 0 ? text([NSString stringWithFormat:@"newqso.aids.row.%ld", (long)noteRow]) : "";
+                    press([NSString stringWithFormat:@"newqso.aids.note.%ld", (long)noteRow]);
+                    std::string notes = qsoControl(aw, @"NOTES").stringValue.UTF8String;
+                    CHECK(noteRow >= 0 && notes.size() > 2 && notes.back() == ' ' && notes.find(':') != std::string::npos && rowsSaid().find(noted) == std::string::npos &&
+                              [aw.firstResponder isKindOfClass:NSTextView.class],
+                          "Note: \"%s\" in NOTES to finish, the caret there; %s not suggested again", notes.c_str(), noted.c_str());
+                    std::string dismissedText = text(@"newqso.aids.row.2");
+                    press(@"newqso.aids.dismiss.2");
+                    CHECK(!iniValue("aidsDismissed").empty() && rowsSaid().find(dismissedText) == std::string::npos,
+                          "Dismiss: %s gone, and kept gone (%s)", dismissedText.c_str(), iniValue("aidsDismissed").c_str());
+                    option(@"Minimal");
+                    bool minimal = text(@"newqso.aids.row.2").size() && text(@"newqso.aids.row.3").empty();
+                    option(@"Off");
+                    bool offTitle = text(@"newqso.aids.title") == "Operating Aids (Social): off" && rowsSaid().empty();
+                    option(@"Standard");
+                    option(@"Station and antenna");  // a topic off
+                    bool topicOff = iniValue("aidsTopicsOffSocial").find("station") != std::string::npos;
+                    option(@"Station and antenna");
+                    CHECK(minimal && offTitle && topicOff && iniValue("aidsLevelSocial") == "standard",
+                          "Options: one suggestion, none (the title says off), two again; a topic turned off and on (%s)", iniValue("aidsTopicsOffSocial").c_str());
+                    CHECK(optionsItem(@"Work and projects").first && [optionsItem(@"Work and projects").first itemAtIndex:optionsItem(@"Work and projects").second].state ==
+                                                                          NSControlStateValueOff,
+                          "Options: work and projects (and stage of life) off until turned on");
+                    option(@"Bring Back Dismissed");
+                    CHECK(iniValue("aidsDismissed").empty(), "Options: the dismissed suggestions brought back");
+                    press(@"newqso.aids.hide");
+                    bool hid = text(@"newqso.aids.title") == "Operating Aids (Social): hidden" && rowsSaid().empty() && viewWithIdentifier(aw.contentView, @"newqso.aids.show");
+                    press(@"newqso.aids.show");
+                    CHECK(hid && text(@"newqso.aids.title") == "Operating Aids (Social)" && !rowsSaid().empty(), "Hide for the session, then Show");
+                    // Portable: the station's state as facts, then a brief suggestion.
+                    styleMenu(@"portable");
+                    typeCall(@"N0NEW");
+                    snapshot(aw, "newqso-aids-portable");
+                    std::string portable = rowsSaid();
+                    CHECK(text(@"newqso.aids.title") == "Operating Aids (Portable)" && portable.find("Ready to log") != std::string::npos &&
+                              portable.find("Duplicate check: not in this log") != std::string::npos && portable.find("Saved locally") != std::string::npos &&
+                              portable.find("Waiting to sync: 1 QSO not yet uploaded to QRZ.com") != std::string::npos,
+                          "Portable: ready, the duplicate check, saved, waiting to sync (%s)", portable.c_str());
+                    {  // Portable's lighter network: the spots on, Spothole every 5 minutes, no DX cluster or live feed kept open
+                        // (its requests logged in a folder of the test's own, not the repository's fixtures)
+                        std::string wasFake = getenv("ADIFLINT_FAKE_LOOKUP_DIR") ?: "";
+                        NSString *quiet = [tmp stringByAppendingPathComponent:@"portable-net"];
+                        [[NSFileManager defaultManager] createDirectoryAtPath:quiet withIntermediateDirectories:YES attributes:nil error:nil];
+                        setenv("ADIFLINT_FAKE_LOOKUP_DIR", quiet.UTF8String, 1);
+                        NSButton *spotsBox = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.show.spots");
+                        setBox(spotsBox, true);
+                        pump(0.3);
+                        [(NSButton *)viewWithIdentifier(mapw.contentView, @"map.spots.open") performClick:nil];
+                        pump(0.2);
+                        NSTextField *feeds = nil;
+                        for (NSWindow *w in NSApp.windows)
+                            if (!feeds) feeds = (NSTextField *)viewWithIdentifier(w.contentView, @"map.spots.status");
+                        typeCall(@"N0NEW");
+                        std::string said = rowsSaid();
+                        CHECK([feeds.stringValue containsString:@"DX cluster: off in the Portable style"] &&
+                                  said.find("Spots every 5 minutes; the DX cluster and live feeds stay off") != std::string::npos,
+                              "Portable: the DX cluster off and the spots every 5 minutes, as the feeds and the aids say (%s)",
+                              [feeds.stringValue stringByReplacingOccurrencesOfString:@"\n" withString:@" | "].UTF8String);
+                        for (NSWindow *w in [NSApp.windows copy])
+                            if (viewWithIdentifier(w.contentView, @"map.spots")) [w orderOut:nil];
+                        setBox(spotsBox, false);
+                        setenv("ADIFLINT_FAKE_LOOKUP_DIR", wasFake.c_str(), 1);
+                    }
+                    H.modified = true;
+                    run("Offline Mode");
+                    typeCall(@"K1ABC");
+                    portable = rowsSaid();
+                    CHECK(portable.find("Not saved yet") != std::string::npos && portable.find("Offline: 1 QSO waits to upload") != std::string::npos &&
+                              portable.find("Offline Mode: nothing is fetched or sent") != std::string::npos,
+                          "Portable: not saved yet, offline and waiting (%s)", portable.c_str());
+                    run("Offline Mode");
+                    H.modified = false;
+                    styleMenu(@"chasing");
+                    CHECK(text(@"newqso.aids.title").empty(), "Chasing: no Operating Aids (its own come with its stage)");
+                    styleMenu(@"No Style");
+                    [aw orderOut:nil];
+                    H.doc = wasDoc, H.path = wasPath;
+                    notify(NPPN_BUFFERACTIVATED);
+                    notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+                    pump(0.3);
+                }
                 wfBar.selectedSegment = 1;  // Live, as the tests left it
                 [wfBar sendAction:wfBar.action to:wfBar.target];
                 pump(0.2);

@@ -516,19 +516,46 @@ toolbar (Stage 2); they are still open to review.
 - **Stage 2, toolbar:** done (2026-10-31): the style menu at the left of the Map's toolbar, with
   No Style, the four styles (the chosen one ticked, "(changed)" once its settings differ from
   its defaults), Reset, Restore Previous Layout and What Changed… (a popover, setting by
-  setting, before and after). VoiceOver announces each change. The host harness checks choosing
-  each style, What Changed, Restore Previous Layout giving back exactly what was there, a
-  style's changes kept while another is chosen (and saved in ADIFLint.ini), Reset, Restore
-  after Reset, No Style changing nothing, and the map's centre and zoom unmoved (criteria 1, 2,
-  3 and 6; Portable's half of 7). Criterion 5 is `testOperatingStyles`; 4 is every other Map
-  check, which runs with no style. Not yet checked: Contest making no animation of its own,
-  and a full keyboard and VoiceOver pass (criterion 8).
+  setting, before and after). VoiceOver announces each change. What is chosen on the map stays chosen across
+  a change of style: the Map finds the same square, entity, park, contact or station in the
+  data it makes afresh.
+- **Stage 2 is complete (2026-10-31): every acceptance criterion is checked.**
+  - 1–3: the host harness chooses each style, opens What Changed, restores exactly what was
+    there, keeps a style's changes while another is chosen (saved in ADIFLint.ini), resets,
+    restores after a reset, and checks that No Style changes nothing.
+  - 4: every other Map check runs with no style chosen.
+  - 5: `testOperatingStyles` in the core tests.
+  - 6: the centre and zoom, the band chosen and the contact chosen are all unchanged after
+    Social to Portable to Contest.
+  - 7: Portable has no spots, space weather or aurora; Contest turns the beacons off, the one
+    layer that redraws by itself.
+  - 8: the style menu comes first in the toolbar's Tab order (before the workflow). VoiceOver
+    reads it as a menu button labelled "Operating style" with the style as its value; every
+    item is named; What Changed reads each cell as static text.
 - **Defaults:** as proposed in the Stage 0 table, with two additions: Portable turns the grid
   overlay off (`mapGrid`), so the contacts aren't drawn over a grid of field names; Contest turns
   the NCDXF beacons off (`mapBeacons`), the one layer that redraws by itself (every 10 seconds),
   for criterion 7.
-- **Next:** Stage 3 (Social and Portable: notes-first context, activation progress, the first
-  Operating Aids card).
+- **Stage 3 is complete (2026-10-31).**
+  - The library is `src/core/adif_aids.{h,cpp}`: 16 curated prompts in the order of a QSO,
+    13 topics (age and career off at first, with no Note words for age), levels Off, Minimal,
+    Standard and More, and timings (natural pauses, after each QSO, only on Skip). Suggestions
+    skip topics the notes already cover (word starts, so "net" doesn't match "internet"),
+    dismissed prompts and topics turned off, and give a reason when it isn't plain.
+    `testOperatingAids` covers it.
+  - New QSO's Operating Aids strip: Social's earlier QSOs and notes with the call, Portable's
+    cues (activation progress, ready or missing, the duplicate check, saved or not, waiting to
+    sync or synced, offline, lighter spots), suggestions in italics with Note, Skip and Dismiss,
+    Hide for the session, and Options (per style, in ADIFLint.ini as `aidsLevel<Style>`,
+    `aidsTiming<Style>`, `aidsTopicsOff<Style>`; `aidsDismissed` for all).
+  - Portable's lighter network (`spotfeeds::lowPower`): Spothole every 5 minutes, and no DX
+    cluster connection or PSKReporter live feed; the feeds restart when the style changes to
+    or from Portable.
+  - The host harness checks each of these, and the facts and suggestions are kept apart for
+    VoiceOver ("Suggestion: …").
+  - Not done, for later stages: "Sync failed" (the upload windows don't keep a failure), a
+    minimal-logging path, and the personal prompt libraries and pinned prompts (Stage 7).
+- **Next:** Stage 4 (Chasing: ranked, explained opportunities).
 
 ## Initial backlog
 

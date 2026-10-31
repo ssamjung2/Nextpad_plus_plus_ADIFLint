@@ -65,6 +65,12 @@ long long lastUpdate();
 // reconnect connects now (a connected one sends its spots as they come). Says what each did.
 std::string refreshNow();
 
+// The Portable operating style's lighter use of the network: Spothole every 5 minutes instead of
+// 2, and no connection kept open (the DX cluster, PSKReporter's live feed); PSKReporter's query
+// asks every 5 minutes as always. policyChanged: the style changed, the feeds start again as it says.
+bool lowPower();
+void policyChanged();
+
 // Settings → Spots, saved in ADIFLint.ini.
 struct Config {
     bool spothole = true;

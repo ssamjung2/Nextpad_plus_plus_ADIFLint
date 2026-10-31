@@ -12,6 +12,11 @@
 #include <utility>
 #include <vector>
 
+#ifdef __OBJC__
+// Posted when the Map's operating style changes (or a change is undone): New QSO's Operating Aids follow.
+extern NSString *const ADIFOperatingStyleChangedNotification;
+#endif
+
 namespace worldmap {
 
 void cmdMap();

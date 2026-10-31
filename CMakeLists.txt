@@ -70,6 +70,7 @@ add_library(adif_core STATIC
     src/core/adif_pmtiles.cpp
     src/core/adif_mvt.cpp
     src/core/adif_i18n.cpp
+    src/core/adif_aids.cpp
     src/core/adif_styles.cpp
     src/core/adif_spots.cpp)
 target_include_directories(adif_core PUBLIC src/core)

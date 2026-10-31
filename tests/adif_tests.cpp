@@ -40,6 +40,7 @@
 #include "adif_solar.h"
 #include "adif_facts.h"
 #include "adif_stats.h"
+#include "adif_aids.h"
 #include "adif_styles.h"
 
 #include <algorithm>
@@ -4626,6 +4627,99 @@ static void testOutlines() {
 }
 
 // Operating Styles: each style's defaults, its saved state, and the report of a change.
+static void testOperatingAids() {
+    using namespace adif::aids;
+    using adif::styles::OperatingStyle;
+    Context c;
+    c.style = OperatingStyle::Social;
+    CHECK(suggest(c).empty(), "aids: nothing without a call");
+    c.call = "K1ABC";
+    std::vector<Suggestion> s = suggest(c);
+    CHECK(s.size() == 2 && std::string(s[0].prompt->id) == "name-qth" && std::string(s[1].prompt->id) == "report" && !s[0].why.empty(),
+          "aids: Standard shows two, in the order of a QSO: name and QTH, the report (%zu)", s.size());
+    c.name = c.qth = c.report = true;
+    s = suggest(c);
+    CHECK(s.size() == 2 && std::string(s[0].prompt->id) == "station" && s[0].why.empty(), "aids: with the name, QTH and reports, the station next");
+    c.notes = "Running a 3-element Yagi at 100 watts";
+    s = suggest(c);
+    CHECK(std::string(s[0].prompt->id) == "conditions", "aids: a topic the notes have (antenna) isn't suggested");
+    c.notes.clear();
+    c.earlierNotes = "talked about the weather and his club";
+    c.earlier = 2;
+    s = suggest(c);
+    bool weatherOrClub = false;
+    for (const Suggestion &x : s) weatherOrClub |= x.prompt->category == Category::Weather || x.prompt->category == Category::Clubs;
+    CHECK(!weatherOrClub && s[0].why == "Not in your notes from 2 earlier QSOs with K1ABC", "aids: nor one an earlier QSO's notes have, and it says why (%s)",
+          s[0].why.c_str());
+    c.earlierNotes.clear(), c.earlier = 0;
+    c.notes = "Station: ";  // Note's own words, translated as shown
+    c.noteWords.assign(library().size(), "");
+    for (size_t i = 0; i < library().size(); ++i) c.noteWords[i] = library()[i].note;
+    CHECK(std::string(suggest(c)[0].prompt->id) == "conditions", "aids: Note's words count as noted");
+    c.notes.clear();
+    c.skip = 1;
+    CHECK(std::string(suggest(c)[0].prompt->id) == "conditions", "aids: Skip moves on one");
+    c.skip = 1000;
+    CHECK(suggest(c).size() == 2, "aids: Skip wraps round");
+    c.skip = 0;
+    c.dismissed.insert("station");
+    CHECK(std::string(suggest(c)[0].prompt->id) == "conditions", "aids: a dismissed prompt doesn't come back");
+    c.dismissed.clear();
+    c.off.insert("station");
+    CHECK(std::string(suggest(c)[0].prompt->id) == "conditions", "aids: nor does a topic turned off");
+    c.off.clear();
+    bool sensitive = false;
+    for (int k = 0; k < 40; ++k) {
+        c.skip = (size_t)k;
+        for (const Suggestion &x : suggest(c)) sensitive |= x.prompt->category == Category::Age || x.prompt->category == Category::Career;
+    }
+    c.skip = 0;
+    CHECK(!onAtFirst(Category::Age) && !onAtFirst(Category::Career) && onAtFirst(Category::Weather), "aids: age and career off until turned on");
+    CHECK(sensitive, "aids: age and career offered once the setting turns them on (the plugin passes them in `off` at first)");
+    for (const Prompt &p : library()) {
+        if (p.category == Category::Age) CHECK(!*p.note, "aids: nothing about age is written in the notes");
+        CHECK(*p.text && std::string(p.text).find("must") == std::string::npos, "aids: %s is a suggestion", p.id);
+    }
+    c.level = Level::Off;
+    CHECK(suggest(c).empty(), "aids: Off shows none");
+    c.level = Level::More;
+    CHECK(suggest(c).size() == 3, "aids: More shows three");
+    c.style = OperatingStyle::Portable;
+    c.name = c.qth = c.report = false;
+    s = suggest(c);
+    CHECK(s.size() == 2 && std::string(s[0].prompt->id) == "portable-quick", "aids: Portable's are brief and fewer: its quick exchange first (%zu)", s.size());
+    c.style = OperatingStyle::Chasing;
+    CHECK(suggest(c).empty(), "aids: none for Chasing (its aids come with its own stage)");
+    CHECK(parseLevel("minimal") == Level::Minimal && parseLevel("") == Level::Standard && levelId(Level::More) == "more" &&
+              parseTiming("after") == Timing::AfterQso && parseTiming("x") == Timing::Pauses && timingId(Timing::Manual) == "manual",
+          "aids: levels and timings by id");
+    CHECK(mentioned(Category::Clubs, "Member of the ARES net") && !mentioned(Category::Clubs, "internet trouble") &&
+              !mentioned(Category::Interests, "") && mentioned(Category::Start, "first licensed in 1975"),
+          "aids: words matched at their start (net, not internet)");
+
+    PortableState p;
+    p.activation = "US-1234 today: 7 of 10";
+    p.callEntered = true;
+    p.missing = {"MODE"};
+    p.saved = false;
+    p.services = {"QRZ.com", "LoTW"};
+    p.waiting = 3;
+    std::vector<Cue> cues = portableCues(p);
+    CHECK(cues.size() == 5 && cues[0].kind == Cue::Activation && cues[1].text == "Before logging: MODE" && cues[2].kind == Cue::Duplicate &&
+              cues[2].severity == 0 && cues[3].kind == Cue::Saved && cues[3].severity == 1 &&
+              cues[4].text == "Waiting to sync: 3 QSOs not yet uploaded to QRZ.com, LoTW",
+          "aids: Portable's cues: progress, what is missing, the duplicate check, not saved, waiting to sync (%zu)", cues.size());
+    p.missing.clear(), p.duplicate = true, p.saved = true, p.offline = true, p.spots = true;
+    cues = portableCues(p);
+    CHECK(cues[1].text == "Ready to log" && cues[2].severity == 2 && cues[3].text == "Saved locally" &&
+              cues[4].text == "Offline: 3 QSOs wait to upload to QRZ.com, LoTW; you can keep operating" && cues[5].kind == Cue::Offline &&
+              cues[6].kind == Cue::Spots,
+          "aids: ready, a duplicate warned, saved, offline and waiting, Portable's lighter spots");
+    p.waiting = 0, p.offline = false, p.spots = false, p.callEntered = false, p.activation.clear();
+    cues = portableCues(p);
+    CHECK(cues.size() == 2 && cues[1].text == "Synced: every QSO is uploaded to QRZ.com, LoTW", "aids: synced");
+}
+
 static void testOperatingStyles() {
     using namespace adif::styles;
     std::map<std::string, std::string> ini;
@@ -4763,6 +4857,7 @@ int main(int argc, char **argv) {
     testProjections();
     testPalettes();
     testOperatingStyles();
+    testOperatingAids();
     for (int i = 1; i < argc; ++i)
         if (std::string(argv[i]).size() > 4 && std::string(argv[i]).substr(std::string(argv[i]).size() - 4) == ".bin") testDetail(argv[i]);
     if (argc > 1) testOfficialFile(argv[1]);

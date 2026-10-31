@@ -21,6 +21,15 @@ struct ADIFQsoRow {
     ADIFSuggestBlock suggest = nil;    // values to offer as you type (a search), in place of `choices`
 };
 
+// A line of the Operating Aids strip (the Social and Portable operating styles; ADIFLint.mm fills it).
+struct ADIFAidRow {
+    std::string text, why;    // the line, and why it shows (its tooltip; "" none)
+    NSString *symbol = nil;   // an SF Symbol before it
+    int severity = 0;         // a fact's: 0 fine, 1 note, 2 warning
+    bool suggestion = false;  // a suggestion (Note, Skip, Dismiss beside it), not a fact
+    bool note = false;        // it has words Note puts in NOTES for you to finish
+};
+
 @interface ADIFNewQsoPanel : NSObject <NSWindowDelegate, NSTextFieldDelegate, NSComboBoxDelegate>
 
 @property(nonatomic, readonly) NSPanel *window;
@@ -65,6 +74,13 @@ struct ADIFQsoRow {
 // message under them (a callbook's notice or error; nil none) in its severity's colour.
 - (void)setLookupFacts:(NSArray<NSArray<NSString *> *> *)facts message:(NSString *)message severity:(int)severity;
 - (BOOL)hasField:(const std::string &)name;
+// Operating Aids, under the lookup's facts: a title over the facts and suggestions, its menu (how
+// many, when, which topics), and Hide; hidden: the title alone, with Show. A nil title: no strip.
+- (void)setAidsTitle:(NSString *)title rows:(const std::vector<ADIFAidRow> &)rows menu:(NSMenu *)menu hidden:(BOOL)hidden;
+// A suggestion's button pressed ("note", "skip", "dismiss", with its row), or "hide" / "show" (row -1).
+@property(nonatomic, copy) void (^onAid)(NSString *action, NSInteger row);
+// `text` after the field's value ("; " between), the field focused with its caret at the end, to finish.
+- (void)appendText:(const std::string &)text toField:(const std::string &)name;
 - (void)refreshTime;  // put the current UTC date and time in QSO_DATE/TIME_ON
 - (void)focusField:(const std::string &)name;
 - (void)show;
