@@ -15,6 +15,8 @@ namespace adif {
 // The centre of a 2, 4, 6 or 8 character locator, in degrees (north and east
 // positive); false when it is not one.
 bool gridToLatLon(std::string_view grid, double *lat, double *lon);
+// The edges of a 2, 4, 6 or 8 character locator: west, south, east, north (degrees).
+bool gridBounds(std::string_view grid, double *west, double *south, double *east, double *north);
 // An ADIF Location (§III.A: XDDD MM.MMM, as LAT and LON hold) in degrees, north and east
 // positive; false when it is not one, or is a longitude where a latitude is wanted (or
 // the other way round).

@@ -1,5 +1,6 @@
 #import "ToolWindow.h"
 #import "Night.h"
+#import "Workspace.h"
 
 #import "L10n.h"
 
@@ -10,6 +11,7 @@ static char kSuggestKey;  // a combo box's ADIFSuggestSource
 #include "adif_tools.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <map>
 #include <set>
@@ -37,6 +39,26 @@ std::string ADIFStd(NSString *s) {
 // The helpers below show their text in the user's language (L10n.h); a text the tables don't
 // have (a call, a file name) shows as it is.
 NSTextField *ADIFLabel(NSString *text) { return [NSTextField labelWithString:T(text)]; }
+
+@interface ADIFWrapLabel : NSTextField
+@end
+@implementation ADIFWrapLabel
+- (void)setFrameSize:(NSSize)size {
+    [super setFrameSize:size];
+    if (size.width > 0 && std::fabs(self.preferredMaxLayoutWidth - size.width) >= 0.5) {
+        self.preferredMaxLayoutWidth = size.width;
+        [self invalidateIntrinsicContentSize];
+    }
+}
+@end
+
+NSTextField *ADIFWrappingLabel(void) {
+    ADIFWrapLabel *f = [ADIFWrapLabel wrappingLabelWithString:@""];
+    f.preferredMaxLayoutWidth = 120;  // until it is laid out: never more than a frame's least width
+    [f setContentCompressionResistancePriority:1 forOrientation:NSLayoutConstraintOrientationHorizontal];
+    [f setContentHuggingPriority:1 forOrientation:NSLayoutConstraintOrientationHorizontal];
+    return f;
+}
 
 NSTextField *ADIFTextField(NSString *placeholder, CGFloat width) {
     NSTextField *f = [NSTextField textFieldWithString:@""];
@@ -240,10 +262,142 @@ void ADIFSuggestAsYouType(NSComboBox *box, ADIFSuggestBlock suggest) {
                                                   usingBlock:^(NSNotification *) { [weak chose]; }];
 }
 
+const CGFloat kADIFMargin = 14;
+const CGFloat kADIFSpacing = 8;
+
+@implementation ADIFButtonRow {
+    NSMutableArray<NSArray *> *_entries;  // view, its leading and top constraints, and whether it is a trailing one
+    NSLayoutConstraint *_height;
+}
+
+- (instancetype)initWithFrame:(NSRect)frame {
+    if (!(self = [super initWithFrame:frame])) return nil;
+    _entries = [NSMutableArray array];
+    _spacing = kADIFSpacing;
+    self.translatesAutoresizingMaskIntoConstraints = NO;
+    _height = [self.heightAnchor constraintEqualToConstant:24];
+    _height.active = YES;
+    return self;
+}
+
+- (void)dealloc {
+    for (NSArray *e in _entries) [e[0] removeObserver:self forKeyPath:@"hidden"];
+}
+
+- (BOOL)isFlipped { return YES; }
+
+- (NSArray<NSView *> *)items {
+    NSMutableArray *views = [NSMutableArray array];
+    for (NSArray *e in _entries) [views addObject:e[0]];
+    return views;
+}
+
+// Views stay inside the row's width: one too wide to fit is squeezed, not pushed out of sight.
+- (void)add:(NSView *)view trailing:(BOOL)trailing {
+    view.translatesAutoresizingMaskIntoConstraints = NO;
+    [self addSubview:view];
+    NSLayoutConstraint *x = [view.leadingAnchor constraintEqualToAnchor:self.leadingAnchor];
+    NSLayoutConstraint *y = [view.topAnchor constraintEqualToAnchor:self.topAnchor];
+    NSLayoutConstraint *fit = [view.widthAnchor constraintLessThanOrEqualToAnchor:self.widthAnchor];
+    [NSLayoutConstraint activateConstraints:@[ x, y, fit ]];
+    [_entries addObject:@[ view, x, y, @(trailing) ]];
+    [view addObserver:self forKeyPath:@"hidden" options:0 context:nil];
+    self.needsLayout = YES;
+}
+- (void)addLeading:(NSView *)view { [self add:view trailing:NO]; }
+- (void)addTrailing:(NSView *)view { [self add:view trailing:YES]; }
+
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context {
+    self.needsLayout = YES;
+}
+
+static NSSize sizeOf(NSView *v, CGFloat width) {
+    NSSize f = v.fittingSize;
+    return NSMakeSize(std::min(f.width, width), f.height);
+}
+
+// Lays the views out in lines no wider than width and returns the height. The leading views run from
+// the left and the trailing ones to the right; all on one line when they fit, otherwise the trailing
+// ones on the lines below.
+- (CGFloat)flowInto:(CGFloat)width {
+    const CGFloat gap = _spacing, lineGap = 6;
+    NSMutableArray<NSArray *> *lead = [NSMutableArray array], *trail = [NSMutableArray array];
+    for (NSArray *e in _entries) {
+        NSView *v = e[0];
+        if (v.hidden) continue;
+        [[e[3] boolValue] ? trail : lead addObject:e];
+    }
+    CGFloat total = 0, lineH = 0;
+    NSUInteger count = lead.count + trail.count;
+    for (NSArray *e in [lead arrayByAddingObjectsFromArray:trail]) {
+        NSSize f = sizeOf(e[0], width);
+        total += f.width + gap;
+        lineH = std::max(lineH, f.height);
+    }
+    auto put = [&](NSArray *e, CGFloat x, CGFloat y, CGFloat h, NSSize f) {
+        ((NSLayoutConstraint *)e[1]).constant = std::round(x);
+        ((NSLayoutConstraint *)e[2]).constant = std::round(y + (h - f.height) / 2);
+    };
+    if (count && total - gap <= width) {
+        CGFloat x = 0;
+        for (NSArray *e in lead) {
+            NSSize f = sizeOf(e[0], width);
+            put(e, x, 0, lineH, f);
+            x += f.width + gap;
+        }
+        x = width;
+        for (NSArray *e in [trail reverseObjectEnumerator]) {
+            NSSize f = sizeOf(e[0], width);
+            x -= f.width;
+            put(e, x, 0, lineH, f);
+            x -= gap;
+        }
+        return lineH;
+    }
+    CGFloat y = 0;
+    auto lines = [&](NSArray<NSArray *> *list, BOOL right) {
+        NSUInteger i = 0;
+        while (i < list.count) {
+            CGFloat w = 0, h = 0;
+            NSUInteger j = i;
+            while (j < list.count) {
+                NSSize f = sizeOf(list[j][0], width);
+                if (j > i && w + gap + f.width > width) break;
+                w += (j > i ? gap : 0) + f.width;
+                h = std::max(h, f.height);
+                ++j;
+            }
+            CGFloat x = right ? width - w : 0;
+            for (NSUInteger k = i; k < j; ++k) {
+                NSSize f = sizeOf(list[k][0], width);
+                put(list[k], x, y, h, f);
+                x += f.width + gap;
+            }
+            y += h + lineGap;
+            i = j;
+        }
+    };
+    lines(lead, NO);
+    lines(trail, YES);
+    return std::max<CGFloat>(y - lineGap, 0);
+}
+
+- (void)layout {
+    CGFloat width = NSWidth(self.bounds);
+    if (width >= 1) {
+        CGFloat h = [self flowInto:width];
+        if (std::fabs(h - _height.constant) > 0.5) _height.constant = h;
+    }
+    [super layout];
+}
+@end
+
 @implementation ADIFToolWindow {
     NSPanel *_window;
     NSTextField *_target, *_headline, *_status;
-    NSStackView *_options, *_bottom;
+    NSLayoutConstraint *_targetTop, *_targetGap, *_targetHeight;
+    NSStackView *_options;
+    ADIFButtonRow *_bottom;
     NSScrollView *_scroll;
     NSTableView *_table;
     NSTextView *_textView;
@@ -271,7 +425,7 @@ void ADIFSuggestAsYouType(NSComboBox *box, ADIFSuggestBlock suggest) {
 - (instancetype)initWithTitle:(NSString *)title size:(NSSize)size headline:(BOOL)headline {
     if (!(self = [super init])) return nil;
     _actions = [NSMutableArray array];
-    _window = [[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, size.width, size.height)
+    _window = [[ADIFDockPanel alloc] initWithContentRect:NSMakeRect(0, 0, size.width, size.height)
                                          styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
                                                    NSWindowStyleMaskResizable
                                            backing:NSBackingStoreBuffered
@@ -330,11 +484,10 @@ void ADIFSuggestAsYouType(NSComboBox *box, ADIFSuggestBlock suggest) {
     _scroll.autohidesScrollers = YES;
     _scroll.borderType = NSBezelBorder;
 
-    _bottom = [[NSStackView alloc] initWithFrame:NSZeroRect];
-    _bottom.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    _bottom = [[ADIFButtonRow alloc] initWithFrame:NSZeroRect];
     NSButton *close = [NSButton buttonWithTitle:T(@"Close") target:self action:@selector(closePressed:)];
     close.keyEquivalent = @"\033";
-    [_bottom addView:close inGravity:NSStackViewGravityTrailing];
+    [_bottom addTrailing:close];
 
     NSMutableArray<NSView *> *views = [NSMutableArray arrayWithObjects:_target, _options, nil];
     if (_headline) [views addObject:_headline];
@@ -343,17 +496,26 @@ void ADIFSuggestAsYouType(NSComboBox *box, ADIFSuggestBlock suggest) {
         v.translatesAutoresizingMaskIntoConstraints = NO;
         [root addSubview:v];
     }
-    const CGFloat m = 14;
+    const CGFloat m = kADIFMargin;
     NSMutableArray *c = [NSMutableArray array];
     NSView *above = nil;
     for (NSView *v in views) {
         [c addObject:[v.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m]];
-        if (v == _options) [c addObject:[v.trailingAnchor constraintLessThanOrEqualToAnchor:root.trailingAnchor constant:-m]];
-        else [c addObject:[v.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-m]];
-        [c addObject:above ? [v.topAnchor constraintEqualToAnchor:above.bottomAnchor constant:v == _scroll ? 6 : 10]
-                           : [v.topAnchor constraintEqualToAnchor:root.topAnchor constant:m]];
+        [c addObject:[v.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-m]];
+        if (v == _target) {
+            _targetTop = [v.topAnchor constraintEqualToAnchor:root.topAnchor constant:m];
+            [c addObject:_targetTop];
+        } else if (above == _target) {
+            _targetGap = [v.topAnchor constraintEqualToAnchor:above.bottomAnchor constant:10];
+            [c addObject:_targetGap];
+        } else {
+            [c addObject:above ? [v.topAnchor constraintEqualToAnchor:above.bottomAnchor constant:v == _scroll ? 6 : 10]
+                              : [v.topAnchor constraintEqualToAnchor:root.topAnchor constant:m]];
+        }
         above = v;
     }
+    _targetHeight = [_target.heightAnchor constraintEqualToConstant:0];
+    [c addObject:_targetHeight];
     [c addObject:[_bottom.bottomAnchor constraintEqualToAnchor:root.bottomAnchor constant:-m]];
     [c addObject:[_scroll.heightAnchor constraintGreaterThanOrEqualToConstant:120]];
     [NSLayoutConstraint activateConstraints:c];
@@ -366,14 +528,19 @@ void ADIFSuggestAsYouType(NSComboBox *box, ADIFSuggestBlock suggest) {
 
 - (void)setTarget:(NSString *)text {
     _target.stringValue = text ?: @"";
+    BOOL empty = _target.stringValue.length == 0;
+    _target.hidden = empty;
+    _targetTop.constant = empty ? 0 : kADIFMargin;
+    _targetGap.constant = empty ? 0 : 10;
+    _targetHeight.active = empty;
 }
 
-- (NSStackView *)addOptionRow:(NSArray<NSView *> *)views {
-    NSStackView *row = [NSStackView stackViewWithViews:views];
-    row.orientation = NSUserInterfaceLayoutOrientationHorizontal;
-    row.alignment = NSLayoutAttributeFirstBaseline;
+- (NSView *)addOptionRow:(NSArray<NSView *> *)views {
+    ADIFButtonRow *row = [[ADIFButtonRow alloc] initWithFrame:NSZeroRect];
     row.spacing = 6;
+    for (NSView *v in views) [row addLeading:v];
     [_options addArrangedSubview:row];
+    [row.widthAnchor constraintEqualToAnchor:_options.widthAnchor].active = YES;
     return row;
 }
 
@@ -381,13 +548,13 @@ void ADIFSuggestAsYouType(NSComboBox *box, ADIFSuggestBlock suggest) {
     NSButton *b = [NSButton buttonWithTitle:T(title) target:self action:@selector(buttonPressed:)];
     b.tag = (NSInteger)_actions.count;
     [_actions addObject:action ? [action copy] : [NSNull null]];
-    if (trailing) [_bottom addView:b inGravity:NSStackViewGravityTrailing];  // after Close: rightmost
-    else [_bottom addView:b inGravity:NSStackViewGravityLeading];
+    if (trailing) [_bottom addTrailing:b];  // after Close: rightmost
+    else [_bottom addLeading:b];
     return b;
 }
 
 - (void)setDefaultButton:(NSButton *)button {
-    for (NSView *v in _bottom.views)
+    for (NSView *v in _bottom.items)
         if ([v isKindOfClass:NSButton.class] && [((NSButton *)v).keyEquivalent isEqualToString:@"\r"])
             ((NSButton *)v).keyEquivalent = @"";
     button.keyEquivalent = @"\r";

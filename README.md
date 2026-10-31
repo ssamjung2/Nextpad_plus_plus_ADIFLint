@@ -238,7 +238,7 @@ To uninstall, quit Nextpad++ and delete the `ADIFLint` folder.
 2. **Plugins → ADIF Lint → Check Log…** lists every problem and repairs what it can;
    **Fix Field Lengths** repairs the data lengths.
 3. **New QSO…** starts logging. The first time, Settings asks for your callsign and grid.
-4. **Map & Contact Explorer…** shows the log on a world map; choose **Globe** in the
+4. **Map & Explorer…** shows the log on a world map; choose **Globe** in the
    projection pop-up and drag to turn it.
 5. To use an online service, add your account in **Settings…** first.
 
@@ -249,45 +249,51 @@ kind of mistake.
 
 All commands are under **Plugins → ADIF Lint**. Nextpad++ ignores plugin default
 shortcuts, so assign your own in Nextpad++'s **Edit → Shortcut Mapper…** (Plugin commands
-tab); Settings suggests some.
+tab); Settings suggests some. Logging and validation stay visible in the menu; editing, log
+management, analysis, integrations and preferences open from compact submenus.
 
 | Command | Does |
 |---|---|
 | **Logging & Operating** | |
-| New QSO… | Log contacts one after another |
-| Spots & Hunting… | Activators spotted now, from POTA, WWFF, or Spothole for GMA, WWBOTA, IOTA and dozens more; pick one to fill New QSO |
-| Start Activation… | A POTA, WWFF or SOTA activation: a new log, your station profile and the activation's fields in every QSO; Finish checks and exports |
-| Logging Layout | Arrange New QSO, the Map and Log Table for operating |
-| **Validate & Edit** | |
+| Start Logging | Open the Operating Console: New QSO (with UTC and local clocks), the Map in Live (last 5 minutes' spots, plain DX, 2.5×) and the Log Table (with New File and Open File) |
+| Start Activation… | Opens the activation layout, then its setup panel for a POTA, WWFF or SOTA activation. Start opens the activation log with its station profile and fields ready; Finish checks and exports |
+| Start Contest… | Opens the logging layout, then the Contest window: choose Field Day, serial numbers or a contest by its rules, give your exchange and Start; New QSO then asks for the exchange and warns of duplicates |
+| New QSO… | Log one QSO in its own window, without the layout |
+| Console Layout Options | Choose the Operating Console's arrangement and which frames it shows |
+| **Map & Spots** | |
+| Map & Explorer… | The interactive world map, with history, live spots, awards, filters, projections, overlays and export |
+| Live Map… | The Map showing who is on the air now (Live; DX Chase or POTA if the Map is in one) |
+| Spots & Hunting… | The spots as a list: POTA, WWFF and other programs' activators, to hunt and log |
+| **Validate & Repair** | |
 | Check Log… | Every problem in one list, with its repair; repair the ticked ones in one step |
 | Next Problem / Previous Problem | Move between marks |
 | Fix Field Lengths | Correct every data length |
+| **Edit & Transform** *(submenu)* | |
 | Bulk Edit… | Set, replace, remove or rename a field, or fill DISTANCE, with a preview |
 | Shift QSO Times… | Convert times between UTC and a time zone, or shift by a fixed amount |
-| **Organize & Manage Logs** | |
+| Reformat Log → One Record per Line / One Field per Line | Re-lay the file without touching data |
+| **Organize & Manage Logs** *(submenu)* | |
 | Sort & Organize… | Sort the records (by date and time in one click, or by any fields), and put every record's fields in one order |
 | Remove Duplicates… | Find QSOs logged twice and remove them after review |
 | Compare and Merge Logs… | Compare with another log: add the QSOs only it has, copy the fields this log lacks |
 | Import… | From LoTW, QRZ.com Logbook or eQSL (your QSOs and confirmations), a CSV file, or WSJT-X's log |
 | Export… | Activation logs for POTA, WWFF or SOTA, CSV, a Cabrillo contest log, or QSL labels (PDF) |
-| Reformat Log → One Record per Line / One Field per Line | Re-lay the file without touching data |
-| **Explore & Analyze** | |
+| **Explore & Analyze** *(submenu)* | |
 | Log Table… | The log as a spreadsheet: sort, filter, edit, copy and paste, add and delete rows and columns |
 | Log Summary… | Counts by band, mode, day, entity and park; confirmations and uploads |
 | Worked Before… | Search a folder of logs for a call |
-| Map & Contact Explorer… | The operating map: in History the squares, countries, US states and counties, CQ and ITU zones, POTA parks and IOTA groups worked, with awards progress; in Live, DX Chase and POTA the stations spotted now and which your log needs, with a watch list; filters by band, mode, date, confirmation and place; four projections, including a globe you turn by dragging; terrain, flags, space weather, the aurora, the NCDXF beacons, day and night and the grey line; PNG export |
 | Activation Tracker… | Activations counted by each program's rule |
-| **QSL & Integrations** | |
+| **QSL & Integrations** *(submenu)* | |
 | QSL Sync… | Each service at a glance; upload to QRZ.com Logbook, LoTW (TQSL), Club Log, eQSL, World Radio League, HRDLog.net or HamQTH (list what would be sent, upload when you say so, mark it uploaded) and download confirmations |
 | Enrich Log… | Fill missing station details from QRZ.com or HamQTH, or DXCC, zones and continent from country data (offline) |
 | Monitor External Applications… | Add the QSOs WSJT-X, JS8Call, N1MM Logger+, GridTracker and other programs log to a log you choose, as they log them |
-| **Preferences & Display** | |
+| **Preferences & Appearance** *(submenu)* | |
 | Settings… | Your station, editor options, language, offline mode, keyboard shortcuts, country data, LoTW users, POTA parks and their outlines, IOTA groups, Map Detail, spot sources, and accounts for the online services |
 | Record Panel | Show or hide the docked record table |
 | Check ADI Files While Typing | Problem marks as you type (on by default) |
 | Offline Mode | No network requests at all, for off-grid operating (off by default) |
 | Night Mode | Every ADIF Lint window red on black and the Map in its Night palette, to keep night vision (off by default) |
-| **Help** | |
+| **Help & About** | |
 | About ADIF Lint… | Version, licence and links |
 
 Import…, Export… and Enrich Log… open the window you used last; the popup at its top switches to

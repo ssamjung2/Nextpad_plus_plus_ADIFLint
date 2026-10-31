@@ -55,6 +55,7 @@
     NSComboBox *_spotsNode;
     NSTextField *_spotsLogin, *_spotsCommands, *_spotsEmail, *_spotsStatus;
     NSPopUpButton *_spotsPskQuery;
+    NSTextField *_spotsPskArea;
     NSComboBox *_outlinesLocation;
     NSButton *_outlinesDownload, *_outlinesRemove;
     NSTextField *_outlinesStatus, *_outlinesSummary;
@@ -760,21 +761,28 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     _spotsCommands = [NSTextField textFieldWithString:@""];
     _spotsCommands.placeholderString = T(@"optional, e.g. set/skimmer");
     _spotsCommands.toolTip = T(@"Commands to send after logging in, \";\" between them; they're the node's own (see its help)");
-    _spotsPsk = [ADIFWrappingCheckbox boxWithTitle:@"PSKReporter: the digital-mode reception reports of your callsign or your grid square (every 5 minutes)"
+    _spotsPsk = [ADIFWrappingCheckbox boxWithTitle:@"PSKReporter: the digital-mode reception reports of your callsign, grid square, ARRL section or state (every 5 minutes)"
                                             target:self
                                             action:@selector(spotsChanged:)];
     _spotsPskQuery = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    [_spotsPskQuery addItemsWithTitles:@[ T(@"Of my callsign: who heard me, and what my station heard"), T(@"Around my grid square") ]];
+    [_spotsPskQuery addItemsWithTitles:@[ T(@"My callsign"), T(@"Around my grid square"), T(@"My ARRL section's region"), T(@"My state") ]];
     _spotsPskQuery.target = self, _spotsPskQuery.action = @selector(spotsChanged:);
     _spotsPskQuery.toolTip = T(@"My callsign: the stations that heard you, and the ones your station heard if your program uploads what it hears "
                                @"(WSJT-X: Enable PSK Reporter Spotting). Around my grid square: what stations in your 4-character square heard, "
-                               @"and who heard them, so there is something to see when you aren't on the air");
+                               @"and who heard them, so there is something to see when you aren't on the air. My ARRL section's region and My state: "
+                               @"reports with a station in that state, or in the states of the section's ARRL division (PSKReporter can't be asked by "
+                               @"state, so the live feed is asked for the squares over it and the reports are kept to it)");
     _spotsPskQuery.identifier = @"settings.spots.pskQuery";
     _spotsPskCall = [NSTextField textFieldWithString:@""];
     _spotsPskCall.placeholderString = T(@"your callsign (Your Station)");
     _spotsPskCall.toolTip = T(@"The callsign whose reception reports PSKReporter gives: your own (Your Station) when empty, or another one: a "
                               @"club station, a portable call, or a friend's");
     _spotsPskCall.identifier = @"settings.spots.pskCall";
+    _spotsPskArea = [NSTextField textFieldWithString:@""];
+    _spotsPskArea.placeholderString = T(@"from your grid square");
+    _spotsPskArea.toolTip = T(@"The state (WI) or ARRL section (WI, EMA, STX) for My state and My ARRL section's region; empty is where Your Station's "
+                              @"grid square is");
+    _spotsPskArea.identifier = @"settings.spots.pskArea";
     _spotsEmail = [NSTextField textFieldWithString:@""];
     _spotsEmail.placeholderString = T(@"optional");
     _spotsEmail.toolTip = T(@"PSKReporter asks the programs that query it for a contact email address (appcontact), in case of a problem. "
@@ -792,7 +800,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
                                                                        usingBlock:^(NSNotification *) { [self fillSpotsStatus]; }];
     _spotsView = sectionStack(N(@"Spots"), @"antenna.radiowaves.left.and.right", @[ help, _spotsSpothole, _spotsCluster, field(colon(T(@"Node")), _spotsNode), field(colon(T(@"Login")), _spotsLogin),
                                               field(colon(T(@"Then send")), _spotsCommands), _spotsPsk, field(colon(T(@"Reports")), _spotsPskQuery),
-                                              field(T(@"Callsign:"), _spotsPskCall), field(colon(T(@"Your email")), _spotsEmail), save, _spotsStatus ],
+                                              field(T(@"Callsign:"), _spotsPskCall), field(colon(T(@"State or section")), _spotsPskArea), field(colon(T(@"Your email")), _spotsEmail), save, _spotsStatus ],
                               @"settings.spots");
     [self fillSpots];
     return _spotsView;
@@ -805,6 +813,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     _spotsPsk.state = c.psk ? NSControlStateValueOn : NSControlStateValueOff;
     [_spotsPskQuery selectItemAtIndex:c.pskQuery];
     _spotsPskCall.stringValue = @(c.pskCall.c_str());
+    _spotsPskArea.stringValue = @(c.pskArea.c_str());
     _spotsNode.stringValue = c.host.empty() ? @"" : [NSString stringWithFormat:@"%s:%d", c.host.c_str(), c.port];
     _spotsLogin.stringValue = @(c.login.c_str());
     _spotsCommands.stringValue = @(c.commands.c_str());
@@ -836,6 +845,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     c.commands = trimmed(_spotsCommands);
     c.email = trimmed(_spotsEmail);
     c.pskCall = ADIFStd([[_spotsPskCall.stringValue stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet] uppercaseString]);
+    c.pskArea = ADIFStd([[_spotsPskArea.stringValue stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet] uppercaseString]);
     spotfeeds::setConfig(c);
     [self fillSpots];
 }

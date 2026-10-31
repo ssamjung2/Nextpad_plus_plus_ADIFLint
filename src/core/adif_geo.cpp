@@ -42,6 +42,18 @@ bool gridToLatLon(std::string_view g, double *lat, double *lon) {
     return true;
 }
 
+bool gridBounds(std::string_view g, double *west, double *south, double *east, double *north) {
+    double lat, lon;
+    if (!gridToLatLon(g, &lat, &lon)) return false;
+    // The size of the finest part given: field 20 x 10, square 2 x 1, subsquare /24, extended /10.
+    double w = 20.0, h = 10.0;
+    if (g.size() >= 4) w = 2.0, h = 1.0;
+    if (g.size() >= 6) w /= 24.0, h /= 24.0;
+    if (g.size() >= 8) w /= 10.0, h /= 10.0;
+    *west = lon - w / 2, *east = lon + w / 2, *south = lat - h / 2, *north = lat + h / 2;
+    return true;
+}
+
 bool locationToDegrees(std::string_view v, bool latitude, double *degrees) {
     auto digit = [&](size_t i) { return v[i] >= '0' && v[i] <= '9'; };
     if (v.size() != 11 || v[4] != ' ' || v[7] != '.' || !digit(1) || !digit(2) || !digit(3) || !digit(5) || !digit(6) || !digit(8) ||

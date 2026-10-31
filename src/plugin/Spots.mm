@@ -111,12 +111,13 @@ constexpr double kSpotholeEvery = 120;  // Spothole reads POTA every 2 minutes; 
 constexpr double kSpotholeRefresh = 60;  // Refresh asks Spothole again at most once a minute
 constexpr long long kPskEvery = 300;    // PSKReporter: "no more often than once every five minutes"
 constexpr long long kPskGridWindow = 1800;  // around a square: the last half hour (an hour can be 1,500 reports)
-constexpr long long kKeep = 3600;       // spots older than an hour go (Spothole keeps about an hour)
+constexpr long long kKeep = 86400;      // spots older than a day go (the longest the Map's age filter shows)
+constexpr long long kPskWindow = 3600;  // PSKReporter's callsign query: the last hour (the live feed brings the rest)
 const int kRetry[] = {15, 30, 60, 120, 300, 600};  // seconds before reconnecting a cluster, one step each failure
 
 struct {
     bool wanted = false;
-    adif::SpotList list{3000};
+    adif::SpotList list{5000};
     NSTimer *prune = nil;
     bool notifyQueued = false;
     id offlineObserver = nil;
@@ -149,6 +150,20 @@ struct {
     NSTimer *pskTimer = nil;
     bool pskBusy = false;
     std::string pskStatus;
+    // PSKReporter's live MQTT feed (mqtt.pskreporter.info)
+    nw_connection_t mqtt = nil;
+    int mqttGeneration = 0;
+    adif::MqttPackets mqttIn;
+    bool mqttUp = false, mqttSubscribed = false, pskBackfilled = false;
+    int mqttFailures = 0;
+    size_t mqttReports = 0;
+    NSTimer *mqttPing = nil, *mqttRetry = nil;
+    std::string mqttStatus, mqttMe;
+    adif::PskArea pskArea;  // the state or section region the reports are kept to (Reports: 2 and 3); empty otherwise
+    // WSJT-X on this Mac (the Monitor's UDP listener): what it decodes
+    adif::WsjtxHeard wsjtx;
+    size_t wsjtxSpots = 0;
+    long long wsjtxLast = 0;
 } f;
 
 void changed() {
@@ -419,19 +434,49 @@ std::string pskCall(const Config &c) {
     return call;
 }
 
+void mqttStart();
+
+std::string homeGrid() { return upperText(setting("stationGrid").empty() ? f.homeGrid : setting("stationGrid")); }
+
+// Reports: 2 an ARRL section's region, 3 a state; what Settings names, else where Your Station's grid is.
+bool pskByArea(const Config &c) { return c.pskQuery >= 2; }
+
+adif::PskArea pskAreaOf(const Config &c) {
+    std::string named = upperText(c.pskArea), home = adif::pskStateOfGrid(homeGrid());
+    named.erase(std::remove_if(named.begin(), named.end(), [](char ch) { return ch == ' '; }), named.end());
+    return c.pskQuery == 3 ? adif::pskAreaForState(named.empty() ? home : named) : adif::pskAreaForSection(named, home);
+}
+
+std::string pskAreaLabel(const Config &c) {
+    std::string named = upperText(c.pskArea);
+    if (!named.empty()) return c.pskQuery == 3 ? named : trf("the region of {section}", {{"section", named}});
+    return c.pskQuery == 3 ? adif::pskStateOfGrid(homeGrid()) : tr("your ARRL region");
+}
+
 void pskFetch() {
     if (f.pskBusy) return;
+    if (f.mqttUp && f.pskBackfilled) return;  // the live feed brings every report; the query only fills in what came before
     Config c = config();
     std::string call = pskCall(c);
-    bool around = c.pskQuery == 1;
-    std::string square = upperText(setting("stationGrid").empty() ? f.homeGrid : setting("stationGrid")).substr(0, 4);
+    bool byArea = pskByArea(c), around = c.pskQuery == 1 || byArea;
+    std::string square = homeGrid().substr(0, 4);
+    if (byArea) {
+        f.pskArea = pskAreaOf(c);
+        if (f.pskArea.empty()) {
+            f.pskStatus = tr("PSKReporter: it asks about a state or an ARRL section: type one in Settings (Spots), or add your grid in Settings (Your Station).");
+            f.pskTrouble = true;
+            return changed();
+        }
+        // It can't be asked by state: the square of your station when it is in the area, else the area's first.
+        if (std::find(f.pskArea.squares.begin(), f.pskArea.squares.end(), square) == f.pskArea.squares.end()) square = f.pskArea.squares.front();
+    }
     double lat, lon;
     if (around && (square.size() < 4 || !adif::gridToLatLon(square, &lat, &lon))) {
         f.pskStatus = tr("PSKReporter: it asks around your grid square: add your grid in Settings (Your Station).");
         f.pskTrouble = true;
         return changed();
     }
-    if (!around && call.empty()) {
+    if (!around && call.empty()) {  // (the callsign query)
         f.pskStatus = tr("PSKReporter: it asks who hears your callsign: add it in Settings (Your Station).");
         f.pskTrouble = true;
         return changed();
@@ -445,7 +490,7 @@ void pskFetch() {
     setSetting("spotsPskLast", std::to_string(now));
     f.pskBusy = true;
     NSString *url = ADIFString(adif::pskQueryUrl(around ? square : call, around ? adif::PskQuery::Grid : adif::PskQuery::Callsign,
-                                                 around ? kPskGridWindow : kKeep, c.email));
+                                                 around ? kPskGridWindow : kPskWindow, c.email));
     ADIFFetchPskReports(agent(), url, ^(NSData *xml, NSString *error) {
         f.pskBusy = false;
         if (!f.wanted) return;
@@ -459,9 +504,17 @@ void pskFetch() {
         }
         size_t n = reports.size();
         f.pskTrouble = false;
-        f.list.replace(adif::SpotSource::PskReporter, std::move(reports));
+        f.pskBackfilled = true;
+        if (byArea) {
+            reports.erase(std::remove_if(reports.begin(), reports.end(), [&](const adif::Spot &r) { return !adif::pskInArea(f.pskArea, r); }), reports.end());
+            n = reports.size();
+        }
+        for (adif::Spot &r : reports) f.list.add(std::move(r));
         f.updated = (long long)time(nullptr);
-        f.pskStatus = around ? trp("PSKReporter: {n} report around {grid} in the last half hour, at {time} UTC (every 5 minutes)",
+        f.pskStatus = byArea ? trp("PSKReporter: {n} report in {area} (from the square {grid}) in the last half hour, at {time} UTC; the live feed has the rest",
+                                   "PSKReporter: {n} reports in {area} (from the square {grid}) in the last half hour, at {time} UTC; the live feed has the rest",
+                                   (long long)n, {{"area", pskAreaLabel(c)}, {"grid", square}, {"time", utcNow("%H:%M")}})
+                    : around ? trp("PSKReporter: {n} report around {grid} in the last half hour, at {time} UTC (every 5 minutes)",
                                    "PSKReporter: {n} reports around {grid} in the last half hour, at {time} UTC (every 5 minutes)", (long long)n,
                                    {{"grid", square}, {"time", utcNow("%H:%M")}})
                              : trp("PSKReporter: {n} report of {call} in the last hour, at {time} UTC (every 5 minutes)",
@@ -469,11 +522,135 @@ void pskFetch() {
                                    {{"call", call}, {"time", utcNow("%H:%M")}});
         // None of your callsign: reports come from transmitting on a digital mode, or from a program
         // that uploads what it hears (WSJT-X User Guide 3.2.0, 6.5 Reporting).
-        if (n == 0 && !around)
+        if (n == 0 && c.pskQuery == 0)
             f.pskStatus += " " + tr("Reports come when you transmit on a digital mode, or when your program uploads what it hears (WSJT-X: "
                                     "Settings, Reporting, Enable PSK Reporter Spotting). Or choose Around my grid square in Settings (Spots).");
         changed();
     });
+}
+
+// ── PSKReporter live (MQTT) ──
+
+constexpr const char *kMqttHost = "mqtt.pskreporter.info";
+constexpr int kMqttPort = 1884;  // TLS
+
+void mqttSend(const std::string &bytes) {
+    if (!f.mqtt || bytes.empty()) return;
+    dispatch_data_t data = dispatch_data_create(bytes.data(), bytes.size(), dispatch_get_main_queue(), DISPATCH_DATA_DESTRUCTOR_DEFAULT);
+    nw_connection_send(f.mqtt, data, NW_CONNECTION_DEFAULT_MESSAGE_CONTEXT, true, ^(nw_error_t) {});
+}
+
+void mqttClose() {
+    ++f.mqttGeneration;
+    if (f.mqtt) nw_connection_cancel(f.mqtt);
+    f.mqtt = nil;
+    f.mqttUp = f.mqttSubscribed = false;
+    [f.mqttPing invalidate], f.mqttPing = nil;
+    [f.mqttRetry invalidate], f.mqttRetry = nil;
+}
+
+void mqttLost(const std::string &why) {
+    mqttClose();
+    f.pskBackfilled = false;  // the query covers what the feed missed
+    if (!f.wanted || !config().psk || ADIFOffline()) return;
+    int wait = kRetry[std::min<size_t>((size_t)f.mqttFailures, sizeof kRetry / sizeof kRetry[0] - 1)];
+    ++f.mqttFailures;
+    f.mqttStatus = trf("PSKReporter live feed: {why}; trying again in {n} s.", {{"why", why}, {"n", std::to_string(wait)}});
+    changed();
+    f.mqttRetry = [NSTimer scheduledTimerWithTimeInterval:wait repeats:NO block:^(NSTimer *) {
+        f.mqttRetry = nil;
+        mqttStart();
+    }];
+}
+
+// What the feed is asked for: the reports of the station PSKReporter is asked about, or of the grid square.
+std::vector<std::string> mqttTopics(const Config &c) {
+    if (pskByArea(c)) {
+        f.pskArea = pskAreaOf(c);
+        return adif::pskTopicsForSquares(f.pskArea.squares);
+    }
+    if (c.pskQuery == 1) return adif::pskTopicsForGrid(homeGrid());
+    return adif::pskTopicsForCall(pskCall(c));
+}
+
+void mqttRead(const std::string &bytes) {
+    std::vector<adif::MqttPacket> packets;
+    f.mqttIn.feed(bytes, &packets);
+    if (f.mqttIn.broken()) return mqttLost(tr("the broker sent something that isn't MQTT"));
+    size_t added = 0;
+    for (const adif::MqttPacket &p : packets) {
+        if (p.type == 2) {  // CONNACK: return code 0 accepts
+            if (p.body.size() < 2 || p.body[1] != 0) return mqttLost(tr("the broker refused the connection"));
+            f.mqttSubscribed = true;
+            f.mqttFailures = 0;
+            mqttSend(adif::mqttSubscribe(1, mqttTopics(config())));
+            f.mqttUp = true;
+            f.mqttStatus = tr("PSKReporter: live from mqtt.pskreporter.info.");
+            changed();
+        } else if (p.type == 3) {
+            std::string topic, payload;
+            adif::Spot sp;
+            if (adif::mqttPublish(p, &topic, &payload) && adif::parsePskLive(payload, &sp, f.mqttMe) &&
+                (f.pskArea.empty() || adif::pskInArea(f.pskArea, sp)))
+                f.list.add(std::move(sp)), ++added;
+        }
+    }
+    if (added) {
+        f.mqttReports += added;
+        f.updated = (long long)time(nullptr);
+        f.pskTrouble = false;
+        changed();
+    }
+}
+
+void mqttReceive(nw_connection_t conn, int gen) {
+    nw_connection_receive(conn, 1, 65536, ^(dispatch_data_t content, nw_content_context_t, bool complete, nw_error_t error) {
+        if (gen != f.mqttGeneration) return;
+        if (content) {
+            __block std::string bytes;
+            dispatch_data_apply(content, ^bool(dispatch_data_t, size_t, const void *buffer, size_t size) {
+                bytes.append((const char *)buffer, size);
+                return true;
+            });
+            mqttRead(bytes);
+            if (gen != f.mqttGeneration) return;
+        }
+        if (error || complete)
+            return mqttLost(error ? trf("the connection ended (error {n})", {{"n", std::to_string(nw_error_get_error_code(error))}})
+                                  : tr("the broker closed the connection"));
+        mqttReceive(conn, gen);
+    });
+}
+
+void mqttStart() {
+    mqttClose();
+    Config c = config();
+    if (!f.wanted || !c.psk || ADIFOffline()) return;
+    f.pskArea = adif::PskArea();
+    if (mqttTopics(c).empty()) return;  // no callsign, grid or area yet: the query says so
+    f.mqttMe = c.pskQuery == 0 ? pskCall(c) : "";
+    f.mqttIn = adif::MqttPackets(65536);
+    int gen = f.mqttGeneration;
+    f.mqttStatus = tr("PSKReporter: connecting to the live feed...");
+    nw_endpoint_t endpoint = nw_endpoint_create_host(kMqttHost, std::to_string(kMqttPort).c_str());
+    nw_parameters_t params = nw_parameters_create_secure_tcp(NW_PARAMETERS_DEFAULT_CONFIGURATION, ^(nw_protocol_options_t tcp) {
+        nw_tcp_options_set_connection_timeout(tcp, 20);
+        nw_tcp_options_set_enable_keepalive(tcp, true);
+    });
+    nw_connection_t conn = nw_connection_create(endpoint, params);
+    f.mqtt = conn;
+    nw_connection_set_queue(conn, dispatch_get_main_queue());
+    nw_connection_set_state_changed_handler(conn, ^(nw_connection_state_t state, nw_error_t error) {
+        if (gen != f.mqttGeneration) return;
+        if (state == nw_connection_state_ready) {
+            mqttSend(adif::mqttConnect("adiflint-" + std::to_string(arc4random()), 60));
+            mqttReceive(conn, gen);
+            f.mqttPing = [NSTimer scheduledTimerWithTimeInterval:30 repeats:YES block:^(NSTimer *) { mqttSend(adif::mqttPing()); }];
+        } else if (state == nw_connection_state_failed || state == nw_connection_state_waiting) {
+            mqttLost(error ? trf("couldn't connect (error {n})", {{"n", std::to_string(nw_error_get_error_code(error))}}) : tr("couldn't connect"));
+        }
+    });
+    nw_connection_start(conn);
 }
 
 // ── Starting and stopping ──
@@ -483,6 +660,7 @@ void stopAll() {
     [f.pskTimer invalidate], f.pskTimer = nil;
     [f.prune invalidate], f.prune = nil;
     clusterClose();
+    mqttClose();
 }
 
 void restart() {
@@ -496,7 +674,8 @@ void restart() {
     // What Spothole and PSKReporter said last still holds (their lists are kept); the cluster starts again.
     f.clusterStatus.clear();
     if (!c.spothole || f.spotholeStatus == ADIFStd(ADIFOfflineReason())) f.spotholeStatus.clear();
-    if (!c.psk) f.pskStatus.clear();
+    if (!c.psk) f.pskStatus.clear(), f.mqttStatus.clear();
+    f.pskBackfilled = false;
     if (!f.wanted) return changed();
     if (ADIFOffline()) {
         f.spotholeStatus = ADIFStd(ADIFOfflineReason());
@@ -512,6 +691,7 @@ void restart() {
     }
     if (c.psk) {
         pskFetch();
+        mqttStart();
         f.pskTimer = [NSTimer scheduledTimerWithTimeInterval:30 repeats:YES block:^(NSTimer *) { pskFetch(); }];  // asks only every five minutes
     }
     f.prune = [NSTimer scheduledTimerWithTimeInterval:60 repeats:YES block:^(NSTimer *) {
@@ -543,7 +723,8 @@ void setFocusCall(const std::string &call) {
     if (cfg.pskQuery == 0 && pskCall(cfg) != was) {  // the reports were another station's
         f.list.clear(adif::SpotSource::PskReporter);
         f.pskStatus.clear();
-        if (f.wanted && config().psk && !ADIFOffline()) pskFetch();
+        f.pskBackfilled = false;
+        if (f.wanted && config().psk && !ADIFOffline()) pskFetch(), mqttStart();
         changed();
     }
 }
@@ -573,6 +754,16 @@ void clusterPost(const std::string &command, const std::string &call, void (^don
 }
 
 const adif::SpotList &spots() { return f.list; }
+
+void wsjtxDatagram(std::string_view bytes) {
+    if (!f.wanted) return;
+    std::vector<adif::Spot> heard;
+    f.wsjtx.feed(bytes, (long long)time(nullptr), &heard);
+    if (heard.empty()) return;
+    for (adif::Spot &sp : heard) f.list.add(std::move(sp)), ++f.wsjtxSpots;
+    f.wsjtxLast = f.updated = (long long)time(nullptr);
+    changed();
+}
 
 std::string refreshNow() {
     Config c = config();
@@ -641,7 +832,11 @@ std::vector<std::string> troubled() {
 
 std::string status() {
     std::string out;
-    for (const std::string *s : {&f.spotholeStatus, &f.clusterStatus, &f.pskStatus})
+    std::string live = f.mqttUp ? trp("PSKReporter live: {n} report received so far.", "PSKReporter live: {n} reports received so far.",
+                                     (long long)f.mqttReports, {})
+                                : f.mqttStatus;
+    std::string local = f.wsjtxLast ? trp("WSJT-X: {n} station heard on this Mac.", "WSJT-X: {n} stations heard on this Mac.", (long long)f.wsjtxSpots, {}) : "";
+    for (const std::string *s : {&f.spotholeStatus, &f.clusterStatus, &f.pskStatus, &live, &local})
         if (!s->empty()) out += (out.empty() ? "" : "\n") + *s;
     return out;
 }
@@ -659,8 +854,9 @@ Config config() {
     c.login = setting("spotsClusterLogin");
     c.commands = setting("spotsClusterCommands");
     c.psk = flag("spotsPsk", false);
-    c.pskQuery = std::clamp(std::atoi(setting("spotsPskQuery").c_str()), 0, 1);
+    c.pskQuery = std::clamp(std::atoi(setting("spotsPskQuery").c_str()), 0, 3);
     c.pskCall = setting("spotsPskCall");
+    c.pskArea = setting("spotsPskArea");
     c.email = setting("spotsPskEmail");
     return c;
 }
@@ -676,13 +872,14 @@ void setConfig(const Config &c) {
     setSetting("spotsPsk", c.psk ? "1" : "0");
     setSetting("spotsPskQuery", std::to_string(c.pskQuery));
     setSetting("spotsPskCall", c.pskCall);
+    setSetting("spotsPskArea", c.pskArea);
     setSetting("spotsPskEmail", c.email);
     if (c.spothole && !was.spothole) f.spotholeAsked = 0;  // turned on: ask at once
-    if (c.pskQuery != was.pskQuery || c.pskCall != was.pskCall) f.pskStatus.clear();
+    if (c.pskQuery != was.pskQuery || c.pskCall != was.pskCall || c.pskArea != was.pskArea) f.pskStatus.clear();
     // A feed turned off takes its spots with it.
     if (!c.spothole && was.spothole) f.list.clear(adif::SpotSource::Spothole), f.receivedSince = 0;
     if (!c.cluster && was.cluster) f.list.clear(adif::SpotSource::Cluster);
-    if ((!c.psk && was.psk) || c.pskQuery != was.pskQuery || c.pskCall != was.pskCall) f.list.clear(adif::SpotSource::PskReporter);
+    if ((!c.psk && was.psk) || c.pskQuery != was.pskQuery || c.pskCall != was.pskCall || c.pskArea != was.pskArea) f.list.clear(adif::SpotSource::PskReporter);
     if (c.host != was.host || c.port != was.port || c.login != was.login) f.list.clear(adif::SpotSource::Cluster);
     if (f.wanted) restart();
     else changed();

@@ -64,7 +64,9 @@ struct ADIFMapStyle {
     int lineStyle = 0;  // lines to contacts: 0 solid, 1 dashed, 2 dotted
     int lineWidth = 1;  // 0 thin, 1 medium, 2 thick
     double marker = 1;  // marker size factor
-    int legend = 1;  // 0 off, 1 top right, 2 bottom left
+    int legend = 1;  // 0 off, 1 top right, 2 bottom left, 3 top left, 4 bottom right
+    bool legendWide = false;  // across the map (along its bottom edge, or its top for 1 and 3), not a column
+    bool spotRate = false;    // the Spots layer's rate (spots a minute) in the top right corner
     double textScale = 1;  // the map's text: 1 standard, 1.25 large
     bool hatch = false;    // worked areas not confirmed hatched: confirmation shown besides colour
     bool rings = false, paths = false, mine = true;
@@ -290,6 +292,15 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
     long long _spotMaxAge;           // the Spots filter's age (fading); 0 any
     NSEdgeInsets _clearInsets;       // the edges the window's floating controls cover
     NSRect _legendFrame;             // where the legend was drawn last; empty: none
+    NSArray<NSString *> *_foundLines;     // the card's lines under its heading
+    std::string _foundGrid, _foundLabel;  // a search's grid square; its station's call
+    BOOL _foundPlace;                     // a station is marked at _foundLat, _foundLon
+    double _foundLat, _foundLon;
+    NSRect _rateFrame;               // the spot rate's box, top right; empty: none
+    BOOL _legendPressed, _legendDragging;  // the pointer went down on the legend; it is being moved
+    NSPoint _legendGrab, _legendDragOrigin;  // where in the box it was taken; where the box is while it moves
+    int _spotsLastMinute;            // spots made in the last minute and, a minute at a time, in the last five
+    double _spotsAvg5;
     std::vector<std::pair<NSRect, std::string>> _legendKeys;  // its entries that a click turns off or on
     std::vector<std::pair<std::string, bool>> _legendNames;   // theirs as they read, and whether off (accessibility actions)
     std::shared_ptr<struct ReliefShown> _reliefShown;          // the globe's terrain as last drawn (MapRelief.mm)
@@ -308,6 +319,9 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 @property(nonatomic, readonly) NSRect legendFrame;      // the legend's box; empty when it is off
 @property(nonatomic, copy) void (^onLegendMoved)(void);  // the legend's box changed (after it was drawn)
 @property(nonatomic, copy) void (^onLegendToggle)(const std::string &key);  // an entry clicked: its key
+@property(nonatomic, copy) void (^onLegendPlaced)(int position);  // the legend dropped near a corner (ADIFMapStyle::legend's 1 to 4)
+// The spots made in the last minute, and the last five minutes' average a minute, for the rate (the style's spotRate).
+- (void)setSpotsLastMinute:(int)lastMinute average5:(double)average5;
 @property(nonatomic, copy) void (^onStep)(int by);      // ] or [ with the map focused: the next or previous row of the list
 @property(nonatomic, copy) void (^onReturn)(void);      // Return with the map focused: act on what is chosen
 @property(nonatomic) std::vector<std::string> legendSpotBands;  // the spots' bands before the legend hid any, for its entries
@@ -345,6 +359,12 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 - (NSString *)infoText;  // the box as text, a line a row ("Band: 20m"): the view's accessibility value too
 - (ADIFMapHit)selectedHit;  // what was clicked last
 - (void)selectHit:(const ADIFMapHit &)hit;  // as if clicked
+// What a search found, marked apart from the data: a grid square outlined, or a station's place
+// with its call; at most one at a time, cleared by Escape or the next search.
+- (void)setFoundGrid:(const std::string &)grid lines:(NSArray<NSString *> *)lines;  // 2 to 8 characters
+- (void)setFoundLon:(double)lon lat:(double)lat label:(const std::string &)label lines:(NSArray<NSString *> *)lines;
+- (void)clearFound;
+@property(readonly) BOOL hasFound;
 // Zoom right in to a small place (a park, or its outline's box), as close as the map goes there.
 - (void)showPlaceWest:(double)w south:(double)s east:(double)e north:(double)n;
 - (void)centerOnLon:(double)lon lat:(double)lat;  // at the zoom it has (the globe turns to face it)
@@ -380,6 +400,7 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 - (void)viewToPlane:(NSPoint)p x:(double *)x y:(double *)y;
 - (BOOL)lonLatAt:(NSPoint)p lon:(double *)lon lat:(double *)lat;
 - (NSBezierPath *)viewPath:(const std::vector<std::pair<double, double>> &)pts close:(BOOL)close wraps:(BOOL)wraps;
+- (NSBezierPath *)gridPath:(const std::string &)grid;
 - (NSBezierPath *)squarePath:(const std::string &)grid;
 - (NSBezierPath *)iotaBoxPath:(const std::array<double, 4> &)box;
 - (void)visibleWest:(double *)west south:(double *)south east:(double *)east north:(double *)north;
@@ -404,6 +425,7 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 - (void)legendAt:(NSRect)box;
 - (void)drawScaleBar;
 - (void)drawLegend;
+- (void)drawSpotRate;
 - (void)drawInfoBox;
 - (ADIFMapHit)hitAt:(NSPoint)p;
 - (void)mouseMoved:(NSEvent *)event;
@@ -474,6 +496,8 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 - (bool)selectionAt:(NSPoint *)p radius:(double *)r;  // where the chosen thing's marker is, and its size
 - (NSBezierPath *)selectionShape;                      // the chosen thing's own shape (a square, an area...), else nil
 - (void)drawSelectionHalo;
+- (void)drawFound:(MapDrawCtx &)d;
+- (void)drawFoundCard:(NSPoint)anchor in:(NSRect)bounds;
 - (void)drawSpotlight:(MapDrawCtx &)d;
 - (void)drawParkOutlines;
 - (size_t)parkOutlineAt:(double)lon lat:(double)lat;  // the park (index in ADIFPotaParks) whose drawn outline holds the point, or npos

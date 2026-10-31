@@ -2,6 +2,7 @@
 #import "L10n.h"
 
 #import "PluginHost.h"
+#import "Spots.h"
 #import "ToolWindow.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include "adif_capture.h"
@@ -508,6 +509,7 @@ bool allow(Listener &l) {
 void received(Source s, const std::string &bytes) {
     Listener &l = m.listeners[s];
     const char *hint = s == kTcp ? "Logger over TCP" : s == kN1mm ? "N1MM Logger+" : s == kWsjtx ? "WSJT-X" : "ADIF over UDP";  // for the parser
+    if (s == kWsjtx) spotfeeds::wsjtxDatagram(bytes);  // the decodes go to the Map's Spots layer, if it shows
     std::vector<adif::CapturedQso> qsos = adif::parseCapture(bytes, hint);
     if (qsos.empty()) return;
     if (!allow(l)) {

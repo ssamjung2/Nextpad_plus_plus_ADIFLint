@@ -11,6 +11,7 @@
 #import "Lookup.h"
 #import "PluginHost.h"
 #import "ToolWindow.h"
+#import "Workspace.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include "Scintilla.h"
 #include "adif_enrich.h"
@@ -191,7 +192,7 @@ struct {
     NSMenu *menu = nil;               // the headings' menu: show or hide columns, add or remove a field
     NSMenuItem *removeItem = nil;     // "Remove FIELD from Every Record" in it
     NSInteger menuColumn = -1;        // the column the headings' menu opened over
-    NSStackView *addRow = nil;        // Add Field: the name to add
+    NSView *addRow = nil;        // Add Field: the name to add
     NSComboBox *addName = nil;
     bool lotwShown = false;           // the LoTW column (each call's last LoTW upload) after the fields
 } table;
@@ -245,7 +246,8 @@ void tableRefresh() {
         NppHandle h = scintilla();
         const adif::LintResult &r = lint(h);
         std::string_view text = adifhost::text(h);
-        [table.w setTarget:logLine()];
+        [table.w setTarget:@""];
+        workspace::setStatus(ADIFStd(logLine()));
         table.buffer = buffer();
         table.recs = adif::records(text, r.model);
         table.all = adif::tableColumns(table.recs);
@@ -602,6 +604,25 @@ void tableDeleteRows() {
     if (tableChange({}, groups, {}))
         [table.w setStatus:ADIFString(trf("Deleted {records} (one undo step: Command-Z brings them back).", {{"records", plural(rows.size(), "record")}}))
                   severity:-1];
+}
+
+// New File...: a new log (its header only), saved where you choose and opened in Nextpad++; the
+// table then shows it, as it shows whichever log is active. Open File...: a log already made.
+void tableNewFile() {
+    std::string path = chooseSave(ADIFString("log-" + utcNow("%Y-%m-%d") + ".adi"), @[ @"adi" ]);
+    if (path.empty()) return;
+    std::string header = adif::newLogHeader(ADIFLINT_VERSION, utcNow("%Y%m%d %H%M%S"), "\n");
+    NSError *error = nil;
+    if (![[NSData dataWithBytes:header.data() length:header.size()] writeToFile:ADIFString(path) options:NSDataWritingAtomic error:&error]) {
+        [table.w setStatus:TF(@"Could not create the log: {why}", @{@"why" : error.localizedDescription ?: @"?"}) severity:2];
+        return;
+    }
+    if (!openFile(path, false)) [table.w setStatus:T(@"Nextpad++ did not open the new log. Open it from the folder.") severity:2];
+}
+
+void tableOpenFile() {
+    std::string path = chooseOpen(@"Choose a log to open.", false);
+    if (!path.empty() && !openFile(path, false)) [table.w setStatus:T(@"Nextpad++ did not open the log.") severity:2];
 }
 
 // A new QSO at the end: today's UTC date and time and the station's fields from
@@ -1039,10 +1060,10 @@ struct {
     NSPopUpButton *action = nil, *scope = nil, *filterKind = nil, *shiftMode = nil, *textCase = nil;
     NSComboBox *field = nil, *newName = nil, *filterField = nil, *zone = nil;
     NSTextField *zoneInfo = nil;
-    NSStackView *rowShiftMode = nil, *rowZone = nil;
+    NSView *rowShiftMode = nil, *rowZone = nil;
     NSTextField *value = nil, *find = nil, *replace = nil, *days = nil, *hours = nil, *minutes = nil, *filterValue = nil;
     NSButton *onlyMissing = nil, *useFilter = nil, *filterNot = nil, *apply = nil, *preview = nil;
-    NSStackView *rowField = nil, *rowSet = nil, *rowReplace = nil, *rowRename = nil, *rowShift = nil, *rowCase = nil;
+    NSView *rowField = nil, *rowSet = nil, *rowReplace = nil, *rowRename = nil, *rowShift = nil, *rowCase = nil;
     size_t previewCount = 0;
     intptr_t buffer = 0;
 } bulk;
@@ -2705,6 +2726,8 @@ void cmdPotaSpots() {
     if (!spots.w) {
         ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"Spots" size:NSMakeSize(1060, 520) headline:NO];
         spots.w = w;
+        ((ADIFDockPanel *)w.window).dockItem = kDockSpots;
+        w.window.title = T(@"Activations & Spots");
         spots.program = ADIFPopup(@[ @"POTA", @"WWFF", @"More programs (Spothole)" ]);
         spots.program.toolTip = T(@"Parks on the Air spots from pota.app, World Wide Flora & Fauna spots from spots.wwff.co, or "
                                 @"other programs' spots (GMA, WWBOTA, ZLOTA, IOTA, castles, lighthouses...) from spothole.app");
@@ -2790,6 +2813,7 @@ void cmdLogTable() {
     if (!table.w) {
         ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"Log Table" size:NSMakeSize(980, 560) headline:NO];
         table.w = w;
+        ((ADIFDockPanel *)w.window).dockItem = kDockLog;
         table.search = [[NSSearchField alloc] initWithFrame:NSZeroRect];
         table.search.placeholderString = T(@"Filter: call, park, mode...");
         table.search.sendsSearchStringImmediately = YES;
@@ -2864,6 +2888,8 @@ void cmdLogTable() {
         table.menu = [[NSMenu alloc] initWithTitle:@"Columns"];
         table.menu.autoenablesItems = NO;  // the Remove item is enabled for a column's heading only
         [w setHeaderMenu:table.menu];
+        [w addButton:@"New File..." trailing:NO action:^{ tableNewFile(); }].identifier = @"table.newFile";
+        [w addButton:@"Open File..." trailing:NO action:^{ tableOpenFile(); }].identifier = @"table.openFile";
         [w addButton:@"Bulk Edit Selected..." trailing:NO action:^{ openBulkEdit(false, true); }];
         [w addButton:@"Organize Log..." trailing:NO action:^{ openOrganizeFromTable(); }];
         [w addButton:@"Add Row" trailing:NO action:^{ tableAddRow(); }];

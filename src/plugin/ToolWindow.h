@@ -24,8 +24,26 @@ std::string ADIFStd(NSString *s);
 // Table order: plain numbers by value, other text with digit runs by value, ignoring case.
 int ADIFNaturalCompare(const std::string &a, const std::string &b);
 
+// A row of buttons that wraps rather than clips: the leading ones from the left, the trailing ones
+// to the right (on their own line when the row is too narrow for both). Its height follows its width.
+// Windows put their buttons here so none is lost when a window, or a frame of the layout, is narrow.
+@interface ADIFButtonRow : NSView
+- (void)addLeading:(NSView *)view;
+- (void)addTrailing:(NSView *)view;
+@property(nonatomic, readonly) NSArray<NSView *> *items;
+@property(nonatomic) CGFloat spacing;  // between views on a line
+@end
+
+// Margin and spacing every window uses, so buttons and controls line up from window to window.
+extern const CGFloat kADIFMargin;
+extern const CGFloat kADIFSpacing;
+
 // Small controls for option rows.
 NSTextField *ADIFLabel(NSString *text);
+// A wrapping label that never asks for more width than it is given: it wraps at the width it is laid
+// out at. A plain wrapping label asks for its whole text on one line, and in a docked frame (a scroll
+// view that grows to what its content needs, Workspace.mm) that widens the window past what is seen.
+NSTextField *ADIFWrappingLabel(void);
 NSTextField *ADIFTextField(NSString *placeholder, CGFloat width);
 NSPopUpButton *ADIFPopup(NSArray<NSString *> *items);
 NSButton *ADIFCheckbox(NSString *title, BOOL on);
@@ -62,7 +80,7 @@ void ADIFBlockMenuItem(NSMenuItem *item, void (^block)(void));
 - (instancetype)initWithTitle:(NSString *)title size:(NSSize)size headline:(BOOL)headline;
 
 - (void)setTarget:(NSString *)text;  // e.g. "Log: US-7929.adi"
-- (NSStackView *)addOptionRow:(NSArray<NSView *> *)views;  // hide the returned row to remove it from the layout
+- (NSView *)addOptionRow:(NSArray<NSView *> *)views;  // hide the returned row to remove it from the layout
 - (NSButton *)addButton:(NSString *)title trailing:(BOOL)trailing action:(void (^)(void))action;
 - (void)setDefaultButton:(NSButton *)button;  // Return presses it
 

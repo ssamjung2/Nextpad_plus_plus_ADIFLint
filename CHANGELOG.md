@@ -9,6 +9,36 @@ Versions before 0.8.0 were development builds and were not published.
 
 ## [Unreleased]
 
+### Added
+
+- Map search: a grid square typed in the header's find field is zoomed to and outlined; in Live (and DX Chase, POTA) a call typed there is looked up in the callbook chosen in New QSO (QRZ.com or HamQTH; else its spot, your log or its country), zoomed to and marked with a pin and a card (call, name, QTH, country, grid, distance from you). Grids of 4, 6 or 8 characters are outlined at their own size, with a card of their centre and distance. Escape clears the mark.- The Operating Console (Start Logging; it was the Logging Layout) is one window of docked frames (New QSO, Map, Log Table) that minimizes, maximizes and resizes as a window; seven layouts to choose, a Frames menu to show or hide each, and a menu on each frame to choose what it shows. Each frame starts sized to what its item needs; the buttons and the option rows (filters, menus, fields) of New QSO and the tool windows wrap onto another line when it is narrow, no frame can be made smaller than its controls need (the window's least size follows), and a status bar at the bottom shows the log, what was last done and the UTC time. Margins and button spacing are the same in every window. With the Map and Log Table together the Map's own list is hidden.
+- Map: each mode and each other program (13) has its own colour on every palette; the colour-blind safe palette gained six more, at least 10 apart (CIEDE2000) in normal, protan, deutan and tritan vision. Before, programs reused colours.
+- Map: the legend can sit in any corner (drag it, or Style Options, Legend) and run across the map; its padding and spacing are tidied. A Spots layer option shows the spot rate (spots a minute, 5-minute average) in the top right corner.
+- Map, Spots: PSKReporter's live MQTT feed (mqtt.pskreporter.info) streams reports as they are made; the 5-minute query only backfills.
+- Map, Spots: PSKReporter reports can be kept to your ARRL section's region (its division) or to your state, as well as your callsign or grid square (Settings, Spots, Reports); the live feed is asked for the squares over the area, and reports with a station in it are kept.
+- Map, Spots: WSJT-X decodes (Monitor's UDP listener) appear as spots heard by your station, with who they are working.
+- Map, Spots: a "Last heard" label option (UTC time).
+- Map: **operating styles**. A menu at the left of the toolbar sets the Map up for **Social**, **Chasing**, **Contest** or **Portable** operating (the workflow and Quick View, layers, sun shading, palette, text size, distance rings). Each style keeps your changes to it, after quitting too, and says when it has them; **Reset** gives its own settings back, **Restore Previous Layout** undoes the last change of style, and **What Changed…** lists each setting it changed, before and after. **No Style** leaves the Map as it is. A style never moves the map or changes the band, mode or what is chosen, and Portable starts no feed.
+
+### Changed
+- Menu: Validate & Edit is now Validate & Repair (Check Log, Next and Previous Problem, Fix Field Lengths); Bulk Edit, Shift QSO Times and Reformat Log moved to a new Edit & Transform submenu, so Organize & Manage Logs keeps to sorting, duplicates, merging, import and export. Preferences & Display is now Preferences & Appearance, and Help is Help & About.
+- Menu: Logging & Operating lists the ways to log (Start Logging, Start Activation, a new Start Contest… that opens the layout and then the Contest window, and New QSO… back on the menu), then Logging Layout Options. A new Map & Spots section holds Map & Explorer, a new Live Map… (the Map in Live) and Spots & Hunting… (back on the menu).
+- The Logging Layout window is now the **Operating Console**, and its menu **Console Layout Options**. Start Logging sets its Map for operating: Live, the last 5 minutes' spots, plain DX only (no POTA), at 2.5×.
+- New QSO: UTC and local time clocks at the top, as status displays in LED (seven-segment) digits: UTC green, local amber. New QSO fits the Operating Console's narrowest frame (420 points; it needed 493, so the clocks and the notes ran past the frame's edge): the fields' problem column takes the width that is left instead of 150 points of its own (a long problem is cut short, its tooltip has it all), and the notes under the fields ("Also written, from the profile...") wrap.
+- Log Table: **New File…** (a new, empty log where you choose) and **Open File…** buttons.
+- Map: no line across the toolbar where it wraps onto a second line.
+- Start Activation's layout: New QSO the whole height on the left (Log QSO always in sight, even at the console's least size); on the right QSO Details beside the Contact Map, then the activation's log, then the spots, the full width so their columns fit. Its sizes start afresh.
+- QSO Details (was QSO Info & Details) shows who you are working and why the contact is worth having, as the Map's selected panel does for a spot: the call, operator and place; a duplicate today on this band and mode, new for the activation, a new DXCC entity, band or mode, park to park, a park not hunted, your watch list and your QSOs with the call; the lookup's facts; this QSO; your last QSOs with the call. Before, it listed raw fields over each other, their names cut off.
+- Contact Map (was Static Map): your station marked, a line to the contact, the distance and bearing; no band drawn across the southern ocean; its caption cut short with "..." in a narrow frame.
+- Operating Console: drag a frame by its header onto another to swap them; the header names the frame once (its menu), with what the window adds beside it; a window opened while every frame is in use opens on its own rather than replacing a frame (opening the Map during an activation put New QSO out).
+- Map, Only spots of: the stations hearing the chosen station are the spot markers (and the heat map), and the station itself is the triangle.
+- Map: the Mode filter starts with the common modes, then adds those in the log and heard.
+
+### Fixed
+
+- Operating Console: each frame's close button is a 16-point target, its circled x drawn at that size. It was 12 points, its image shrunk to fit, and the language layout check counted it as cut off in every language.
+- Map: the Spots list's columns fit the list at the Map's first size (they ran 36 points past it, cutting off Why it matters): Country, Distance and Spotter start narrower. Columns you have resized keep their widths.
+
 ## [1.7.0] - 2026-10-26
 
 ### Added

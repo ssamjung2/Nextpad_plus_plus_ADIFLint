@@ -40,6 +40,7 @@
 #include "adif_solar.h"
 #include "adif_facts.h"
 #include "adif_stats.h"
+#include "adif_styles.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1555,6 +1556,13 @@ static void testGeo() {
     CHECK(gridToLatLon("fn31pr", &lat, &lon) && std::fabs(lat - 41.729167) < 1e-5 && std::fabs(lon + 72.708333) < 1e-5,
           "FN31pr centre");
     CHECK(!gridToLatLon("ZZ99", &lat, &lon) && !gridToLatLon("FN3", &lat, &lon), "not locators");
+    {
+        double w, so, e, n;
+        CHECK(gridBounds("FN31", &w, &so, &e, &n) && w == -74 && e == -72 && so == 41 && n == 42, "FN31 box");
+        CHECK(gridBounds("FN31pr61", &w, &so, &e, &n) && std::fabs((e - w) - 2.0 / 240) < 1e-9 && std::fabs((n - so) - 1.0 / 240) < 1e-9 &&
+                  gridToLatLon("FN31pr61", &lat, &lon) && std::fabs((w + e) / 2 - lon) < 1e-9 && !gridBounds("FN3", &w, &so, &e, &n),
+              "an 8-character locator's box is 30\" by 15\" round its centre");
+    }
     // Expected values from an independent haversine on the same centres.
     CHECK(gridDistanceKm("FN31pr", "IO91wm") == "5415" && gridDistanceKm("EM28", "DM32") == "1757" &&
               gridDistanceKm("FN31", "FN31") == "0",
@@ -2884,6 +2892,21 @@ static void testPalettes() {
               fromMap(viridisColour(safe.rampFrom)) >= 14,
           "colour-blind safe modes %.1f apart; markers %.1f from the map; counts start %.1f from it", three, marks,
           fromMap(viridisColour(safe.rampFrom)));
+    // Modes and the 13 other programs each get their own colour, on every palette.
+    bool unique = true;
+    for (size_t i = 0; i < mapPaletteCount(); ++i) {
+        std::set<unsigned> seen(mapPalette((int)i).qualitative.begin(), mapPalette((int)i).qualitative.end());
+        unique &= mapPalette((int)i).qualitative.size() >= 13 && seen.size() == mapPalette((int)i).qualitative.size();
+    }
+    double wide = 1e9, firstSeven = 1e9;
+    for (size_t i = 0; i < safe.qualitative.size(); ++i)
+        for (size_t j = i + 1; j < safe.qualitative.size(); ++j) {
+            double d = apart(safe.qualitative[i], safe.qualitative[j]);
+            wide = std::min(wide, d);
+            if (j < 7) firstSeven = std::min(firstSeven, d);
+        }
+    CHECK(unique && firstSeven >= 14.5 && wide >= 10,
+          "every palette has a colour for each mode and program (colour-blind safe: first seven %.1f apart, all %.1f)", firstSeven, wide);
     // Given out to the most used bands, in frequency order; the rest grey.
     std::map<std::string, size_t> counts = {{"40m", 500}, {"20m", 900}, {"80m", 30}, {"15m", 200}, {"10m", 150}, {"17m", 90},
                                             {"30m", 120}, {"6m", 60},   {"2m", 5}};
@@ -3788,6 +3811,35 @@ static void testSpotsCore() {
             sp.activator = call, sp.band = band, sp.mode = mode;
             return sp;
         };
+        {  // Why a contact is worth having (the Operating Console's QSO details)
+            auto kinds = [](const std::vector<Interest> &v) {
+                std::string k;
+                for (const Interest &i : v) k += std::to_string((int)i.kind) + " ";
+                return k;
+            };
+            auto has = [](const std::vector<Interest> &v, InterestKind k) {
+                return std::any_of(v.begin(), v.end(), [&](const Interest &i) { return i.kind == k; });
+            };
+            ContactSubject c;
+            c.call = "JA1XYZ", c.band = "20m", c.mode = "CW", c.date8 = "20240101";
+            std::vector<Interest> v = contactInterest(w, log, c, &ct, {});
+            CHECK(has(v, InterestKind::NewDxcc) && has(v, InterestKind::FirstQso) && !has(v, InterestKind::Duplicate) && v[0].text == "New DXCC entity (Japan)",
+                  "a new entity, a first QSO: %s", kinds(v).c_str());
+            c.call = "DL2XYZ/P", c.band = "40m", c.mode = "FT4";  // FT8 on 40m that day: the data group
+            v = contactInterest(w, log, c, &ct, {"DL2XYZ"});
+            CHECK(v.size() >= 3 && v[0].kind == InterestKind::Watched && v[1].kind == InterestKind::Duplicate && has(v, InterestKind::Before) &&
+                      !has(v, InterestKind::Worked) && v[1].text == "Duplicate: DL2XYZ worked on 40m FT4 today already",
+                  "watched; a duplicate today on this band and mode group, its portable form too: %s", kinds(v).c_str());
+            c.date8 = "20240102";
+            CHECK(!has(contactInterest(w, log, c, &ct, {}), InterestKind::Duplicate), "another day: not a duplicate");
+            c.call = "K9ABC", c.band = "20m", c.mode = "SSB", c.refs = {"US-0001"}, c.program = "POTA", c.activating = true;
+            v = contactInterest(w, log, c, &ct, {});
+            CHECK(kinds(v) == std::to_string((int)InterestKind::NewForActivation) + " " + std::to_string((int)InterestKind::ParkToPark) + " " +
+                                  std::to_string((int)InterestKind::NewPark) + " " + std::to_string((int)InterestKind::FirstQso) + " " &&
+                      v[1].text == "Park to park: they are at US-0001",
+                  "activating: new for it, park to park, a park not hunted, nothing about the log's needs: %s", kinds(v).c_str());
+            CHECK(contactInterest(w, log, ContactSubject(), &ct, {}).empty(), "no call: nothing");
+        }
         CHECK(spotStatus(w, spot("JA1XYZ", "20m", "CW"), &ct).need == SpotNeed::NewDxcc, "an entity never worked: a new DXCC");
         CHECK(spotStatus(w, spot("DL9AAA", "17m", "CW"), &ct).need == SpotNeed::NewBand, "Germany on a band not worked: a new band");
         CHECK(spotStatus(w, spot("DL9AAA", "40m", "CW"), &ct).need == SpotNeed::NewMode, "Germany on 40m CW, worked there only in data and phone");
@@ -3990,6 +4042,76 @@ static void testCluster() {
     };
     CHECK(has("CALL", "JA1XYZ") && has("FREQ", "14.074") && has("BAND", "20m") && has("MODE", "FT8") && has("GRIDSQUARE", "PM95vq"),
           "a cluster spot as New QSO fields, with its grid");
+
+    // PSKReporter's MQTT feed: packets, topics and a report.
+    {
+        std::string conn = mqttConnect("adiflint-1", 60);
+        CHECK(conn.size() == 2 + 12 + 10 && (unsigned char)conn[0] == 0x10 && conn.substr(2, 6) == std::string("\0\4MQTT", 6), "MQTT CONNECT");
+        std::string sub = mqttSubscribe(1, {"a/#", "b"});
+        MqttPackets pk;
+        std::vector<MqttPacket> got;
+        std::string pub = std::string("\x30", 1) + std::string(1, (char)(2 + 3 + 4)) + std::string("\0\3t/x", 5) + "data";
+        pk.feed(pub.substr(0, 4), &got);
+        CHECK(got.empty(), "half a packet waits");
+        pk.feed(pub.substr(4) + std::string("\xD0\0", 2), &got);
+        std::string topic, payload;
+        CHECK(got.size() == 2 && mqttPublish(got[0], &topic, &payload) && topic == "t/x" && payload == "data" && got[1].type == 13 && !pk.broken(),
+              "PUBLISH and PINGRESP read from a stream");
+        CHECK(sub.size() == 2 + 2 + 2 + 3 + 1 + 2 + 1 + 1 && (unsigned char)sub[0] == 0x82, "MQTT SUBSCRIBE");
+        auto topics = pskTopicsForCall("w1aw/p");
+        CHECK(topics.size() == 2 && topics[0] == "pskr/filter/v2/+/+/W1AW_P/#" && topics[1] == "pskr/filter/v2/+/+/+/W1AW_P/#", "topics for a call");
+        CHECK(pskTopicsForGrid("fn42ab")[1] == "pskr/filter/v2/+/+/+/+/+/FN42/#", "topics for a grid");
+        PskArea wi = pskAreaForState("wi");
+        CHECK(!wi.empty() && wi.states.count("WI") && std::count(wi.squares.begin(), wi.squares.end(), "EN53") == 1 &&
+                  std::count(wi.squares.begin(), wi.squares.end(), "FN42") == 0,
+              "a state's squares");
+        PskArea hudson = pskAreaForSection("NLI");
+        CHECK(hudson.states.count("NY") && hudson.states.count("NJ") && !hudson.states.count("PA"), "a split section's division");
+        CHECK(pskAreaForSection("", "IL").states == pskAreaForSection("WI").states && pskAreaForSection("ZZZ").empty(), "a division by state or section");
+        Spot inWi, outWi;
+        inWi.grid = "EN53", outWi.grid = "FN42", outWi.spotterGrid = "EN34";
+        CHECK(pskStateOfGrid("EN53wc") == "WI" && pskInArea(wi, inWi) && !pskInArea(wi, outWi), "reports kept to the area");
+        CHECK(pskTopicsForSquares({"EN53", "EN54"}).size() == 4, "topics for squares");
+        Spot live;
+        CHECK(parsePskLive("{\"sq\":1,\"f\":21074653,\"md\":\"FT8\",\"rp\":-5,\"t\":1662407712,\"sc\":\"sp2ewq\",\"sl\":\"JO93fn42\","
+                           "\"rc\":\"CU3AT\",\"rl\":\"HM68jp36\",\"sa\":269,\"ra\":149,\"b\":\"15m\"}",
+                           &live, "SP2EWQ") &&
+                  live.activator == "SP2EWQ" && live.spotter == "CU3AT" && live.band == "15m" && live.snr == -5 && live.heardMe &&
+                  live.epoch == 1662407712 && live.khz == "21074.653",
+              "a live PSKReporter report");
+        CHECK(!parsePskLive("{\"f\":1}", &live) && !parsePskLive("nonsense", &live), "an unusable live report");
+    }
+    // WSJT-X decodes: what the station hears, and who is working whom.
+    {
+        auto u32 = [](uint32_t v) { return std::string{(char)(v >> 24), (char)(v >> 16), (char)(v >> 8), (char)v}; };
+        std::string head = u32(0xadbccbda) + u32(2);
+        std::string status = head + u32(1) + wsjtxString("WSJT-X") + u32(0) + u32(14074000) + wsjtxString("FT8") + wsjtxString("") + wsjtxString("") +
+                             wsjtxString("FT8") + std::string("\0\0\1", 3) + u32(0) + u32(0) + wsjtxString("N0CALL") + wsjtxString("EN34");
+        auto decode = [&](const char *text) {
+            return head + u32(2) + wsjtxString("WSJT-X") + std::string("\1", 1) + u32(12 * 3600 * 1000 + 15000) + u32((uint32_t)-7) +
+                   std::string(8, '\0') + u32(1500) + wsjtxString("~") + wsjtxString(text) + std::string("\0\0", 2);
+        };
+        WsjtxHeard heard;
+        std::vector<Spot> spots;
+        long long now = 1791460800 + 20;  // 12:00:20 UTC on a day boundary of 86400
+        now = now - now % 86400 + 12 * 3600 + 20;
+        heard.feed(decode("CQ K1ABC FN42"), now, &spots);
+        CHECK(spots.empty(), "no decode counts before the rig's Status");
+        heard.feed(status, now, &spots);
+        heard.feed(decode("CQ POTA K1ABC FN42"), now, &spots);
+        heard.feed(decode("W9XYZ K1DEF -10"), now, &spots);
+        heard.feed(decode("W9XYZ RR73"), now, &spots);
+        CHECK(spots.size() == 2 && spots[0].activator == "K1ABC" && spots[0].grid == "FN42" && spots[0].spotter == "N0CALL" &&
+                  spots[0].spotterGrid == "EN34" && spots[0].khz == "14075.5" && spots[0].mode == "FT8" && spots[0].band == "20m" &&
+                  spots[0].snr == -7 && spots[0].epoch == now - 5 && spots[0].source == SpotSource::Wsjtx && spots[0].comments.empty() &&
+                  spots[1].activator == "K1DEF" && spots[1].comments == "working W9XYZ",
+              "WSJT-X decodes as spots heard by this station, with who they are working");
+    }
+    SpotLabel withTime;
+    withTime.mode = withTime.age = withTime.snr = false, withTime.time = true;
+    Spot stamped;
+    stamped.epoch = 1791407000;
+    CHECK(spotLabelDetails(stamped, withTime, stamped.epoch + 60) == spotTime(1791407000) + "Z", "a spot's label can show when it was last heard");
 
     // PSKReporter: the documentation's sample (unquoted numbers), and a fuller report.
     std::vector<Spot> reports;
@@ -4209,12 +4331,12 @@ static void testContestDefs() {
             CHECK(e && findEnumValue(*e, d.id), "%s is in ADIF's Contest_ID enumeration", d.id);
         }
     // CQ WW SSB: your zone; theirs in CQZ; once per band; phone on six bands.
-    ContestSetup ww{ContestPreset::Defined, "4", "CQ-WW-SSB"};
+    ContestSetup ww{ContestPreset::Defined, "4", "CQ-WW-SSB", ""};
     F wwf = contestFields(ww, {{"CALL", "DL1ABC"}, {"RST_RCVD", "59"}, {"CQZ", "14"}}, 0);
     CHECK(sentProblem(ww).empty() && rows(ww) == "CQZ" && find(wwf, "CONTEST_ID") == "CQ-WW-SSB" && find(wwf, "MY_CQ_ZONE") == "4" &&
               find(wwf, "STX_STRING") == "4" && find(wwf, "SRX_STRING") == "14" && find(wwf, "STX") == "(none)" && !contestSerial(ww),
           "CQ WW: zone 4 sent, 14 received");
-    CHECK(!sentProblem({ContestPreset::Defined, "41", "CQ-WW-SSB"}).empty() && !contestRowProblem(ww, "CQZ", "41").empty() &&
+    CHECK(!sentProblem({ContestPreset::Defined, "41", "CQ-WW-SSB", ""}).empty() && !contestRowProblem(ww, "CQZ", "41").empty() &&
               contestRowProblem(ww, "CQZ", "14").empty(),
           "a CQ zone is 1 to 40");
     Record wwq;
@@ -4223,30 +4345,30 @@ static void testContestDefs() {
     wwq.fields = {{"CALL", "DL1ABC"}, {"BAND", "20m"}, {"MODE", "CW"}};
     CHECK(!contestRuleProblem(ww, wwq).empty(), "CQ WW SSB: no CW (%s)", contestRuleProblem(ww, wwq).c_str());
     // WPX: serials; the prefix multiplier is the scorer's.
-    ContestSetup wpx{ContestPreset::Defined, "", "CQ-WPX-CW"};
+    ContestSetup wpx{ContestPreset::Defined, "", "CQ-WPX-CW", ""};
     F wpxf = contestFields(wpx, {{"CALL", "DL1ABC"}, {"SRX", "123"}}, 7);
     CHECK(sentProblem(wpx).empty() && contestSerial(wpx) && rows(wpx) == "SRX" && find(wpxf, "STX") == "7" && find(wpxf, "SRX_STRING") == "(none)",
           "CQ WPX: STX counts up, SRX received");
     // Sweepstakes: no report; precedence, check and section; once in the contest.
-    ContestSetup ss{ContestPreset::Defined, "a 72 il", "ARRL-SS-CW"};
+    ContestSetup ss{ContestPreset::Defined, "a 72 il", "ARRL-SS-CW", ""};
     F ssf = contestFields(ss, {{"CALL", "W1AW"}, {"SRX", "34"}, {"PRECEDENCE", "B"}, {"CHECK", "85"}, {"ARRL_SECT", "EMA"}}, 12);
     CHECK(sentProblem(ss).empty() && rows(ss) == "SRX PRECEDENCE CHECK ARRL_SECT" && find(ssf, "STX") == "12" && find(ssf, "STX_STRING") == "A 72 IL" &&
               find(ssf, "MY_ARRL_SECT") == "IL" && find(ssf, "SRX_STRING") == "B 85 EMA",
           "Sweepstakes: STX_STRING %s, SRX_STRING %s", find(ssf, "STX_STRING").c_str(), find(ssf, "SRX_STRING").c_str());
-    CHECK(!sentProblem({ContestPreset::Defined, "Z 72 IL", "ARRL-SS-CW"}).empty() && !contestRowProblem(ss, "PRECEDENCE", "Z").empty() &&
+    CHECK(!sentProblem({ContestPreset::Defined, "Z 72 IL", "ARRL-SS-CW", ""}).empty() && !contestRowProblem(ss, "PRECEDENCE", "Z").empty() &&
               !contestRowProblem(ss, "CHECK", "7").empty(),
           "Sweepstakes: precedence Q A B U M S, a two-digit check");
     // ARRL DX: W/VE log the DX station's power; DX log the state.
-    ContestSetup dxW{ContestPreset::Defined, "IL", "ARRL-DX-CW"}, dxDx{ContestPreset::Defined, "100", "ARRL-DX-CW"};
+    ContestSetup dxW{ContestPreset::Defined, "IL", "ARRL-DX-CW", ""}, dxDx{ContestPreset::Defined, "100", "ARRL-DX-CW", ""};
     F dxf = contestFields(dxW, {{"CALL", "DL1ABC"}, {"RX_PWR", "KW"}}, 0);
     CHECK(rows(dxW) == "RX_PWR" && rows(dxDx) == "STATE" && find(dxf, "MY_STATE") == "IL" && find(dxf, "SRX_STRING") == "KW" &&
               contestDrops(dxW, {{"RX_PWR", "KW"}}) == std::vector<std::string>{"RX_PWR"} && contestDrops(dxW, {{"RX_PWR", "100"}}).empty() &&
               find(contestFields(dxDx, {}, 0), "TX_PWR") == "100",
           "ARRL DX: rows by side; KW kept in SRX_STRING, not RX_PWR");
     // ARRL 10 m: DX stations send serials (an empty exchange); a DX station's serial typed in STATE goes to SRX.
-    ContestSetup ten{ContestPreset::Defined, "", "ARRL-10"};
+    ContestSetup ten{ContestPreset::Defined, "", "ARRL-10", ""};
     F tenf = contestFields(ten, {{"CALL", "DL1ABC"}, {"STATE", "045"}}, 3);
-    CHECK(contestSerial(ten) && !contestSerial({ContestPreset::Defined, "IL", "ARRL-10"}) && find(tenf, "STX") == "3" && find(tenf, "SRX") == "45" &&
+    CHECK(contestSerial(ten) && !contestSerial({ContestPreset::Defined, "IL", "ARRL-10", ""}) && find(tenf, "STX") == "3" && find(tenf, "SRX") == "45" &&
               contestDrops(ten, {{"STATE", "045"}}) == std::vector<std::string>{"STATE"},
           "ARRL 10 m: serials for DX");
     Record tenq;
@@ -4254,7 +4376,7 @@ static void testContestDefs() {
     CHECK(!contestRuleProblem(ten, tenq).empty(), "ARRL 10 m: CW below 28.3 MHz");
     // The party's own CONTEST_ID.
     ContestSetup party{ContestPreset::Defined, "COOK", "QSO-PARTY", "IL QSO Party"};
-    CHECK(contestIdFor(party) == "IL QSO Party" && sentProblem(party).empty() && !sentProblem({ContestPreset::Defined, "COOK", "QSO-PARTY"}).empty(),
+    CHECK(contestIdFor(party) == "IL QSO Party" && sentProblem(party).empty() && !sentProblem({ContestPreset::Defined, "COOK", "QSO-PARTY", ""}).empty(),
           "a QSO party writes its own CONTEST_ID");
     // Duplicates by each rule.
     std::string log = std::string(kHeader) +
@@ -4265,7 +4387,7 @@ static void testContestDefs() {
     again.fields = {{"CALL", "W1AW/7"}, {"BAND", "40m"}, {"MODE", "CW"}};
     CHECK(contestDupes(log, lr.model, ss, again).size() == 1, "Sweepstakes: W1AW/7 on 40 m is W1AW again (once in the contest)");
     again.fields = {{"CALL", "DL1ABC"}, {"BAND", "40m"}, {"MODE", "CW"}};
-    ContestSetup wwcw{ContestPreset::Defined, "4", "CQ-WW-CW"};
+    ContestSetup wwcw{ContestPreset::Defined, "4", "CQ-WW-CW", ""};
     CHECK(contestDupes(log, lr.model, wwcw, again).empty(), "CQ WW: another band is a new QSO");
     again.fields = {{"CALL", "DL1ABC"}, {"BAND", "20m"}, {"MODE", "CW"}};
     CHECK(contestDupes(log, lr.model, wwcw, again).size() == 1 && dupeRuleText(wwcw) == "a station counts once per band", "CQ WW: the same band again");
@@ -4503,6 +4625,78 @@ static void testOutlines() {
           "the outline cache written and read back (%s)", why.c_str());
 }
 
+// Operating Styles: each style's defaults, its saved state, and the report of a change.
+static void testOperatingStyles() {
+    using namespace adif::styles;
+    std::map<std::string, std::string> ini;
+    Getter get = [&](const std::string &k) {
+        auto it = ini.find(k);
+        return it == ini.end() ? std::string() : it->second;
+    };
+    Setter set = [&](const std::string &k, const std::string &v) { ini[k] = v; };
+    auto apply = [&](const Settings &values) {
+        for (const auto &[k, v] : values) ini[k] = v;
+    };
+
+    for (int i = 0; i < kStyleCount; ++i) {
+        OperatingStyle s = (OperatingStyle)i;
+        CHECK(parse(id(s)) == s, "style %s parses back", std::string(id(s)).c_str());
+        // Safe: a style sets only the Map's own settings, never Offline Mode, accounts, a contest or the log.
+        for (const auto &[k, v] : defaults(s)) CHECK(k.rfind("map", 0) == 0 && k != "mapWorkflowSaved", "%s's default %s is a Map setting", title(s), k.c_str());
+        CHECK(defaults(s).count("mapWorkflow"), "%s chooses a workflow", title(s));
+    }
+    CHECK(!parse("") && !parse("Social") && !parse("dx"), "no style: empty or unknown");
+    CHECK(defaults(OperatingStyle::Portable).at("mapShowSpots") == "0" && defaults(OperatingStyle::Portable).at("mapSolar") == "0" &&
+              defaults(OperatingStyle::Portable).at("mapAurora") == "0",
+          "Portable starts no feed");
+    CHECK(defaults(OperatingStyle::Chasing).at("mapWorkflow") == "2" && defaults(OperatingStyle::Chasing).at("mapQuickView") == "1",
+          "Chasing: DX Chase, Needed on its band");
+    CHECK(defaults(OperatingStyle::Contest).at("mapBeacons") == "0", "Contest: nothing on the map moves by itself (the beacons off)");
+
+    std::vector<std::string> owned = ownedKeys({"mapContacts", "mapPaths", "mapQuickView"});
+    CHECK(std::is_sorted(owned.begin(), owned.end()) && std::count(owned.begin(), owned.end(), "mapQuickView") == 1 &&
+              std::count(owned.begin(), owned.end(), "mapContacts") && std::count(owned.begin(), owned.end(), "mapRings"),
+          "owned: the workflow's keys and every style's, once each");
+    CHECK(savedKey(OperatingStyle::Contest, "mapPalette") == "mapStyleContestmapPalette", "saved as the workflows keep theirs");
+
+    // The first time: the defaults; what they don't name stays.
+    ini = {{"mapWorkflow", "1"}, {"mapPalette", "1"}, {"mapContacts", "1"}, {"mapCountryLabels", "1"}};
+    Settings before = snapshot(owned, get);
+    CHECK(!hasSaved(OperatingStyle::Social, get) && target(OperatingStyle::Social, owned, get) == defaults(OperatingStyle::Social),
+          "a style not chosen before: its defaults");
+    apply(target(OperatingStyle::Social, owned, get));
+    Transition t = diff(std::nullopt, OperatingStyle::Social, before, snapshot(owned, get));
+    std::string changed;
+    for (const Change &c : t.changes) changed += c.key + ":" + c.before + ">" + c.after + " ";
+    CHECK(changed == "mapPalette:1>0 mapQuickView:>10 mapShowSpots:>0 mapWorkflow:1>0 ", "the report: each key changed, before and after: %s", changed.c_str());
+    CHECK(ini["mapContacts"] == "1" && ini["mapCountryLabels"] == "1", "keys the style doesn't name are left alone");
+    CHECK(!customized(OperatingStyle::Social, get), "as recommended: not customized");
+
+    // Changed, left, and back: as it was left.
+    ini["mapPalette"] = "3";
+    CHECK(customized(OperatingStyle::Social, get), "a default changed: customized");
+    save(OperatingStyle::Social, owned, get, set);
+    apply(target(OperatingStyle::Portable, owned, get));
+    CHECK(ini["mapPalette"] == "2" && ini["mapTextSize"] == "1", "Portable's own");
+    save(OperatingStyle::Portable, owned, get, set);
+    before = snapshot(owned, get);
+    apply(target(OperatingStyle::Social, owned, get));
+    CHECK(hasSaved(OperatingStyle::Social, get) && ini["mapPalette"] == "3" && ini["mapTextSize"] == "" && ini["mapRings"] == "",
+          "back to Social: as it was left, Portable's text size and rings gone");
+
+    // Restore previous layout: exactly what was there.
+    t = diff(OperatingStyle::Portable, OperatingStyle::Social, before, snapshot(owned, get));
+    Transition back = reversed(t);
+    CHECK(back.from == OperatingStyle::Social && back.to == OperatingStyle::Portable && back.changes.size() == t.changes.size(), "reversed");
+    for (const Change &c : back.changes) ini[c.key] = c.after;
+    CHECK(snapshot(owned, get) == before, "restored exactly");
+
+    // Reset: the saved state forgotten, the defaults again.
+    forget(OperatingStyle::Social, owned, set);
+    CHECK(!hasSaved(OperatingStyle::Social, get) && target(OperatingStyle::Social, owned, get) == defaults(OperatingStyle::Social), "reset");
+    CHECK(diff(std::nullopt, std::nullopt, before, before).changes.empty(), "nothing changed: an empty report");
+}
+
 int main(int argc, char **argv) {
     testStructure();
     testHeader();
@@ -4568,6 +4762,7 @@ int main(int argc, char **argv) {
     testSolar();
     testProjections();
     testPalettes();
+    testOperatingStyles();
     for (int i = 1; i < argc; ++i)
         if (std::string(argv[i]).size() > 4 && std::string(argv[i]).substr(std::string(argv[i]).size() - 4) == ".bin") testDetail(argv[i]);
     if (argc > 1) testOfficialFile(argv[1]);

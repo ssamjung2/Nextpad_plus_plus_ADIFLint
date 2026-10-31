@@ -60,7 +60,10 @@
 #import "ToolWindow.h"
 #import "Imports.h"
 #import "Uploads.h"
+#import "Workspace.h"
 #include "adif_facts.h"
+#include "adif_needs.h"
+#include "adif_world.h"
 #include "adif_edit.h"
 #include "adif_enrich.h"
 #include "adif_lint.h"
@@ -77,6 +80,7 @@
 #include <ctime>
 #include <fstream>
 #include <functional>
+#include <initializer_list>
 #include <map>
 #include <set>
 #include <string>
@@ -95,7 +99,7 @@ enum {
     kCmdNewQso,
     kCmdSpots,
     kCmdStartActivation,
-    kCmdLayout,
+    kCmdStartLogging,
     kSepValidate,
     kCmdCheckLog,
     kCmdNextProblem,
@@ -129,6 +133,8 @@ enum {
     kSepHelp,
     kCmdSettings,
     kCmdAbout,
+    kCmdLiveMap,  // added after the others, so the commands before keep their places
+    kCmdStartContest,
     kCmdCount
 };
 static FuncItem funcItem[kCmdCount];
@@ -136,7 +142,10 @@ static std::string gMenuNames[kCmdCount];    // as the host shows them
 static const char *gMenuEnglish[kCmdCount];  // the same in English, the tables' keys
 
 // A menu name in the language in use, cut on a character boundary to fit the host's buffer.
+// AppKit shows a no-break space (U+00A0, before French colons) in a menu title as a plain
+// space, so the name is kept the same way: our items are found in the menu by their names.
 static std::string menuNameText(std::string name) {
+    for (size_t at; (at = name.find("\xC2\xA0")) != std::string::npos;) name.replace(at, 2, " ");
     if (name.size() > NPP_MENU_ITEM_SIZE - 1) {
         size_t n = NPP_MENU_ITEM_SIZE - 1;
         while (n > 0 && ((unsigned char)name[n] & 0xC0) == 0x80) --n;  // not inside a UTF-8 character
@@ -163,10 +172,7 @@ static struct {
     bool autocomplete = true;
     bool countCharacters = false;
     bool panelWanted = false;
-    // Logging Layout: New QSO, the Map and the Log Table arranged and kept in front; each one's
-    // level and hiding as they were, to put back.
-    bool layout = false;
-    std::vector<std::tuple<NSWindow *__weak, NSWindowLevel, BOOL>> layoutWas;
+    std::string qsoTargetLine;  // what New QSO says it is logging to, for the layout's status bar
     bool firstRun = false;  // no ADIFLint.ini yet: show the welcome
     std::string pendingOpen;  // a file asked to open; New QSO opens on it when it becomes active
     std::vector<std::string> qsoFieldList;  // New QSO fields; empty: the log's own fields
@@ -485,7 +491,7 @@ static const adif::LintResult &validateNow(NppHandle h, bool showDiagnostics);
 static std::string utcNow(const char *format);
 static std::string documentName();
 static void openSettings(NSInteger source);
-static void cmdLoggingLayout();
+static void cmdStartLogging();
 
 // ── PluginHost: what the other plugin files use ─────────────────────────────
 
@@ -1726,6 +1732,12 @@ static void refreshSpotBoxes(const adif::FieldList &shown) {
 }
 
 static void showLookupInfo();
+static void updateQsoDetails();
+// The lookup's last facts, for QSO Details.
+static struct {
+    std::string call, name, qth, state, country;
+    std::vector<adif::LookupFact> facts;
+} gDetailsLookup;
 
 static void showQsoCheck(const QsoCheck &c) {
     [g.qso setRowStatus:c.rows];
@@ -1738,6 +1750,8 @@ static void showQsoCheck(const QsoCheck &c) {
 }
 
 static void scheduleQsoCheck() {
+    if (g.qso) workspace::setQsoFields([g.qso values]);
+    updateQsoDetails();
     int64_t mine = ++g.qsoToken;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         if (mine != g.qsoToken || !qsoVisible()) return;
@@ -1832,8 +1846,9 @@ static void logQso() {
         [g.qso setRowStatus:std::vector<std::pair<int, std::string>>(g.qsoFields.size(), {-1, std::string()})];
         [g.qso setSummary:done severity:c.severity == 1 ? 1 : -1];
         refreshQsoTarget();
+        workspace::setStatus(done + "  ·  " + g.qsoTargetLine);
         [g.qso focusField:"CALL"];
-        if (g.layout) {  // the new QSO chosen on the Map and in the Log Table
+        if (workspace::active()) {  // the new QSO chosen on the Map and in the Log Table
             worldmap::showRecord((int)adif::recordCount(after.model));
             logtools::showRecordInTable(start);
         }
@@ -1929,6 +1944,7 @@ static void showQsoRows(NppHandle h, const adif::LintResult &r) {
     if (!g.qso) {
         g.qso = [[ADIFNewQsoPanel alloc] init];
         g.qso.onChange = ^{
+            workspace::setQsoFields([g.qso values]);
             scheduleQsoCheck();
             scheduleLookup();
         };
@@ -2134,6 +2150,90 @@ static void showLookupInfo() {
     NSMutableArray *rows = [NSMutableArray array];
     for (const adif::LookupFact &f : facts) [rows addObject:@[ ADIFString(f.label), ADIFString(f.value), ADIFString(f.tip) ]];
     [g.qso setLookupFacts:rows message:ADIFString(g.lookup.message) severity:-1];
+    gDetailsLookup = {call, s.name, s.qth, s.state, s.country.empty() && s.entity ? s.entity->name : s.country, facts};
+    updateQsoDetails();
+}
+
+// QSO Details (the Operating Console): who New QSO's call is and where, why the contact is worth
+// having (adif::contactInterest, against this log, as the Map's selected panel says it for a spot),
+// the lookup's facts, this QSO, and your QSOs with the call. Worked out only while it is open.
+static void updateQsoDetails() {
+    if (!g.qso || !workspace::qsoDetailsShown()) return;
+    workspace::QsoDetails d;
+    std::string call = qsoValue("CALL");
+    for (char &c : call) c = (char)std::toupper((unsigned char)c);
+    if (call.empty()) return workspace::setQsoDetails(d);
+    d.call = call;
+    bool looked = gDetailsLookup.call == call;  // the lookup's facts are for this call
+    std::string name = qsoValue("NAME"), qth = qsoValue("QTH"), state = qsoValue("STATE");
+    if (looked) {
+        if (name.empty()) name = gDetailsLookup.name;
+        if (qth.empty()) qth = gDetailsLookup.qth;
+        if (state.empty()) state = gDetailsLookup.state;
+    }
+    d.who = name;
+    for (const std::string &part : {qth, state, looked ? gDetailsLookup.country : std::string()})
+        if (!part.empty()) d.where += (d.where.empty() ? "" : " \u00B7 ") + part;
+    if (looked)
+        for (const adif::LookupFact &f : gDetailsLookup.facts)
+            if (f.label != tr("Operator")) d.facts.push_back({f.label, f.value});  // the operator is the heading
+
+    // The log: its QSOs, and what has been worked (kept until the log changes).
+    static struct {
+        intptr_t buffer = 0;
+        uint64_t edit = UINT64_MAX;
+        std::vector<adif::MapQso> qsos;
+        adif::WorkedIndex worked;
+    } log;
+    try {
+        NppHandle h = currentScintilla();
+        if (log.buffer != currentBuffer() || log.edit != g.editCount) {
+            const adif::LintResult &r = freshLint(h);
+            adif::MapContext context;
+            context.countries = &ADIFCountries();
+            context.parks = &ADIFPotaParks();
+            log.qsos = adif::mapData(docText(h), r.model, adif::MapFilter(), context).qsos;
+            log.worked = adif::workedIndex(log.qsos, &ADIFCountries());
+            log.buffer = currentBuffer(), log.edit = g.editCount;
+        }
+    } catch (...) {
+    }
+    adif::ContactSubject c;
+    c.call = call, c.band = qsoValue("BAND"), c.mode = qsoValue("MODE");
+    c.date8 = qsoValue("QSO_DATE");
+    if (c.date8.empty() || g.qso.useCurrentTime) c.date8 = adifhost::utcNow("%Y%m%d");
+    std::string refs = qsoValue("POTA_REF"), sig = qsoValue("SIG");
+    c.program = !refs.empty() ? "POTA" : sig;
+    if (refs.empty()) refs = qsoValue("SIG_INFO");
+    for (size_t start = 0; start < refs.size();) {
+        size_t comma = refs.find(',', start);
+        std::string ref = refs.substr(start, comma == std::string::npos ? std::string::npos : comma - start);
+        ref.erase(0, ref.find_first_not_of(' '));
+        if (!ref.empty()) c.refs.push_back(ref);
+        start = comma == std::string::npos ? refs.size() : comma + 1;
+    }
+    if (c.program.empty() && !c.refs.empty() && adif::isPotaRef(c.refs[0])) c.program = "POTA";
+    c.activating = adifhost::setting("activationActive") == "1";
+    for (const adif::Interest &i : adif::contactInterest(log.worked, log.qsos, c, &ADIFCountries(), adif::watchList(adifhost::setting("mapWatch"))))
+        d.why.push_back({(int)i.kind, i.text});
+
+    // This QSO, as it will be logged.
+    std::string freq = qsoValue("FREQ"), rstS = qsoValue("RST_SENT"), rstR = qsoValue("RST_RCVD");
+    for (const std::string &part : {c.band, freq.empty() ? std::string() : freq + " MHz", c.mode})
+        if (!part.empty()) d.qso += (d.qso.empty() ? "" : " \u00B7 ") + part;
+    if (!rstS.empty() || !rstR.empty())
+        d.qso += (d.qso.empty() ? "" : " \u00B7 ") + trf("{sent} sent, {rcvd} received", {{"sent", rstS.empty() ? "-" : rstS}, {"rcvd", rstR.empty() ? "-" : rstR}});
+
+    // Your QSOs with the call, newest first.
+    std::string key = adif::lookupCall(call);
+    std::vector<const adif::MapQso *> mine;
+    for (const adif::MapQso &q : log.qsos)
+        if (adif::lookupCall(q.call) == key) mine.push_back(&q);
+    std::stable_sort(mine.begin(), mine.end(), [](const adif::MapQso *a, const adif::MapQso *b) { return a->date8 + a->time > b->date8 + b->time; });
+    for (size_t i = 0; i < mine.size() && i < 6; ++i)
+        d.history.push_back(mine[i]->date + "  " + mine[i]->time + "  " + mine[i]->band + "  " + mine[i]->mode + (mine[i]->confirmed ? "  \u2713" : ""));
+    if (mine.size() > 6) d.history.push_back(trf("and {n} more", {{"n", std::to_string(mine.size() - 6)}}));
+    workspace::setQsoDetails(d);
 }
 
 static void runLookup() {
@@ -2259,6 +2359,8 @@ static void refreshQsoTarget() {
     } catch (...) {
     }
     [g.qso setTarget:line];
+    g.qsoTargetLine = line;
+    workspace::setStatus(line);
 }
 
 static void cmdNewQso() {
@@ -2273,6 +2375,7 @@ static void cmdNewQso() {
         }
         g.manualBuffers.insert(currentBuffer());
         loadQsoRows(h, r, false);
+        workspace::setQsoFields([g.qso values]);
         refreshQsoTarget();
         [g.qso setSummary:"" severity:-1];
         [g.qso show];
@@ -2782,12 +2885,14 @@ static void cmdToggleAutoValidate() { setAutoValidate(!g.autoValidate); }
 
 static std::string menuSectionName(NSString *identifier) {
     if ([identifier isEqualToString:@"org.nextpad.adiflint.section.operating"]) return menuNameText(tr("Logging & Operating"));
-    if ([identifier isEqualToString:@"org.nextpad.adiflint.section.validate"]) return menuNameText(tr("Validate & Edit"));
+    if ([identifier isEqualToString:@"org.nextpad.adiflint.section.map"]) return menuNameText(tr("Map & Spots"));
+    if ([identifier isEqualToString:@"org.nextpad.adiflint.section.validate"]) return menuNameText(tr("Validate & Repair"));
+    if ([identifier isEqualToString:@"org.nextpad.adiflint.section.edit"]) return menuNameText(tr("Edit & Transform"));
     if ([identifier isEqualToString:@"org.nextpad.adiflint.section.organize"]) return menuNameText(tr("Organize & Manage Logs"));
     if ([identifier isEqualToString:@"org.nextpad.adiflint.section.explore"]) return menuNameText(tr("Explore & Analyze"));
     if ([identifier isEqualToString:@"org.nextpad.adiflint.section.integrations"]) return menuNameText(tr("QSL & Integrations"));
-    if ([identifier isEqualToString:@"org.nextpad.adiflint.section.preferences"]) return menuNameText(tr("Preferences & Display"));
-    if ([identifier isEqualToString:@"org.nextpad.adiflint.section.help"]) return menuNameText(tr("Help"));
+    if ([identifier isEqualToString:@"org.nextpad.adiflint.section.preferences"]) return menuNameText(tr("Preferences & Appearance"));
+    if ([identifier isEqualToString:@"org.nextpad.adiflint.section.help"]) return menuNameText(tr("Help & About"));
     return {};
 }
 
@@ -2795,6 +2900,7 @@ static std::string menuSectionName(NSString *identifier) {
 // the menu from the names it was given at start and has no message to rename one, so they are
 // found in the app's menus: in the ADIF Lint menu and its submenus, by the names they have now.
 static void retitleMenus() {
+    workspace::retitleMenu();
     std::function<void(NSMenu *, bool)> walk = [&](NSMenu *menu, bool ours) {
         for (NSMenuItem *item in menu.itemArray) {
             if (ours)
@@ -2806,7 +2912,10 @@ static void retitleMenus() {
                     }
             if (ours && item.identifier) {
                 std::string title = menuSectionName(item.identifier);
-                if (!title.empty()) item.title = @(title.c_str());
+                if (!title.empty()) {
+                    item.title = @(title.c_str());
+                    if (item.submenu) item.submenu.title = item.title;
+                }
                 if ([item.identifier isEqualToString:@"org.nextpad.adiflint.menu.reformat"]) {
                     item.title = @(menuNameText(tr("Reformat Log")).c_str());
                     item.submenu.title = item.title;
@@ -2869,52 +2978,55 @@ static void installPluginMenuStructure() {
         [pluginMenu addItem:heading];
     };
     auto add = [&](int command) { [pluginMenu addItem:commands[command]]; };
+    auto addSubmenuSection = [&](NSString *identifier, std::initializer_list<int> items) {
+        NSMenuItem *section = [[NSMenuItem alloc] initWithTitle:@(menuSectionName(identifier).c_str()) action:nil keyEquivalent:@""];
+        section.identifier = identifier;
+        section.submenu = [[NSMenu alloc] initWithTitle:section.title];
+        for (int command : items) [section.submenu addItem:commands[command]];
+        [pluginMenu addItem:section];
+        return section;
+    };
 
+    // Operating: a way of logging (the layout, an activation, a contest), one QSO, and the layout's options.
     addSection(@"org.nextpad.adiflint.section.operating", true);
-    add(kCmdNewQso);
-    add(kCmdSpots);
+    add(kCmdStartLogging);
     add(kCmdStartActivation);
-    add(kCmdLayout);
+    add(kCmdStartContest);
+    add(kCmdNewQso);
+    [pluginMenu addItem:workspace::optionsMenuItem()];
+
+    // Seeing what is out there: the log on the Map, who is on the air now, and the spots to hunt.
+    addSection(@"org.nextpad.adiflint.section.map");
+    add(kCmdMap);
+    add(kCmdLiveMap);
+    add(kCmdSpots);
 
     addSection(@"org.nextpad.adiflint.section.validate");
     add(kCmdCheckLog);
     add(kCmdNextProblem);
     add(kCmdPreviousProblem);
     add(kCmdFixLengths);
-    add(kCmdBulkEdit);
-    add(kCmdTimeShift);
 
-    addSection(@"org.nextpad.adiflint.section.organize");
-    add(kCmdOrganize);
-    add(kCmdDupes);
-    add(kCmdMerge);
-    add(kCmdImport);
-    add(kCmdExport);
+    // Changes to the log's data or layout, apart from checking and repairing it.
+    [pluginMenu addItem:NSMenuItem.separatorItem];
+    NSMenuItem *edit = addSubmenuSection(@"org.nextpad.adiflint.section.edit", {kCmdBulkEdit, kCmdTimeShift});
+    [edit.submenu addItem:NSMenuItem.separatorItem];
     NSMenuItem *reformat = [[NSMenuItem alloc] initWithTitle:@(menuNameText(tr("Reformat Log")).c_str()) action:nil keyEquivalent:@""];
     reformat.identifier = @"org.nextpad.adiflint.menu.reformat";
     reformat.submenu = [[NSMenu alloc] initWithTitle:reformat.title];
     [reformat.submenu addItem:commands[kCmdReformatRecords]];
     [reformat.submenu addItem:commands[kCmdReformatFields]];
-    [pluginMenu addItem:reformat];
+    [edit.submenu addItem:reformat];
 
-    addSection(@"org.nextpad.adiflint.section.explore");
-    add(kCmdLogTable);
-    add(kCmdSummary);
-    add(kCmdWorkedBefore);
-    add(kCmdMap);
-    add(kCmdTracker);
+    addSubmenuSection(@"org.nextpad.adiflint.section.organize", {kCmdOrganize, kCmdDupes, kCmdMerge, kCmdImport, kCmdExport});
 
-    addSection(@"org.nextpad.adiflint.section.integrations");
-    add(kCmdUpload);
-    add(kCmdEnrich);
-    add(kCmdMonitor);
+    addSubmenuSection(@"org.nextpad.adiflint.section.explore",
+                      {kCmdLogTable, kCmdSummary, kCmdWorkedBefore, kCmdTracker});
 
-    addSection(@"org.nextpad.adiflint.section.preferences");
-    add(kCmdSettings);
-    add(kCmdRecordPanel);
-    add(kCmdAutoValidate);
-    add(kCmdOffline);
-    add(kCmdNight);
+    addSubmenuSection(@"org.nextpad.adiflint.section.integrations", {kCmdUpload, kCmdEnrich, kCmdMonitor});
+
+    addSubmenuSection(@"org.nextpad.adiflint.section.preferences",
+                      {kCmdSettings, kCmdRecordPanel, kCmdAutoValidate, kCmdOffline, kCmdNight});
 
     addSection(@"org.nextpad.adiflint.section.help");
     add(kCmdAbout);
@@ -2938,46 +3050,14 @@ static void refreshMapDetail() {
     }
     [g.settings setMapDetailChoices:choices levels:levels installed:have summary:mapdetail::status()];
 }
-// Night Mode (the menu item): ADIF Lint's windows red on black, the Map in its Night palette.
-// Logging Layout: New QSO on the right, the Map over the Log Table on the left, filling the screen
-// New QSO is on and kept in front of the logs (which stay behind), whether Nextpad++ is active or
-// not; each QSO logged is chosen on the Map and in the table. Again: the windows as they were.
-static void cmdLoggingLayout() {
-    if (g.layout) {
-        for (auto &[w, level, hides] : g.layoutWas) {
-            NSWindow *win = w;
-            if (!win) continue;
-            win.level = level;
-            if ([win isKindOfClass:NSPanel.class]) ((NSPanel *)win).hidesOnDeactivate = hides;
-        }
-        g.layoutWas.clear();
-        g.layout = false;
-        setCheck(kCmdLayout, false);
-        return;
-    }
-    cmdNewQso();  // New QSO first: it needs an ADIF log (it says so when this isn't one)
-    if (!g.qso || !g.qso.window.visible) return;
-    worldmap::cmdMap();
-    logtools::cmdLogTable();
-    NSWindow *qso = g.qso.window, *map = worldmap::mapWindow(), *table = logtools::logTableWindow();
-    NSScreen *screen = qso.screen ?: NSScreen.mainScreen;
-    NSRect v = screen.visibleFrame;
-    CGFloat qsoWidth = std::clamp(std::floor(NSWidth(v) * 0.3), (CGFloat)440, (CGFloat)560);
-    CGFloat left = NSWidth(v) - qsoWidth, tableHeight = std::clamp(std::floor(NSHeight(v) * 0.32), (CGFloat)220, (CGFloat)360);
-    g.layoutWas.clear();
-    for (NSWindow *w : {qso, map, table}) {
-        if (!w) continue;
-        g.layoutWas.emplace_back(w, w.level, [w isKindOfClass:NSPanel.class] ? ((NSPanel *)w).hidesOnDeactivate : NO);
-        w.level = NSFloatingWindowLevel;
-        if ([w isKindOfClass:NSPanel.class]) ((NSPanel *)w).hidesOnDeactivate = NO;
-    }
-    [map setFrame:NSMakeRect(NSMinX(v), NSMinY(v) + tableHeight, left, NSHeight(v) - tableHeight) display:YES];
-    [table setFrame:NSMakeRect(NSMinX(v), NSMinY(v), left, tableHeight) display:YES];
-    [qso setFrame:NSMakeRect(NSMinX(v) + left, NSMinY(v), qsoWidth, NSHeight(v)) display:YES];
-    for (NSWindow *w : {map, table, qso}) [w orderFront:nil];
-    [qso makeKeyAndOrderFront:nil];
-    g.layout = true;
-    setCheck(kCmdLayout, true);
+static void cmdStartLogging() {
+    if (workspace::openLogging()) worldmap::showForLogging();
+}
+
+// Start Contest...: as Start Activation, the logging layout first, then the contest's setup.
+static void cmdStartContest() {
+    workspace::openLogging();
+    contest::cmdContest();
 }
 
 static void cmdToggleNight() { ADIFSetNightMode(!ADIFNightMode()); }
@@ -3095,7 +3175,7 @@ extern "C" NPP_EXPORT void setInfo(NppData data) {
     setItem(kCmdNewQso, "New QSO...", cmdNewQso);
     setItem(kCmdSpots, "Spots & Hunting...", logtools::cmdPotaSpots);
     setItem(kCmdStartActivation, "Start Activation...", station::cmdStartActivation);
-    setItem(kCmdLayout, "Logging Layout", cmdLoggingLayout, false);
+    setItem(kCmdStartLogging, "Start Logging", cmdStartLogging, false);
     setItem(kSepValidate, "", nullptr);
     setItem(kCmdCheckLog, "Check Log...", checklog::cmdCheckLog);
     setItem(kCmdNextProblem, "Next Problem", cmdNextProblem);
@@ -3115,7 +3195,7 @@ extern "C" NPP_EXPORT void setInfo(NppData data) {
     setItem(kCmdLogTable, "Log Table...", logtools::cmdLogTable);
     setItem(kCmdSummary, "Log Summary...", logtools::cmdSummary);
     setItem(kCmdWorkedBefore, "Worked Before...", logtools::cmdWorkedBefore);
-    setItem(kCmdMap, "Map & Contact Explorer...", worldmap::cmdMap);
+    setItem(kCmdMap, "Map & Explorer...", worldmap::cmdMap);
     setItem(kCmdTracker, "Activation Tracker...", logtools::cmdActivationTracker);
     setItem(kSepIntegrations, "", nullptr);
     setItem(kCmdUpload, "QSL Sync...", uploads::cmdQslSync);
@@ -3129,6 +3209,8 @@ extern "C" NPP_EXPORT void setInfo(NppData data) {
     setItem(kCmdNight, "Night Mode", cmdToggleNight, ADIFNightMode());
     setItem(kSepHelp, "", nullptr);
     setItem(kCmdAbout, "About ADIF Lint...", cmdAbout);
+    setItem(kCmdLiveMap, "Live Map...", worldmap::cmdLiveMap);
+    setItem(kCmdStartContest, "Start Contest...", cmdStartContest);
 }
 
 extern "C" NPP_EXPORT const char *getName() { return kPluginName; }
@@ -3200,6 +3282,15 @@ extern "C" NPP_EXPORT void beNotified(SCNotification *n) {
                 g.ready = true;
                 logtools::setIndexListener(^{
                     if (qsoVisible()) scheduleQsoCheck();
+                });
+                workspace::setOpener(kDockMap, [] { worldmap::cmdMap(); });
+                workspace::setOpener(kDockNewQso, [] { cmdNewQso(); });
+                workspace::setOpener(kDockLog, [] { logtools::cmdLogTable(); });
+                workspace::setOpener(kDockSpots, [] { logtools::cmdPotaSpots(); });
+                workspace::setOpener(kDockContactMap, [] { workspace::openContactMap(); });
+                workspace::setOpener(kDockQsoInfo, [] {
+                    workspace::openQsoInfo();
+                    updateQsoDetails();  // worked out only while it is open
                 });
                 logtools::setSpotHandler(^(const std::vector<std::pair<std::string, std::string>> &fields) { useSpot(fields); });
                 worldmap::setSpotHandler(^(const std::vector<std::pair<std::string, std::string>> &fields) { useSpot(fields); });

@@ -18,7 +18,7 @@ struct {
     NSPopUpButton *preset = nil;
     NSTextField *sent = nil, *contestId = nil, *idLabel = nil;
     NSTextField *rules = nil;  // a contest's bands, what to keep in mind, and where its rules were read
-    NSStackView *sentRow = nil, *idRow = nil;
+    NSView *sentRow = nil, *idRow = nil;
     NSButton *start = nil;
 } cw;
 

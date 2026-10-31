@@ -7,6 +7,7 @@
 #import "PluginHost.h"
 #import "ToolWindow.h"
 #import "PotaParks.h"
+#import "Workspace.h"
 #include "adif_lint.h"
 #include "adif_programs.h"
 
@@ -399,6 +400,7 @@ void startActivation() {
     }
     stationChanged();
     starterShow();
+    workspace::openActivation();
 }
 
 void finishActivation() {
@@ -428,6 +430,7 @@ void finishActivation() {
 }  // namespace
 
 void cmdStartActivation() {
+    workspace::openActivation();
     if (!st.w) {
         ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"Start Activation" size:NSMakeSize(760, 460) headline:NO];
         st.w = w;

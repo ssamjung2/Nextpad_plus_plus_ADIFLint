@@ -40,6 +40,8 @@ unsigned viridisColour(double t);
 
 // The colour-blind safe palette's band colours, in the order they are given out.
 const std::vector<unsigned> &colourBlindBandSet();
+// The colour-blind safe palette's modes and programs: colourBlindBandSet(), then more, all different.
+const std::vector<unsigned> &colourBlindQualitative();
 // Band colours on the colour-blind safe palette: the set given to the log's most used bands
 // (as many as it has colours), in frequency order so the legend reads in order; any other
 // band is kUnknownBandColour. Counted over the whole log, so filters don't shuffle colours.

@@ -15,6 +15,10 @@
 namespace worldmap {
 
 void cmdMap();
+void cmdLiveMap();  // the Map showing the spots: Live, or DX Chase or POTA when it is in one
+// Start Logging: the Map, once it is open, as an operating map: Live's spots of the last five
+// minutes, plain DX (no POTA parks or activators), at 2.5×.
+void showForLogging();
 void documentChanged();  // the log changed or another became active
 void iotaGroupsChanged();  // IOTA's group list was downloaded (Settings)
 void parkListChanged();   // POTA's park list was downloaded (Settings)
@@ -31,6 +35,8 @@ void setSettingsProvider(NSView * (^provider)(void));
 // The Map open, its selected panel shown and its Settings card open and in sight (the menu's
 // Settings..., and every "add it in Settings").
 void revealSettings();
+// The Map's own list hidden (true) while the Log Table shows the same records beside it, shown again after.
+void setListSuppressed(bool on);
 #ifdef __OBJC__
 NSWindow *mapWindow();  // nil before the Map opens
 #endif

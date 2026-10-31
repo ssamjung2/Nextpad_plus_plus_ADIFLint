@@ -1,8 +1,10 @@
 # ADIF conformance
 
-What ADIF Lint checks, the section of the specification each rule comes from, and how it
-was verified. Section numbers are those of ADIF 3.1.7, which 3.1.8 keeps; "Resources" means
-the ADIF 3.1.7 Resources document.
+What ADIF Lint checks, the source of each rule, and how conformance is verified. ADI and
+ADX are different serializations and use different validation sources: the ADI checks below
+are based on the ADIF specification and its exported tables; ADX documents are defined by
+the version-specific ADX XML Schema (XSD). Section numbers below are those of ADIF 3.1.7,
+which 3.1.8 keeps; "Resources" means the ADIF 3.1.7 Resources document.
 
 ADIF 3.1.8 (2026-10-12) changed only enumeration values: submode JTTY (of MFSK), contest IDs
 SKCC-SKS, SKCC-SKSA, SKCC-SKSE and SKCC-WES, and WAE for European Turkey's region (its section
@@ -16,12 +18,42 @@ version's specification holds, read as `spec/adif-history.md` describes.
 |---|---|---|
 | ADIF 3.1.7 specification (released 2026-03-22), the rules' text | <https://www.adif.org/317/ADIF_317.htm> (SHA-256 `b7667032…c5c97`) | 2026-10-10 |
 | ADIF 3.1.8 specification (released 2026-10-12) | `spec/adif-3.1.8/ADIF_318.htm`, from <https://adif.org.uk/318/ADIF_318.htm> | 2026-10-26: SHA-256 `9d130f55…7fe6`; adif.org lists 3.1.8 as current |
+| ADX 3.1.8 XML Schema (schema version 3.1.8.0) | <https://www.adif.org/318/adx318.xsd> | 2026-10-30: SHA-256 `306f9bc6…1d812c`; schema annotation dated 2026-09-26 |
 | Exported tables (`all.json`) | `spec/adif-3.1.8/all.json`, from <https://adif.org.uk/318/ADIF_318_resources_2026_10_12.zip> | 2026-10-26: `tools/gen_spec_tables.py` regenerates `src/core/adif_spec_tables.cpp` byte for byte |
 | ADIF 3.0.2 to 3.1.8, what each holds | `spec/adif-history.json`, from each version's specification (`spec/adif-history.md`) | 2026-10-26: the reader matches the 3.1.5 to 3.1.8 exports |
 | ADIF 3.1.7 Resources (implementation notes) | <https://adif.org.uk/317/ADIF_317_resources.htm> (the spec's relative link 404s on adif.org) | 2026-10-10 |
 | Official test QSOs | `tests/fixtures/ADIF_318_test_QSOs_2026_10_12.adi` (6,202 QSOs, every field and value) | lints with 0 errors and 0 warnings |
 
-## How it was verified (2026-10-10)
+For ADX, use the XSD published for the document's ADIF specification version. The schema
+version may have an extra component: ADIF 3.1.8 uses schema version 3.1.8.0. Do not infer
+that a schema version label is itself the ADIF `ADIF_VER` value. Since `ADIF_VER` is
+optional in the 3.1.8 schema, a validator that selects a schema automatically must require
+an explicit version choice when the document does not identify one; it should not silently
+validate against the newest version.
+
+The 3.1.8 XSD describes the ADX structure and the field types, patterns, ranges, and
+enumerations that can be represented in XML Schema 1.0. It is specifically an export
+schema and disallows deprecated features. For importing an ADX document when its ADIF
+version is not known in advance, the schema documentation points to the corresponding
+generic schema, which permits deprecated features. Follow the schema published for each
+specification version rather than applying the newest XSD to every ADX document.
+
+The schema is not a complete substitute for every ADIF rule. Its own annotation documents
+XML Schema 1.0 limitations and omitted checks. For 3.1.8, examples include not checking
+duplicate fields across data specifiers; not validating some long administrative-subdivision
+enumerations and user-defined field relationships; and treating CONTEST_ID, SUBMODE, and
+some externally maintained county codes as advisory or out of scope. Any ADX validator
+should report its XSD result separately from additional semantic or service-specific checks.
+
+ADX schema reference in this document does not mean ADIF Lint currently parses or validates
+ADX files. The plugin and CLI currently validate ADI; schema-based ADX support would be a
+separate implementation change.
+
+The 3.1.8 XSD source and its documented scope were checked on 2026-10-30 (SHA-256 recorded
+above). This verifies the reference used here, not an ADIF Lint ADX validator or a corpus of
+ADX files.
+
+## How ADI rules were verified (2026-10-10)
 
 1. Every rule in `src/core/adif_lint.cpp` was read against the specification text.
 2. The official test file, which uses every field and value correctly, must lint with no
@@ -102,14 +134,15 @@ These are deliberate, so that common real-world logs stay readable:
   (§IV.A.5) includes it, while its sample header (§IV.A.3) leaves one out.
 - **A DXCC code with leading zeros** (`0291`) is read as the number.
 
-## What cannot be checked
+## What the current ADI validator cannot check
 
 - Values from lists the specification refers to but does not include: DARC_DOK, CNTY
   for most entities (US counties, Japanese cities…), Country names.
 - Deleted DXCC entities and deleted Alaska boroughs: the specification marks them deleted
   but gives no dates.
 - Contest IDs' end dates, which are only in their descriptions.
-- ADX (XML) files: ADIF Lint reads ADI.
+- ADX (XML) files: ADIF Lint reads ADI. For ADX, use the version-specific XSD described
+  above; ADIF Lint does not currently perform that schema validation.
 
 ## Checks beyond the specification
 

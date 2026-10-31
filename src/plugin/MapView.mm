@@ -348,7 +348,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     return _info;
 }
 
-// The information box, bottom right (the legend is bottom left): a heading, then each label and
+// The information box, bottom right (above the legend when that is there too): a heading, then each label and
 // its value, a long value wrapped; cut short with "..." when the map is too low for all of it.
 - (void)drawInfoBox {
     const MapPalette &pal = paletteAt(_style.palette);
@@ -375,6 +375,9 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     NSRect bounds = self.bounds;
     CGFloat boxH = std::min(height - lineGap + 2 * pad, NSHeight(bounds) - 16);
     CGFloat above = [self creditLine].length ? 22 : 8;  // over the credit line, when there is one
+    // and over a legend at the bottom right or across the bottom
+    if (!NSIsEmptyRect(_legendFrame) && NSMinY(_legendFrame) < NSMidY(bounds) && (_style.legendWide || NSMaxX(_legendFrame) > NSMidX(bounds)))
+        above = NSMaxY(_legendFrame) + 8 - NSMinY(bounds);
     boxH = std::min(boxH, NSHeight(bounds) - above - 8);
     NSRect box = NSMakeRect(NSMaxX(bounds) - 8 - (width + 2 * pad), NSMinY(bounds) + above, width + 2 * pad, boxH);
     NSBezierPath *bg = [NSBezierPath bezierPathWithRoundedRect:box xRadius:6 yRadius:6];
@@ -419,6 +422,24 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     _selected = h;
     self.needsDisplay = YES;
     if (self.onSelect) self.onSelect(h);
+}
+
+- (BOOL)hasFound { return !_foundGrid.empty() || _foundPlace; }
+
+- (void)setFoundGrid:(const std::string &)grid lines:(NSArray<NSString *> *)lines {
+    _foundGrid = grid, _foundPlace = NO, _foundLabel = grid, _foundLines = lines;
+    self.needsDisplay = YES;
+}
+
+- (void)setFoundLon:(double)lon lat:(double)lat label:(const std::string &)label lines:(NSArray<NSString *> *)lines {
+    _foundGrid.clear(), _foundPlace = YES, _foundLon = lon, _foundLat = lat, _foundLabel = label, _foundLines = lines;
+    self.needsDisplay = YES;
+}
+
+- (void)clearFound {
+    if (!self.hasFound) return;
+    _foundGrid.clear(), _foundLabel.clear(), _foundLines = nil, _foundPlace = NO;
+    self.needsDisplay = YES;
 }
 
 - (void)showPlaceWest:(double)w south:(double)s east:(double)e north:(double)n {
@@ -662,6 +683,19 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 - (NSBezierPath *)squarePath:(const std::string &)grid {
     double w, s, e, n;
     if (!adif::squareBounds(grid, &w, &s, &e, &n)) return nil;
+    int steps = _pr.kind() == adif::Projection::Equirectangular ? 1 : 4;
+    std::vector<std::pair<double, double>> pts;
+    for (int i = 0; i < steps; ++i) pts.emplace_back(w + (e - w) * i / steps, s);
+    for (int i = 0; i < steps; ++i) pts.emplace_back(e, s + (n - s) * i / steps);
+    for (int i = 0; i < steps; ++i) pts.emplace_back(e - (e - w) * i / steps, n);
+    for (int i = 0; i < steps; ++i) pts.emplace_back(w, n - (n - s) * i / steps);
+    return [self viewPath:pts close:YES wraps:NO];
+}
+
+// Any 2 to 8 character locator's box, its edges curved as the projection bends them.
+- (NSBezierPath *)gridPath:(const std::string &)grid {
+    double w, s, e, n;
+    if (!adif::gridBounds(grid, &w, &s, &e, &n)) return nil;
     int steps = _pr.kind() == adif::Projection::Equirectangular ? 1 : 4;
     std::vector<std::pair<double, double>> pts;
     for (int i = 0; i < steps; ++i) pts.emplace_back(w + (e - w) * i / steps, s);
@@ -1141,9 +1175,12 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     [self drawSelection:d];
     if (_style.spotlight) [self drawSpotlight:d];
     [self drawSelectionHalo];
+    [self drawFound:d];
     CGContextRestoreGState(d.ctx);
+    if (_style.spotRate && _style[kLayerSpots].show) [self drawSpotRate];
+    else _rateFrame = NSZeroRect;
     if (_style.legend) [self drawLegend];
-    else _legendKeys.clear(), _legendNames.clear(), [self legendAt:NSZeroRect];
+    else _legendKeys.clear(), _legendNames.clear(), _legendDragging = NO, [self legendAt:NSZeroRect];
     if (!_info.empty() && !self.infoHidden) [self drawInfoBox];
     [self drawScaleBar];
     [self drawOsmCredit];
@@ -1161,7 +1198,11 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     if (!(perPoint > 0)) return;
     double raw = perPoint * 40, power = std::pow(10.0, std::floor(std::log10(raw)));
     double step = raw / power < 2 ? power : raw / power < 5 ? 2 * power : 5 * power;
-    CGFloat seg = step / perPoint, x0 = (NSIsEmptyRect(_legendFrame) || _style.legend != 2 ? NSMinX(b) + 12 : NSMaxX(_legendFrame) + 16), y0 = NSMinY(b) + 22;
+    // Beside a legend at the bottom left, above one across the bottom.
+    bool legendBelow = !NSIsEmptyRect(_legendFrame) && _style.legendWide && NSMinY(_legendFrame) < NSMidY(b);
+    bool legendLeft = !NSIsEmptyRect(_legendFrame) && !_style.legendWide && NSMinX(_legendFrame) < NSMidX(b) && NSMinY(_legendFrame) < NSMidY(b);
+    CGFloat seg = step / perPoint, x0 = legendLeft ? NSMaxX(_legendFrame) + 16 : NSMinX(b) + 12,
+            y0 = legendBelow ? NSMaxY(_legendFrame) + 22 : NSMinY(b) + 22;
     if (x0 + 4 * seg + 40 > NSMaxX(b) - 8) return;  // no room
     const MapPalette &pal = paletteAt(_style.palette);
     NSColor *ink = [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.85];
@@ -1195,6 +1236,43 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     }
 }
 
+- (void)setSpotsLastMinute:(int)lastMinute average5:(double)average5 {
+    if (lastMinute == _spotsLastMinute && average5 == _spotsAvg5) return;
+    _spotsLastMinute = lastMinute, _spotsAvg5 = average5;
+    if (_style.spotRate) self.needsDisplay = YES;
+}
+
+// The Spots layer's rate, top right: the spots made in the last minute, and the last five minutes'
+// average a minute, so a burst shows against the usual.
+- (void)drawSpotRate {
+    const MapPalette &pal = paletteAt(_style.palette);
+    CGFloat ts = _style.textScale;
+    NSColor *ink = [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.92];
+    NSColor *soft = [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.6];
+    NSDictionary *big = @{NSFontAttributeName : [NSFont monospacedDigitSystemFontOfSize:15 * ts weight:NSFontWeightSemibold], NSForegroundColorAttributeName : ink};
+    NSDictionary *unit = @{NSFontAttributeName : [NSFont systemFontOfSize:10.5 * ts], NSForegroundColorAttributeName : ink};
+    NSDictionary *small = @{NSFontAttributeName : [NSFont monospacedDigitSystemFontOfSize:10 * ts weight:NSFontWeightRegular], NSForegroundColorAttributeName : soft};
+    NSString *number = [NSString stringWithFormat:@"%d", _spotsLastMinute];
+    NSString *per = ADIFString(" " + tr("spots/min"));
+    NSString *average = ADIFString(trf("5-minute average: {n}/min", {{"n", [NSString stringWithFormat:@"%.1f", _spotsAvg5].UTF8String}}));
+    NSSize nb = [number sizeWithAttributes:big], pb = [per sizeWithAttributes:unit], ab = [average sizeWithAttributes:small];
+    const CGFloat pad = 8, gap = 2;
+    CGFloat w = std::ceil(std::max(nb.width + pb.width, ab.width)) + 2 * pad, h = std::ceil(nb.height + gap + ab.height) + 2 * pad - 2;
+    NSRect b = self.bounds;
+    NSRect box = NSMakeRect(NSMaxX(b) - 8 - w, NSMaxY(b) - 8 - h, w, h);
+    _rateFrame = box;
+    NSBezierPath *bg = [NSBezierPath bezierPathWithRoundedRect:box xRadius:6 yRadius:6];
+    [[NSColor colorWithCalibratedWhite:pal.dark ? 0 : 1 alpha:0.68] setFill];
+    [bg fill];
+    bg.lineWidth = 0.8;
+    [[NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.25] setStroke];
+    [bg stroke];
+    CGFloat top = NSMaxY(box) - pad + 1;
+    [number drawAtPoint:NSMakePoint(NSMaxX(box) - pad - pb.width - nb.width, top - nb.height) withAttributes:big];
+    [per drawAtPoint:NSMakePoint(NSMaxX(box) - pad - pb.width, top - nb.height + 2) withAttributes:unit];
+    [average drawAtPoint:NSMakePoint(NSMaxX(box) - pad - ab.width, top - nb.height - gap - ab.height) withAttributes:small];
+}
+
 // Where the legend is now, for the window's cards to keep clear of; told after the drawing.
 - (void)legendAt:(NSRect)box {
     if (NSEqualRects(box, _legendFrame)) return;
@@ -1204,7 +1282,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     });
 }
 
-// The key to the colours and markers, top right or bottom left (in the PNG too). The spots' kinds
+// The key to the colours and markers, in a corner or across the map (in the PNG too). The spots' kinds
 // and bands, and the other programs, are entries a click turns off or on (faded while off).
 - (void)drawLegend {
     const MapPalette &pal = paletteAt(_style.palette);
@@ -1218,6 +1296,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         std::string text;
         std::string toggle = "";  // what a click turns off or on (onLegendToggle)
         bool off = false;
+        bool note = false;  // a hint under the rest, quieter
     };
     auto switchable = [&](int kind, NSColor *color, const std::string &text, const std::string &id, bool off) {
         Entry e{kind, color, text};
@@ -1377,27 +1456,75 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         if (_style[kLayerIota].overlay) rows.push_back({9, [tint colorWithAlphaComponent:0.75], tr("not worked")});
     }
     if (rows.empty()) return [self legendAt:NSZeroRect];
-    if (std::any_of(rows.begin(), rows.end(), [](const Entry &e) { return !e.toggle.empty(); })) rows.push_back({8, nil, tr("Click an entry to hide or show it")});
+    if (std::any_of(rows.begin(), rows.end(), [](const Entry &e) { return !e.toggle.empty(); })) rows.push_back({8, nil, tr("Click an entry to hide or show it"), "", false, true});
 
     NSDictionary *text = @{NSFontAttributeName : [NSFont systemFontOfSize:11 * _style.textScale],
                            NSForegroundColorAttributeName : [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.9]};
     NSDictionary *head = @{NSFontAttributeName : [NSFont boldSystemFontOfSize:11 * _style.textScale],
                            NSForegroundColorAttributeName : [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.9]};
-    CGFloat width = 0, lineH = std::round(16 * _style.textScale);
-    for (const Entry &e : rows)
-        width = std::max(width, [ADIFString(e.text) sizeWithAttributes:e.kind == 7 ? head : text].width + (e.kind == 7 || e.kind == 8 ? 0 : 20));
-    CGFloat boxW = width + 16, boxH = rows.size() * lineH + 10;
-    NSRect box = _style.legend == 2 ? NSMakeRect(NSMinX(self.bounds) + 8, NSMinY(self.bounds) + 8, boxW, boxH)
-                                    : NSMakeRect(NSMaxX(self.bounds) - 8 - boxW, NSMaxY(self.bounds) - 8 - boxH, boxW, boxH);
+    NSDictionary *soft = @{NSFontAttributeName : [NSFont systemFontOfSize:10 * _style.textScale],
+                           NSForegroundColorAttributeName : [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.6]};
+    const CGFloat lineH = std::round(16 * _style.textScale), padX = 10, padY = 8, swatch = 20, sectionGap = std::round(7 * _style.textScale);
+    const CGFloat textY = std::floor((lineH - [@"Ag" sizeWithAttributes:text].height) / 2);
+    auto widthOf = [&](const Entry &e) {
+        return std::ceil([ADIFString(e.text) sizeWithAttributes:e.kind == 7 ? head : e.note ? soft : text].width) + (e.kind == 7 || e.kind == 8 ? 0 : swatch);
+    };
+    // Each entry's place in the box, from its top left: a column with a gap before each heading, or
+    // (across the map) a line for each heading with its entries after it, wrapped at the map's width.
+    struct Slot {
+        CGFloat x, top, w;
+    };
+    std::vector<Slot> slots(rows.size());
+    NSRect view = self.bounds;
+    const bool atTop = _style.legend == 1 || _style.legend == 3, atRight = _style.legend == 1 || _style.legend == 4, wide = _style.legendWide;
+    const CGFloat margin = 8, rateRoom = NSIsEmptyRect(_rateFrame) ? 0 : NSHeight(_rateFrame) + 6;
+    // Top left sits right of the zoom buttons; top right under the spot rate (a legend across the top, both).
+    const CGFloat leftEdge = NSMinX(view) + (atTop && (wide || !atRight) ? std::max(margin, _clearInsets.left) : margin);
+    const CGFloat topRoom = atTop && (wide || atRight) ? rateRoom : 0;
+    CGFloat boxW, boxH;
+    if (!wide) {
+        CGFloat width = 0, top = padY;
+        for (size_t i = 0; i < rows.size(); ++i) {
+            if (i > 0 && (rows[i].kind == 7 || rows[i].note)) top += sectionGap;
+            slots[i] = {padX, top, widthOf(rows[i])};
+            width = std::max(width, slots[i].w);
+            top += lineH;
+        }
+        boxW = width + 2 * padX, boxH = top + padY;
+    } else {
+        const CGFloat room = std::max<CGFloat>(200, NSMaxX(view) - margin - leftEdge - 2 * padX);
+        CGFloat x = 0, top = padY, widest = 0;
+        bool open = false;  // something is on this line
+        for (size_t i = 0; i < rows.size(); ++i) {
+            CGFloat w = widthOf(rows[i]);
+            if (open && (rows[i].kind == 7 || rows[i].note || x + w > room)) top += lineH + 3, x = 0, open = false;
+            slots[i] = {padX + x, top, w};
+            widest = std::max(widest, x + w);
+            x += w + (rows[i].kind == 7 ? 8 : 18);
+            open = true;
+        }
+        boxW = widest + 2 * padX, boxH = top + lineH + padY;
+    }
+    boxH = std::min(boxH, NSHeight(view) - 2 * margin - topRoom);
+    CGFloat bottom = NSMinY(view) + ([self creditLine].length && (atRight || wide) ? 22 : margin);
+    NSRect box = NSMakeRect(wide ? leftEdge : atRight ? NSMaxX(view) - margin - boxW : leftEdge, atTop ? NSMaxY(view) - margin - topRoom - boxH : bottom, boxW, boxH);
+    if (_legendDragging) {  // following the pointer, kept on the map
+        box.origin.x = std::clamp(_legendDragOrigin.x, NSMinX(view), std::max(NSMinX(view), NSMaxX(view) - boxW));
+        box.origin.y = std::clamp(_legendDragOrigin.y, NSMinY(view), std::max(NSMinY(view), NSMaxY(view) - boxH));
+    }
     [self legendAt:box];
     NSBezierPath *bg = [NSBezierPath bezierPathWithRoundedRect:box xRadius:6 yRadius:6];
-    [[NSColor colorWithCalibratedWhite:pal.dark ? 0 : 1 alpha:0.62] setFill];
+    [[NSColor colorWithCalibratedWhite:pal.dark ? 0 : 1 alpha:_legendDragging ? 0.78 : 0.68] setFill];
     [bg fill];
-    CGFloat y = NSMaxY(box) - 5 - lineH;
-    for (const Entry &e : rows) {
-        NSPoint at = NSMakePoint(NSMinX(box) + 8, y);
+    bg.lineWidth = 0.8;
+    [[NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.25] setStroke];
+    [bg stroke];
+    for (size_t i = 0; i < rows.size(); ++i) {
+        const Entry &e = rows[i];
+        CGFloat y = NSMaxY(box) - slots[i].top - lineH;
+        NSPoint at = NSMakePoint(NSMinX(box) + slots[i].x, y);
         if (!e.toggle.empty()) {
-            _legendKeys.push_back({NSMakeRect(NSMinX(box) + 2, y, NSWidth(box) - 4, lineH), e.toggle});
+            _legendKeys.push_back({wide ? NSMakeRect(at.x - 3, y, slots[i].w + 6, lineH) : NSMakeRect(NSMinX(box) + 2, y, NSWidth(box) - 4, lineH), e.toggle});
             _legendNames.push_back({e.text, e.off});
         }
         [NSGraphicsContext saveGraphicsState];
@@ -1406,7 +1533,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
             [self drawParkBadgeAt:NSMakePoint(at.x + 6, y + lineH / 2) radius:e.kind == 12 ? 5.5 : 6.5 color:e.color worked:e.kind != 12
                         activated:e.kind == 11
                               lit:NO];
-            [ADIFString(e.text) drawAtPoint:NSMakePoint(at.x + 18, y + 1) withAttributes:text];
+            [ADIFString(e.text) drawAtPoint:NSMakePoint(at.x + 18, y + textY) withAttributes:text];
         } else if (e.kind == 13 || e.kind == 14 || e.kind == 15) {
             NSPoint c = NSMakePoint(at.x + 6, y + lineH / 2);
             if (e.kind == 13) [self drawSpotterAt:c radius:5.5 lit:NO dark:pal.dark faint:_style.spotters == 1];
@@ -1429,9 +1556,9 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
                     [second stroke];
                 }
             }
-            [ADIFString(e.text) drawAtPoint:NSMakePoint(at.x + 18, y + 1) withAttributes:text];
+            [ADIFString(e.text) drawAtPoint:NSMakePoint(at.x + 18, y + textY) withAttributes:text];
         } else if (e.kind == 7 || e.kind == 8) {
-            [ADIFString(e.text) drawAtPoint:NSMakePoint(at.x, y + 1) withAttributes:e.kind == 7 ? head : text];
+            [ADIFString(e.text) drawAtPoint:NSMakePoint(at.x, y + textY) withAttributes:e.kind == 7 ? head : e.note ? soft : text];
         } else {
             NSPoint c = NSMakePoint(at.x + 6, y + lineH / 2);
             NSBezierPath *m = nil;
@@ -1475,10 +1602,9 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
                 [e.color setFill];
                 [m fill];
             }
-            [ADIFString(e.text) drawAtPoint:NSMakePoint(at.x + 18, y + 1) withAttributes:text];
+            [ADIFString(e.text) drawAtPoint:NSMakePoint(at.x + 18, y + textY) withAttributes:text];
         }
         [NSGraphicsContext restoreGraphicsState];
-        y -= lineH;
     }
 }
 
@@ -1599,10 +1725,22 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     [self.window makeFirstResponder:self];
     _down = [self convertPoint:event.locationInWindow fromView:nil];
     _dragged = NO;
+    _legendPressed = !NSIsEmptyRect(_legendFrame) && NSPointInRect(_down, _legendFrame);
+    _legendGrab = NSMakePoint(_down.x - NSMinX(_legendFrame), _down.y - NSMinY(_legendFrame));
     if (event.clickCount == 2 && !NSPointInRect(_down, _legendFrame)) [self zoomBy:2 at:_down];
 }
 
 - (void)mouseDragged:(NSEvent *)event {
+    if (_legendPressed) {  // the legend is picked up, from a few points on, and follows the pointer
+        NSPoint at = [self convertPoint:event.locationInWindow fromView:nil];
+        if (!_legendDragging && std::hypot(at.x - _down.x, at.y - _down.y) < 4) return;
+        _legendDragging = YES;
+        _dragged = YES;
+        [[NSCursor closedHandCursor] set];
+        _legendDragOrigin = NSMakePoint(at.x - _legendGrab.x, at.y - _legendGrab.y);
+        self.needsDisplay = YES;
+        return;
+    }
     double ppu = [self ppu];
     _dragged = YES;
     [[NSCursor closedHandCursor] set];
@@ -1614,6 +1752,16 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 
 - (void)mouseUp:(NSEvent *)event {
     [[NSCursor arrowCursor] set];
+    _legendPressed = NO;
+    if (_legendDragging) {  // dropped: it goes to the corner nearest its middle
+        _legendDragging = NO;
+        NSRect b = self.bounds;
+        bool top = NSMidY(_legendFrame) > NSMidY(b), right = NSMidX(_legendFrame) > NSMidX(b);
+        int position = top ? (right ? 1 : 3) : (right ? 4 : 2);
+        if (self.onLegendPlaced) self.onLegendPlaced(position);
+        self.needsDisplay = YES;
+        return;
+    }
     if (_dragged || event.clickCount > 1) return;
     NSPoint at = [self convertPoint:event.locationInWindow fromView:nil];
     for (const auto &[row, id] : _legendKeys)
@@ -1658,6 +1806,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     }
     if ((k == ']' || k == '[') && self.onStep) return self.onStep(k == ']' ? 1 : -1);  // through the list's rows, each chosen here
     if ((k == '\r' || k == 3) && self.onReturn) return self.onReturn();
+    if (k == 27 && self.hasFound) return [self clearFound];
     if (k == 27 && _selected.kind != ADIFMapHit::None) return [self selectHit:ADIFMapHit()];  // Escape: nothing chosen
     if (k == '+' || k == '=') [self zoomBy:1.5];
     else if (k == '-') [self zoomBy:1 / 1.5];

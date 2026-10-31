@@ -4,8 +4,10 @@
 #include "adif_enrich.h"
 #include "adif_geo.h"
 #include "adif_i18n.h"
+#include "adif_json.h"
 #include "adif_palette.h"
 #include "adif_programs.h"
+#include "adif_regions.h"
 #include "adif_tools.h"
 #include "adif_spec.h"
 #include "adif_worked.h"
@@ -47,6 +49,7 @@ const char *spotSourceName(SpotSource s) {
         case SpotSource::Spothole: return "Spothole";
         case SpotSource::Cluster: return N_("DX cluster");
         case SpotSource::PskReporter: return "PSKReporter";
+        case SpotSource::Wsjtx: return "WSJT-X";
     }
     return "";
 }
@@ -212,6 +215,7 @@ std::vector<std::pair<std::string, std::string>> spotQsoFields(const Spot &s) {
             if (!s.program.empty()) return spotholeSpotFields(s.program, s.activator, s.khz, s.mode, s.refs, s.grid);
             break;
         case SpotSource::Cluster:
+        case SpotSource::Wsjtx:
         case SpotSource::PskReporter: break;
     }
     std::vector<std::pair<std::string, std::string>> out = spotFields(s.activator, s.khz, s.mode, "");
@@ -539,6 +543,339 @@ bool parsePskReports(std::string_view xml, std::vector<Spot> *out, std::string *
     return true;
 }
 
+std::string mqttConnect(std::string_view clientId, int keepAliveSeconds) {
+    std::string id(clientId.substr(0, 64));
+    std::string var = std::string("\0\4MQTT\4\2", 8);  // protocol "MQTT" level 4, clean session
+    var.push_back((char)((keepAliveSeconds >> 8) & 0xff));
+    var.push_back((char)(keepAliveSeconds & 0xff));
+    var.push_back((char)(id.size() >> 8));
+    var.push_back((char)(id.size() & 0xff));
+    var += id;
+    return std::string(1, (char)0x10) + std::string(1, (char)var.size()) + var;
+}
+
+namespace {
+void putMqttLength(std::string &out, size_t n) {
+    do {
+        unsigned char b = n % 128;
+        n /= 128;
+        if (n) b |= 0x80;
+        out.push_back((char)b);
+    } while (n);
+}
+}  // namespace
+
+std::string mqttSubscribe(int packetId, const std::vector<std::string> &topics) {
+    std::string body;
+    body.push_back((char)((packetId >> 8) & 0xff));
+    body.push_back((char)(packetId & 0xff));
+    for (const std::string &t : topics) {
+        body.push_back((char)(t.size() >> 8));
+        body.push_back((char)(t.size() & 0xff));
+        body += t;
+        body.push_back(0);  // QoS 0
+    }
+    std::string out(1, (char)0x82);
+    putMqttLength(out, body.size());
+    return out + body;
+}
+
+std::string mqttPing() { return std::string("\xC0\0", 2); }
+
+void MqttPackets::feed(std::string_view bytes, std::vector<MqttPacket> *out) {
+    if (broken_) return;
+    buf_.append(bytes);
+    size_t at = 0;
+    for (;;) {
+        if (skip_) {
+            size_t n = std::min(skip_, buf_.size() - at);
+            at += n, skip_ -= n;
+            if (skip_) break;
+        }
+        if (buf_.size() - at < 2) break;
+        size_t len = 0, mult = 1, i = at + 1;
+        bool complete = false;
+        for (int k = 0; k < 4 && i < buf_.size(); ++k, ++i) {
+            unsigned char b = (unsigned char)buf_[i];
+            len += (b & 0x7f) * mult;
+            mult *= 128;
+            if (!(b & 0x80)) {
+                complete = true;
+                ++i;
+                break;
+            }
+        }
+        if (!complete) {
+            if (i - at > 4) broken_ = true;  // a length of more than four bytes
+            break;
+        }
+        if (len > limit_) {  // too long to keep: its bytes are skipped as they come
+            skip_ = len - std::min(len, buf_.size() - i);
+            at = std::min(buf_.size(), i + len);
+            continue;
+        }
+        if (buf_.size() - i < len) break;
+        MqttPacket p;
+        unsigned char h = (unsigned char)buf_[at];
+        p.type = h >> 4, p.flags = h & 0x0f;
+        p.body = buf_.substr(i, len);
+        if (out) out->push_back(std::move(p));
+        at = i + len;
+    }
+    buf_.erase(0, at);
+}
+
+bool mqttPublish(const MqttPacket &p, std::string *topic, std::string *payload) {
+    if (p.type != 3 || ((p.flags >> 1) & 3) != 0 || p.body.size() < 2) return false;
+    size_t n = ((unsigned char)p.body[0] << 8) | (unsigned char)p.body[1];
+    if (p.body.size() < 2 + n) return false;
+    if (topic) *topic = p.body.substr(2, n);
+    if (payload) *payload = p.body.substr(2 + n);
+    return true;
+}
+
+namespace {
+std::string topicCall(std::string_view call) {
+    std::string c = upper(trimmed(call));
+    for (char &ch : c)
+        if (ch == '/') ch = '_';
+    return c;
+}
+}  // namespace
+
+std::vector<std::string> pskTopicsForCall(std::string_view call) {
+    std::string c = topicCall(call);
+    if (c.empty()) return {};
+    return {"pskr/filter/v2/+/+/" + c + "/#", "pskr/filter/v2/+/+/+/" + c + "/#"};
+}
+
+std::vector<std::string> pskTopicsForGrid(std::string_view grid) {
+    std::string g = upper(trimmed(grid)).substr(0, 4);
+    if (g.size() < 4) return {};
+    return {"pskr/filter/v2/+/+/+/+/" + g + "/#", "pskr/filter/v2/+/+/+/+/+/" + g + "/#"};
+}
+
+std::vector<std::string> pskTopicsForSquares(const std::vector<std::string> &squares) {
+    std::vector<std::string> out;
+    for (const std::string &s : squares)
+        for (std::string &t : pskTopicsForGrid(s)) out.push_back(std::move(t));
+    return out;
+}
+
+std::string pskStateOfGrid(std::string_view grid) {
+    double lat = 0, lon = 0;
+    std::string g = upper(trimmed(grid));
+    if (g.size() < 4 || isPlaceholderGrid(g) || !gridToLatLon(g, &lat, &lon)) return "";
+    const AreaIndex &states = areaIndex(Overlay::UsStates);
+    size_t i = states.at(lon, lat);
+    return i == AreaIndex::npos ? "" : states.area(i).name;
+}
+
+namespace {
+
+// Squares are 2 degrees of longitude by 1 of latitude; one counts when a sample inside it is in the state.
+void addStateSquares(const std::string &state, PskArea *out) {
+    const AreaIndex &index = areaIndex(Overlay::UsStates);
+    size_t at = index.byName(state);
+    if (at == AreaIndex::npos) return;
+    double w = 1e9, s = 1e9, e = -1e9, n = -1e9;
+    for (const auto &ring : index.area(at).rings)
+        for (auto [x, y] : ring) w = std::min(w, x), e = std::max(e, x), s = std::min(s, y), n = std::max(n, y);
+    out->states.insert(state);
+    for (double lon = std::floor(w / 2) * 2; lon < e; lon += 2)
+        for (double lat = std::floor(s); lat < n; lat += 1) {
+            bool in = false;
+            for (double fx : {0.1, 0.5, 0.9})
+                for (double fy : {0.1, 0.5, 0.9}) in = in || index.at(lon + 2 * fx, lat + fy) == at;
+            if (!in) continue;
+            std::string sq = {(char)('A' + (int)std::floor((lon + 180) / 20)), (char)('A' + (int)std::floor((lat + 90) / 10)),
+                              (char)('0' + (int)std::floor(std::fmod(lon + 180, 20) / 2)), (char)('0' + (int)std::floor(std::fmod(lat + 90, 10)))};
+            if (std::find(out->squares.begin(), out->squares.end(), sq) == out->squares.end()) out->squares.push_back(sq);
+        }
+}
+
+// The states an ARRL section is in: itself when it is a state's code, else where its name says.
+std::vector<std::string> sectionStates(const std::string &sect) {
+    static const std::map<std::string, std::vector<std::string>> split = {
+        {"ENY", {"NY"}}, {"NNY", {"NY"}}, {"WNY", {"NY"}}, {"NLI", {"NY"}}, {"NNJ", {"NJ"}}, {"SNJ", {"NJ"}},
+        {"EMA", {"MA"}}, {"WMA", {"MA"}}, {"EPA", {"PA"}}, {"WPA", {"PA"}}, {"MDC", {"MD", "DC"}},
+        {"EWA", {"WA"}}, {"WWA", {"WA"}}, {"NFL", {"FL"}}, {"SFL", {"FL"}}, {"WCF", {"FL"}},
+        {"EB", {"CA"}},  {"LAX", {"CA"}}, {"ORG", {"CA"}}, {"SB", {"CA"}}, {"SDG", {"CA"}}, {"SF", {"CA"}},
+        {"SJV", {"CA"}}, {"SCV", {"CA"}}, {"SV", {"CA"}}, {"PAC", {"HI"}}, {"NTX", {"TX"}}, {"STX", {"TX"}}, {"WTX", {"TX"}}};
+    if (auto it = split.find(sect); it != split.end()) return it->second;
+    return areaIndex(Overlay::UsStates).byName(sect) != AreaIndex::npos ? std::vector<std::string>{sect} : std::vector<std::string>{};
+}
+
+}  // namespace
+
+PskArea pskAreaForState(std::string_view state) {
+    PskArea a;
+    addStateSquares(upper(trimmed(state)), &a);
+    return a;
+}
+
+PskArea pskAreaForSection(std::string_view section, std::string_view state) {
+    std::string sect = upper(trimmed(section)), home = upper(trimmed(state));
+    std::set<std::string> states;
+    for (const UsRegion &r : usRegions()) {
+        if (r.kind != "ARRL divisions") continue;
+        std::set<std::string> mine(r.states.begin(), r.states.end());
+        for (const std::string &x : r.sections)
+            for (const std::string &st : sectionStates(x)) mine.insert(st);
+        bool in = !sect.empty() ? std::find(r.sections.begin(), r.sections.end(), sect) != r.sections.end() : !home.empty() && mine.count(home);
+        if (in) states.insert(mine.begin(), mine.end());
+    }
+    PskArea a;
+    for (const std::string &st : states) addStateSquares(st, &a);
+    return a;
+}
+
+bool pskInArea(const PskArea &area, const Spot &s) {
+    for (const std::string &g : {s.grid, s.spotterGrid})
+        if (std::string st = pskStateOfGrid(g); !st.empty() && area.states.count(st)) return true;
+    return false;
+}
+
+bool parsePskLive(std::string_view payload, Spot *out, std::string_view me) {
+    json::Value v;
+    std::string why;
+    if (payload.size() > 4096 || !json::parse(payload, &v, &why, 200) || !v.isObject()) return false;
+    auto num = [&](const char *k) {
+        const json::Value *x = v.get(k);
+        return x && x->isNumber() ? x->number : 0.0;
+    };
+    Spot sp;
+    sp.source = SpotSource::PskReporter;
+    std::string sender = upper(printable(trimmed(v.str("sc")), 20)), receiver = upper(printable(trimmed(v.str("rc")), 20));
+    std::string mine = upper(trimmed(me));
+    sp.heardMe = !mine.empty() && spotterCall(sender) == spotterCall(mine);
+    sp.activator = sender, sp.spotter = receiver;
+    sp.grid = printable(trimmed(v.str("sl")), 10), sp.spotterGrid = printable(trimmed(v.str("rl")), 10);
+    sp.khz = spotKhz(num("f"));
+    sp.mode = upper(printable(trimmed(v.str("md")), 12));
+    long long t = (long long)num("t");
+    if (sp.activator.empty() || sp.khz.empty() || t <= 0) return false;
+    sp.epoch = t, sp.time = spotTime(t);
+    if (const json::Value *rp = v.get("rp"); rp && rp->isNumber() && std::fabs(rp->number) < 1000) sp.snr = (int)rp->number, sp.hasSnr = true;
+    sp.band = bandForFrequency(khzToMHz(sp.khz));
+    sp.key = sp.activator + "|" + sp.spotter + "|" + sp.khz + "|" + std::to_string(t);
+    if (out) *out = std::move(sp);
+    return true;
+}
+
+namespace {
+
+// Big-endian QDataStream reader for WSJT-X's messages; an overrun makes ok false.
+struct WsjtxReader {
+    std::string_view b;
+    size_t p = 0;
+    bool ok = true;
+    uint64_t un(size_t n) {
+        if (!ok || b.size() - p < n) return ok = false, 0;
+        uint64_t v = 0;
+        for (size_t i = 0; i < n; ++i) v = (v << 8) | (unsigned char)b[p + i];
+        p += n;
+        return v;
+    }
+    uint32_t u32() { return (uint32_t)un(4); }
+    uint8_t u8() { return (uint8_t)un(1); }
+    std::string utf8() {
+        uint32_t n = u32();
+        if (!ok || n == 0xffffffffu) return {};
+        if (n > 1024 || b.size() - p < n) return ok = false, std::string();
+        std::string s(b.substr(p, n));
+        p += n;
+        return s;
+    }
+};
+
+bool plainGrid(const std::string &w) {
+    if (w.size() != 4 && w.size() != 6) return false;
+    return w[0] >= 'A' && w[0] <= 'R' && w[1] >= 'A' && w[1] <= 'R' && std::isdigit((unsigned char)w[2]) && std::isdigit((unsigned char)w[3]) &&
+           (w.size() == 4 || (w[4] >= 'A' && w[4] <= 'X' && w[5] >= 'A' && w[5] <= 'X'));
+}
+
+// A word of a decode that is a callsign: letters and digits (and "/"), at least one of each,
+// not a grid or a report ("RR73", "R-10").
+bool callWord(const std::string &w) {
+    if (w.size() < 3 || w.size() > 12 || plainGrid(w) || w == "RR73" || w == "RRR") return false;
+    bool letter = false, digit = false;
+    for (char c : w) {
+        if (std::isalpha((unsigned char)c)) letter = true;
+        else if (std::isdigit((unsigned char)c)) digit = true;
+        else if (c != '/') return false;
+    }
+    return letter && digit;
+}
+
+}  // namespace
+
+void WsjtxHeard::feed(std::string_view bytes, long long now, std::vector<Spot> *out) {
+    WsjtxReader r{bytes};
+    if (r.u32() != 0xadbccbdau) return;
+    r.u32();  // schema
+    uint32_t type = r.u32();
+    std::string id = r.utf8();
+    if (!r.ok || (type != 1 && type != 2)) return;
+    if (rigs_.size() >= 16 && !rigs_.count(id.substr(0, 64))) rigs_.erase(rigs_.begin());
+    Rig &rig = rigs_[id.substr(0, 64)];
+    if (type == 1) {  // Status
+        double hz = (double)r.un(8);
+        std::string mode = r.utf8();
+        r.utf8(), r.utf8(), r.utf8();  // DX call, report, Tx mode
+        r.u8(), r.u8(), r.u8();        // Tx enabled, transmitting, decoding
+        r.u32(), r.u32();              // Rx DF, Tx DF
+        std::string call = upper(trimmed(r.utf8())), grid = trimmed(r.utf8());
+        if (!r.ok) return;
+        rig.hz = hz, rig.mode = upper(printable(trimmed(mode), 12)), rig.call = printable(call, 20), rig.grid = printable(grid, 10);
+        return;
+    }
+    bool fresh = r.u8() != 0;
+    uint32_t ms = r.u32();
+    int snr = (int32_t)r.u32();
+    r.un(8);  // delta time
+    uint32_t df = r.u32();
+    std::string mode = r.utf8(), message = upper(trimmed(r.utf8()));
+    r.u8();  // low confidence
+    bool offAir = r.u8() != 0;
+    if (!r.ok || !fresh || offAir || rig.hz <= 0 || ms >= 86400000u) return;
+    std::vector<std::string> words;
+    for (size_t i = 0; i < message.size();) {
+        size_t e = message.find(' ', i);
+        if (e == std::string::npos) e = message.size();
+        if (e > i) {
+            std::string w = message.substr(i, e - i);
+            if (w.size() > 2 && w.front() == '<' && w.back() == '>') w = w.substr(1, w.size() - 2);  // a hashed call WSJT-X knows
+            words.push_back(w);
+        }
+        i = e + 1;
+    }
+    std::string sender, to, grid;
+    size_t at = 0;
+    if (!words.empty() && words[0] == "CQ") {
+        for (at = 1; at < words.size() && at < 3 && !callWord(words[at]) && words[at].size() <= 4; ++at) {}  // CQ DX, CQ POTA
+        if (at >= words.size() || !callWord(words[at])) return;
+        sender = words[at++];
+    } else if (words.size() >= 2 && callWord(words[0]) && callWord(words[1])) {
+        to = words[0], sender = words[1], at = 2;
+    } else return;
+    if (at < words.size() && plainGrid(words[at])) grid = words[at];
+    long long midnight = now - now % 86400, epoch = midnight + ms / 1000;
+    if (epoch > now + 3600) epoch -= 86400;  // a decode just before midnight
+    Spot sp;
+    sp.source = SpotSource::Wsjtx;
+    sp.activator = sender, sp.spotter = rig.call, sp.spotterGrid = rig.grid, sp.grid = grid;
+    sp.khz = spotKhz(rig.hz + (double)df);
+    sp.mode = printable(trimmed(mode), 12);
+    if (sp.mode.size() <= 1) sp.mode = rig.mode;  // a decode's mode is one character ("~"): the rig's mode (Status) names it
+    sp.snr = snr, sp.hasSnr = true;
+    sp.epoch = epoch, sp.time = spotTime(epoch);
+    sp.band = bandForFrequency(khzToMHz(sp.khz));
+    if (!to.empty()) sp.comments = "working " + to;
+    sp.key = sp.activator + "|" + sp.spotter + "|" + sp.khz + "|" + std::to_string(epoch);
+    if (out) out->push_back(std::move(sp));
+}
+
 std::string pskQueryUrl(std::string_view callOrGrid, PskQuery query, long long seconds, std::string_view appcontact) {
     auto encode = [](std::string_view v) {
         std::string o;
@@ -688,6 +1025,7 @@ std::string spotLabelDetails(const Spot &s, const SpotLabel &show, long long now
     std::vector<std::string> parts;
     if (show.mode && !s.mode.empty()) parts.push_back(s.mode);
     if (show.khz && !s.khz.empty()) parts.push_back(s.khz + " kHz");
+    if (show.time && s.epoch > 0) parts.push_back(spotTime(s.epoch) + "Z");
     if (show.age)
         if (std::string age = spotAge(s.epoch, now); !age.empty()) parts.push_back(age);
     if (show.snr && s.hasSnr) parts.push_back(spotSnr(s));

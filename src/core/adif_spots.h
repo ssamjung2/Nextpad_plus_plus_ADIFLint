@@ -10,6 +10,7 @@
 #include "adif_world.h"
 
 #include <cstddef>
+#include <map>
 #include <set>
 #include <string>
 #include <string_view>
@@ -17,8 +18,8 @@
 
 namespace adif {
 
-enum class SpotSource { Pota, Wwff, Spothole, Cluster, PskReporter };
-const char *spotSourceName(SpotSource s);  // "POTA", "WWFF", "Spothole", "DX cluster", "PSKReporter"
+enum class SpotSource { Pota, Wwff, Spothole, Cluster, PskReporter, Wsjtx };
+const char *spotSourceName(SpotSource s);  // "POTA", "WWFF", "Spothole", "DX cluster", "PSKReporter", "WSJT-X"
 
 struct Spot {
     SpotSource source = SpotSource::Pota;
@@ -180,6 +181,82 @@ enum class PskQuery { Callsign, Grid };
 // 4-character square.
 std::string pskQueryUrl(std::string_view callOrGrid, PskQuery query, long long seconds, std::string_view appcontact);
 
+// PSKReporter's live feed, MQTT 3.1.1 over TCP (https://www.mqtt.pskreporter.info/, read
+// 2026-10-28; mqtt.pskreporter.info :1883 plain, :1884 TLS): every report as it is made, on topics
+// pskr/filter/v2/{band}/{mode}/{tx call}/{rx call}/{tx grid}/{rx grid}/{tx dxcc}/{rx dxcc}
+// (grids of 4 characters), each payload one report as JSON: f (Hz), md, rp (dB), t (Unix
+// seconds), sc and sl (sender), rc and rl (receiver), b (band). Only what a client needs of
+// MQTT is here: CONNECT, SUBSCRIBE (QoS 0), PINGREQ and reading what the broker sends.
+std::string mqttConnect(std::string_view clientId, int keepAliveSeconds);
+std::string mqttSubscribe(int packetId, const std::vector<std::string> &topics);
+std::string mqttPing();
+struct MqttPacket {
+    int type = 0;  // 2 CONNACK, 3 PUBLISH, 9 SUBACK, 13 PINGRESP...
+    int flags = 0;
+    std::string body;
+};
+// A byte stream as packets; a packet longer than `limit` is skipped, and `broken` is set for a
+// length that isn't valid.
+class MqttPackets {
+public:
+    explicit MqttPackets(size_t limit = 65536) : limit_(limit) {}
+    void feed(std::string_view bytes, std::vector<MqttPacket> *out);
+    bool broken() const { return broken_; }
+
+private:
+    std::string buf_;
+    size_t limit_;
+    size_t skip_ = 0;
+    bool broken_ = false;
+};
+// A QoS 0 PUBLISH's topic and payload (false for a malformed or QoS 1/2 one).
+bool mqttPublish(const MqttPacket &p, std::string *topic, std::string *payload);
+// The topics that bring the reports of a station (either side of the path): one for it as the
+// sender, one as the receiver. "/" in a call is "_" in a topic.
+std::vector<std::string> pskTopicsForCall(std::string_view call);
+// The topics for the reports with either station in a 4-character grid square.
+std::vector<std::string> pskTopicsForGrid(std::string_view grid);
+// PSKReporter can't be asked for a state or a section, only for a callsign or a 4-character
+// square (the live feed also by DXCC), so those are asked as the squares over the area and the
+// reports kept to those with a station in it (pskInArea).
+struct PskArea {
+    std::set<std::string> states;       // postal codes
+    std::vector<std::string> squares;   // 4-character squares that hold part of it
+    bool empty() const { return states.empty() || squares.empty(); }
+};
+// The US state `grid` (4 or more characters) is in, by its centre; "" when none.
+std::string pskStateOfGrid(std::string_view grid);
+// A state's area (postal code, as "WI"); empty when it is not a state of the Map.
+PskArea pskAreaForState(std::string_view state);
+// The region of an ARRL section ("WI", "EMA", "STX"): its ARRL division's states, the states a
+// split section is in included. With no section, the divisions `state` is in. Empty when none.
+PskArea pskAreaForSection(std::string_view section, std::string_view state = "");
+// Whether the sender or the receiver of a report is in the area.
+bool pskInArea(const PskArea &area, const Spot &s);
+// The topics for the reports with either station in any of the squares.
+std::vector<std::string> pskTopicsForSquares(const std::vector<std::string> &squares);
+// One report's payload as a spot of its sender by its receiver (as parsePskReports gives it);
+// `me` marks your own signal. False when it isn't a usable report.
+bool parsePskLive(std::string_view payload, Spot *out, std::string_view me = "");
+
+// WSJT-X's UDP messages as spots of what this station hears, with who it hears working whom
+// (https://github.com/WSJTX/wsjtx Network/NetworkMessage.hpp: Status 1 gives the dial frequency,
+// mode and DE call and grid; Decode 2 gives the message heard). A decode "CQ K1ABC FN42" is
+// K1ABC calling; "W9XYZ K1ABC -10" is K1ABC working W9XYZ: a spot of K1ABC (and one of W9XYZ,
+// who is being answered), heard by your station, the comment saying who it is working.
+class WsjtxHeard {
+public:
+    // One datagram; the spots it gives are added to *out. `now`: Unix seconds.
+    void feed(std::string_view bytes, long long now, std::vector<Spot> *out);
+
+private:
+    struct Rig {
+        double hz = 0;
+        std::string mode, call, grid;
+    };
+    std::map<std::string, Rig> rigs_;
+};
+
 // A spot's frequency in kHz from Hz, as spots show it: "14074", "7032.5".
 std::string spotKhz(double hz);
 // HH:MM UTC of a Unix time.
@@ -214,9 +291,10 @@ std::string spotAge(long long epoch, long long now);
 std::string spotSnr(const Spot &s);
 // What the Map's label shows under a spot's call, as Style Options choose: its mode, frequency,
 // how long ago it was spotted and its signal report, " · " between them ("FT8 · 14074 kHz ·
-// 3 min · -12 dB"); "" when none of them is chosen or known.
+// 3 min · -12 dB"); "" when none of them is chosen or known. `time` adds when it was last
+// heard, "14:32Z" (UTC).
 struct SpotLabel {
-    bool mode = true, khz = false, age = true, snr = true;
+    bool mode = true, khz = false, age = true, snr = true, time = false;
 };
 std::string spotLabelDetails(const Spot &s, const SpotLabel &show, long long now);
 

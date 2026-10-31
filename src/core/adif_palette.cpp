@@ -86,14 +86,29 @@ const std::vector<unsigned> &colourBlindBandSet() {
     return set;
 }
 
+// Modes, then the other programs, one colour each: the band set (its first three are the modes,
+// kept well apart), then six more picked, as the band set was, to differ most from those and
+// from the map, so no two share a colour: CIEDE2000 10 or more apart in every vision.
+const std::vector<unsigned> &colourBlindQualitative() {
+    static const std::vector<unsigned> set = [] {
+        std::vector<unsigned> v = colourBlindBandSet();
+        for (unsigned c : {0x9900FFu, 0x660000u, 0xCC3399u, 0xCCFFCCu, 0x993300u, 0x99CC99u})
+            v.push_back(c);
+        return v;
+    }();
+    return set;
+}
+
 size_t mapPaletteCount() { return 5; }
 
 const MapPalette &mapPalette(int i) {
     // Tableau 10 (plus two), a common qualitative set.
     static const std::vector<unsigned> tableau = {0x4E79A7, 0xF28E2B, 0xE15759, 0x76B7B2, 0x59A14F, 0xEDC948,
-                                                  0xB07AA1, 0xFF9DA7, 0x9C755F, 0xBAB0AC, 0x86BCB6, 0xD37295};
+                                                  0xB07AA1, 0xFF9DA7, 0x9C755F, 0xBAB0AC, 0x86BCB6, 0xD37295,
+                                                  0x8CD17D};
     static const std::vector<unsigned> bright = {0x00E5FF, 0xFFD400, 0xFF2D95, 0x00FF66, 0xFF7A00, 0xB388FF,
-                                                 0xFFFFFF, 0x76FF03, 0xFF5252, 0x40C4FF};
+                                                 0xFFFFFF, 0x76FF03, 0xFF5252, 0x40C4FF,
+                                                 0xFFAB40, 0xEA80FC, 0x69F0AE};
     static const std::vector<MapPalette> all = {
         // Close to macOS's own green, orange, teal, blue, purple and red in the dark appearance.
         {"Standard", 0x17202B, 0x21334A, 0x546154, 0x5C85B3, 0xCCD1C2, true, 0x30D158, 0xFF9F0A, 0x40C8E0, 0x0A84FF, 0xBF5AF2, 0xFF453A,
@@ -102,7 +117,7 @@ const MapPalette &mapPalette(int i) {
         // white for DXCC confirmed (their bluish green barely stood out from the ocean); modes
         // and programs take the band set; counts and years start further along viridis.
         {"Colour-blind safe", 0x17202B, 0x21334A, 0x546154, 0x5C85B3, 0xCCD1C2, true, 0x56B4E9, 0xE69F00, 0xFFFFFF, 0xD55E00, 0xCC79A7,
-         0xF0E442, colourBlindBandSet(), 0.3, true, false, 0xCC79A7, 0xF0E442},
+         0xF0E442, colourBlindQualitative(), 0.3, true, false, 0xCC79A7, 0xF0E442},
         {"High contrast", 0x000000, 0x0A1A2F, 0x3C3C3C, 0x4FA3FF, 0xFFFFFF, true, 0x00FF66, 0xFF2D95, 0x00E5FF, 0xFFD400, 0xB388FF, 0xFF3B30,
          bright, 0.3, false, false, 0xFFFFFF, 0xFFD400},
         {"Light", 0xFFFFFF, 0xDCE9F5, 0xF2EFE6, 0x7FA7D0, 0x8A8A8A, false, 0x1A9850, 0xF46D43, 0x2C7BB6, 0x8C510A, 0x762A83, 0xD7191C,

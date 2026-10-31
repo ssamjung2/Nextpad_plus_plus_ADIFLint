@@ -17,6 +17,7 @@
 #import "Spots.h"
 #import "Uploads.h"
 #import "ToolWindow.h"
+#import "Workspace.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include "adif_detail.h"
 #include "adif_beacons.h"
@@ -29,6 +30,7 @@
 #include "adif_palette.h"
 #include "adif_projection.h"
 #include "adif_spec.h"
+#include "adif_styles.h"
 #include "adif_sun.h"
 #include "adif_world.h"
 
@@ -39,6 +41,7 @@
 #include <fstream>
 #include <sstream>
 #include <map>
+#include <optional>
 #include <set>
 #include <tuple>
 
@@ -210,8 +213,7 @@ static NSAttributedString *treeMark(NSColor *color) {
         NSSize size = v.fittingSize;
         if (x > 0 && x + size.width > width) {
             endLine();
-            y += lineHeight + _gap;
-            rules.push_back(NSMakeRect(0, y - _gap / 2, width, 1));
+            y += lineHeight + _gap;  // no rule across: the lines' own gap parts them
             x = 0, lineHeight = 0;
         }
         if (_trailingLast && v == last && x > 0) x = std::max(x, width - size.width);  // pushed to the right, its rule with it
@@ -238,11 +240,12 @@ static NSAttributedString *treeMark(NSColor *color) {
 @end
 
 // The Map's window: its shortcuts before the app's menus see them.
-@interface ADIFMapWindow : NSWindow
+@interface ADIFMapWindow : NSWindow <ADIFDockable>
 @property(nonatomic, copy) BOOL (^shortcut)(NSEvent *event);
 @end
 
 @implementation ADIFMapWindow
+ADIF_DOCKABLE_WINDOW
 - (BOOL)performKeyEquivalent:(NSEvent *)event {
     if (self.shortcut && self.shortcut(event)) return YES;
     return [super performKeyEquivalent:event];
@@ -459,7 +462,7 @@ struct {
     ADIFMapView *view = nil;
     NSButton *show[kLayerCount] = {}, *overlay[kLayerCount] = {}, *labels[kLayerCount] = {};  // the layers' boxes (no Show for cities)
     NSButton *contacts = nil, *lines = nil, *mine = nil;
-    NSPopUpButton *programs = nil, *projection = nil, *colorBy = nil, *region = nil;
+    NSPopUpButton *programs = nil, *projection = nil, *colorBy = nil, *mapPreset = nil, *region = nil;
     NSView *styleBody = nil;  // Style Options, a card in the selected panel
     NSTimer *sunTimer = nil;     // day and night, while it shows now
     NSPopUpButton *band = nil, *mode = nil, *dates = nil, *confirmed = nil;
@@ -477,6 +480,8 @@ struct {
     // The workflows (History: the log; Live: the spots), the sidebar with its Quick Views and
     // sections, the selected panel, the zoom buttons on the map, and the footer.
     NSSegmentedControl *workflow = nil;
+    NSPopUpButton *operatingStyleBar = nil;  // the toolbar's style menu: Social, Chasing, Contest, Portable (operatingStyle)
+    NSPopover *styleChangesPopover = nil;    // its What Changed
     NSView *sidebar = nil, *selectedPanel = nil, *nav = nil, *spotsSection = nil;
     NSButton *paneToggle[3] = {};  // the sidebar, the list, the selected panel
     NSButton *focusButton = nil;    // the toolbar's Focus Map: the panes hidden, or back
@@ -610,6 +615,7 @@ struct {
 
 // Saved choices, in ADIFLint.ini.
 void revealSection(NSString *name);
+void fillOperatingStyleBar();
 void fillRecentSpots();
 void fillBandConditions();
 void fillAwards();
@@ -649,6 +655,8 @@ void showDxccRow(int dxcc);
 void revealBands();
 void showPane(int pane, bool on);
 void fillFindMenu(NSMenu *menu);
+bool callLike(const std::string &q);
+void locateCall(const std::string &call);
 void goHomeView();
 
 // Faint text, as faint as the system's Increase contrast (Accessibility) allows: secondary then.
@@ -757,7 +765,9 @@ ADIFMapStyle savedStyle() {
         st.overlay = flag(l.overlayKey, l.overlayOn);
         st.labels = flag(l.labelsKey, true);
     }
-    s.legend = number("mapLegend", 1, 2);
+    s.legend = number("mapLegend", 1, 4);
+    s.legendWide = number("mapLegendLayout", 0, 1) == 1;
+    s.spotRate = flag("mapSpotRate", false);
     s.textScale = number("mapTextSize", 0, 1) == 1 ? 1.25 : 1;
     s.hatch = flag("mapHatch", false);
     for (const std::string &id : splitSetting("mapLegendHidden", ',')) s.legendHidden.insert(id);
@@ -778,6 +788,7 @@ ADIFMapStyle savedStyle() {
     s.spotLabel.khz = flag("mapSpotLabelFreq", false);
     s.spotLabel.age = flag("mapSpotLabelAge", true);
     s.spotLabel.snr = flag("mapSpotLabelSnr", true);
+    s.spotLabel.time = flag("mapSpotLabelTime", false);
     s.spotFade = flag("mapSpotFade", true);
     s.parkOutlineOnly = number("mapParkOutlines", 0, 1) == 1;
     s.reference = number("mapReference", 1, 2);
@@ -1751,6 +1762,7 @@ void applyStyle() {
     mw.view.hiddenPrograms = hiddenPrograms();
     queueViewList();
     updatePropagation();
+    fillOperatingStyleBar();  // its title says when the style's settings were changed
 }
 
 // ── Propagation: space weather (NOAA SWPC) and the NCDXF beacons ──
@@ -2040,12 +2052,26 @@ struct StyleChoice {
 };
 NSArray<NSString *> *const kPaletteTitles = @[ N(@"Standard"), N(@"Colour-blind safe"), N(@"High contrast"), N(@"Light (for printing)"), N(@"Night (red)") ];
 
+struct MapRegion {
+    NSString *name;
+    double west, south, east, north;
+};
+const MapRegion kMapRegions[] = {
+    {N(@"Africa"), -20, -36, 53, 38},          {N(@"Antarctica"), -180, -90, 180, -60},
+    {N(@"Asia"), 25, -11, 180, 78},            {N(@"Europe"), -25, 34, 45, 72},
+    {N(@"North America"), -170, 5, -50, 75},   {N(@"Oceania"), 110, -48, 180, 0},
+    {N(@"South America"), -82, -56, -34, 13},
+};
+
 void syncStyleControls();
 
 void fillStyle() {
     ADIFMapStyle s = savedStyle();
     mw.greyLineBox.state = s.greyLine ? NSControlStateValueOn : NSControlStateValueOff;  // the sidebar's, as Style Options left them
     mw.dayNightBox.state = s.dayNight ? NSControlStateValueOn : NSControlStateValueOff;
+    mw.auroraBox.state = s.aurora ? NSControlStateValueOn : NSControlStateValueOff;  // the propagation layers, as a style left them
+    mw.beaconsBox.state = s.beacons ? NSControlStateValueOn : NSControlStateValueOff;
+    mw.heatBox.state = s.spotHeat ? NSControlStateValueOn : NSControlStateValueOff;
     mw.paletteBar.selectedSegment = number("mapPalette", 0, 4);  // the sidebar's and Style Options' the same
     mw.paletteBar.enabled = !ADIFNightMode();
     int terrain = number("mapTerrain", 0, 2);  // Layers → Base map
@@ -2062,8 +2088,8 @@ void fillStyle() {
     if (NSControl *c = (NSControl *)findView(root, @"map.style.sunTime")) c.enabled = s.dayNight || s.greyLine;
     if (NSControl *c = (NSControl *)findView(root, @"map.style.palette")) c.enabled = !ADIFNightMode();  // Night Mode sets it
     if (NSControl *c = (NSControl *)findView(root, @"map.style.parkOutlines")) c.enabled = !parkoutlines::all().empty();
-    for (NSString *ident in @[ @"map.style.spotters", @"map.style.spotLines", @"map.style.spotMode", @"map.style.spotFreq", @"map.style.spotAge", @"map.style.spotSnr",
-                               @"map.style.spotFade" ])
+    for (NSString *ident in @[ @"map.style.spotters", @"map.style.spotLines", @"map.style.spotMode", @"map.style.spotFreq", @"map.style.spotAge", @"map.style.spotTime", @"map.style.spotSnr",
+                               @"map.style.spotFade", @"map.style.spotRate" ])
         if (NSControl *c = (NSControl *)findView(root, ident)) c.enabled = s[kLayerSpots].show;
 }
 
@@ -2164,10 +2190,14 @@ NSView *buildStyleOptions() {
     add({"mapSpotLabelMode", @"map.style.spotMode", 1, nil, N(@"Mode"), N(@"Under each spot's call (the Spots layer's Labels): its mode")});
     add({"mapSpotLabelFreq", @"map.style.spotFreq", 0, nil, N(@"Frequency"), N(@"Under each spot's call: its frequency in kHz")});
     add({"mapSpotLabelAge", @"map.style.spotAge", 1, nil, N(@"Time since spotted"), N(@"Under each spot's call: how long ago it was spotted")});
+    add({"mapSpotLabelTime", @"map.style.spotTime", 0, nil, N(@"Last heard"),
+         N(@"Under each spot's call: the time (UTC) it was last heard")});
     add({"mapSpotLabelSnr", @"map.style.spotSnr", 1, nil, N(@"Signal report"),
          N(@"Under each spot's call: the signal report in dB, from an RBN skimmer or PSKReporter")});
     add({"mapSpotFade", @"map.style.spotFade", 1, nil, N(@"Fade older spots"),
          N(@"Spots older than 10 minutes fainter, down to half at the Spots filter's age")});
+    add({"mapSpotRate", @"map.style.spotRate", 0, nil, N(@"Show the spot rate"),
+         N(@"The spots a minute, and the last five minutes' average, in the map's top right corner (the Spots filters apply)")});
     section(@"parks", N(@"POTA parks"), @"leaf");
     add({"mapParkOutlines", @"map.style.parkOutlines", 0, @[ N(@"Badge and outline"), N(@"Outline only") ], N(@"Parks with an outline:"),
          N(@"For the parks whose outlines you downloaded (Settings, POTA Parks, Park Outlines): a badge on the outline, or the outline "
@@ -2184,8 +2214,10 @@ NSView *buildStyleOptions() {
     add({"mapReference", @"map.style.reference", 1, @[ N(@"Strong##reference"), N(@"Subtle"), N(@"Faint##reference") ], N(@"Reference layers:"),
          N(@"How strongly the grid, the overlays' lines and names, and the distance rings show: subtle or faint, your QSOs, parks and "
          @"spots stand out from them")});
-    add({"mapLegend", @"map.style.legend", 1, @[ N(@"Off##legend"), N(@"Top right"), N(@"Bottom left") ], N(@"Legend:"),
-         N(@"The key to the map's colours and markers; click a spot's kind or band, or another program, in it to hide or show those")});
+    add({"mapLegend", @"map.style.legend", 1, @[ N(@"Off##legend"), N(@"Top right"), N(@"Bottom left"), N(@"Top left"), N(@"Bottom right") ], N(@"Legend:"),
+         N(@"The key to the map's colours and markers; click a spot's kind or band, or another program, in it to hide or show those. Drag it to another corner")});
+    add({"mapLegendLayout", @"map.style.legendLayout", 0, @[ N(@"Column"), N(@"Across the map") ], N(@"Legend layout:"),
+         N(@"A column in its corner, or a band across the map's top or bottom edge")});
     add({"mapTextSize", @"map.style.textSize", 0, @[ N(@"Standard##text"), N(@"Large##text") ], N(@"Map text:"),
          N(@"How big the map's labels, legend, tags and information box are")});
     add({"mapFlags", @"map.style.flags", 1, nil, N(@"Country flags"),
@@ -2198,9 +2230,9 @@ NSView *buildStyleOptions() {
     reset.toolTip = T(@"Every Style Option back as it was at first (the layers stay as they are)");
     ADIFOnAction(reset, ^{
         for (const char *key : {"mapPalette", "mapMarkerSize", "mapMarkerShape", "mapContactMarker", "mapSquareFill", "mapAreaShade", "mapLineStyle",
-                                "mapLineWidth", "mapLineOpacity", "mapArcs", "mapLegend", "mapTextSize", "mapHatch", "mapRings", "mapDayNight", "mapGreyLine", "mapSunTime",
+                                "mapLineWidth", "mapLineOpacity", "mapArcs", "mapLegend", "mapLegendLayout", "mapSpotRate", "mapTextSize", "mapHatch", "mapRings", "mapDayNight", "mapGreyLine", "mapSunTime",
                                 "mapSpotters", "mapSpotterStyle", "mapSpotLineStyle", "mapSpotLabelMode", "mapSpotLabelFreq", "mapSpotLabelAge",
-                                "mapSpotLabelSnr", "mapSpotFade", "mapParkOutlines", "mapReference", "mapSpotlight", "mapFlags"})
+                                "mapSpotLabelTime", "mapSpotLabelSnr", "mapSpotFade", "mapParkOutlines", "mapReference", "mapSpotlight", "mapFlags"})
             setSetting(key, "");
         applyStyle();
         fillPrograms();
@@ -2276,6 +2308,34 @@ std::string homeGrid(const std::map<std::string, size_t> &myGrids) {
     return most ? g : "";
 }
 
+// The Mode filter's choices: the common modes, then the log's and the spots' (as they are heard),
+// each once. Kept by title when it is still there.
+std::set<std::string> gLogModes;
+void fillModeChoices() {
+    static const char *const kCommonModes[] = {"CW", "SSB", "FM", "AM", "FT8", "FT4", "RTTY", "PSK31", "JS8", "JT65", "JT9", "Q65", "MFSK", "OLIVIA", "SSTV", "DIGITALVOICE"};
+    std::set<std::string> modes(gLogModes);
+    for (const char *m : kCommonModes) modes.insert(m);
+    for (const adif::Spot &sp : spotfeeds::spots().spots())
+        if (!sp.mode.empty() && !sp.heardMe) modes.insert(sp.mode);
+    std::set<std::string> known;  // by case: the log's "ft8" and the spots' "FT8" are one
+    std::vector<std::string> items;
+    for (const std::string &m : modes) {
+        std::string key = m;
+        for (char &c : key) c = (char)toupper((unsigned char)c);
+        if (known.insert(key).second) items.push_back(m);
+    }
+    NSMutableArray<NSString *> *now = [NSMutableArray array];
+    for (NSInteger i = 1; i < mw.mode.numberOfItems; ++i) [now addObject:[mw.mode itemAtIndex:i].title];
+    bool same = (size_t)now.count == items.size();
+    for (size_t i = 0; same && i < items.size(); ++i) same = [now[i] isEqualToString:ADIFString(items[i])];
+    if (same && mw.mode.numberOfItems > 0) return;
+    NSString *keep = mw.mode.indexOfSelectedItem > 0 ? mw.mode.titleOfSelectedItem : nil;
+    [mw.mode removeAllItems];
+    [mw.mode addItemWithTitle:T(@"All modes")];
+    for (const std::string &i : items) [mw.mode addItemWithTitle:ADIFString(i)];
+    if (keep && [mw.mode itemWithTitle:keep]) [mw.mode selectItemWithTitle:keep];
+}
+
 void refresh() {
     if (!mw.window) return;
     try {
@@ -2311,8 +2371,11 @@ void refresh() {
                 for (char &c : b) c = (char)tolower((unsigned char)c);
                 if (!std::any_of(bands.begin(), bands.end(), [&](const std::string &x) { return strcasecmp(x.c_str(), b.c_str()) == 0; })) bands.insert(b);
             }
-        fill(mw.band, @[ N(@"All bands") ], std::vector<std::string>(bands.begin(), bands.end()));
-        fill(mw.mode, @[ N(@"All modes") ], std::vector<std::string>(modes.begin(), modes.end()));
+        std::vector<std::string> bandChoices(bands.begin(), bands.end());
+        std::stable_sort(bandChoices.begin(), bandChoices.end(), [](const std::string &a, const std::string &b) { return adif::bandOrder(a) < adif::bandOrder(b); });
+        fill(mw.band, @[ N(@"All bands") ], bandChoices);
+        gLogModes = modes;
+        fillModeChoices();
         bool customDates = mw.dates.indexOfSelectedItem == 4;  // its title is the range: kept by place, not title
         if (customDates) [mw.dates selectItemAtIndex:0];
         fill(mw.dates, @[ N(@"All dates"), N(@"Last 30 days"), N(@"Last 12 months"), N(@"This year"), N(@"Custom Range...") ],
@@ -3101,8 +3164,15 @@ void showDateRange() {
 
 // ── Spots ──
 
-const long long kSpotAges[] = {600, 1800, 3600};
-const char *const kSpotAgeTitles[] = {N_("10 minutes"), N_("30 minutes"), N_("1 hour")};
+const long long kSpotAges[] = {60, 300, 600, 900, 1800, 3600, 10800, 21600, 43200, 86400};
+const char *const kSpotAgeTitles[] = {N_("1 minute"), N_("5 minutes"), N_("10 minutes"), N_("15 minutes"), N_("30 minutes"),
+                                      N_("1 hour"),   N_("3 hours"),   N_("6 hours"),    N_("12 hours"),   N_("24 hours")};
+const char *const kSpotAgeBarTitles[] = {N_("Last 1 minute"),  N_("Last 5 minutes"), N_("Last 10 minutes"), N_("Last 15 minutes"), N_("Last 30 minutes"),
+                                         N_("Last 1 hour"),    N_("Last 3 hours"),   N_("Last 6 hours"),    N_("Last 12 hours"),   N_("Last 24 hours")};
+constexpr int kSpotAgeCount = (int)(sizeof kSpotAges / sizeof kSpotAges[0]);
+constexpr int kSpotAgeDefault = 4;  // 30 minutes
+// The saved choice (its own key: the old one counted three choices).
+int spotAgeChoice() { return number("mapSpotsAgeAt", kSpotAgeDefault, kSpotAgeCount - 1); }
 const adif::SpotSource kSpotSources[] = {adif::SpotSource::Spothole, adif::SpotSource::Cluster, adif::SpotSource::PskReporter};
 
 // The Spots filter: the Map's band, mode and places, and the popover's age, sources and program.
@@ -3114,10 +3184,11 @@ adif::SpotFilter spotFilter() {
     f.map.withinKm = places.withinKm, f.map.homeLat = places.homeLat, f.map.homeLon = places.homeLon;
     f.map.band = mw.band.indexOfSelectedItem > 0 ? ADIFStd(mw.band.titleOfSelectedItem) : "";
     f.map.mode = mw.mode.indexOfSelectedItem > 0 ? ADIFStd(mw.mode.titleOfSelectedItem) : "";
-    f.maxAge = kSpotAges[number("mapSpotsAge", 1, 2)];
+    f.maxAge = kSpotAges[spotAgeChoice()];
     std::string hidden = setting("mapSpotsHidden");  // the sources unticked: "Cluster,PSKReporter"
     for (adif::SpotSource src : kSpotSources)
         if (hidden.find(adif::spotSourceName(src)) == std::string::npos) f.sources.insert(src);
+    if (!f.sources.empty()) f.sources.insert(adif::SpotSource::Wsjtx);  // what WSJT-X decodes here: there only while the Monitor listens
     std::string program = setting("mapSpotsProgram");
     if (program == "-") f.programs = {""};
     else if (!program.empty()) f.programs = {program};
@@ -3138,7 +3209,7 @@ void fillSpotsPopover() {
         mw.spotSource[i].state = on[i] && hidden.find(adif::spotSourceName(kSpotSources[i])) == std::string::npos ? NSControlStateValueOn
                                                                                                                    : NSControlStateValueOff;
     }
-    [mw.spotAge selectItemAtIndex:number("mapSpotsAge", 1, 2)];
+    [mw.spotAge selectItemAtIndex:spotAgeChoice()];
     // The programs in the spots now, after All and plain DX.
     std::set<std::string> programs;
     for (const adif::Spot &sp : spotfeeds::spots().spots())
@@ -3169,6 +3240,7 @@ void refreshSpots() {
     spotfeeds::setHomeGrid(mw.home);
     spotfeeds::setFocusCall(spotFilter().onlyCall);
     spotfeeds::setWanted(show && mw.window.visible);
+    fillModeChoices();
     std::vector<ADIFMapSpot> marks;
     long long now = (long long)time(nullptr);
     adif::SpotFilter f = spotFilter();
@@ -3176,8 +3248,30 @@ void refreshSpots() {
         const adif::CountryTable *countries = &ADIFCountries();
         const adif::PotaParks *parks = ADIFPotaParks().size() ? &ADIFPotaParks() : nullptr;
         std::vector<adif::Spot> keep;
-        for (const adif::Spot &sp : spotfeeds::spots().spots())
+        adif::SpotFilter rateFilter = f;
+        rateFilter.maxAge = 0;  // the rate counts every spot, not only those still showing
+        int lastMinute = 0, lastFive = 0;
+        for (const adif::Spot &sp : spotfeeds::spots().spots()) {
             if (adif::spotMatches(f, sp, now, countries, parks)) keep.push_back(sp);
+            if (sp.epoch >= now - 300 && adif::spotMatches(rateFilter, sp, now, countries, parks)) {
+                ++lastFive;
+                if (sp.epoch >= now - 60) ++lastMinute;
+            }
+        }
+        [mw.view setSpotsLastMinute:lastMinute average5:lastFive / 5.0];
+        // Only spots of a station: the map is about who hears it. Each report is turned around, so
+        // the stations hearing it are the spots (markers, heat map) and the station itself is the one
+        // spotter (the triangle) they all point to.
+        if (!f.onlyCall.empty())
+            for (adif::Spot &sp : keep) {
+                std::swap(sp.activator, sp.spotter);
+                std::swap(sp.grid, sp.spotterGrid);
+                std::swap(sp.lat, sp.spotterLat);
+                std::swap(sp.lon, sp.spotterLon);
+                std::swap(sp.placeGiven, sp.spotterPlaceGiven);
+                sp.placeExact = false, sp.heardMe = false;
+                sp.key += "|rx";
+            }
         // Every spot of a station on a band, newest first: who heard it.
         std::map<std::string, std::vector<const adif::Spot *>> byStation;
         for (const adif::Spot &sp : keep) byStation[adif::spotterCall(sp.activator) + "|" + sp.band].push_back(&sp);
@@ -3280,7 +3374,7 @@ void refreshSpots() {
                                                      "QSL synced is when your log's confirmations were last downloaded):") +
                                                   "\n" + spotfeeds::status())
                                      : nil;
-        [mw.spotAgeBar selectItemAtIndex:number("mapSpotsAge", 1, 2)];
+        [mw.spotAgeBar selectItemAtIndex:spotAgeChoice()];
         fillDxccPotaBars();
         {  // the source: all, one, or "2 sources"
             std::string hidden = setting("mapSpotsHidden");
@@ -3603,10 +3697,12 @@ void showSpotsPopover() {
                                                                  @"the Map's band, mode and place filters apply to them too.")];
         help.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
         help.textColor = NSColor.secondaryLabelColor;
-        mw.spotAge = ADIFPopup(@[ @(kSpotAgeTitles[0]), @(kSpotAgeTitles[1]), @(kSpotAgeTitles[2]) ]);
+        NSMutableArray *ageTitles = [NSMutableArray array];
+        for (const char *t : kSpotAgeTitles) [ageTitles addObject:@(t)];
+        mw.spotAge = ADIFPopup(ageTitles);
         mw.spotAge.identifier = @"map.spots.age";
         ADIFOnAction(mw.spotAge, ^{
-            setSetting("mapSpotsAge", std::to_string(mw.spotAge.indexOfSelectedItem));
+            setSetting("mapSpotsAgeAt", std::to_string(mw.spotAge.indexOfSelectedItem));
             refreshSpots();
         });
         NSMutableArray *sources = [NSMutableArray array];
@@ -3932,9 +4028,9 @@ const std::vector<ListColumn> &listColumns(int kind) {
     };
     static const std::vector<ListColumn> kSpots = {
         {"watch", "\u2605", 24, 1, true, true},             // on your watch list
-        {"call", N_("Call"), 76, 0, true, false},          {"country", N_("Country"), 120, 0, true, false}, {"grid", N_("Grid"), 62, 0, true, false},
-        {"distance", N_("Distance"), 70, 2, true, true},   {"khz", "kHz", 60, 2, true, true},             {"band", N_("Band"), 42, 1, true, false},
-        {"mode", N_("Mode"), 46, 0, true, false},          {"spotter", N_("Spotter"), 76, 0, true, false}, {"age", N_("Age"), 52, 2, true, true},
+        {"call", N_("Call"), 76, 0, true, false},          {"country", N_("Country"), 96, 0, true, false}, {"grid", N_("Grid"), 62, 0, true, false},
+        {"distance", N_("Distance"), 64, 2, true, true},   {"khz", "kHz", 60, 2, true, true},             {"band", N_("Band"), 42, 1, true, false},
+        {"mode", N_("Mode"), 46, 0, true, false},          {"spotter", N_("Spotter"), 66, 0, true, false}, {"age", N_("Age"), 52, 2, true, true},
         {"need", N_("Why it matters"), 150, 0, true, true}, {"time", "UTC", 44, 1, false, false},        {"program", N_("Program"), 60, 0, false, false},
         {"ref", N_("Reference"), 76, 0, false, false},     {"park", N_("Park"), 140, 0, false, false},    {"source", N_("Source"), 80, 0, false, false},
         {"snr", "SNR", 44, 2, false, true},                {"comment", N_("Comment"), 160, 0, false, false}, {"bearing", N_("Bearing"), 54, 2, false, true},
@@ -5474,6 +5570,301 @@ void chooseQuickView(NSInteger row) {
     mw.applyingView = false;
 }
 
+// ── Operating styles (docs/OPERATING_STYLES_PLAN.md): Social, Chasing, Contest and Portable,
+// each the Map's own settings for a way of operating (adif_styles.h). The toolbar's style menu
+// chooses one; the style left keeps what it was as it was left, and its last change can be
+// undone and shown. A style never moves the map, changes the band and mode, or what is chosen ──
+
+namespace styles = adif::styles;
+
+std::optional<styles::OperatingStyle> operatingStyle() { return styles::parse(setting("mapOperatingStyle")); }
+std::vector<std::string> styleKeys() { return styles::ownedKeys(workflowKeys()); }
+std::string styleGet(const std::string &key) { return setting(key.c_str()); }
+void styleSet(const std::string &key, const std::string &value) { setSetting(key.c_str(), value); }
+
+// This session's last change of style: What Changed shows it, Restore Previous Layout undoes it.
+std::optional<styles::Transition> lastStyleChange;
+
+void fillOperatingStyleBar();
+
+// What is chosen on the map, kept across a change of style, which makes the map's data afresh:
+// the thing itself (a square, an entity, a park, a contact's place, a station on a band), found
+// again in the new data. The other kinds' indexes don't depend on the log (beacons, IOTA groups,
+// POTA's parks, areas) and stay as they are.
+struct ChosenThing {
+    ADIFMapHit hit;
+    std::string key;
+    double lat = 0, lon = 0;
+};
+ChosenThing chosenThing() {
+    ChosenThing c{mw.view.selectedHit, "", 0, 0};
+    const ADIFMapHit &h = c.hit;
+    if (h.kind == ADIFMapHit::Square && h.index < mw.data.squares.size()) c.key = mw.data.squares[h.index].grid;
+    else if (h.kind == ADIFMapHit::Dxcc && h.index < mw.dxcc.size()) c.key = std::to_string(mw.dxcc[h.index].dxcc);
+    else if (h.kind == ADIFMapHit::Park && h.index < mw.data.parks.size()) c.key = mw.data.parks[h.index].program + " " + mw.data.parks[h.index].reference;
+    else if (h.kind == ADIFMapHit::Contact && h.index < mw.view.contacts.size()) c.lat = mw.view.contacts[h.index].lat, c.lon = mw.view.contacts[h.index].lon;
+    else if (h.kind == ADIFMapHit::Spot && h.index < mw.view.spots.size()) c.key = mw.view.spots[h.index].spot.activator + " " + mw.view.spots[h.index].spot.band;
+    return c;
+}
+void chooseAgain(const ChosenThing &c) {
+    ADIFMapHit h = c.hit;
+    auto find = [&](size_t n, auto same) {
+        for (size_t i = 0; i < n; ++i)
+            if (same(i)) return h.index = i, true;
+        return false;
+    };
+    bool found = true;
+    switch (h.kind) {
+        case ADIFMapHit::None:
+        case ADIFMapHit::Empty:
+        case ADIFMapHit::Spotter: return;  // nothing, or a spotter (its index follows the spots)
+        case ADIFMapHit::Square: found = find(mw.data.squares.size(), [&](size_t i) { return mw.data.squares[i].grid == c.key; }); break;
+        case ADIFMapHit::Dxcc: found = find(mw.dxcc.size(), [&](size_t i) { return std::to_string(mw.dxcc[i].dxcc) == c.key; }); break;
+        case ADIFMapHit::Park:
+            found = find(mw.data.parks.size(), [&](size_t i) { return mw.data.parks[i].program + " " + mw.data.parks[i].reference == c.key; });
+            break;
+        case ADIFMapHit::Contact:
+            found = find(mw.view.contacts.size(), [&](size_t i) { return mw.view.contacts[i].lat == c.lat && mw.view.contacts[i].lon == c.lon; });
+            break;
+        case ADIFMapHit::Spot:
+            found = find(mw.view.spots.size(), [&](size_t i) { return mw.view.spots[i].spot.activator + " " + mw.view.spots[i].spot.band == c.key; });
+            break;
+        default: break;
+    }
+    if (found) [mw.view selectHit:h];
+}
+
+// The settings a style sets, on the map: its workflow first (the one left keeps its own, as a
+// change of workflow does), then the rest. The first time (and on Reset), its Quick View is
+// chosen too, which sets the layers History's names. What is chosen stays chosen when it is
+// still there.
+void setStyleValues(const styles::Settings &values, bool first) {
+    ChosenThing chosen = chosenThing();
+    if (auto it = values.find("mapWorkflow"); it != values.end() && !it->second.empty()) {
+        int to = std::clamp(std::atoi(it->second.c_str()), 0, 3);
+        if (to != workflow()) switchWorkflow(to);
+    }
+    if (auto it = values.find("mapQuickView"); first && !live() && it != values.end() && !it->second.empty()) chooseQuickView(std::atoi(it->second.c_str()));
+    for (const auto &[key, value] : values)
+        if (key != "mapWorkflow") setSetting(key.c_str(), value);
+    syncControls();
+    fillDxccPotaBars();
+    applyStyle();
+    fillStyle();
+    fillPrograms();
+    chooseAgain(chosen);
+}
+
+// A change of style made: kept for What Changed and Restore Previous Layout, and said.
+void noteStyleChange(std::optional<styles::OperatingStyle> from, std::optional<styles::OperatingStyle> to, const styles::Settings &before) {
+    lastStyleChange = styles::diff(from, to, before, styles::snapshot(styleKeys(), styleGet));
+    fillOperatingStyleBar();
+    NSString *said = to ? TF(@"{style} style: {n} settings changed", @{@"style" : T(ADIFString(styles::title(*to))), @"n" : @(lastStyleChange->changes.size())})
+                        : T(@"No operating style: the map stays as it is");
+    if (mw.window) NSAccessibilityPostNotificationWithUserInfo(mw.window, NSAccessibilityAnnouncementRequestedNotification,
+                                                         @{NSAccessibilityAnnouncementKey : said, NSAccessibilityPriorityKey : @(NSAccessibilityPriorityHigh)});
+}
+
+// A style chosen (or none): the one left saved as it is, the new one as it was left, else its
+// defaults. None leaves the map as it is.
+void chooseOperatingStyle(std::optional<styles::OperatingStyle> to) {
+    std::optional<styles::OperatingStyle> from = operatingStyle();
+    if (to == from) return;
+    std::vector<std::string> keys = styleKeys();
+    styles::Settings before = styles::snapshot(keys, styleGet);
+    if (from) styles::save(*from, keys, styleGet, styleSet);
+    setSetting("mapOperatingStyle", to ? std::string(styles::id(*to)) : "");
+    if (to) setStyleValues(styles::target(*to, keys, styleGet), !styles::hasSaved(*to, styleGet));
+    noteStyleChange(from, to, before);
+}
+
+// Reset: the style's defaults again, its saved changes forgotten.
+void resetOperatingStyle() {
+    std::optional<styles::OperatingStyle> s = operatingStyle();
+    if (!s) return;
+    std::vector<std::string> keys = styleKeys();
+    styles::Settings before = styles::snapshot(keys, styleGet);
+    styles::forget(*s, keys, styleSet);
+    setStyleValues(styles::defaults(*s), true);
+    noteStyleChange(s, s, before);
+}
+
+// Restore Previous Layout: the last change of style undone, the settings and the style chosen
+// both; the style left keeps what it was, as when another is chosen.
+void restorePreviousStyle() {
+    if (!lastStyleChange) return;
+    styles::Transition back = styles::reversed(*lastStyleChange);
+    std::vector<std::string> keys = styleKeys();
+    if (std::optional<styles::OperatingStyle> now = operatingStyle(); now && now != back.to) styles::save(*now, keys, styleGet, styleSet);
+    styles::Settings values;
+    for (const styles::Change &c : back.changes) values[c.key] = c.after;
+    setSetting("mapOperatingStyle", back.to ? std::string(styles::id(*back.to)) : "");
+    setStyleValues(values, false);
+    lastStyleChange.reset();
+    fillOperatingStyleBar();
+}
+
+// A setting as What Changed names it, and its value, in the words of the sidebar, the toolbar and
+// Style Options; a value not set reads as the setting's first. `wf`: the workflow then (whose
+// Quick Views the number counts).
+std::pair<std::string, std::string> describeStyleSetting(const std::string &key, const std::string &value, int wf) {
+    auto onOff = [&](bool fallback) { return tr((value.empty() ? fallback : value == "1") ? "On" : "Off"); };
+    auto pick = [&](NSArray<NSString *> *titles, int fallback) {
+        int i = value.empty() ? fallback : std::atoi(value.c_str());
+        return i >= 0 && i < (int)titles.count ? ADIFStd(T(titles[(NSUInteger)i])) : value;
+    };
+    if (key == "mapWorkflow") return {tr("Workflow"), pick(@[ N(@"History"), N(@"Live"), N(@"DX Chase"), N(@"POTA") ], 0)};
+    if (key == "mapQuickView") {
+        int i = value.empty() ? 0 : std::atoi(value.c_str());
+        std::string v = i < 0                                                ? tr("None (the layers changed since)")
+                        : wf == 0 && (size_t)i < std::size(kHistoryViews) ? tr(kHistoryViews[i].title)
+                        : wf > 0 && (size_t)i < kLiveViewCount             ? tr(kLiveViews[i].title)
+                                                                           : tr("One of yours");
+        return {tr("Quick View"), v};
+    }
+    if (key == "mapPalette") return {tr("Palette"), pick(kPaletteTitles, 0)};
+    if (key == "mapTextSize") return {tr("Map text"), pick(@[ N(@"Standard##text"), N(@"Large##text") ], 0)};
+    if (key == "mapColorBy")
+        return {tr("Colour by"), pick(@[ N(@"Colour by confirmation"), N(@"Colour by band"), N(@"Colour by mode"), N(@"Colour by QSO count"), N(@"Colour by year first worked") ], 0)};
+    if (key == "mapListKind") return {tr("List"), pick(@[ N(@"Selected"), N(@"Contacts"), N(@"Parks"), N(@"Spots"), N(@"Recent"), N(@"Issues"), N(@"DXCC") ], 0)};
+    if (key == "mapSpotsProgram") return {tr("Program"), tr(value == "-" ? "Plain DX only" : value == "POTA" ? "POTA only" : "Any program")};
+    static const std::map<std::string, std::pair<const char *, bool>> kBoxes = {
+        {"mapRings", {N_("Distance rings from my grid"), false}}, {"mapGreyLine", {N_("Grey line"), false}},  {"mapDayNight", {N_("Day and night"), false}},
+        {"mapSolar", {N_("Space weather"), false}},               {"mapAurora", {N_("Aurora"), false}},      {"mapContacts", {N_("QSO markers"), false}},
+        {"mapPaths", {N_("Contact paths"), false}},               {"mapMine", {N_("Home station"), true}},   {"mapBeacons", {N_("NCDXF beacons"), false}},
+    };
+    if (auto it = kBoxes.find(key); it != kBoxes.end()) return {tr(it->second.first), onOff(it->second.second)};
+    for (const LayerUi &l : kLayerUi) {
+        std::string layer = ADIFStd(T(l.title));
+        bool spots = l.id == kLayerSpots;
+        if (l.showKey && key == l.showKey) return {spots ? layer : trf("{layer}: worked", {{"layer", layer}}), onOff(l.showOn)};
+        if (key == l.overlayKey) return {spots ? tr("Lines from the spotters") : trf("{layer}: all", {{"layer", layer}}), onOff(l.overlayOn)};
+        if (key == l.labelsKey) return {trf("{layer}: labels", {{"layer", layer}}), onOff(true)};
+    }
+    return {key, value.empty() ? tr("as at first") : value};
+}
+
+// What the last change of style changed, a row a setting, in a popover under the style menu.
+void showStyleChanges() {
+    if (!lastStyleChange || !mw.operatingStyleBar) return;
+    const styles::Transition &t = *lastStyleChange;
+    int wfBefore = 0, wfAfter = 0;
+    for (const styles::Change &c : t.changes)
+        if (c.key == "mapWorkflow") wfBefore = std::clamp(std::atoi(c.before.c_str()), 0, 3), wfAfter = std::clamp(std::atoi(c.after.c_str()), 0, 3);
+    if (std::none_of(t.changes.begin(), t.changes.end(), [](const styles::Change &c) { return c.key == "mapWorkflow"; })) wfBefore = wfAfter = workflow();
+    NSMutableArray<NSArray<NSView *> *> *rows = [NSMutableArray array];
+    auto cell = [](const std::string &s, bool head) {
+        NSTextField *f = [NSTextField labelWithString:ADIFString(s)];
+        f.font = head ? [NSFont systemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightSemibold] : [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        if (head) f.textColor = NSColor.secondaryLabelColor;
+        return f;
+    };
+    [rows addObject:@[ cell(tr("Setting"), true), cell(tr("Before"), true), cell(tr("After"), true) ]];
+    size_t shown = 0;
+    std::vector<styles::Change> changes = t.changes;  // the workflow and its Quick View first: they set the rest
+    std::stable_partition(changes.begin(), changes.end(), [](const styles::Change &c) { return c.key == "mapWorkflow" || c.key == "mapQuickView"; });
+    std::stable_partition(changes.begin(), changes.end(), [](const styles::Change &c) { return c.key == "mapWorkflow"; });
+    for (const styles::Change &c : changes) {
+        auto [name, before] = describeStyleSetting(c.key, c.before, wfBefore);
+        std::string after = describeStyleSetting(c.key, c.after, wfAfter).second;
+        if (before == after) continue;  // not set, and set to what it was anyway
+        [rows addObject:@[ cell(name, false), cell(before, false), cell(after, false) ]];
+        ++shown;
+    }
+    auto name = [](std::optional<styles::OperatingStyle> s) { return s ? tr(styles::title(*s)) : tr("No style"); };
+    std::string heading = t.from == t.to ? trf("{style}, reset to its defaults", {{"style", name(t.to)}})
+                                         : trf("{from} to {to}", {{"from", name(t.from)}, {"to", name(t.to)}});
+    NSTextField *title = [NSTextField labelWithString:ADIFString(heading)];
+    title.font = [NSFont systemFontOfSize:NSFont.systemFontSize weight:NSFontWeightSemibold];
+    NSTextField *count = [NSTextField labelWithString:shown ? TP(@"{n} setting changed", @"{n} settings changed", (long long)shown) : T(@"Nothing on the map changed")];
+    count.textColor = NSColor.secondaryLabelColor;
+    count.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    NSGridView *grid = [NSGridView gridViewWithViews:rows];
+    grid.columnSpacing = 14;
+    grid.rowSpacing = 4;
+    grid.identifier = @"map.operatingStyle.changes";
+    NSView *list = grid;
+    NSSize fit = grid.fittingSize;
+    if (fit.height > 360) {  // a change of workflow sets many: they scroll
+        grid.frame = NSMakeRect(0, 0, fit.width, fit.height);
+        NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
+        scroll.documentView = grid;
+        scroll.drawsBackground = NO;
+        scroll.hasVerticalScroller = YES;
+        scroll.autohidesScrollers = YES;
+        [scroll.widthAnchor constraintEqualToConstant:fit.width + 16].active = YES;
+        [scroll.heightAnchor constraintEqualToConstant:360].active = YES;
+        [grid scrollPoint:NSMakePoint(0, fit.height)];  // its first rows
+        list = scroll;
+    }
+    NSStackView *body = [NSStackView stackViewWithViews:shown ? @[ title, count, list ] : @[ title, count ]];
+    body.orientation = NSUserInterfaceLayoutOrientationVertical;
+    body.alignment = NSLayoutAttributeLeading;
+    body.spacing = 6;
+    body.edgeInsets = NSEdgeInsetsMake(12, 14, 12, 14);
+    NSViewController *vc = [[NSViewController alloc] init];
+    vc.view = body;
+    NSPopover *p = [[NSPopover alloc] init];
+    p.behavior = NSPopoverBehaviorTransient;
+    p.contentViewController = vc;
+    [body layoutSubtreeIfNeeded];
+    CGFloat wide = std::max({list.fittingSize.width, title.fittingSize.width, count.fittingSize.width});
+    p.contentSize = NSMakeSize(wide + body.edgeInsets.left + body.edgeInsets.right, body.fittingSize.height);  // the rows inside its margins
+    [p showRelativeToRect:mw.operatingStyleBar.bounds ofView:mw.operatingStyleBar preferredEdge:NSRectEdgeMaxY];
+    mw.styleChangesPopover = p;
+}
+
+// The style menu: no style, the four, then Reset, Restore Previous Layout and What Changed; its
+// title the style chosen, marked when its settings were changed since.
+void fillOperatingStyleBar() {
+    NSPopUpButton *bar = mw.operatingStyleBar;
+    if (!bar) return;
+    NSMenu *menu = bar.menu;
+    [menu removeAllItems];
+    menu.autoenablesItems = NO;
+    std::optional<styles::OperatingStyle> now = operatingStyle();
+    bool changed = now && styles::customized(*now, styleGet);
+    NSString *title = now ? (changed ? TF(@"{style} (changed)", @{@"style" : T(ADIFString(styles::title(*now)))}) : T(ADIFString(styles::title(*now))))
+                          : T(@"Operating Style");
+    [menu addItemWithTitle:title action:nil keyEquivalent:@""];  // a pull-down's title
+    bar.accessibilityValue = now ? title : T(@"None");
+    NSMenuItem *none = [menu addItemWithTitle:T(@"No Style") action:nil keyEquivalent:@""];
+    none.state = now ? NSControlStateValueOff : NSControlStateValueOn;
+    none.toolTip = T(@"The map as you set it: choosing no style changes nothing");
+    ADIFBlockMenuItem(none, ^{ chooseOperatingStyle(std::nullopt); });
+    static NSString *const kSymbols[styles::kStyleCount] = {@"person.2", @"scope", @"trophy", @"backpack"};
+    static NSString *const kTips[styles::kStyleCount] = {
+        N(@"Social: a comfortable QSO with context. Your log's contacts and lines to them, with distance and bearing; spots quiet"),
+        N(@"Chasing: the next needed contact. DX Chase, the stations needed on their band first, with DXCC shading and the grey line"),
+        N(@"Contest: valid contacts quickly. Live, every spot with its call, CQ zones, high contrast; nothing else moves"),
+        N(@"Portable: operate in the field. Your log's contacts, distance rings, larger high-contrast text; no feed starts by itself")};
+    for (int i = 0; i < styles::kStyleCount; ++i) {
+        auto s = (styles::OperatingStyle)i;
+        NSMenuItem *item = [menu addItemWithTitle:T(ADIFString(styles::title(s))) action:nil keyEquivalent:@""];
+        item.image = [NSImage imageWithSystemSymbolName:kSymbols[i] accessibilityDescription:nil];
+        item.state = now == s ? NSControlStateValueOn : NSControlStateValueOff;
+        item.toolTip = T(kTips[i]);
+        item.representedObject = ADIFString(std::string(styles::id(s)));
+        ADIFBlockMenuItem(item, ^{ chooseOperatingStyle(s); });
+    }
+    [menu addItem:NSMenuItem.separatorItem];
+    NSMenuItem *reset = [menu addItemWithTitle:now ? TF(@"Reset {style}", @{@"style" : T(ADIFString(styles::title(*now)))}) : T(@"Reset Style")
+                                        action:nil
+                                 keyEquivalent:@""];
+    reset.enabled = changed || (now && styles::hasSaved(*now, styleGet));
+    reset.toolTip = T(@"The style's own settings again, as at first: the changes you made to it are forgotten");
+    ADIFBlockMenuItem(reset, ^{ resetOperatingStyle(); });
+    NSMenuItem *restore = [menu addItemWithTitle:T(@"Restore Previous Layout") action:nil keyEquivalent:@""];
+    restore.enabled = lastStyleChange.has_value();
+    restore.toolTip = T(@"Undo the last change of style: the map's settings, and the style chosen, as they were before it");
+    ADIFBlockMenuItem(restore, ^{ restorePreviousStyle(); });
+    NSMenuItem *what = [menu addItemWithTitle:T(@"What Changed...") action:nil keyEquivalent:@""];
+    what.enabled = lastStyleChange.has_value();
+    what.toolTip = T(@"Each setting the last change of style changed, before and after");
+    ADIFBlockMenuItem(what, ^{ showStyleChanges(); });
+    [bar invalidateIntrinsicContentSize];
+}
+
 // ── The watch list: the calls, references and DXCC entities you want to know are on the air ──
 
 std::vector<std::string> watchList() { return adif::watchList(setting("mapWatch")); }
@@ -5715,12 +6106,109 @@ struct ADIFFound {
     void (^choose)(void);
 };
 
-// What the map has for the search, the most exact first: a grid square typed; the calls in the
-// log, then spotted; the DXCC entities worked; POTA's parks (by reference or name). At most 20.
-std::vector<ADIFFound> findOnMap(const std::string &typed) {
+std::string findQuery(const std::string &typed) {
     std::string q;
     for (char c : typed)
         if (!isspace((unsigned char)c)) q += (char)toupper((unsigned char)c);
+    return q;
+}
+
+// Typed text that is a callsign (letters, a digit, maybe a /portable part) and not a grid square.
+bool callLike(const std::string &q) {
+    if (q.size() < 3 || q.size() > 14) return false;
+    bool digit = false, letter = false;
+    for (char c : q) {
+        if (isdigit((unsigned char)c)) digit = true;
+        else if (isalpha((unsigned char)c)) letter = true;
+        else if (c != '/') return false;
+    }
+    double lat, lon;
+    if ((q.size() == 4 || q.size() == 6 || q.size() == 8) && isalpha((unsigned char)q[0]) && adif::gridToLatLon(q, &lat, &lon)) return false;
+    return digit && letter;
+}
+
+uint64_t findToken = 0;  // the latest search to place a station: an older answer is dropped
+
+// Where a station is without asking anyone: a spot's place, your latest QSO's grid, then its
+// country's centre. `where` says which.
+bool localPlace(const std::string &call, double *lat, double *lon, std::string *where) {
+    std::string key = adif::lookupCall(call);
+    for (const ADIFMapSpot &ms : mw.view.spots)
+        if (ms.spot.activator == call && (ms.lat || ms.lon)) return *lat = ms.lat, *lon = ms.lon, *where = tr("its spot"), true;
+    for (const adif::MapQso &q : mw.data.qsos)
+        if (adif::lookupCall(q.call) == key && adif::gridToLatLon(q.grid, lat, lon)) return *where = tr("your log"), true;
+    adif::CountryInfo info;
+    if (ADIFCountries().lookup(call, &info)) return *lat = info.lat, *lon = info.lon, *where = info.name, true;
+    return false;
+}
+
+// What the find's card says under the call: lines of text, the distance from you last.
+void placeCall(const std::string &call, double lat, double lon, const std::string &how, std::vector<std::string> lines) {
+    if (std::string d = homeDistance(lat, lon); !d.empty()) lines.push_back(trf("{distance} from you", {{"distance", d}}));
+    NSMutableArray *card = [NSMutableArray array];
+    for (const std::string &s : lines)
+        if (!s.empty()) [card addObject:ADIFString(s)];
+    [mw.view clearFound];
+    [mw.view showLon:lon lat:lat zoom:std::max(mw.view.zoom, 6.0)];
+    [mw.view setFoundLon:lon lat:lat label:call lines:card];
+    setStatus(how);
+}
+
+// Find a station and zoom to it with a distinct marker: the callbook New QSO uses (QRZ.com or
+// HamQTH, signed in, not Offline) gives its address or grid; failing that, what is known locally.
+void locateCall(const std::string &call) {
+    uint64_t token = ++findToken;
+    std::string lookup = setting("qsoLookup");
+    NSInteger source = lookup == "qrz" ? ADIFSourceQRZ : lookup == "hamqth" ? ADIFSourceHamQTH : -1;
+    std::string service = source < 0 ? "" : ADIFSourceName((ADIFSource)source).UTF8String;
+    std::string key = adif::lookupCall(call);
+    auto fallback = [call, service]() {
+        double lat, lon;
+        std::string where;
+        if (localPlace(call, &lat, &lon, &where)) {
+            adif::CountryInfo info;
+            std::vector<std::string> lines;
+            if (const adif::MapQso *q = [&]() -> const adif::MapQso * {
+                    for (const adif::MapQso &x : mw.data.qsos)
+                        if (adif::lookupCall(x.call) == adif::lookupCall(call) && !x.name.empty()) return &x;
+                    return nullptr;
+                }())
+                lines.push_back(q->name);
+            if (ADIFCountries().lookup(call, &info)) lines.push_back(info.name + ", " + info.continent + "  \u00B7  CQ " + std::to_string(info.cq) + "  ITU " + std::to_string(info.itu));
+            lines.push_back(trf("Shown at {where}", {{"where", where}}));
+            placeCall(call, lat, lon, trf("{call}: not in a callbook; shown at {where}.", {{"call", call}, {"where", where}}), lines);
+        }
+        else setStatus(trf("Nothing found for {call}.", {{"call", call}}));
+    };
+    if (key.empty() || source < 0 || ADIFOffline() || !ADIFSavedAccount((ADIFSource)source) || !ADIFHasSecret((ADIFSource)source))
+        return fallback();
+    if (!mw.callbook || mw.callbookSource != source) {
+        mw.callbook = [[ADIFCallbookClient alloc] initWithSource:(ADIFSource)source agent:@"ADIFLint-" ADIFLINT_VERSION];
+        mw.callbookSource = source;
+    }
+    setStatus(trf("asking {service} for {call}...", {{"service", service}, {"call", call}}));
+    [mw.callbook lookup:ADIFString(key)
+             completion:^(BOOL found, const std::map<std::string, std::string> &raw, NSString *, BOOL fatal) {
+                 if (fatal) mw.callbook = nil;
+                 if (token != findToken) return;
+                 if (found) {
+                     adif::FieldMap f = source == ADIFSourceQRZ ? adif::mapQrz(raw) : adif::mapHamQth(raw);
+                     double lat = 0, lon = 0;
+                     bool exact = adif::locationToDegrees(f["LAT"], true, &lat) && adif::locationToDegrees(f["LON"], false, &lon);
+                     if (exact || adif::gridToLatLon(f["GRIDSQUARE"], &lat, &lon))
+                         return placeCall(call, lat, lon, trf("{call}: located by {service}.", {{"call", call}, {"service", service}}),
+                                          {f["NAME"], f["QTH"], (f["STATE"].empty() ? "" : f["STATE"] + ", ") + f["COUNTRY"],
+                                           (f["GRIDSQUARE"].empty() ? "" : trf("Grid {grid}", {{"grid", f["GRIDSQUARE"]}})) +
+                                               (f["IOTA"].empty() ? "" : "  \u00B7  IOTA " + f["IOTA"])});
+                 }
+                 fallback();
+             }];
+}
+
+// What the map has for the search, the most exact first: a grid square typed; the calls in the
+// log, then spotted; the DXCC entities worked; POTA's parks (by reference or name). At most 20.
+std::vector<ADIFFound> findOnMap(const std::string &typed) {
+    std::string q = findQuery(typed);
     std::vector<ADIFFound> out;
     if (q.empty()) return out;
     auto contains = [&](const std::string &text) {
@@ -5730,16 +6218,29 @@ std::vector<ADIFFound> findOnMap(const std::string &typed) {
     };
     double lat, lon;
     if ((q.size() == 4 || q.size() == 6 || q.size() == 8) && isalpha((unsigned char)q[0]) && adif::gridToLatLon(q, &lat, &lon)) {
-        std::string grid = q.substr(0, 4);
+        std::string grid = q.substr(0, 4), full = q;
         out.push_back({trf("Grid square {grid}", {{"grid", q}}), @"square.grid.3x3", ^{
-                           double w, s, e, n;
-                           if (adif::squareBounds(grid, &w, &s, &e, &n)) [mw.view showPlaceWest:w south:s east:e north:n];
+                           double w, s, e, n, clat, clon;
+                           if (adif::gridBounds(full, &w, &s, &e, &n) && adif::gridToLatLon(full, &clat, &clon)) {
+                               double pw = (e - w) * 1.5, ph = (n - s) * 1.5;  // room round the box
+                               [mw.view showPlaceWest:w - pw south:s - ph east:e + pw north:n + ph];
+                               char at[64];
+                               snprintf(at, sizeof at, "%.4f\u00B0%c  %.4f\u00B0%c", fabs(clat), clat < 0 ? 'S' : 'N', fabs(clon), clon < 0 ? 'W' : 'E');
+                               NSMutableArray *card = [NSMutableArray arrayWithObject:ADIFString(at)];
+                               if (std::string d = homeDistance(clat, clon); !d.empty()) [card addObject:ADIFString(trf("{distance} from you", {{"distance", d}}))];
+                               [mw.view clearFound];
+                               [mw.view setFoundGrid:full lines:card];
+                           }
                            ADIFMapHit h;
                            h.kind = ADIFMapHit::Empty, h.square = grid;
                            for (size_t i = 0; i < mw.data.squares.size(); ++i)
                                if (mw.data.squares[i].grid == grid) h.kind = ADIFMapHit::Square, h.index = i;
                            [mw.view selectHit:h];
                        }});
+    }
+    if (live() && callLike(q)) {
+        std::string call = q;
+        out.push_back({trf("Locate {call} on the map", {{"call", call}}), @"mappin.and.ellipse", ^{ locateCall(call); }});
     }
     std::map<std::string, std::vector<size_t>> calls;  // the log's, as the filters keep them
     for (size_t i = 0; i < mw.data.qsos.size(); ++i)
@@ -5812,12 +6313,19 @@ void fillFindMenu(NSMenu *menu) {
     for (const ADIFFound &f : found) {
         NSMenuItem *item = [menu addItemWithTitle:ADIFString(f.title) action:nil keyEquivalent:@""];
         item.image = [NSImage imageWithSystemSymbolName:f.symbol accessibilityDescription:nil];
-        ADIFBlockMenuItem(item, f.choose);
+        void (^choose)(void) = f.choose;
+        ADIFBlockMenuItem(item, ^{
+            [mw.view clearFound];
+            choose();
+        });
     }
 }
 
 // Return in the search: one thing found, it is chosen; more, a menu of them.
 void findTyped() {
+    [mw.view clearFound];
+    std::string q = findQuery(ADIFStd(mw.findField.stringValue));
+    if (live() && callLike(q)) return locateCall(q);  // Live: a call goes to its place, not a menu
     std::vector<ADIFFound> found = findOnMap(ADIFStd(mw.findField.stringValue));
     if (found.empty()) {
         if (mw.findField.stringValue.length) setStatus(trf("Nothing on the map matches “{text}”.", {{"text", ADIFStd(mw.findField.stringValue)}}));
@@ -5995,6 +6503,7 @@ void cmdMap() {
                                                          NSWindowStyleMaskMiniaturizable
                                                  backing:NSBackingStoreBuffered
                                                    defer:NO];
+        ((ADIFMapWindow *)mw.window).dockItem = kDockMap;
         mw.window.title = T(@"Map");
         mw.window.identifier = @"map.window";  // its title names the log
         ADIFNightTrack(mw.window);
@@ -6140,11 +6649,13 @@ void cmdMap() {
             [c selectItemAtIndex:0];
         }
         // Live's spot filters, in the toolbar too: how new, from which source.
-        mw.spotAgeBar = ADIFPopup(@[ @"Last 10 minutes", @"Last 30 minutes", @"Last hour" ]);
+        NSMutableArray *ageBarTitles = [NSMutableArray array];
+        for (const char *t : kSpotAgeBarTitles) [ageBarTitles addObject:@(t)];
+        mw.spotAgeBar = ADIFPopup(ageBarTitles);
         mw.spotAgeBar.identifier = @"map.filter.age";
         mw.spotAgeBar.toolTip = T(@"How new the spots are (as in Sources and Filters)");
         ADIFOnAction(mw.spotAgeBar, ^{
-            setSetting("mapSpotsAge", std::to_string(mw.spotAgeBar.indexOfSelectedItem));
+            setSetting("mapSpotsAgeAt", std::to_string(mw.spotAgeBar.indexOfSelectedItem));
             if (mw.spotAge) [mw.spotAge selectItemAtIndex:mw.spotAgeBar.indexOfSelectedItem];
             refreshSpots();
         });
@@ -6206,23 +6717,46 @@ void cmdMap() {
                                                                  @"distance rings, day and night, the grey line",
                                             ^{ showStyleOptions(); });
         styleButton.identifier = @"map.style.open";
+        mw.mapPreset = pullDown(@"Map Presets", @"Quickly switch to a world, globe or regional view. World and regional presets use Equal Earth; Home returns to your saved view. Map colours and filters are unchanged.");
+        mw.mapPreset.identifier = @"map.preset";
+        mw.mapPreset.accessibilityLabel = T(@"Map Presets");
+        NSMenuItem *worldPreset = [mw.mapPreset.menu addItemWithTitle:T(@"World overview") action:nil keyEquivalent:@""];
+        worldPreset.toolTip = T(@"Show the whole world in the Equal Earth projection.");
+        ADIFBlockMenuItem(worldPreset, ^{
+            setSetting("mapProjection", "2");
+            [mw.projection selectItemAtIndex:2];
+            applyProjection();
+            [mw.view showWorld];
+        });
+        NSMenuItem *homePreset = [mw.mapPreset.menu addItemWithTitle:T(@"Home view") action:nil keyEquivalent:@""];
+        homePreset.toolTip = T(@"Return to your saved Home View, or center the map on your station.");
+        ADIFBlockMenuItem(homePreset, ^{ goHomeView(); });
+        NSMenuItem *globePreset = [mw.mapPreset.menu addItemWithTitle:T(@"Globe from Home") action:nil keyEquivalent:@""];
+        globePreset.toolTip = T(@"Show the Earth as a globe, centered on your station when available.");
+        ADIFBlockMenuItem(globePreset, ^{
+            setSetting("mapProjection", "3");
+            [mw.projection selectItemAtIndex:3];
+            applyProjection();
+            goHomeView();
+        });
+        [mw.mapPreset.menu addItem:NSMenuItem.separatorItem];
+        for (const MapRegion &preset : kMapRegions) {
+            NSMenuItem *item = [mw.mapPreset.menu addItemWithTitle:T(preset.name) action:nil keyEquivalent:@""];
+            item.toolTip = [NSString stringWithFormat:T(@"Show %@ in the Equal Earth projection."), T(preset.name)];
+            MapRegion chosen = preset;
+            ADIFBlockMenuItem(item, ^{
+                setSetting("mapProjection", "2");
+                [mw.projection selectItemAtIndex:2];
+                applyProjection();
+                [mw.view showWest:chosen.west south:chosen.south east:chosen.east north:chosen.north];
+            });
+        }
         mw.region = pullDown(@"Region", @"Zoom to a continent (on the globe, turn to face it)");
         mw.region.identifier = @"map.region";
-        {
-            // Continents as ADIF's CONT names them, each a box of longitude and latitude to show.
-            struct Box {
-                NSString *name;
-                double w, s, e, n;
-            };
-            static const Box kRegions[] = {{N(@"Africa"), -20, -36, 53, 38},           {N(@"Antarctica"), -180, -90, 180, -60},
-                                           {N(@"Asia"), 25, -11, 180, 78},             {N(@"Europe"), -25, 34, 45, 72},
-                                           {N(@"North America"), -170, 5, -50, 75},    {N(@"Oceania"), 110, -48, 180, 0},
-                                           {N(@"South America"), -82, -56, -34, 13}};
-            for (const Box &b : kRegions) {
-                NSMenuItem *item = [mw.region.menu addItemWithTitle:T(b.name) action:nil keyEquivalent:@""];
-                Box rbox = b;
-                ADIFBlockMenuItem(item, ^{ [mw.view showWest:rbox.w south:rbox.s east:rbox.e north:rbox.n]; });
-            }
+        for (const MapRegion &r : kMapRegions) {
+            NSMenuItem *item = [mw.region.menu addItemWithTitle:T(r.name) action:nil keyEquivalent:@""];
+            MapRegion chosen = r;
+            ADIFBlockMenuItem(item, ^{ [mw.view showWest:chosen.west south:chosen.south east:chosen.east north:chosen.north]; });
         }
         for (NSControl *c in @[ mw.contacts, mw.band, mw.mode, mw.dates, mw.confirmed ]) ADIFOnAction(c, ^{
             saveFlag("mapContacts", mw.contacts.state == NSControlStateValueOn);
@@ -6489,6 +7023,11 @@ void cmdMap() {
             applyStyle();
             refreshSpots();
         };
+        mw.view.onLegendPlaced = ^(int position) {
+            setSetting("mapLegend", std::to_string(position));
+            applyStyle();
+            fillStyle();
+        };
         mw.view.onViewChanged = ^{
             updateZoomLabel();
             queueViewList();
@@ -6554,6 +7093,7 @@ void cmdMap() {
                 else if (menu == mw.homeMenu) fillHomeMenu(menu);
                 else if (menu == mw.findMenu) fillFindMenu(menu);
                 else if (menu == mw.viewsMenu) fillViewsMenu(menu);
+                else if (menu == mw.operatingStyleBar.menu) fillOperatingStyleBar();
                 else if ([menu.title hasPrefix:@"layer:"]) fillLayerMenu(menu);
                 else fillColumnsMenu(menu, menu == columnsMenu);
             };
@@ -6720,6 +7260,14 @@ void cmdMap() {
         mw.workflow.selectedSegment = workflow();
         mw.workflow.identifier = @"map.workflow";
         ADIFOnAction(mw.workflow, ^{ switchWorkflow((int)mw.workflow.selectedSegment); });
+        // The operating style: what the Map shows for a way of operating, and back.
+        mw.operatingStyleBar = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:YES];
+        mw.operatingStyleBar.identifier = @"map.operatingStyle";
+        mw.operatingStyleBar.accessibilityLabel = T(@"Operating style");
+        mw.operatingStyleBar.toolTip = T(@"Operating style: the map set up for Social, Chasing, Contest or Portable operating. Each keeps your "
+                                         @"changes to it; Restore Previous Layout undoes a change of style, What Changed lists what it set");
+        mw.operatingStyleBar.menu.delegate = mw.listRows;
+        fillOperatingStyleBar();
         mw.summaryLabel = [NSTextField labelWithString:@""];
         mw.summaryLabel.font = [NSFont systemFontOfSize:NSFont.systemFontSize weight:NSFontWeightSemibold];
         mw.summaryLabel.lineBreakMode = NSLineBreakByTruncatingMiddle;
@@ -6880,7 +7428,7 @@ void cmdMap() {
         [mw.focusButton setButtonType:NSButtonTypePushOnPushOff];
         toolbarIcon(mw.focusButton, @"arrow.up.left.and.arrow.down.right");
         mw.focusButton.identifier = @"map.toolbar.focus";
-        for (NSView *v in @[ mw.workflow, mw.scopeLabel, cluster(@[ mw.band, mw.mode, mw.dates, mw.confirmed, mw.dxccBar, mw.potaBar, mw.spotAgeBar, mw.spotSourceBar, mw.continentPopup, mw.moreFilters ]),
+        for (NSView *v in @[ mw.operatingStyleBar, mw.workflow, mw.scopeLabel, cluster(@[ mw.band, mw.mode, mw.dates, mw.confirmed, mw.dxccBar, mw.potaBar, mw.spotAgeBar, mw.spotSourceBar, mw.continentPopup, mw.moreFilters ]),
                              cluster(@[ mw.chips, mw.clearFilters ]), cluster(@[ keepView, copyButton, mw.focusButton ]) ])
             [toolbar addSubview:v];
 
@@ -6946,8 +7494,15 @@ void cmdMap() {
         [spotsLine setCustomSpacing:4 afterView:mw.spotsButton];
         NSStackView *onlyLine = line(@[ mw.spotsOnly, mw.spotsOnlyCall ]);
         [onlyLine setCustomSpacing:4 afterView:mw.spotsOnly];
-        // Map: its palette (a swatch each: its sea, land, confirmed and worked), colours, projection and region.
+        // Map: palette, quick views, colours and projection.
         NSMutableArray *swatches = [NSMutableArray array];
+        NSArray<NSString *> *paletteTips = @[
+            N(@"Standard palette: familiar map colours, with worked and confirmed places easy to distinguish."),
+            N(@"Colour-blind safe palette: uses distinguishable colours for bands, modes and map markers."),
+            N(@"High contrast palette: stronger contrast between the map background, land and markers."),
+            N(@"Light palette: a bright map designed for printing and light backgrounds."),
+            N(@"Night palette: red-only map colours to help preserve night vision."),
+        ];
         for (NSUInteger i = 0; i < kPaletteTitles.count; ++i) {
             const MapPalette &pal = paletteAt((int)i);
             bool night = pal.night;
@@ -6957,14 +7512,19 @@ void cmdMap() {
                 double l = (0.2126 * ((c >> 16) & 255) + 0.7152 * ((c >> 8) & 255) + 0.0722 * (c & 255)) / 255;
                 return [NSColor colorWithSRGBRed:l green:0 blue:0 alpha:1];
             };
-            NSImage *img = [NSImage imageWithSize:NSMakeSize(30, 16)
+            NSImage *img = [NSImage imageWithSize:NSMakeSize(48, 26)
                                           flipped:NO
                                    drawingHandler:^BOOL(NSRect r) {
-                                       NSBezierPath *frame = [NSBezierPath bezierPathWithRoundedRect:NSInsetRect(r, 0.5, 0.5) xRadius:3 yRadius:3];
+                                       NSBezierPath *frame = [NSBezierPath bezierPathWithRoundedRect:NSInsetRect(r, 0.75, 0.75) xRadius:4 yRadius:4];
                                        [ink(ocean) setFill];
                                        [frame fill];
                                        [NSGraphicsContext saveGraphicsState];
                                        [frame addClip];
+                                       CGFloat sx = NSWidth(r) / 30.0, sy = NSHeight(r) / 16.0;
+                                       NSAffineTransform *scale = [NSAffineTransform transform];
+                                       [scale translateXBy:NSMinX(r) yBy:NSMinY(r)];
+                                       [scale scaleXBy:sx yBy:sy];
+                                       [scale concat];
                                        [ink(land) setFill];
                                        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(-6, -8, 26, 20)] fill];
                                        [ink(confirmed) setFill];
@@ -6976,11 +7536,15 @@ void cmdMap() {
                                        [frame stroke];
                                        return YES;
                                    }];
-            img.accessibilityDescription = T(kPaletteTitles[i]);
+            img.accessibilityDescription = T(paletteTips[i]);
             [swatches addObject:img];
         }
         mw.paletteBar = [NSSegmentedControl segmentedControlWithImages:swatches trackingMode:NSSegmentSwitchTrackingSelectOne target:nil action:nil];
-        for (NSUInteger i = 0; i < kPaletteTitles.count; ++i) [mw.paletteBar setToolTip:T(kPaletteTitles[i]) forSegment:(NSInteger)i];
+        mw.paletteBar.controlSize = NSControlSizeRegular;
+        for (NSUInteger i = 0; i < kPaletteTitles.count; ++i) {
+            [mw.paletteBar setWidth:54 forSegment:(NSInteger)i];
+            [mw.paletteBar setToolTip:T(paletteTips[i]) forSegment:(NSInteger)i];
+        }
         mw.paletteBar.segmentDistribution = NSSegmentDistributionFillEqually;
         mw.paletteBar.identifier = @"map.palette";
         mw.paletteBar.accessibilityLabel = T(@"Palette");
@@ -6991,8 +7555,9 @@ void cmdMap() {
             applyStyle();
             fillStyle();
         });
-        NSStackView *mapRows = rows(@[ mw.paletteBar, mw.colorBy, mw.projection, mw.region ], 6);
-        fullWidth(mapRows, @[ mw.paletteBar, mw.colorBy, mw.projection, mw.region ]);
+        NSStackView *paletteRow = rows(@[ ADIFLabel(@"Map palette"), mw.paletteBar ], 4);
+        NSStackView *mapRows = rows(@[ mw.mapPreset, paletteRow, mw.colorBy, mw.projection, mw.region ], 6);
+        fullWidth(mapRows, @[ mw.mapPreset, paletteRow, mw.colorBy, mw.projection, mw.region ]);
         // The sun: the grey line and day and night (Style Options says how, and when).
         auto sunBox = [](NSString *title, const char *setting, NSString *tip) {
             NSButton *b = ADIFCheckbox(title, flag(setting, false));
@@ -7400,7 +7965,7 @@ void cmdMap() {
             const CGFloat column = 16, scroller = 14;
             CGFloat least = 280;
             for (NSView *v in layerCards) least = std::max(least, std::ceil(v.fittingSize.width) + 2 * mw.sectionCards[@"layers"].bodyInset + column + scroller);
-            for (NSView *v in @[ mw.colorBy, mw.projection, mw.region ])
+            for (NSView *v in @[ mw.mapPreset, mw.paletteBar, mw.colorBy, mw.projection, mw.region ])
                 least = std::max(least, std::ceil(v.fittingSize.width) + 2 * mw.sectionCards[@"map"].bodyInset + column + scroller);
             mw.splitKeeper.leastSidebar = least;
         }
@@ -7531,6 +8096,36 @@ void cmdMap() {
     updatePropagation();
 }
 
+// Live Map...: the Map showing who is on the air now. DX Chase and POTA are Live already.
+void cmdLiveMap() {
+    cmdMap();
+    if (!live()) switchWorkflow(1);
+}
+
+// Start Logging's Map: Live, All spots of the last five minutes, plain DX (no POTA parks, no
+// activators at them: the toolbar's program menu brings them back), at 2.5× about the Home View
+// you set, or about where the map is.
+void showForLogging() {
+    if (!mw.window) return;
+    if (workflow() != 1) switchWorkflow(1);
+    setSetting("mapQuickView", "0");
+    setSetting("mapSpotsProgram", "-");
+    saveFlag("mapShowPota", false);
+    setSetting("mapSpotsAgeAt", "1");  // kSpotAges[1]: 5 minutes
+    [mw.spotAgeBar selectItemAtIndex:1];
+    if (mw.spotAge) [mw.spotAge selectItemAtIndex:1];
+    syncControls();
+    fillDxccPotaBars();
+    dispatch_async(dispatch_get_main_queue(), ^{  // the frames laid out: the map's middle is known
+        double lon = 0, lat = 0, zoom = 0;
+        std::vector<std::string> home = splitSetting("mapHomeView", ',');
+        if (home.size() == 3) lon = std::atof(home[0].c_str()), lat = std::atof(home[1].c_str());
+        else if (![mw.view viewLon:&lon lat:&lat zoom:&zoom]) return;
+        [mw.view showLon:lon lat:lat zoom:2.5];
+        updateZoomLabel();
+    });
+}
+
 void setSpotHandler(void (^handler)(const std::vector<std::pair<std::string, std::string>> &fields)) { mw.spotHandler = handler; }
 
 void setSettingsProvider(NSView * (^provider)(void)) { mw.settingsProvider = provider; }
@@ -7541,6 +8136,23 @@ void revealSettings() {
 }
 
 NSWindow *mapWindow() { return mw.window; }
+
+// The list is out of the way while the Log Table is docked with the Map, and back after (the saved
+// choice of showing it stays as it was).
+void setListSuppressed(bool on) {
+    static bool suppressed = false, wasShown = false;
+    if (!mw.window || !mw.listPanel || on == suppressed) return;
+    suppressed = on;
+    if (on) {
+        wasShown = !mw.listPanel.hidden;
+        if (wasShown) {
+            showPane(1, false);
+            saveFlag(kPaneKeys[1], true);
+        }
+    } else if (wasShown && mw.listPanel.hidden) {
+        showPane(1, true);
+    }
+}
 
 void showRecord(int record) {
     if (!mw.window || !mw.window.visible) return;
@@ -7591,4 +8203,3 @@ void documentChanged() {
 }
 
 }  // namespace worldmap
-

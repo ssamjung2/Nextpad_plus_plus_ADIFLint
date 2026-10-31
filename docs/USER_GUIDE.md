@@ -4,10 +4,11 @@ ADIF Lint checks and repairs amateur-radio logs in ADIF 3.1.8 ADI format in Next
 macOS, and adds logging, activations, spots, a map and QSL sync around them. This guide
 describes every window and option; the [README](../README.md) covers installing.
 
-Every command is on the **Plugins → ADIF Lint** menu, grouped under **Logging & Operating**,
-**Validate & Edit**, **Organize & Manage Logs**, **Explore & Analyze**, **QSL & Integrations**,
-**Preferences & Display** and **Help**. **Reformat Log** opens the two layout commands in a
-submenu. New QSO, Log Table, Check Log and Spots also have toolbar buttons. **Import…**,
+Every command is on the **Plugins → ADIF Lint** menu, grouped under **Logging & Operating**
+(Start Logging, Start Activation, Start Contest, New QSO), **Map & Spots** (Map & Explorer, Live
+Map, Spots & Hunting), **Validate & Repair**, **Edit & Transform**, **Organize & Manage Logs**, **Explore & Analyze**,
+**QSL & Integrations**, **Preferences & Appearance** and **Help & About**. **Reformat Log**, under
+Edit & Transform, opens the two layout commands in a submenu. New QSO, Log Table, Check Log and Spots also have toolbar buttons. **Import…**,
 **Export…** and **Enrich Log…** open the window you used last, and the pop-up at the top of
 each switches to the others; **QSL Sync…** opens each upload window. Every change a command
 makes to your log is one undo step, and nothing is saved to disk until you save the file.
@@ -22,7 +23,7 @@ makes to your log is one undo step, and nothing is saved to disk until you save 
 4. **New QSO…** logs contacts ([Logging with New QSO](#logging-with-new-qso)), and **Start
    Activation…** starts a park, reference or summit
    ([Station profiles and activations](#station-profiles-and-activations)).
-5. **Map & Contact Explorer…** shows where you've worked ([Map](#map)).
+5. **Map & Explorer…** shows where you've worked ([Map](#map)).
 6. **QSL Sync…** uploads your QSOs and downloads confirmations
    ([QSL Sync and uploading](#qsl-sync-and-uploading)).
 
@@ -248,12 +249,41 @@ is selected.
   this log on other bands, modes or days and, with a logs folder chosen in Worked Before, in
   your other logs ("4 QSOs in 2 other logs; last 2026-09-30 14:05 on 20m SSB").
 
-**Logging Layout** (in the ADIF Lint menu, ticked while it is on) arranges the screen for
-logging: New QSO down the right, the Map over the Log Table on the left, all three kept in
-front of the log (which stays behind them) whether Nextpad++ is active or not. Each QSO you
-log is chosen on the Map (its square, and the list's **Selected**) and in the Log Table.
-Choose it again to put the windows back as they were (they keep their places). It needs an
-ADIF log open, as New QSO does.
+**Start Logging** (in the ADIF Lint menu) opens the **Operating Console**: New QSO, the Map and
+the Log Table in one resizable window. **Console Layout Options** chooses an arrangement, shows or
+hides frames, and resets their sizes. At the top of New QSO two clocks show the time in LED
+digits: **UTC** (green, the time QSOs are logged in) and **local** time (amber, with your time
+zone), each with its date.
+Each frame's header menu chooses what it shows; choosing a view already in another frame swaps
+them. You can also drag a frame by its header onto another frame to swap the two. When every frame
+is in use, a window you open (the Map, say) opens on its own instead of replacing a frame.
+
+**QSO Details** shows who you are working as you type the call in New QSO, as the Map's selected
+panel does for a spot:
+
+- the call, the operator and where they are, from New QSO and its lookup;
+- **Why this contact**: on your watch list; a duplicate (this call on this band and mode today,
+  UTC, which a program counts once); in an activation, new for it; otherwise a new DXCC entity,
+  band or mode for this log, or worked or confirmed there already; park to park when they give
+  a reference, and a park you haven't hunted; and your QSOs with the call before;
+- the lookup's facts (country and zones, grid, distance and bearing, local time, LoTW, worked
+  before in your other logs, the park);
+- this QSO (band, frequency, mode and reports), and your last QSOs with the call.
+
+The **Contact Map** places the contact by its grid square (or LAT and LON, else its country) and
+marks your station, with the distance and bearing between you. The status bar shows the log,
+the last action and UTC time.
+
+**Start Activation…** opens the activation layout first and then shows its setup panel: New QSO
+the whole height on the left, so Log QSO is always in sight; on the right, QSO Details beside the
+Contact Map, then the activation's log, then the spots. Press Start to open the activation log
+with its station profile and fields ready. Close the Operating Console window to close the
+workspace. It needs an ADIF log open, as New QSO does.
+
+**Start Logging** restores the original logging arrangement: the interactive Map above the Log
+Table, with New QSO alongside them. The Map is set for operating each time: **Live**, spots from
+the **last 5 minutes**, **plain DX only** (no POTA parks or activators; the toolbar's program menu
+brings them back) and zoomed to **2.5×** about your Home View, or about where the map was.
 
 ### Choosing the fields
 
@@ -309,7 +339,8 @@ park the same way (a two-fer). It needs POTA's park list (Settings → POTA Park
 
 ### Contests and Field Day
 
-**Contest…** (in New QSO) chooses a contest and starts it:
+**Contest…** in New QSO, or **Start Contest…** on the menu (which opens the logging layout
+first), chooses a contest and starts it:
 
 - **ARRL Field Day:** type your exchange, class and section, such as `1D IL`. New QSO then
   asks for the other station's **CLASS** and **ARRL_SECT** and writes, with each QSO,
@@ -588,6 +619,8 @@ Editing:
 
 Buttons:
 
+- **New File…** creates a new, empty log (a header only) where you choose and opens it;
+  **Open File…** opens a log you have. The table then shows that log.
 - **Organize Log…** opens [Sort and Organize](#sort-and-organize) with the table's sort
   and its columns as shown, so the file can take the order you see.
 - **Bulk Edit Selected…** edits the selected rows, and **Export CSV…** saves the rows
@@ -617,7 +650,7 @@ couple of minutes.
 
 ![The Map as a globe centred on your station: a pin at each contact, with a line to it, coloured by band](images/map-globe.png)
 
-**Map & Contact Explorer…** draws the open log on a world map, offline, over
+**Map & Explorer…** draws the open log on a world map, offline, over
 [Natural Earth](https://www.naturalearthdata.com)'s maps (public domain; 1:110m for the whole
 world, 1:50m zoomed in, and 1:10m from 12× down to city level): land, lakes, rivers (the
 largest at first, smaller ones as you zoom in), country borders, state and province lines
@@ -642,6 +675,33 @@ Each keeps its own layers, colours, list, Quick View and spot program: switch an
 and each is as you left it. The first time, Live shows the spots and their list, with the
 countries and parks you worked shaded and the grey line on.
 
+### Operating styles
+
+The menu at the very left of the toolbar (**Operating Style** until you choose one) sets the
+Map up for the way you are operating. A style chooses the workflow and its Quick View, the
+layers, the sun's shading, the palette, the text size and the distance rings; nothing else.
+
+| Style | For | The first time |
+|---|---|---|
+| **Social** | A comfortable QSO with context | History, Contacts: your contacts with lines to them, distance and bearing; no spots |
+| **Chasing** | The next needed contact | DX Chase, Needed on its band, DXCC shading, the grey line |
+| **Contest** | Valid contacts quickly | Live, All spots with their calls, CQ zones, high contrast; no award shading, and no beacons, so nothing on the map moves by itself |
+| **Portable** | Operating in the field | History, Contacts, distance rings, large high-contrast text; no spots, space weather, aurora or grid, so no feed starts by itself |
+
+- **Your changes stay with the style.** Change a layer or the palette while a style is
+  chosen and the menu says so ("Chasing (changed)"). Choose another style and come back, or
+  quit and come back, and it is as you left it.
+- **Reset** gives the style its own settings again and forgets your changes to it.
+- **Restore Previous Layout** undoes the last change of style (or the last Reset): every
+  setting it changed, and which style was chosen.
+- **What Changed…** lists each setting the last change of style changed, before and after.
+- **No Style** changes nothing: the Map stays as it is, and is yours to set as before.
+
+A style never moves the map or changes its zoom, the band and mode, or what is chosen, and
+never touches Offline Mode, the spot sources, your accounts, the log, an activation or a
+contest. Night Mode still wins: while it is on the Map uses the Night palette, whatever the
+style says. VoiceOver announces each change of style and how many settings it changed.
+
 The window, from the top (the Map is a window like any other: it minimizes to the Dock and
 goes full screen with the green button):
 
@@ -656,7 +716,7 @@ goes full screen with the green button):
   arrow out of a box), **Settings** (the gear: its card in the selected panel), **Help** (this guide, in your browser), and three buttons that
   show or hide the sidebar, the list and the selected panel. The window's title names the
   log too.
-- **The toolbar**: **History**, **Live**, **DX Chase** or **POTA**; what the map shows (in History, the QSOs and the
+- **The toolbar**: the operating style (see [Operating styles](#operating-styles)); **History**, **Live**, **DX Chase** or **POTA**; what the map shows (in History, the QSOs and the
   dates they span; in Live, the stations spotted and when a feed last brought spots; while
   the filters keep fewer, how many of how many, such as "40 of 257 QSOs on the map"); the
   filters (band and mode, which say **Band:** and **Mode:** while they filter; in History the
@@ -700,8 +760,10 @@ goes full screen with the green button):
     Each group (**Worked areas**, **Programs**, **Places**, **Contacts**, **Sun and
     propagation**, **Base map**) is a card of its own inside the card, closing on its own
     with its heading.
-  - **Map**: the palettes, a swatch each (one click; see [Colours](#colours)), **Colour by**,
-    the projection, and **Region**.
+  - **Map**: **Map Presets** quickly switches to the world, your Home View, a globe from Home,
+    or a continent in Equal Earth. **Region** zooms to a continent without changing the current
+    projection. The five larger palette swatches are one-click choices; hover for their
+    descriptions. **Colour by** and the projection pop-up also explain their choices on hover.
 - **The map**, with the zoom buttons at its top left: **+**, the zoom, **−**, then
   **Home**, **Fit Log** and **World** (see [Moving around](#moving-around)). The legend is
   at its top right (Style Options can put it at the bottom left), a distance scale at its

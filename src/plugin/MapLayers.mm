@@ -25,6 +25,54 @@
 using namespace adifhost;
 using namespace mapkit;
 
+namespace {
+
+// A path as it can be seen: a vertex less than `tolerance` points from the one kept before is left
+// out, and so is a ring that never gets that far. A park outline of thousands of vertices, a few
+// points across on the map, would otherwise take CoreGraphics seconds to fill and stroke.
+NSBezierPath *thinned(NSBezierPath *src, CGFloat tolerance) {
+    NSBezierPath *out = [NSBezierPath bezierPath], *ring = nil;
+    NSPoint pts[3], last = NSZeroPoint, pending = NSZeroPoint;
+    bool skipped = false, drew = false;
+    auto flush = [&](bool close) {
+        if (ring && drew) {
+            if (skipped) [ring lineToPoint:pending];  // the ring ends where it did
+            if (close) [ring closePath];
+            [out appendBezierPath:ring];
+        }
+        ring = nil;
+    };
+    for (NSInteger i = 0; i < src.elementCount; ++i) {
+        switch ([src elementAtIndex:i associatedPoints:pts]) {
+            case NSBezierPathElementMoveTo:
+                flush(false);
+                ring = [NSBezierPath bezierPath];
+                [ring moveToPoint:pts[0]];
+                last = pending = pts[0];
+                skipped = drew = false;
+                break;
+            case NSBezierPathElementLineTo:
+                if (!ring) break;
+                if (std::hypot(pts[0].x - last.x, pts[0].y - last.y) >= tolerance) {
+                    [ring lineToPoint:pts[0]];
+                    last = pts[0];
+                    skipped = false, drew = true;
+                } else {
+                    pending = pts[0], skipped = true;
+                }
+                break;
+            case NSBezierPathElementClosePath: flush(true); break;
+            default:  // curves are not in what viewPath makes
+                if (ring) [ring curveToPoint:pts[2] controlPoint1:pts[0] controlPoint2:pts[1]], last = pts[2], skipped = false, drew = true;
+                break;
+        }
+    }
+    flush(false);
+    return out;
+}
+
+}  // namespace
+
 @implementation ADIFMapView (Layers)
 
 // The time the sun is drawn for: now, or the selected QSO's (its first, for a square or entity).
@@ -900,6 +948,87 @@ using namespace mapkit;
     }
 }
 
+// A search's find, over everything: a grid square (2 to 8 characters) in a bold outline with a faint
+// fill, or a station as a map pin; each with a card of what is known.
+- (void)drawFound:(MapDrawCtx &)d {
+    NSColor *accent = NSColor.systemPinkColor;
+    if (!_foundGrid.empty()) {
+        NSBezierPath *box = [self gridPath:_foundGrid];
+        if (!box || box.isEmpty) return;
+        [[accent colorWithAlphaComponent:0.18] setFill];
+        [box fill];
+        box.lineWidth = 3;
+        [accent setStroke];
+        [box stroke];
+        NSRect r = box.bounds;
+        [self drawFoundCard:NSMakePoint(NSMidX(r), NSMinY(r) - 6) in:d.b];  // under the box
+        return;
+    }
+    if (!_foundPlace) return;
+    NSPoint p = [self viewPointForLon:_foundLon lat:_foundLat];
+    if (!NSPointInRect(p, NSInsetRect(d.b, -40, -40))) return;
+    // A pin: a teardrop whose point is the place, a white dot in its head.
+    [NSGraphicsContext saveGraphicsState];
+    NSShadow *shadow = [[NSShadow alloc] init];
+    shadow.shadowColor = [NSColor colorWithCalibratedWhite:0 alpha:0.55];
+    shadow.shadowBlurRadius = 5;
+    shadow.shadowOffset = NSMakeSize(0, 2);
+    [shadow set];
+    CGFloat head = 10, tip = 26;  // the head's radius; its height above the point
+    NSPoint c = NSMakePoint(p.x, p.y - tip + head);  // flipped view: up is smaller y
+    NSBezierPath *pin = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(c.x - head, c.y - head, 2 * head, 2 * head)];
+    [pin moveToPoint:p];
+    [pin lineToPoint:NSMakePoint(c.x - head * 0.87, c.y + head * 0.5)];
+    [pin lineToPoint:NSMakePoint(c.x + head * 0.87, c.y + head * 0.5)];
+    [pin closePath];
+    [accent setFill];
+    [pin fill];
+    [NSGraphicsContext restoreGraphicsState];
+    [[NSColor whiteColor] setStroke];
+    NSBezierPath *outline = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(c.x - head, c.y - head, 2 * head, 2 * head)];
+    outline.lineWidth = 1.5;
+    [outline stroke];
+    [[NSColor whiteColor] setFill];
+    [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(c.x - 3.5, c.y - 3.5, 7, 7)] fill];
+    [self drawFoundCard:NSMakePoint(p.x + head + 6, c.y - head) in:d.b];  // beside the head
+}
+
+// The find's card: its heading (the call or locator) in bold, a line each under it, on a rounded
+// panel kept inside the map. `anchor` is where its top-left (or, for a locator, top-centre) goes.
+- (void)drawFoundCard:(NSPoint)anchor in:(NSRect)bounds {
+    if (_foundLabel.empty() && !_foundLines.count) return;
+    NSMutableParagraphStyle *para = [[NSMutableParagraphStyle alloc] init];
+    para.lineBreakMode = NSLineBreakByClipping;
+    NSDictionary *head = @{NSFontAttributeName : [NSFont boldSystemFontOfSize:13], NSForegroundColorAttributeName : NSColor.whiteColor};
+    NSDictionary *body = @{NSFontAttributeName : [NSFont systemFontOfSize:11], NSForegroundColorAttributeName : [NSColor colorWithCalibratedWhite:1 alpha:0.92]};
+    NSString *title = [NSString stringWithUTF8String:_foundLabel.c_str()];
+    NSSize ts = [title sizeWithAttributes:head];
+    CGFloat w = ts.width, h = ts.height;
+    for (NSString *line in _foundLines) {
+        NSSize ls = [line sizeWithAttributes:body];
+        w = std::max(w, ls.width), h += ls.height + 1;
+    }
+    CGFloat pad = 8;
+    NSRect card = NSMakeRect(anchor.x, anchor.y, w + 2 * pad, h + 2 * pad - 1);
+    if (!_foundPlace) card.origin.x -= card.size.width / 2;
+    NSRect room = NSInsetRect(bounds, 6, 6);
+    card.origin.x = std::clamp(card.origin.x, NSMinX(room), std::max(NSMinX(room), NSMaxX(room) - card.size.width));
+    card.origin.y = std::clamp(card.origin.y, NSMinY(room), std::max(NSMinY(room), NSMaxY(room) - card.size.height));
+    NSBezierPath *panel = [NSBezierPath bezierPathWithRoundedRect:card xRadius:7 yRadius:7];
+    [[NSColor colorWithCalibratedRed:0.55 green:0.08 blue:0.25 alpha:0.92] setFill];
+    [panel fill];
+    [[NSColor whiteColor] setStroke];
+    panel.lineWidth = 1;
+    [panel stroke];
+    CGFloat y = card.origin.y + pad - 1;
+    [title drawAtPoint:NSMakePoint(card.origin.x + pad, y) withAttributes:head];
+    y += ts.height;
+    for (NSString *line in _foundLines) {
+        [line drawAtPoint:NSMakePoint(card.origin.x + pad, y + 1) withAttributes:body];
+        y += [line sizeWithAttributes:body].height + 1;
+    }
+}
+
 // A ring in the system's accent colour, softly glowing, round the chosen marker: what is chosen
 // stands out from everything else on the map.
 - (void)drawSelectionHalo {
@@ -1175,7 +1304,7 @@ bool mapkit::potaSpot(const adif::Spot &s) { return s.program == "POTA"; }
         if (![self outlineDrawn:o park:p worked:worked]) continue;
         bool lit = (_hover.kind == ADIFMapHit::Pota && _hover.index == index) || (_selected.kind == ADIFMapHit::Pota && _selected.index == index);
         NSBezierPath *path = [NSBezierPath bezierPath];
-        for (const adif::OutlineRing &r : o.rings) [path appendBezierPath:[self viewPath:r close:YES wraps:NO]];
+        for (const adif::OutlineRing &r : o.rings) [path appendBezierPath:thinned([self viewPath:r close:YES wraps:NO], 0.6)];
         path.windingRule = NSWindingRuleEvenOdd;
         NSColor *c = worked ? (pin->second->activated ? rgb(pal.me) : [self colorFor:pin->second->agg entity:NO]) : rgb(pal.park);
         [[c colorWithAlphaComponent:worked ? 0.32 : 0.10] setFill];
@@ -1214,13 +1343,13 @@ bool mapkit::potaSpot(const adif::Spot &s) { return s.program == "POTA"; }
 - (void)drawParkBadges:(BOOL)worked {
     const MapPalette &pal = paletteAt(_style.palette);
     NSColor *tint = rgb(pal.park);
-    NSBezierPath *dots = [NSBezierPath bezierPath];
+    std::vector<CGRect> dots;
     for (const ADIFParkSpot &sp : _potaSpots) {
         if (sp.pin != (bool)worked || sp.outlined) continue;
         bool lit = (_hover.kind == ADIFMapHit::Pota && _hover.index == sp.park) || (_selected.kind == ADIFMapHit::Pota && _selected.index == sp.park);
         if (sp.dot && !lit) {
             double r = 1.7 * _style.marker;
-            [dots appendBezierPathWithOvalInRect:NSMakeRect(sp.at.x - r, sp.at.y - r, 2 * r, 2 * r)];
+            dots.push_back(CGRectMake(sp.at.x - r, sp.at.y - r, 2 * r, 2 * r));
             continue;
         }
         ADIFParkSpot big = sp;
@@ -1228,8 +1357,49 @@ bool mapkit::potaSpot(const adif::Spot &s) { return s.program == "POTA"; }
         if (lit) big.small = false;
         [self drawParkBadgeAt:sp.at radius:[self parkBadgeRadius:big] color:[self parkColor:sp] worked:sp.pin activated:sp.activated lit:lit];
     }
-    [[tint colorWithAlphaComponent:0.85] setFill];
-    [dots fill];
+    if (dots.empty()) return;
+    CGContextRef ctx = NSGraphicsContext.currentContext.CGContext;
+    NSColor *srgb = [tint colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+    // Every unworked park of a big place can be a dot (a hundred thousand for "everywhere"): given to
+    // CoreGraphics as shapes, in one path or one by one, they stall the main thread for minutes. Past
+    // a few thousand they are plotted into a bitmap here instead, where they overlap as one colour.
+    NSRect b = self.bounds;
+    CGFloat scale = std::min<CGFloat>(self.window ? self.window.backingScaleFactor : 2, 2);
+    size_t w = (size_t)std::ceil(b.size.width * scale), h = (size_t)std::ceil(b.size.height * scale);
+    if (dots.size() <= 3000 || !srgb || w == 0 || h == 0 || w * h > 64u << 20) {
+        CGContextSaveGState(ctx);
+        CGContextSetAlpha(ctx, 0.85);
+        CGContextBeginTransparencyLayer(ctx, nullptr);
+        CGContextSetFillColorWithColor(ctx, tint.CGColor);
+        for (const CGRect &r : dots) CGContextFillEllipseInRect(ctx, r);
+        CGContextEndTransparencyLayer(ctx);
+        CGContextRestoreGState(ctx);
+        return;
+    }
+    const double alpha = 0.85;
+    const uint8_t pixel[4] = {(uint8_t)std::lround(srgb.redComponent * alpha * 255), (uint8_t)std::lround(srgb.greenComponent * alpha * 255),
+                              (uint8_t)std::lround(srgb.blueComponent * alpha * 255), (uint8_t)std::lround(alpha * 255)};  // premultiplied
+    NSMutableData *pixels = [NSMutableData dataWithLength:w * h * 4];
+    uint8_t *bits = (uint8_t *)pixels.mutableBytes;
+    for (const CGRect &r : dots) {
+        double cx = (CGRectGetMidX(r) - b.origin.x) * scale, cy = (CGRectGetMidY(r) - b.origin.y) * scale, rad = r.size.width / 2 * scale;
+        long y0 = std::max(0L, (long)std::floor(cy - rad)), y1 = std::min((long)h - 1, (long)std::ceil(cy + rad));
+        for (long y = y0; y <= y1; ++y) {
+            double dy = y + 0.5 - cy, span = rad * rad - dy * dy;
+            if (span < 0) continue;
+            double dx = std::sqrt(span);
+            long x0 = std::max(0L, (long)std::ceil(cx - dx - 0.5)), x1 = std::min((long)w - 1, (long)std::floor(cx + dx - 0.5));
+            uint8_t *row = bits + (h - 1 - (size_t)y) * w * 4;  // the bitmap's first row is the top
+            for (long x = x0; x <= x1; ++x) std::memcpy(row + x * 4, pixel, 4);
+        }
+    }
+    CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+    CGDataProviderRef provider = CGDataProviderCreateWithCFData((__bridge CFDataRef)pixels);
+    CGImageRef image = CGImageCreate(w, h, 8, 32, w * 4, space, (CGBitmapInfo)kCGImageAlphaPremultipliedLast, provider, nullptr, false, kCGRenderingIntentDefault);
+    if (image) CGContextDrawImage(ctx, NSRectToCGRect(b), image);
+    CGImageRelease(image);
+    CGDataProviderRelease(provider);
+    CGColorSpaceRelease(space);
 }
 
 // Each park's reference in a box under its badge, as on POTA's own map (at the park's place where

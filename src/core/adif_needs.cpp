@@ -89,6 +89,69 @@ SpotStatus spotStatus(const WorkedIndex &w, const Spot &s, const CountryTable *c
     return st;
 }
 
+std::vector<Interest> contactInterest(const WorkedIndex &w, const std::vector<MapQso> &qsos, const ContactSubject &c,
+                                      const CountryTable *countries, const std::vector<std::string> &watch) {
+    std::vector<Interest> out;
+    std::string key = lookupCall(c.call);
+    if (key.empty()) return out;
+    Spot as;  // the contact as a spot, for what it means to the log
+    as.activator = c.call, as.band = c.band, as.mode = c.mode, as.program = c.program, as.refs = c.refs;
+    SpotStatus st = spotStatus(w, as, countries);
+    if (std::string on = watchedFor(watch, as, st.entity); !on.empty()) out.push_back({InterestKind::Watched, i18n::trf("On your watch list ({what})", {{"what", on}})});
+
+    // Today's QSOs with the call on this band and mode group: a duplicate.
+    std::string band = lower(c.band);
+    int group = modeGroup(c.mode);
+    bool dupe = false;
+    for (const MapQso &q : qsos)
+        if (!c.date8.empty() && q.date8 == c.date8 && lookupCall(q.call) == key && lower(q.band) == band && !band.empty() &&
+            (c.mode.empty() || q.modeGroup == group))
+            dupe = true;
+    std::string where = c.band + (c.mode.empty() ? "" : " " + c.mode);
+    if (dupe) out.push_back({InterestKind::Duplicate, i18n::trf("Duplicate: {call} worked on {where} today already", {{"call", key}, {"where", where}})});
+    else if (c.activating) out.push_back({InterestKind::NewForActivation, i18n::tr("New for this activation")});
+
+    if (!c.activating) switch (st.need) {
+            case SpotNeed::NewDxcc: out.push_back({InterestKind::NewDxcc, i18n::trf("New DXCC entity ({entity})", {{"entity", st.entity}})}); break;
+            case SpotNeed::NewBand:
+                out.push_back({InterestKind::NewBand, i18n::trf("Needed on {band}: {entity} not worked there", {{"band", c.band}, {"entity", st.entity}})});
+                break;
+            case SpotNeed::NewMode:
+                out.push_back({InterestKind::NewMode, i18n::trf("A new mode for {entity} on {band}", {{"band", c.band}, {"entity", st.entity}})});
+                break;
+            case SpotNeed::Worked:
+                if (!dupe)
+                    out.push_back({InterestKind::Worked, i18n::trf("{entity} worked on {band}, not confirmed", {{"band", c.band}, {"entity", st.entity}})});
+                break;
+            case SpotNeed::Confirmed:
+                if (!dupe) out.push_back({InterestKind::Confirmed, i18n::trf("{entity} confirmed on {band}", {{"band", c.band}, {"entity", st.entity}})});
+                break;
+            default: break;
+        }
+
+    std::string refs;
+    for (const std::string &r : c.refs) refs += (refs.empty() ? "" : ", ") + r;
+    if (!refs.empty()) {
+        out.push_back({InterestKind::ParkToPark, c.activating      ? i18n::trf("Park to park: they are at {refs}", {{"refs", refs}})
+                                                 : c.program.empty() ? i18n::trf("They are at {refs}", {{"refs", refs}})
+                                                                     : i18n::trf("{program} activator at {refs}", {{"program", c.program}, {"refs", refs}})});
+        if (st.newPark) out.push_back({InterestKind::NewPark, i18n::tr("A park you haven't hunted")});
+    }
+
+    if (st.callQsos) {
+        std::string bands;
+        for (const std::string &b : st.callBands) bands += (bands.empty() ? "" : ", ") + b;
+        std::string had = i18n::trp("{n} QSO with this call before", "{n} QSOs with this call before", (long long)st.callQsos);
+        if (!bands.empty()) had += " (" + bands + ")";
+        if (st.callFirstYear) had += ", " + i18n::trf("first in {year}", {{"year", std::to_string(st.callFirstYear)}});
+        had += st.callConfirmed ? ", " + i18n::tr("confirmed") : ", " + i18n::tr("not confirmed");
+        out.push_back({InterestKind::Before, had});
+    } else {
+        out.push_back({InterestKind::FirstQso, c.activating ? i18n::tr("No QSOs with this call in this log yet") : i18n::tr("No QSOs with this call yet")});
+    }
+    return out;
+}
+
 std::string spotNeedText(SpotNeed n) {
     switch (n) {
         case SpotNeed::NewDxcc: return i18n::tr("new DXCC");

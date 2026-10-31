@@ -10,6 +10,7 @@
 #include "adif_spots.h"
 
 #include <string>
+#include <string_view>
 #include <vector>
 
 extern NSString *const ADIFSpotsChangedNotification;
@@ -29,8 +30,15 @@ void setWanted(bool wanted);
 // Around my grid square when Settings has no grid.
 void setHomeGrid(const std::string &grid);
 // The Map's "Only spots of" callsign ("" none): PSKReporter asks about it while it is set (Of my
-// callsign), in place of Settings' callsign, so the Map shows who heard that station.
+// callsign), in place of Settings' callsign, so the Map shows who heard that station. PSKReporter's
+// live feed (MQTT, mqtt.pskreporter.info) streams its reports as they are made; the 5-minute
+// query only fills in what came before.
 void setFocusCall(const std::string &call);
+
+// A datagram from WSJT-X's UDP server (the Monitor's listener): its decodes become spots (source
+// WSJT-X) heard by your own station, with who they are working in the comment, while the Spots
+// layer shows.
+void wsjtxDatagram(std::string_view bytes);
 
 // Posting a spot on the DX cluster (after New QSO logs a QSO, when you say Send). The node and
 // callsign of the connection when it is logged in, else "".
@@ -64,8 +72,11 @@ struct Config {
     std::string host, login, commands;  // login: "" is Your Station's callsign; commands: sent after it, ";" between
     int port = 0;
     bool psk = false;
-    int pskQuery = 0;   // PSKReporter: 0 a callsign on either side (who heard it, what it heard), 1 around your grid square
+    // PSKReporter: 0 a callsign on either side (who heard it, what it heard), 1 around your grid square,
+    // 2 an ARRL section's region (its division), 3 a state; either station in it.
+    int pskQuery = 0;
     std::string pskCall;  // PSKReporter's callsign: "" is Your Station's
+    std::string pskArea;  // the section (2) or state (3): "" is where Your Station's grid is
     std::string email;  // PSKReporter's appcontact, when given
 };
 Config config();

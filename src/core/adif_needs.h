@@ -75,6 +75,28 @@ std::string watchedFor(const std::vector<std::string> &list, const Spot &s, cons
 enum class SlotState { None, Worked, Confirmed };
 std::vector<std::pair<std::string, SlotState>> bandSlots(const WorkedIndex &w, int dxcc);
 
+// Why a contact is worth having, for the QSO being logged (the Operating Console's QSO details), as
+// the Map's selected panel says it for a spot: on your watch list; in the middle of an activation,
+// a duplicate (this call on this band and mode group already today, UTC, which a program counts
+// once) or new for it, otherwise what it means for the log (a new DXCC entity, band or mode, or
+// worked or confirmed there already); park to park (the other station's references) and a park
+// you haven't hunted; and your QSOs with the call before. An activation's log starts empty, so
+// what it means for the log is left out then: everything in it would be new.
+enum class InterestKind { Watched, Duplicate, NewForActivation, NewDxcc, NewBand, NewMode, Worked, Confirmed, ParkToPark, NewPark, Before, FirstQso };
+struct Interest {
+    InterestKind kind;
+    std::string text;  // translated
+};
+struct ContactSubject {
+    std::string call, band, mode;
+    std::string date8;              // the QSO's UTC day, YYYYMMDD
+    std::vector<std::string> refs;  // the other station's references (POTA_REF, else SIG_INFO)
+    std::string program;            // theirs: "POTA" when those are POTA parks, "WWFF", "SOTA"...; ""
+    bool activating = false;
+};
+std::vector<Interest> contactInterest(const WorkedIndex &w, const std::vector<MapQso> &qsos, const ContactSubject &c,
+                                      const CountryTable *countries, const std::vector<std::string> &watch);
+
 // The log at a glance, for the Map's status bar: its QSOs, DXCC entities (and how many
 // confirmed), US states and 4-character squares; and today's (UTC day "YYYYMMDD") QSOs, by mode
 // group and band, and the last of them.
