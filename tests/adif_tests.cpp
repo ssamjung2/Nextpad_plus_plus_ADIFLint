@@ -41,6 +41,7 @@
 #include "adif_facts.h"
 #include "adif_stats.h"
 #include "adif_aids.h"
+#include "adif_layout.h"
 #include "adif_styles.h"
 
 #include <algorithm>
@@ -4627,6 +4628,98 @@ static void testOutlines() {
 }
 
 // Operating Styles: each style's defaults, its saved state, and the report of a change.
+static void testLayouts() {
+    using namespace adif::layout;
+    using Ids = std::vector<std::string>;
+    // The built-in layouts: sound, and as the console had them.
+    CHECK(presets().size() == 9, "nine built-in layouts (%zu)", presets().size());
+    for (const Preset &p : presets()) CHECK(problems(p.arrangement).empty(), "layout %s is sound", p.id.c_str());
+    const Preset *act = preset("activation"), *qsoLog = preset("qso-log");
+    CHECK(act && shown(act->arrangement) == (Ids{kNewQso, kQsoDetails, kContactMap, kLogTable, kSpots}) && act->arrangement.console.kind == Node::Kind::Row &&
+              std::fabs(act->arrangement.console.children[0].share - 0.34) < 1e-9,
+          "Activation: New QSO a third on the left, then details and its map, the log, the spots");
+    CHECK(qsoLog && shown(qsoLog->arrangement) == (Ids{kNewQso, kLogTable}) && qsoLog->arrangement.console.children.size() == 2,
+          "QSO and log only: its empty places left out");
+    CHECK(preset("logging") && shown(preset("logging")->arrangement) == (Ids{kMap, kLogTable, kNewQso}) && !preset("nope"), "Logging: the Map over the log, New QSO beside");
+
+    // Written and read back exactly; another version, or something else, reads as nothing.
+    Arrangement a = showInWindow(act->arrangement, kMap, {10, 20, 800, 600});
+    a = setPane(a, kMap, "sidebar", false);
+    a = showInConsole(a, kMapStyle, kContactMap);
+    std::string text = write(a), why;
+    std::optional<Arrangement> back = read(text, &why);
+    CHECK(back && *back == a, "an arrangement written and read back is the same (%s)", text.c_str());
+    CHECK(!read("{\"v\":2,\"console\":{\"stack\":[]}}", &why) && why == "another version", "another version reads as nothing (%s)", why.c_str());
+    CHECK(!read("not json") && !read("{\"v\":1,\"console\":{\"stack\":[1]}}") && !read("{\"v\":1,\"console\":{\"row\":[],\"stack\":[]}}") &&
+              !read("{\"v\":1,\"console\":{\"stack\":[],\"share\":2}}"),
+          "broken arrangements read as nothing");
+    std::optional<Arrangement> stray = read("{\"v\":1,\"console\":{\"row\":[{\"stack\":[\"newqso\",\"gone\"]},{\"stack\":[\"newqso\"]}]},\"windows\":{\"newqso\":{}}}");
+    CHECK(stray && shown(*stray) == (Ids{kNewQso}) && stray->console.kind == Node::Kind::Stack, "read tidied: an unknown panel and a repeated one dropped");
+
+    // Tidy: unknown and repeated panels out, empty stacks and one-child splits gone, a row in a row merged, shares summing to 1.
+    Arrangement messy;
+    messy.console = row({stack({kNewQso, "bogus"}, 0.5), row({stack({kNewQso}, 0.5), stack({kLogTable}, 0.5)}, 0.5), column({stack({kSpots})}, 0)});
+    Arrangement t = tidy(messy);
+    CHECK(problems(t).empty() && shown(t) == (Ids{kNewQso, kLogTable, kSpots}) && t.console.kind == Node::Kind::Row && t.console.children.size() == 3 &&
+              t.console.children[0].share == 0,
+          "tidy: a sound row of three, shares dropped where a sibling had none");
+    Arrangement shares;
+    shares.console = row({stack({kNewQso}, 0.5), row({stack({kLogTable}, 0.5), stack({kSpots}, 0.5)}, 0.5)});
+    shares = tidy(shares);
+    CHECK(shares.console.children.size() == 3 && std::fabs(shares.console.children[1].share - 0.25) < 1e-9, "a row in a row: its shares scaled into the outer one");
+
+    // Tabs: beside a panel, to the front, to another stack; panels appended; windows; swaps.
+    Arrangement b = showInConsole(qsoLog->arrangement, kMapStyle, kNewQso);
+    const Node &first = b.console.children[0];
+    CHECK(first.panels == (Ids{kNewQso, kMapStyle}) && first.front == 1 && problems(b).empty(), "Map Style a tab beside New QSO, in front");
+    b = bringToFront(b, kNewQso);
+    CHECK(b.console.children[0].front == 0, "New QSO back in front");
+    b = moveToTab(b, kMapStyle, kLogTable);
+    CHECK(b.console.children[0].panels == (Ids{kNewQso}) && b.console.children[1].panels == (Ids{kLogTable, kMapStyle}) && b.console.children[1].front == 1,
+          "Map Style moved to the log's stack");
+    b = showInConsole(b, kSpots);
+    CHECK(shown(b).back() == kSpots && b.console.children.size() == 3, "a panel shown without a neighbour: a stack of its own at the end of the row");
+    b = showInWindow(b, kSpots, {});
+    CHECK(!inConsole(b, kSpots) && b.windows.count(kSpots) && shows(b, kSpots), "the spots to a window of their own");
+    b = showInConsole(b, kSpots, kLogTable);
+    CHECK(inConsole(b, kSpots) && b.windows.empty(), "and back, as a tab beside the log");
+    b = swap(b, kNewQso, kLogTable);
+    CHECK(b.console.children[0].panels == (Ids{kLogTable}) && b.console.children[1].panels[0] == kNewQso, "New QSO and the log trade places");
+    Arrangement w = showInWindow(b, kMap, {1, 2, 3, 4});
+    w = swap(w, kMap, kLogTable);
+    CHECK(w.windows.count(kLogTable) && w.windows[kLogTable] == (Frame{1, 2, 3, 4}) && inConsole(w, kMap), "a window and a console tab trade places, the frame staying");
+    for (const std::string &p : shown(b)) b = hide(b, p);
+    CHECK(shown(b).empty() && problems(b).empty() && b.console.kind == Node::Kind::Stack, "every panel hidden: an empty console");
+
+    // A row with shares keeps them summing to 1 when a panel joins it.
+    Arrangement two;
+    two.console = row({stack({kNewQso}, 0.4), stack({kLogTable}, 0.6)});
+    two = showInConsole(tidy(two), kSpots);
+    double sum = 0;
+    for (const Node &c : two.console.children) sum += c.share;
+    CHECK(two.console.children.size() == 3 && std::fabs(sum - 1) < 1e-9 && std::fabs(two.console.children[2].share - 1.0 / 3) < 1e-9, "a joining panel takes its share");
+
+    // Panes: shown unless hidden.
+    CHECK(paneShown(b, kMap, "sidebar") && !paneShown(setPane(b, kMap, "sidebar", false), kMap, "sidebar"), "panes: shown at first, hidden when set");
+
+    // Migration from the console's and the Map's settings.
+    std::map<std::string, std::string> ini;
+    Getter get = [&](const std::string &k) {
+        auto it = ini.find(k);
+        return it == ini.end() ? std::string() : it->second;
+    };
+    CHECK(migrate(get) == presets()[0].arrangement, "nothing saved: the first layout");
+    ini["layoutPreset"] = "7";
+    CHECK(migrate(get) == act->arrangement, "the activation layout");
+    ini["layoutItemsV3"] = "3,6,5,2,1";
+    CHECK(shows(migrate(get), kMap) && !shows(migrate(get), kSpots), "the places as they were left: the Map where the spots were");
+    ini["layoutItemsV3"] = "3,3,5,2,4";
+    CHECK(migrate(get) == act->arrangement, "places saved with a panel twice: ignored");
+    ini["mapSidebar"] = "0", ini["mapList"] = "1";
+    Arrangement m = migrate(get);
+    CHECK(!paneShown(m, kMap, "sidebar") && paneShown(m, kMap, "list") && paneShown(m, kMap, "selected"), "the Map's panes as they were left");
+}
+
 static void testOperatingAids() {
     using namespace adif::aids;
     using adif::styles::OperatingStyle;
@@ -4873,6 +4966,7 @@ int main(int argc, char **argv) {
     testPalettes();
     testOperatingStyles();
     testOperatingAids();
+    testLayouts();
     for (int i = 1; i < argc; ++i)
         if (std::string(argv[i]).size() > 4 && std::string(argv[i]).substr(std::string(argv[i]).size() - 4) == ".bin") testDetail(argv[i]);
     if (argc > 1) testOfficialFile(argv[1]);

@@ -33,6 +33,7 @@ set(WARNINGS -Wall -Wextra -Wno-unused-parameter)
 add_library(adif_core STATIC
     src/core/adif_spec.cpp
     src/core/adif_json.cpp
+    src/core/adif_layout.cpp
     src/core/adif_outlines.cpp
     src/core/adif_spec_tables.cpp
     src/core/adif_lint.cpp
