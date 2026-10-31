@@ -7831,7 +7831,9 @@ int main(int argc, char **argv) {
                 NSView *group = viewWithIdentifier(mapw.contentView, @"map.toolbar.panes");
                 NSView *wf = viewWithIdentifier(mapw.contentView, @"map.workflow");
                 bool placed = group && !viewWithIdentifier(viewWithIdentifier(mapw.contentView, @"map.header"), @"map.logtable") &&
-                              [viewWithIdentifier(mapw.contentView, @"map.sidebar.toggle") isDescendantOf:group] &&
+                              [viewWithIdentifier(mapw.contentView, @"map.sidebar.toggle") isDescendantOf:viewWithIdentifier(mapw.contentView, @"map.toolbar.leading")] &&
+                              [[viewWithIdentifier(mapw.contentView, @"map.toolbar.leading") subviews].firstObject.identifier isEqualToString:@"map.sidebar.toggle"] &&
+                              [((NSStackView *)group).arrangedSubviews.lastObject.identifier isEqualToString:@"map.selected.toggle"] &&
                               NSMaxX(group.frame) >= NSWidth(group.superview.bounds) - 1 && std::fabs(NSMidY(group.frame) - NSMidY(wf.frame)) < 2;
                 std::string failed;
                 for (NSString *ident in @[ @"map.newqso", @"map.logtable", @"map.spotstable", @"map.contactmap", @"map.qsodetails" ]) {
@@ -7844,7 +7846,7 @@ int main(int argc, char **argv) {
                     pump(0.4);
                     if (!b || !on || b.state != NSControlStateValueOff) failed += std::string(" ") + ident.UTF8String + (on ? " (stayed on)" : " (not on)");
                 }
-                CHECK(placed && failed.empty(), "the panels' buttons in the toolbar, right of the workflows (%d), each on while its panel shows and off once closed:%s",
+                CHECK(placed && failed.empty(), "Apple's order: the sidebar button first, the panels' buttons right of the workflows, the selected panel's last (%d); each panel's on while it shows, off once closed:%s",
                       placed, failed.c_str());
                 setenv("ADIFLINT_FAKE_LOOKUP_DIR", wasFake.c_str(), 1);
             }

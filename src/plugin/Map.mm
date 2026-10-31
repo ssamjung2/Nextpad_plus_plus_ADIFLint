@@ -7669,12 +7669,17 @@ void cmdMap() {
         toolbarIcon(mw.focusButton, @"arrow.up.left.and.arrow.down.right");
         mw.focusButton.identifier = @"map.toolbar.focus";
         // New QSO, the Log Table and the panes: a group of their own at the right of the styles and workflows.
-        NSStackView *windowsAndPanes = cluster([mw.panelButtons arrayByAddingObjectsFromArray:@[ mw.paneToggle[0], mw.paneToggle[1], mw.paneToggle[2] ]]);
+        // Apple's order (HIG Toolbars): the sidebar button at the leading edge, beside the sidebar; the
+        // panels; the list and the selected panel (the inspector) at the trailing edge, beside it.
+        NSStackView *windowsAndPanes = cluster([mw.panelButtons arrayByAddingObjectsFromArray:@[ mw.paneToggle[1], mw.paneToggle[2] ]]);
         windowsAndPanes.identifier = @"map.toolbar.panes";
         [windowsAndPanes setCustomSpacing:14 afterView:mw.panelButtons.lastObject];  // the panels, then the Map's own panes
         toolbar.pinnedRight = windowsAndPanes;
         syncPanelButtons();
-        for (NSView *v in @[ cluster(@[ mw.operatingStyleBar, mw.operatingStyleMenu ]), mw.workflow, windowsAndPanes, cluster(@[ mw.band, mw.mode, mw.dates, mw.confirmed, mw.dxccBar, mw.potaBar, mw.spotAgeBar, mw.spotSourceBar, mw.continentPopup, mw.moreFilters ]),
+        NSStackView *leading = cluster(@[ mw.paneToggle[0], mw.operatingStyleBar, mw.operatingStyleMenu ]);
+        [leading setCustomSpacing:12 afterView:mw.paneToggle[0]];
+        leading.identifier = @"map.toolbar.leading";
+        for (NSView *v in @[ leading, mw.workflow, windowsAndPanes, cluster(@[ mw.band, mw.mode, mw.dates, mw.confirmed, mw.dxccBar, mw.potaBar, mw.spotAgeBar, mw.spotSourceBar, mw.continentPopup, mw.moreFilters ]),
                              cluster(@[ mw.chips, mw.clearFilters ]), cluster(@[ keepView, copyButton, mw.focusButton ]) ])
             [toolbar addSubview:v];
 

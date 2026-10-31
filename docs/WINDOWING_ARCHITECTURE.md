@@ -1,6 +1,6 @@
 # Windowing and UI Architecture
 
-Status: **accepted direction** (2026-10-31), four of five decisions made (see the end).
+Status: **accepted direction** (2026-10-31), every decision made (see the end).
 Nothing here is built yet beyond what "Where we are" describes.
 
 ## Purpose
@@ -289,10 +289,8 @@ Made 2026-10-31:
    Phase B's console frame host shows a tab bar when a stack holds more than one panel.
 4. **A Map Style panel** replaces the Style Options card.
 
-Open:
-
-5. **Toolbar order**: sidebar button to the far left (HIG), selected-panel button at the far
-   right, panel buttons between. An illustration of the two orders is with the review.
+5. **Toolbar order follows Apple's**: the sidebar button at the far left, the panel buttons at
+   the right, the list and selected-panel (inspector) buttons at the far right.
 
 ## Sources
 

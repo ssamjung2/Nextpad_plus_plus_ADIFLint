@@ -768,11 +768,13 @@ goes full screen with the green button):
   panel), **Export PNG** (the arrow out of a box), **Settings** (the gear: its card in the
   selected panel) and **Help** (this guide, in your browser). The window's title names the
   log too.
-- **The toolbar**: the operating style (see [Operating styles](#operating-styles)); **History**, **Live**, **DX Chase** or **POTA**;
-  at the right of them, a group of buttons for the panels: **New QSO**, **Log Table**,
-  **Activations & Spots**, **Contact Map** and **QSO Details** (each blue while it shows, as a
-  window or a frame of the Operating Console; a click opens or closes it), then the Map's own
-  sidebar, list and selected panel. In a narrow window the group keeps to the right of the
+- **The toolbar**, in the order Apple's guidelines give: at the far left the **sidebar** button
+  (beside the sidebar it shows or hides), then the operating style (see
+  [Operating styles](#operating-styles)); **History**, **Live**, **DX Chase** or **POTA**; at the
+  right, buttons for the panels: **New QSO**, **Log Table**, **Activations & Spots**,
+  **Contact Map** and **QSO Details** (each blue while it shows, as a window or a frame of the
+  Operating Console; a click opens or closes it), then at the far right the **list** and the
+  **selected panel** buttons. In a narrow window the right-hand group keeps to the right of the
   line it falls on. Below them the
   filters (band and mode, which say **Band:** and **Mode:** while they filter; in History the
   dates and confirmation; in Live **DXCC** (which spots by what they mean for your DXCC, as
