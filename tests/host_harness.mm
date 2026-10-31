@@ -6394,7 +6394,8 @@ int main(int argc, char **argv) {
                     pump(0.6);
                     NSTextField *hover = (NSTextField *)viewWithIdentifier(mapw.contentView, @"map.hover");
                     bool callMarked = [[foundMap valueForKey:@"hasFound"] boolValue] && [[foundMap valueForKey:@"zoom"] doubleValue] >= 6;
-                    [foundMap performSelector:NSSelectorFromString(@"clearFound")];
+                    if (SEL clear = NSSelectorFromString(@"clearFound"); [foundMap respondsToSelector:clear])  // returns nothing: called as such
+                        ((void (*)(id, SEL))[foundMap methodForSelector:clear])(foundMap, clear);
                     find.stringValue = @"";
                     CHECK(foundMap && gridMarked && grid8 && callMarked, "Live's find: FN31 zoomed to and outlined (%d), FN31PR61 closer (%d); 1A0KM placed and marked (%d) (%s)", gridMarked, grid8,
                           callMarked, hover.stringValue.UTF8String);
