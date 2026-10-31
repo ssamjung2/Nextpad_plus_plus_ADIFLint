@@ -17,6 +17,10 @@
 namespace logtools {
 
 void cmdLogTable();
+bool logTableShown();  // open: its window, or its frame in the Operating Console
+void toggleLogTable();  // open it, or close it when it shows (the Map's toolbar button)
+bool spotsShown();      // Activations & Spots is open (its window or its frame)
+void toggleSpots();     // open it, or close it when it shows
 #ifdef __OBJC__
 NSWindow *logTableWindow();  // nil before the Log Table opens
 #endif

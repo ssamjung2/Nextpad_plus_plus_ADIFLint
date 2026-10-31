@@ -2728,6 +2728,10 @@ void cmdPotaSpots() {
         spots.w = w;
         ((ADIFDockPanel *)w.window).dockItem = kDockSpots;
         w.window.title = T(@"Activations & Spots");
+        [[NSNotificationCenter defaultCenter] addObserverForName:NSWindowWillCloseNotification  // closed (or its frame): the Map's button follows
+                                                          object:w.window
+                                                           queue:nil
+                                                      usingBlock:^(NSNotification *) { ADIFPanelShownChanged(); }];
         spots.program = ADIFPopup(@[ @"POTA", @"WWFF", @"More programs (Spothole)" ]);
         spots.program.toolTip = T(@"Parks on the Air spots from pota.app, World Wide Flora & Fauna spots from spots.wwff.co, or "
                                 @"other programs' spots (GMA, WWBOTA, ZLOTA, IOTA, castles, lighthouses...) from spothole.app");
@@ -2794,6 +2798,7 @@ void cmdPotaSpots() {
     [spots.w setTarget:logLine()];
     [spots.w show];
     spotsFetch();
+    ADIFPanelShownChanged();
 }
 
 void setSpotHandler(void (^handler)(const std::vector<std::pair<std::string, std::string>> &fields)) {
@@ -2814,6 +2819,10 @@ void cmdLogTable() {
         ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"Log Table" size:NSMakeSize(980, 560) headline:NO];
         table.w = w;
         ((ADIFDockPanel *)w.window).dockItem = kDockLog;
+        [[NSNotificationCenter defaultCenter] addObserverForName:NSWindowWillCloseNotification  // closed (or its frame): the Map's button follows
+                                                          object:w.window
+                                                           queue:nil
+                                                      usingBlock:^(NSNotification *) { ADIFPanelShownChanged(); }];
         table.search = [[NSSearchField alloc] initWithFrame:NSZeroRect];
         table.search.placeholderString = T(@"Filter: call, park, mode...");
         table.search.sendsSearchStringImmediately = YES;
@@ -2903,6 +2912,23 @@ void cmdLogTable() {
     table.columns.clear();
     tableRefresh();
     [table.w show];
+    ADIFPanelShownChanged();
+}
+
+bool logTableShown() { return tableVisible(); }
+
+bool spotsShown() { return spots.w && spots.w.window.visible; }
+
+void toggleSpots() {
+    if (!spotsShown()) return cmdPotaSpots();
+    [spots.w.window performClose:nil];  // docked: its frame closes
+    ADIFPanelShownChanged();
+}
+
+void toggleLogTable() {
+    if (!tableVisible()) return cmdLogTable();
+    [table.w.window performClose:nil];  // docked: its frame closes
+    ADIFPanelShownChanged();
 }
 
 void cmdSummary() {

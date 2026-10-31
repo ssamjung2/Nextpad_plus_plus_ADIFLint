@@ -52,6 +52,9 @@ void setQsoDetails(const QsoDetails &details);
 bool qsoDetailsShown();  // QSO Details is open, docked or not: worth working out
 void openContactMap();
 void openQsoInfo();
+bool contactMapShown();  // the Contact Map is open, docked or not
+void toggleContactMap();  // open it, or close it when it shows (the Map's toolbar button)
+void toggleQsoDetails();  // QSO Details the same
 
 // The docked windows' own calls (ADIF_DOCKABLE_WINDOW): true when the layout answered.
 bool show(NSWindow<ADIFDockable> *window);

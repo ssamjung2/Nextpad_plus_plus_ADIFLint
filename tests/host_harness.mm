@@ -7819,6 +7819,36 @@ int main(int argc, char **argv) {
                 CHECK(false, "the Map's toolbar has the style menu");
             }
 
+            // The panels in the toolbar, right of the styles and workflows: New QSO, the Log Table, Activations & Spots, the
+            // Contact Map and QSO Details, then the Map's panes; each on while it shows, a click opening or closing it.
+            run("Map & Explorer...");
+            pump(0.2);
+            {
+                std::string wasFake = getenv("ADIFLINT_FAKE_LOOKUP_DIR") ?: "";
+                NSString *quiet = [tmp stringByAppendingPathComponent:@"panels-net"];  // Spots asks for spots: logged here, not in the fixtures
+                [[NSFileManager defaultManager] createDirectoryAtPath:quiet withIntermediateDirectories:YES attributes:nil error:nil];
+                setenv("ADIFLINT_FAKE_LOOKUP_DIR", quiet.UTF8String, 1);
+                NSView *group = viewWithIdentifier(mapw.contentView, @"map.toolbar.panes");
+                NSView *wf = viewWithIdentifier(mapw.contentView, @"map.workflow");
+                bool placed = group && !viewWithIdentifier(viewWithIdentifier(mapw.contentView, @"map.header"), @"map.logtable") &&
+                              [viewWithIdentifier(mapw.contentView, @"map.sidebar.toggle") isDescendantOf:group] &&
+                              NSMaxX(group.frame) >= NSWidth(group.superview.bounds) - 1 && std::fabs(NSMidY(group.frame) - NSMidY(wf.frame)) < 2;
+                std::string failed;
+                for (NSString *ident in @[ @"map.newqso", @"map.logtable", @"map.spotstable", @"map.contactmap", @"map.qsodetails" ]) {
+                    NSButton *b = (NSButton *)viewWithIdentifier(mapw.contentView, ident);
+                    if (b.state == NSControlStateValueOn) [b performClick:nil], pump(0.3);  // already open: closed first
+                    [b performClick:nil];
+                    pump(0.4);
+                    bool on = b.state == NSControlStateValueOn;
+                    [b performClick:nil];
+                    pump(0.4);
+                    if (!b || !on || b.state != NSControlStateValueOff) failed += std::string(" ") + ident.UTF8String + (on ? " (stayed on)" : " (not on)");
+                }
+                CHECK(placed && failed.empty(), "the panels' buttons in the toolbar, right of the workflows (%d), each on while its panel shows and off once closed:%s",
+                      placed, failed.c_str());
+                setenv("ADIFLINT_FAKE_LOOKUP_DIR", wasFake.c_str(), 1);
+            }
+
             // Documentation screenshots (ADIFLINT_DOCS=1, with ADIFLINT_SNAPSHOT_DIR): the map and
             // the Log Table on the sample log above. tools/docs-screenshots.sh runs this.
             if (getenv("ADIFLINT_DOCS")) {

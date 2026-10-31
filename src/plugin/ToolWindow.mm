@@ -108,6 +108,18 @@ void ADIFOnAction(NSControl *control, void (^block)(void)) {
     control.action = @selector(fire:);
 }
 
+NSString *const ADIFPanelShownNotification = @"ADIFPanelShownNotification";
+
+void ADIFPanelShownChanged(void) {
+    static bool queued = false;
+    if (queued) return;
+    queued = true;
+    dispatch_async(dispatch_get_main_queue(), ^{  // after the window's own change has taken
+        queued = false;
+        [[NSNotificationCenter defaultCenter] postNotificationName:ADIFPanelShownNotification object:nil];
+    });
+}
+
 void ADIFOnClick(NSView *view, void (^block)(void)) {
     static char kKey;
     ADIFBlockTarget *t = [[ADIFBlockTarget alloc] init];

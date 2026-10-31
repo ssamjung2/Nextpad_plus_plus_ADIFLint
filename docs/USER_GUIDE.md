@@ -764,12 +764,16 @@ goes full screen with the green button):
   click opens QSL Sync), **Find** (a call, a grid
   square, a DXCC entity or a POTA park: Return chooses it on the map, or offers a menu when
   several match; a call chooses your QSOs with it, or its spot), the **bell** (see
-  [The watch list](#the-watch-list)), **Log Table** (the
-  table), **Style Options** (the palette: its card in the selected panel), **Export PNG** (the
-  arrow out of a box), **Settings** (the gear: its card in the selected panel), **Help** (this guide, in your browser), and three buttons that
-  show or hide the sidebar, the list and the selected panel. The window's title names the
+  [The watch list](#the-watch-list)), **Style Options** (the palette: its card in the selected
+  panel), **Export PNG** (the arrow out of a box), **Settings** (the gear: its card in the
+  selected panel) and **Help** (this guide, in your browser). The window's title names the
   log too.
-- **The toolbar**: the operating style (see [Operating styles](#operating-styles)); **History**, **Live**, **DX Chase** or **POTA**; the
+- **The toolbar**: the operating style (see [Operating styles](#operating-styles)); **History**, **Live**, **DX Chase** or **POTA**;
+  at the right of them, a group of buttons for the panels: **New QSO**, **Log Table**,
+  **Activations & Spots**, **Contact Map** and **QSO Details** (each blue while it shows, as a
+  window or a frame of the Operating Console; a click opens or closes it), then the Map's own
+  sidebar, list and selected panel. In a narrow window the group keeps to the right of the
+  line it falls on. Below them the
   filters (band and mode, which say **Band:** and **Mode:** while they filter; in History the
   dates and confirmation; in Live **DXCC** (which spots by what they mean for your DXCC, as
   the Quick Views), **Spots** (any program, POTA only, new POTA parks, or plain DX only), how

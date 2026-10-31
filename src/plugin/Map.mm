@@ -182,6 +182,7 @@ static NSAttributedString *treeMark(NSColor *color) {
 @property(nonatomic) BOOL trailingLast;    // the last one at the right end of its line
 @property(nonatomic) BOOL centred;         // each centred in its line's height (else at its top)
 @property(nonatomic) BOOL plain;           // no lines between them
+@property(nonatomic, weak) NSView *pinnedRight;  // at the right end of the line it falls on; the next starts a line of its own
 @end
 
 @implementation ADIFFlowView {
@@ -208,15 +209,18 @@ static NSAttributedString *treeMark(NSColor *color) {
         lineViews.clear();
     };
     NSView *last = self.subviews.lastObject;
+    bool breakNext = false;  // after the pinned group: a new line
     for (NSView *v in self.subviews) {
         if (v.hidden) continue;
         NSSize size = v.fittingSize;
-        if (x > 0 && x + size.width > width) {
+        if (x > 0 && (breakNext || x + size.width > width)) {
             endLine();
             y += lineHeight + _gap;  // no rule across: the lines' own gap parts them
             x = 0, lineHeight = 0;
         }
-        if (_trailingLast && v == last && x > 0) x = std::max(x, width - size.width);  // pushed to the right, its rule with it
+        breakNext = v == _pinnedRight;
+        if (((_trailingLast && v == last) || v == _pinnedRight) && x > 0) x = std::max(x, width - size.width);  // pushed to the right, its rule with it
+        if (v == _pinnedRight && x == 0 && size.width < width) x = width - size.width;  // alone on its line: at its right end
         if (x > 0) lineStarts.push_back(std::round(x - _gap / 2));
         v.frame = NSMakeRect(x, y, size.width, size.height);
         lineViews.push_back(v);
@@ -488,6 +492,7 @@ struct {
     NSView *sidebar = nil, *selectedPanel = nil, *nav = nil, *spotsSection = nil;
     NSButton *paneToggle[3] = {};  // the sidebar, the list, the selected panel
     NSButton *focusButton = nil;    // the toolbar's Focus Map: the panes hidden, or back
+    NSMutableArray<NSButton *> *panelButtons = nil;  // the toolbar's: New QSO, the Log Table, Spots, Contact Map, QSO Details (kPanels)
     bool focusRestore[3] = {};      // the panes Focus Map hid, to show again
     NSMutableDictionary<NSString *, NSView *> *sections = nil;  // a section's body, by its name
     NSMutableDictionary<NSString *, ADIFAccordion *> *sectionCards = nil;
@@ -5079,6 +5084,33 @@ void restorePane(int pane) {
 }
 
 // A pane shown or hidden (its button at the right of the header): hidden, the map takes its room.
+// The panels the toolbar opens and closes, each a window or a frame of the Operating Console.
+struct PanelButton {
+    NSString *title, *symbol, *ident, *tip;
+    bool (*shown)();
+    void (*toggle)();
+};
+const PanelButton kPanels[] = {
+    {N(@"New QSO"), @"square.and.pencil", @"map.newqso", N(@"New QSO: log a contact (on while it shows; click again to close it)"),
+     adifhost::newQsoShown, adifhost::toggleNewQso},
+    {N(@"Log Table"), @"tablecells", @"map.logtable", N(@"The log as a table: sort, search and edit its QSOs (on while it shows; click again to close it)"),
+     logtools::logTableShown, logtools::toggleLogTable},
+    {N(@"Activations & Spots"), @"antenna.radiowaves.left.and.right", @"map.spotstable",
+     N(@"Activations & Spots: the activators and stations spotted now, as a table (on while it shows; click again to close it)"), logtools::spotsShown,
+     logtools::toggleSpots},
+    {N(@"Contact Map"), @"map", @"map.contactmap", N(@"Contact Map: where New QSO's contact is, from your station (on while it shows; click again to close it)"),
+     workspace::contactMapShown, workspace::toggleContactMap},
+    {N(@"QSO Details"), @"person.text.rectangle", @"map.qsodetails",
+     N(@"QSO Details: who New QSO's contact is, why it's worth having, and your QSOs with the call (on while it shows; click again to close it)"),
+     workspace::qsoDetailsShown, workspace::toggleQsoDetails},
+};
+
+// Each panel's button on while it shows.
+void syncPanelButtons() {
+    for (NSUInteger i = 0; i < mw.panelButtons.count && i < std::size(kPanels); ++i)
+        mw.panelButtons[i].state = kPanels[i].shown() ? NSControlStateValueOn : NSControlStateValueOff;
+}
+
 void showPane(int pane, bool on) {
     saveFlag(kPaneKeys[pane], on);
     mw.paneToggle[pane].state = on ? NSControlStateValueOn : NSControlStateValueOff;
@@ -7485,9 +7517,30 @@ void cmdMap() {
         header.edgeInsets = NSEdgeInsetsMake(8, 12, 8, 12);
         header.identifier = @"map.header";
         [header addView:mw.summaryLabel inGravity:NSStackViewGravityLeading];
-        NSButton *logTable = smallButton(@"Log Table", @"The log as a table: sort, search and edit its QSOs", ^{ logtools::cmdLogTable(); });
-        toolbarIcon(logTable, @"tablecells");
-        logTable.identifier = @"map.logtable";
+        // The panels, beside the panes in the toolbar: on (blue) while each shows, as a window or a frame of
+        // the Operating Console; a click opens or closes it.
+        mw.panelButtons = [NSMutableArray array];
+        for (size_t i = 0; i < std::size(kPanels); ++i) {
+            const PanelButton &p = kPanels[i];
+            __block NSButton *me = nil;
+            NSButton *b = smallButton(p.title, p.tip, ^{
+                bool want = me.state == NSControlStateValueOn;  // what the click asks for: on opens it, off closes it
+                if (want != p.shown()) p.toggle();
+                syncPanelButtons();
+            });
+            me = b;
+            [b setButtonType:NSButtonTypePushOnPushOff];
+            toolbarIcon(b, p.symbol);
+            b.identifier = p.ident;
+            [mw.panelButtons addObject:b];
+        }
+        // Any window closed, shown or hidden, or made key: one of them, perhaps (a window hidden doesn't close).
+        for (NSNotificationName name in @[ ADIFPanelShownNotification, NSWindowWillCloseNotification, NSWindowDidChangeOcclusionStateNotification,
+                                           NSWindowDidBecomeKeyNotification ])
+            [[NSNotificationCenter defaultCenter] addObserverForName:name
+                                                              object:nil
+                                                               queue:nil
+                                                          usingBlock:^(NSNotification *) { dispatch_async(dispatch_get_main_queue(), ^{ syncPanelButtons(); }); }];
         NSButton *settings = smallButton(@"Settings", @"ADIF Lint's Settings: your station, the spot sources, park and map data", ^{ openSettings(-1); });
         toolbarIcon(settings, @"gearshape");
         settings.identifier = @"map.settings";
@@ -7544,8 +7597,7 @@ void cmdMap() {
         ADIFOnAction(mw.solarTile, ^{ showSolarPopover(); });
         [mw.solarTile setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
         fillSolarTile();
-        for (NSView *v in @[ mw.solarTile, mw.synced, mw.findField, mw.bell, logTable, styleButton, save, settings, help, mw.paneToggle[0], mw.paneToggle[1],
-                             mw.paneToggle[2] ])
+        for (NSView *v in @[ mw.solarTile, mw.synced, mw.findField, mw.bell, styleButton, save, settings, help ])
             [header addView:v inGravity:NSStackViewGravityTrailing];
         [header setVisibilityPriority:NSStackViewVisibilityPriorityDetachOnlyIfNecessary forView:mw.synced];  // the first to go when narrow
         [header setVisibilityPriority:NSStackViewVisibilityPriorityDetachOnlyIfNecessary - 1 forView:mw.solarTile];
@@ -7553,13 +7605,9 @@ void cmdMap() {
         fillSynced();
         [header setCustomSpacing:14 afterView:mw.findField];
         [header setCustomSpacing:20 afterView:mw.bell];
-        [header setCustomSpacing:6 afterView:logTable];
         [header setCustomSpacing:6 afterView:styleButton];
         [header setCustomSpacing:20 afterView:save];
         [header setCustomSpacing:6 afterView:settings];
-        [header setCustomSpacing:20 afterView:help];
-        [header setCustomSpacing:4 afterView:mw.paneToggle[0]];
-        [header setCustomSpacing:4 afterView:mw.paneToggle[1]];
 
         // The toolbar under the header: History or Live; what the map shows now (the QSOs and their
         // dates, or the stations spotted); the filters, the ones it can't show as tags; Clear.
@@ -7620,7 +7668,13 @@ void cmdMap() {
         [mw.focusButton setButtonType:NSButtonTypePushOnPushOff];
         toolbarIcon(mw.focusButton, @"arrow.up.left.and.arrow.down.right");
         mw.focusButton.identifier = @"map.toolbar.focus";
-        for (NSView *v in @[ cluster(@[ mw.operatingStyleBar, mw.operatingStyleMenu ]), mw.workflow, cluster(@[ mw.band, mw.mode, mw.dates, mw.confirmed, mw.dxccBar, mw.potaBar, mw.spotAgeBar, mw.spotSourceBar, mw.continentPopup, mw.moreFilters ]),
+        // New QSO, the Log Table and the panes: a group of their own at the right of the styles and workflows.
+        NSStackView *windowsAndPanes = cluster([mw.panelButtons arrayByAddingObjectsFromArray:@[ mw.paneToggle[0], mw.paneToggle[1], mw.paneToggle[2] ]]);
+        windowsAndPanes.identifier = @"map.toolbar.panes";
+        [windowsAndPanes setCustomSpacing:14 afterView:mw.panelButtons.lastObject];  // the panels, then the Map's own panes
+        toolbar.pinnedRight = windowsAndPanes;
+        syncPanelButtons();
+        for (NSView *v in @[ cluster(@[ mw.operatingStyleBar, mw.operatingStyleMenu ]), mw.workflow, windowsAndPanes, cluster(@[ mw.band, mw.mode, mw.dates, mw.confirmed, mw.dxccBar, mw.potaBar, mw.spotAgeBar, mw.spotSourceBar, mw.continentPopup, mw.moreFilters ]),
                              cluster(@[ mw.chips, mw.clearFilters ]), cluster(@[ keepView, copyButton, mw.focusButton ]) ])
             [toolbar addSubview:v];
 

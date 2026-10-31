@@ -709,12 +709,17 @@ void openAuxWindow(int item) {
         window.contentView = item == kDockContactMap ? [[ADIFContactMapView alloc] initWithFrame:NSMakeRect(0, 0, 360, 250)]
                                                      : [[ADIFQsoDetailsView alloc] initWithFrame:NSMakeRect(0, 0, 360, 250)];
         ADIFNightTrack(window);
+        [[NSNotificationCenter defaultCenter] addObserverForName:NSWindowWillCloseNotification  // closed (or its frame): the Map's button follows
+                                                          object:window
+                                                           queue:nil
+                                                      usingBlock:^(NSNotification *) { ADIFPanelShownChanged(); }];
         if (item == kDockContactMap) gContactMapWindow = window;
         else gQsoInfoWindow = window;
     }
     if (item == kDockQsoInfo) [(ADIFQsoDetailsView *)window.contentView show:gQsoDetails];
     else [window.contentView setNeedsDisplay:YES];
     [window makeKeyAndOrderFront:nil];
+    ADIFPanelShownChanged();
 }
 }  // namespace
 
@@ -1476,6 +1481,20 @@ bool qsoDetailsShown() { return gQsoInfoWindow && gQsoInfoWindow.visible; }
 void openContactMap() { openAuxWindow(kDockContactMap); }
 
 void openQsoInfo() { openAuxWindow(kDockQsoInfo); }
+
+bool contactMapShown() { return gContactMapWindow && gContactMapWindow.visible; }
+
+void toggleContactMap() {
+    if (!contactMapShown()) return openContactMap();
+    [gContactMapWindow performClose:nil];  // docked: its frame closes
+    ADIFPanelShownChanged();
+}
+
+void toggleQsoDetails() {
+    if (!qsoDetailsShown()) return openQsoInfo();
+    [gQsoInfoWindow performClose:nil];
+    ADIFPanelShownChanged();
+}
 
 void setOpener(int item, std::function<void()> open) {
     if (item > kDockNone && item < kDockCount) gOpeners[item] = std::move(open);

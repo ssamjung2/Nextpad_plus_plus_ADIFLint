@@ -1762,7 +1762,6 @@
   "The last record is not ended by <EOR>, so importers may drop it (§IV.A.6).": "El último registro no termina con <EOR>, así que los programas que importan pueden descartarlo (§IV.A.6).",
   "The lines from the spotters (the Spots layer's Overlay). The spot under the pointer always shows its lines in its own colour": "Las líneas desde los spotters (la Capa de la capa Spots). El spot bajo el puntero siempre muestra sus líneas en su propio color",
   "The list's Spots: every station spotted in view": "Los spots de la lista: cada estación anunciada a la vista",
-  "The log as a table: sort, search and edit its QSOs": "El log como tabla: ordenar, buscar y editar sus QSO",
   "The log as it first shows: worked grid squares, DXCC entities and POTA parks": "El log tal como se muestra al principio: cuadrículas, entidades DXCC y parques POTA trabajados",
   "The log changed since the list was made; it has been checked again.": "El log cambió desde que se hizo la lista; se ha comprobado de nuevo.",
   "The log changed since the preview. Preview again.": "El log cambió desde la vista previa. Vuelve a ver la vista previa.",
@@ -3142,6 +3141,11 @@
   "{n} setting differs from its defaults (Save keeps them, Reset undoes them):|{n} settings differ from its defaults (Save keeps them, Reset undoes them):": {
    "one": "{n} ajuste difiere de sus valores predeterminados (Guardar lo conserva, Restablecer lo deshace):",
    "other": "{n} ajustes difieren de sus valores predeterminados (Guardar los conserva, Restablecer los deshace):"
-  }
+  },
+  "The log as a table: sort, search and edit its QSOs (on while it shows; click again to close it)": "El log como tabla: ordenar, buscar y editar sus QSO (activado mientras se muestra; vuelva a hacer clic para cerrarlo)",
+  "Activations & Spots: the activators and stations spotted now, as a table (on while it shows; click again to close it)": "Activaciones y spots: los activadores y estaciones anunciados ahora, en una tabla (activado mientras se muestra; vuelva a hacer clic para cerrarlo)",
+  "Contact Map: where New QSO's contact is, from your station (on while it shows; click again to close it)": "Mapa del contacto: dónde está el contacto de Nuevo QSO, desde su estación (activado mientras se muestra; vuelva a hacer clic para cerrarlo)",
+  "New QSO: log a contact (on while it shows; click again to close it)": "Nuevo QSO: registrar un contacto (activado mientras se muestra; vuelva a hacer clic para cerrarlo)",
+  "QSO Details: who New QSO's contact is, why it's worth having, and your QSOs with the call (on while it shows; click again to close it)": "Detalles del QSO: quién es el contacto de Nuevo QSO, por qué vale la pena y sus QSO con el indicativo (activado mientras se muestra; vuelva a hacer clic para cerrarlo)"
  }
 }

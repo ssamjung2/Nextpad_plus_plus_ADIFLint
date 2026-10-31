@@ -89,6 +89,7 @@
 #include <string>
 #include <vector>
 
+
 #ifndef ADIFLINT_VERSION
 #define ADIFLINT_VERSION "1.7.0"
 #endif
@@ -596,6 +597,12 @@ std::vector<std::string> openFiles(bool *known) {
 }
 
 void openNewQso() { cmdNewQso(); }
+bool newQsoShown() { return qsoVisible(); }
+void toggleNewQso() {
+    if (!qsoVisible()) return cmdNewQso();
+    [g.qso.window performClose:nil];  // docked: its frame closes
+    ADIFPanelShownChanged();
+}
 
 void stationChanged() {
     if (!qsoVisible()) return;
@@ -1978,6 +1985,10 @@ static void showQsoRows(NppHandle h, const adif::LintResult &r) {
         }
         g.qso.onLog = ^{ logQso(); };
         g.qso.onAid = ^(NSString *action, NSInteger row) { aidPressed(action, row); };
+        [[NSNotificationCenter defaultCenter] addObserverForName:NSWindowWillCloseNotification  // closed (or its frame): the Map's button follows
+                                                          object:g.qso.window
+                                                           queue:nil
+                                                      usingBlock:^(NSNotification *) { ADIFPanelShownChanged(); }];
         [[NSNotificationCenter defaultCenter] addObserverForName:ADIFOperatingStyleChangedNotification
                                                           object:nil
                                                            queue:nil
@@ -2729,6 +2740,7 @@ static void cmdNewQso() {
         [g.qso show];
         [g.qso focusField:"CALL"];
         scheduleQsoCheck();
+        ADIFPanelShownChanged();
     } catch (...) {
     }
 }

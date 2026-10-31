@@ -58,6 +58,11 @@ void ADIFSuggestAsYouType(NSComboBox *box, ADIFSuggestBlock suggest);
 // Run `block` when the control sends its action (popup choice, checkbox click,
 // search text...). The control keeps the block alive.
 void ADIFOnAction(NSControl *control, void (^block)(void));
+// A window that can be a frame of the Operating Console opened or closed (New QSO, the Log Table,
+// Activations & Spots, the Contact Map, QSO Details): ADIFPanelShownChanged posts
+// ADIFPanelShownNotification, once for a run of changes, so the Map's toolbar buttons follow.
+extern NSString *const ADIFPanelShownNotification;
+void ADIFPanelShownChanged(void);
 // A click on a view that isn't a control (a label, say) runs the block.
 void ADIFOnClick(NSView *view, void (^block)(void));
 // The same for a menu item.

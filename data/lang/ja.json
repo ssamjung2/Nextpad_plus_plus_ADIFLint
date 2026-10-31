@@ -1750,7 +1750,6 @@
   "The last record is not ended by <EOR>, so importers may drop it (§IV.A.6).": "最後のレコードが <EOR> で終わっていないため、インポートするソフトが捨ててしまうことがあります (§IV.A.6)。",
   "The lines from the spotters (the Spots layer's Overlay). The spot under the pointer always shows its lines in its own colour": "スポッターからの線 (スポットレイヤーの「オーバーレイ」)。ポインターの下のスポットは常に自分の色で線を表示します",
   "The list's Spots: every station spotted in view": "一覧のスポット: 表示範囲でスポットされたすべての局",
-  "The log as a table: sort, search and edit its QSOs": "表形式のログ: QSOの並べ替え、検索、編集",
   "The log as it first shows: worked grid squares, DXCC entities and POTA parks": "最初に表示されるログ: 交信したグリッドスクエア、DXCCエンティティ、POTA公園",
   "The log changed since the list was made; it has been checked again.": "一覧を作った後でログが変わったため、もう一度チェックしました。",
   "The log changed since the preview. Preview again.": "プレビューの後でログが変わりました。もう一度プレビューしてください。",
@@ -3045,6 +3044,11 @@
   "{style}: these settings are now its own defaults": "{style}: この設定が既定値になりました",
   "{n} setting differs from its defaults (Save keeps them, Reset undoes them):|{n} settings differ from its defaults (Save keeps them, Reset undoes them):": {
    "other": "既定値と違う設定 {n} 件 (保存で残し、リセットで戻す):"
-  }
+  },
+  "The log as a table: sort, search and edit its QSOs (on while it shows; click again to close it)": "表形式のログ: QSOの並べ替え、検索、編集 (表示中はオン。もう一度クリックで閉じる)",
+  "Activations & Spots: the activators and stations spotted now, as a table (on while it shows; click again to close it)": "アクティベーションとスポット: 今スポットされているアクティベーターと局の表 (表示中はオン。もう一度クリックで閉じる)",
+  "Contact Map: where New QSO's contact is, from your station (on while it shows; click again to close it)": "コンタクトマップ: 新規 QSO の相手の位置 (自局から) (表示中はオン。もう一度クリックで閉じる)",
+  "New QSO: log a contact (on while it shows; click again to close it)": "新規 QSO: 交信を記録 (表示中はオン。もう一度クリックで閉じる)",
+  "QSO Details: who New QSO's contact is, why it's worth having, and your QSOs with the call (on while it shows; click again to close it)": "QSO の詳細: 新規 QSO の相手、交信する価値、そのコールサインとの QSO (表示中はオン。もう一度クリックで閉じる)"
  }
 }

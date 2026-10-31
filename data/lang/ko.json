@@ -1750,7 +1750,6 @@
   "The last record is not ended by <EOR>, so importers may drop it (§IV.A.6).": "마지막 레코드가 <EOR>로 끝나지 않아 가져오는 프로그램이 버릴 수 있습니다 (§IV.A.6).",
   "The lines from the spotters (the Spots layer's Overlay). The spot under the pointer always shows its lines in its own colour": "스포터에서 오는 선(스팟 레이어의 오버레이). 포인터 아래의 스팟은 항상 자기 색으로 선을 보여 줍니다",
   "The list's Spots: every station spotted in view": "목록의 스팟: 보이는 곳에서 스팟된 모든 국",
-  "The log as a table: sort, search and edit its QSOs": "표로 보는 로그: QSO 정렬, 검색, 편집",
   "The log as it first shows: worked grid squares, DXCC entities and POTA parks": "처음 표시되는 로그: 교신한 그리드 스퀘어, DXCC 엔티티, POTA 공원",
   "The log changed since the list was made; it has been checked again.": "목록을 만든 뒤 로그가 바뀌어 다시 검사했습니다.",
   "The log changed since the preview. Preview again.": "미리 보기 이후 로그가 바뀌었습니다. 다시 미리 보세요.",
@@ -3045,6 +3044,11 @@
   "{style}: these settings are now its own defaults": "{style}: 이 설정이 이제 기본값입니다",
   "{n} setting differs from its defaults (Save keeps them, Reset undoes them):|{n} settings differ from its defaults (Save keeps them, Reset undoes them):": {
    "other": "기본값과 다른 설정 {n}개 (저장하면 유지, 초기화하면 되돌림):"
-  }
+  },
+  "The log as a table: sort, search and edit its QSOs (on while it shows; click again to close it)": "표로 보는 로그: QSO 정렬, 검색, 편집 (보이는 동안 켜짐, 다시 클릭하면 닫힘)",
+  "Activations & Spots: the activators and stations spotted now, as a table (on while it shows; click again to close it)": "액티베이션과 스팟: 지금 스팟된 액티베이터와 국을 표로 (보이는 동안 켜짐, 다시 클릭하면 닫힘)",
+  "Contact Map: where New QSO's contact is, from your station (on while it shows; click again to close it)": "교신 상대 지도: 새 QSO 상대가 내 국에서 어디에 있는지 (보이는 동안 켜짐, 다시 클릭하면 닫힘)",
+  "New QSO: log a contact (on while it shows; click again to close it)": "새 QSO: 교신 기록 (보이는 동안 켜짐, 다시 클릭하면 닫힘)",
+  "QSO Details: who New QSO's contact is, why it's worth having, and your QSOs with the call (on while it shows; click again to close it)": "QSO 상세: 새 QSO 상대가 누구인지, 왜 교신할 만한지, 그 호출 부호와의 QSO (보이는 동안 켜짐, 다시 클릭하면 닫힘)"
  }
 }
