@@ -1,4 +1,5 @@
 #import "MapView.h"
+#import "Theme.h"
 #import "L10n.h"
 
 #import "IotaGroups.h"
@@ -1566,7 +1567,7 @@ bool mapkit::potaSpot(const adif::Spot &s) { return s.program == "POTA"; }
     char bearing[16];
     snprintf(bearing, sizeof bearing, "%.0f\u00B0", adif::initialBearing(_homeLat, _homeLon, lat, lon));
     NSString *text = ADIFString(adif::distanceText(km, self.scaleInMiles) + "  \u00B7  " + bearing);
-    NSDictionary *a = @{NSFontAttributeName : [NSFont monospacedDigitSystemFontOfSize:10 * _style.textScale weight:NSFontWeightSemibold],
+    NSDictionary *a = @{NSFontAttributeName : theme::digits(10 * _style.textScale, NSFontWeightSemibold),
                         NSForegroundColorAttributeName : NSColor.whiteColor};
     NSSize sz = [text sizeWithAttributes:a];
     NSRect card = NSMakeRect(m.x - sz.width / 2 - 5, m.y - sz.height / 2 - 2, sz.width + 10, sz.height + 4);

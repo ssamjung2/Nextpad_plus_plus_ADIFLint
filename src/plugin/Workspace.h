@@ -6,12 +6,14 @@
 
 #import <Cocoa/Cocoa.h>
 
+#import "Theme.h"
+
 #include <functional>
 #include <string>
 #include <utility>
 #include <vector>
 
-enum ADIFDockItem { kDockNone = 0, kDockMap, kDockLog, kDockNewQso, kDockSpots, kDockContactMap, kDockQsoInfo, kDockCount };
+enum ADIFDockItem { kDockNone = 0, kDockMap, kDockLog, kDockNewQso, kDockSpots, kDockContactMap, kDockQsoInfo, kDockMapStyle, kDockCount };
 
 @protocol ADIFDockable <NSObject>
 @property(nonatomic) int dockItem;                   // an ADIFDockItem; kDockNone: never docks
@@ -21,17 +23,32 @@ enum ADIFDockItem { kDockNone = 0, kDockMap, kDockLog, kDockNewQso, kDockSpots, 
 namespace workspace {
 
 bool active();  // the layout's window is open
-// The menu command: open the layout, or close it. open() puts up the window and shows each item
-// it holds (through setOpener); they dock themselves.
+// The menu command: open the layout, or close it. open() puts up the window and shows each panel
+// it holds (through Panels.h, as the Panels menu would); they dock themselves.
 bool open();  // false when New QSO would not open (it says why) and the layout is not
 bool openActivation();  // the activation preset: New QSO and its log, spots, contact map and details
 bool openLogging();  // restore the focused New QSO, interactive Map and Log Table layout
+bool openContest();  // the Contest layout: New QSO over the log, the Map beside them
 void abandon();
 void close();
 NSMenuItem *optionsMenuItem();
+// A panel's panes (the Map's "sidebar", "list", "selected") as the console's arrangement keeps
+// them, saved with your layouts: shown unless hidden.
+bool paneShown(const char *panel, const char *pane);
+void setPane(const char *panel, const char *pane, bool shown);
+// Operating styles arrange the panels (docs/WINDOWING_ARCHITECTURE.md, "Operating styles as
+// profiles"; the Map's style menu, Arrange Panels, on at first): a style chosen, or reset, puts
+// the console in its layout (its own from Save, else its built-in one), opening the console when
+// it is closed. A field being typed in keeps the keyboard.
+bool stylesArrange();
+void setStylesArrange(bool on);
+void styleChosen(const std::string &style);        // a style's id ("social"); empty: none, nothing moves
+void keepStyleLayout(const std::string &style);    // Save: the console as it is now, when it is open
+void forgetStyleLayout(const std::string &style);  // Use Recommended Defaults: its built-in layout again
+bool styleLayoutDiffers(const std::string &style);  // the console open in another shape than the style's
+void restoreBeforeStyle();                          // Restore Previous Layout: the console as it was
+std::string styleLayoutName(const std::string &style);  // for Info, translated
 void retitleMenu();
-// How an item's window is created and shown (its menu command), for a frame's item choice.
-void setOpener(int item, std::function<void()> open);
 // Told when the layout opens or closes.
 void setOnChange(std::function<void(bool active)> onChange);
 // The status bar's text (the log, what was last done); the UTC time sits beside it.
@@ -102,6 +119,10 @@ NSView *content(NSWindow<ADIFDockable> *window);
         return _dockHost ? [_dockHost makeFirstResponder:responder] : [super makeFirstResponder:responder];    \
     }                                                                                                          \
     -(NSScreen *)screen { return _dockHost ? _dockHost.screen : [super screen]; }                              \
+    -(void)orderWindow : (NSWindowOrderingMode)place relativeTo : (NSInteger)other {                           \
+        if (place != NSWindowOut) theme::host(self); /* themed by being shown, with no call of its own */      \
+        [super orderWindow:place relativeTo:other];                                                            \
+    }                                                                                                          \
     -(void)setTitle : (NSString *)title {                                                                      \
         [super setTitle:title];                                                                                \
         workspace::retitle(self);                                                                              \

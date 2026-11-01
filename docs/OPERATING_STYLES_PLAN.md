@@ -560,6 +560,10 @@ toolbar (Stage 2); they are still open to review.
   Stage 7's "use my current layout as this style's default" (`saveMine`, `startingPoint` in
   `adif_styles`); **Info** replaces What Changed and holds Restore Previous Layout and Use
   Recommended Defaults.
+- **Stage 6, cross-window orchestration (2026-11-01, with the windowing plan's Phase D):** each
+  style arranges the Operating Console (its built-in layout, or its own after Save), with the
+  opt-out **Arrange Panels**; Restore Previous Layout and Use Recommended Defaults cover the
+  panels too; a field being typed in keeps the keyboard.
 - **Next:** Stage 4 (Chasing: ranked, explained opportunities).
 
 ## Initial backlog

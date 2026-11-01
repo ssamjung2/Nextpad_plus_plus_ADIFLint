@@ -14,5 +14,8 @@ extern NSString *const ADIFNightModeChangedNotification;
 
 // An ADIF Lint window, or popover: red now if Night Mode is on, and whenever it changes. Held
 // weakly; a window or popover that goes away is forgotten.
+// Through Theme.h's host and hostPopover; a window docked in the Operating Console takes the
+// console's tint (one filter for all its frames), not one of its own.
 void ADIFNightTrack(NSWindow *window);
 void ADIFNightTrackPopover(NSPopover *popover);
+void ADIFNightRetint(NSWindow *window);  // docked or undocked just now

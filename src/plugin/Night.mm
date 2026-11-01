@@ -2,6 +2,7 @@
 
 #import <CoreImage/CoreImage.h>
 
+#import "Workspace.h"
 #include "PluginHost.h"
 
 NSString *const ADIFNightModeChangedNotification = @"ADIFNightModeChanged";
@@ -33,9 +34,12 @@ void tint(NSView *v, BOOL on) {
     }
 }
 
+// Docked, its content is in the console's window, under the console's own filter: none of its own.
+BOOL docked(NSWindow *w) { return [w conformsToProtocol:@protocol(ADIFDockable)] && ((id<ADIFDockable>)w).dockHost != nil; }
+
 void tintWindow(NSWindow *w, BOOL on) {
     w.appearance = on ? [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua] : nil;
-    tint(w.contentView, on);
+    tint(w.contentView, on && !docked(w));
 }
 
 void tintPopover(NSPopover *p, BOOL on) {
@@ -55,14 +59,19 @@ void ADIFSetNightMode(BOOL on) {
 }
 
 void ADIFNightTrack(NSWindow *window) {
-    if (!window) return;
+    if (!window || [gWindows containsObject:window]) return;
     if (!gWindows) gWindows = [NSHashTable weakObjectsHashTable];
     [gWindows addObject:window];
     if (ADIFNightMode()) tintWindow(window, YES);
 }
 
+void ADIFNightRetint(NSWindow *window) {
+    if (window && [gWindows containsObject:window]) tintWindow(window, ADIFNightMode());
+}
+
 void ADIFNightTrackPopover(NSPopover *popover) {
     if (!popover) return;
+    if ([gPopovers containsObject:popover]) return tintPopover(popover, ADIFNightMode());  // its view may be new
     if (!gPopovers) gPopovers = [NSHashTable weakObjectsHashTable];
     [gPopovers addObject:popover];
     if (ADIFNightMode()) tintPopover(popover, YES);

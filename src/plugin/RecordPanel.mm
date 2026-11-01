@@ -1,4 +1,5 @@
 #import "RecordPanel.h"
+#import "Theme.h"
 #import "L10n.h"
 #import "ToolWindow.h"
 
@@ -51,7 +52,7 @@ static NSButton *symbolButton(NSString *symbol, NSString *fallback, NSString *ti
 
     // The log in one line (small, so it never reads as the title).
     _health = [NSTextField labelWithString:@""];
-    _health.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    _health.font = theme::small();
     _health.lineBreakMode = NSLineBreakByTruncatingTail;
     _health.translatesAutoresizingMaskIntoConstraints = NO;
     [_health setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
@@ -99,7 +100,7 @@ static NSButton *symbolButton(NSString *symbol, NSString *fallback, NSString *ti
     scroll.translatesAutoresizingMaskIntoConstraints = NO;
 
     _footer = [NSTextField wrappingLabelWithString:@""];
-    _footer.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    _footer.font = theme::small();
     _footer.maximumNumberOfLines = 4;
     _footer.translatesAutoresizingMaskIntoConstraints = NO;
     [_footer setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
@@ -252,7 +253,7 @@ static NSButton *symbolButton(NSString *symbol, NSString *fallback, NSString *ti
             f.identifier = @"pos.cell";
             f.alignment = NSTextAlignmentRight;
             f.textColor = NSColor.secondaryLabelColor;
-            f.font = [NSFont monospacedDigitSystemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightRegular];
+            f.font = theme::digits(NSFont.smallSystemFontSize, NSFontWeightRegular);
         }
         f.stringValue = [NSString stringWithFormat:@"%ld", (long)model + 1];
         return f;
@@ -275,7 +276,7 @@ static NSButton *symbolButton(NSString *symbol, NSString *fallback, NSString *ti
             f = [NSTextField labelWithString:@""];
             f.identifier = @"note.cell";
             f.lineBreakMode = NSLineBreakByTruncatingTail;
-            f.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+            f.font = theme::small();
         }
         f.stringValue = ADIFString(r.note);
         f.textColor = severityColor(r.severity);

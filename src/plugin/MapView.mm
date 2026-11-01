@@ -1,4 +1,5 @@
 #import "MapView.h"
+#import "Theme.h"
 #import "Solar.h"
 #include "adif_beacons.h"
 
@@ -1210,7 +1211,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     halo.shadowColor = [NSColor colorWithCalibratedWhite:pal.dark ? 0 : 1 alpha:0.9];
     halo.shadowBlurRadius = 2;
     halo.shadowOffset = NSZeroSize;
-    NSDictionary *font = @{NSFontAttributeName : [NSFont monospacedDigitSystemFontOfSize:9.5 * _style.textScale weight:NSFontWeightRegular], NSForegroundColorAttributeName : ink,
+    NSDictionary *font = @{NSFontAttributeName : theme::digits(9.5 * _style.textScale, NSFontWeightRegular), NSForegroundColorAttributeName : ink,
                            NSShadowAttributeName : halo};
     NSBezierPath *bar = [NSBezierPath bezierPath];
     [bar moveToPoint:NSMakePoint(x0, y0)];
@@ -1249,9 +1250,9 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     CGFloat ts = _style.textScale;
     NSColor *ink = [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.92];
     NSColor *soft = [NSColor colorWithCalibratedWhite:pal.dark ? 1 : 0 alpha:0.6];
-    NSDictionary *big = @{NSFontAttributeName : [NSFont monospacedDigitSystemFontOfSize:15 * ts weight:NSFontWeightSemibold], NSForegroundColorAttributeName : ink};
+    NSDictionary *big = @{NSFontAttributeName : theme::digits(15 * ts, NSFontWeightSemibold), NSForegroundColorAttributeName : ink};
     NSDictionary *unit = @{NSFontAttributeName : [NSFont systemFontOfSize:10.5 * ts], NSForegroundColorAttributeName : ink};
-    NSDictionary *small = @{NSFontAttributeName : [NSFont monospacedDigitSystemFontOfSize:10 * ts weight:NSFontWeightRegular], NSForegroundColorAttributeName : soft};
+    NSDictionary *small = @{NSFontAttributeName : theme::digits(10 * ts, NSFontWeightRegular), NSForegroundColorAttributeName : soft};
     NSString *number = [NSString stringWithFormat:@"%d", _spotsLastMinute];
     NSString *per = ADIFString(" " + tr("spots/min"));
     NSString *average = ADIFString(trf("5-minute average: {n}/min", {{"n", [NSString stringWithFormat:@"%.1f", _spotsAvg5].UTF8String}}));

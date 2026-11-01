@@ -4,6 +4,7 @@
 #include "adif_json.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -405,11 +406,9 @@ std::string write(const Arrangement &a) {
     return out + "}}";
 }
 
-std::optional<Arrangement> read(std::string_view text, std::string *why) {
-    std::string ignored;
-    std::string &w = why ? *why : ignored;
-    json::Value v;
-    if (!json::parse(text, &v, &w, 100'000)) return std::nullopt;
+namespace {
+
+std::optional<Arrangement> readValue(const json::Value &v, std::string &w) {
     if (!v.isObject()) return w = "not an object", std::nullopt;
     const json::Value *version = v.get("v");
     if (!version || !version->isNumber() || version->number != kVersion) return w = "another version", std::nullopt;
@@ -438,10 +437,103 @@ std::optional<Arrangement> read(std::string_view text, std::string *why) {
     return tidy(a);
 }
 
+}  // namespace
+
+std::optional<Arrangement> read(std::string_view text, std::string *why) {
+    std::string ignored;
+    std::string &w = why ? *why : ignored;
+    json::Value v;
+    if (!json::parse(text, &v, &w, 100'000)) return std::nullopt;
+    return readValue(v, w);
+}
+
+std::string cleanName(std::string_view name) {
+    std::string out;
+    for (char c : name) out += c == '\n' || c == '\r' || c == '\t' ? ' ' : c;
+    size_t a = out.find_first_not_of(' '), b = out.find_last_not_of(' ');
+    out = a == std::string::npos ? std::string() : out.substr(a, b - a + 1);
+    size_t chars = 0, at = 0;
+    for (; at < out.size(); ++at) {
+        if (((unsigned char)out[at] & 0xC0) == 0x80) continue;  // a UTF-8 character's continuation
+        if (++chars > 60) break;
+    }
+    out.resize(at);
+    b = out.find_last_not_of(' ');
+    return b == std::string::npos ? std::string() : out.substr(0, b + 1);
+}
+
+bool sameName(std::string_view a, std::string_view b) {
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); ++i)
+        if (std::tolower((unsigned char)a[i]) != std::tolower((unsigned char)b[i])) return false;
+    return true;
+}
+
+std::string writeNamed(const std::vector<Named> &list) {
+    std::string out = "{\"v\":" + std::to_string(kVersion) + ",\"layouts\":[";
+    for (size_t i = 0; i < list.size(); ++i) out += std::string(i ? "," : "") + "{\"name\":" + quote(list[i].name) + ",\"layout\":" + write(list[i].arrangement) + "}";
+    return out + "]}";
+}
+
+std::vector<Named> readNamed(std::string_view text) {
+    std::vector<Named> out;
+    json::Value v;
+    std::string why;
+    if (!json::parse(text, &v, &why, 1'000'000) || !v.isObject()) return out;
+    const json::Value *version = v.get("v"), *list = v.get("layouts");
+    if (!version || !version->isNumber() || version->number != kVersion || !list || !list->isArray() || list->stride) return out;
+    for (const json::Value &e : list->items) {
+        const json::Value *name = e.isObject() ? e.get("name") : nullptr, *layout = e.isObject() ? e.get("layout") : nullptr;
+        if (!name || !name->isString() || !layout) continue;
+        std::string clean = cleanName(name->text);
+        std::optional<Arrangement> a = readValue(*layout, why);
+        if (clean.empty() || !a || findNamed(out, clean)) continue;
+        out.push_back({clean, *a});
+    }
+    return out;
+}
+
+const Named *findNamed(const std::vector<Named> &list, std::string_view name) {
+    for (const Named &n : list)
+        if (sameName(n.name, name)) return &n;
+    return nullptr;
+}
+
+std::vector<Named> saveNamed(std::vector<Named> list, std::string_view name, const Arrangement &a) {
+    std::string clean = cleanName(name);
+    if (clean.empty()) return list;
+    for (Named &n : list)
+        if (sameName(n.name, clean)) {
+            n = {clean, tidy(a)};
+            return list;
+        }
+    list.push_back({clean, tidy(a)});
+    return list;
+}
+
+std::vector<Named> removeNamed(std::vector<Named> list, std::string_view name) {
+    list.erase(std::remove_if(list.begin(), list.end(), [&](const Named &n) { return sameName(n.name, name); }), list.end());
+    return list;
+}
+
 const std::vector<Preset> &presets() {
     static const std::vector<Preset> all = [] {
         std::vector<Preset> out;
         for (const LegacyPreset &l : legacyPresets()) out.push_back({l.id, l.name, fill(l.tree, l.items)});
+        // The operating styles' layouts (OPERATING_STYLES_PLAN.md, Stage 6), by the styles' ids.
+        auto add = [&](const char *id, const char *name, Node console) {
+            Arrangement a;
+            a.console = std::move(console);
+            out.push_back({id, name, tidy(a)});
+        };
+        add("social", N_("Social: the Map, with New QSO and QSO Details beside it"),
+            row({stack({kMap}, 0.6), column({stack({kNewQso}, 0.6), stack({kQsoDetails}, 0.4)}, 0.4)}));
+        add("chasing", N_("Chasing: the Map over the spots, New QSO beside them"),
+            row({column({stack({kMap}, 0.62), stack({kSpots}, 0.38)}, 0.64), stack({kNewQso}, 0.36)}));
+        add("contest", N_("Contest: New QSO over the log, the Map beside them"),
+            row({column({stack({kNewQso}, 0.55), stack({kLogTable}, 0.45)}, 0.4), stack({kMap}, 0.6)}));
+        add("portable", N_("Portable: New QSO, with the Map over the log beside it"),
+            row({stack({kNewQso}, 0.36), column({stack({kMap}, 0.6), stack({kLogTable}, 0.4)}, 0.64)}));
         return out;
     }();
     return all;

@@ -56,6 +56,7 @@ bool openFile(const std::string &path, bool newQso);
 // false when the host doesn't say (an older Nextpad++): then nothing can be ruled out.
 std::vector<std::string> openFiles(bool *known);
 void openNewQso();      // New QSO on the active document
+void openQsoDetails();  // QSO Details, worked out for New QSO's contact as it opens
 bool newQsoShown();     // New QSO is open (its window, or its frame in the Operating Console)
 void toggleNewQso();    // open it, or close it when it shows (the Map's toolbar button)
 void stationChanged();  // the station profile or activation changed: New QSO follows

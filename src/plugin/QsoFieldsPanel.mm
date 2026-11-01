@@ -1,4 +1,5 @@
 #import "QsoFieldsPanel.h"
+#import "Theme.h"
 #import "Night.h"
 #import "L10n.h"
 #import "ToolWindow.h"
@@ -61,7 +62,7 @@ static NSScrollView *scrolling(NSTableView *t) {
                                            backing:NSBackingStoreBuffered
                                              defer:YES];
     _window.title = T(@"New QSO Fields");
-    ADIFNightTrack(_window);
+    theme::host(_window);
     _window.floatingPanel = YES;
     _window.hidesOnDeactivate = YES;
     _window.releasedWhenClosed = NO;
@@ -97,7 +98,7 @@ static NSScrollView *scrolling(NSTableView *t) {
     _add = [NSButton buttonWithTitle:T(@"Add to New QSO") target:self action:@selector(addSelected:)];
     _count = [NSTextField labelWithString:@""];
     _count.textColor = NSColor.secondaryLabelColor;
-    _count.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    _count.font = theme::small();
     NSStackView *rightButtons = [NSStackView stackViewWithViews:@[ _add, _count ]];
 
     _carry = [NSButton checkboxWithTitle:T(@"Also copy this station's details from the last record when they aren't listed")
@@ -257,13 +258,13 @@ static NSScrollView *scrolling(NSTableView *t) {
         std::string type = info.type;
         if (info.hasValues && type != "Enumeration" && type != "Boolean") type += ", list";
         f.stringValue = ADIFString(type);
-        f.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        f.font = theme::small();
         f.textColor = NSColor.secondaryLabelColor;
     } else {
         std::string text = info.brief;
         if (tableView == _table && required(name)) text = tr("Required.") + " " + text;
         f.stringValue = ADIFString(text);
-        f.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        f.font = theme::small();
         f.textColor = NSColor.secondaryLabelColor;
     }
     NSString *tip = ADIFString(info.details.empty() ? info.brief : info.details);

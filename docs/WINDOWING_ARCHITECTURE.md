@@ -1,7 +1,7 @@
 # Windowing and UI Architecture
 
-Status: **accepted direction** (2026-10-31), every decision made (see the end).
-Nothing here is built yet beyond what "Where we are" describes.
+Status: **accepted direction** (2026-10-31), every decision made (see the end); phases A to F
+built (2026-11-01, see Progress). "Where we are" describes the starting point.
 
 ## Purpose
 
@@ -275,11 +275,41 @@ alone doesn't express); panes inside a panel may use `NSSplitViewItem` where it 
   one panel. Dropping a frame on another's header makes it a tab there (`moveToTab`); on its
   body the two swap. Divider drags are saved as shares; the old per-split autosaved sizes are
   no longer read, so sizes start afresh once. The tree is rebuilt only when its shape changes.
-  Choosing a layout always applies it, the ticked one too. Not yet: a keyboard and VoiceOver
-  way to make a tab (the header's menu only swaps); the Panels menu and the frames' menus
-  through one command table.
-  Next (Phase C): the Layouts menu (Save Layout As…, your own layouts) and the Map's panes in
-  the arrangement.
+  Choosing a layout always applies it, the ticked one too.
+- **Phase B, complete** (2026-10-31): each frame's actions menu (Add Tab, Move to Its Own
+  Frame, Close), so every drag has a command for the keyboard and VoiceOver; the console's
+  frame menus, panel names and openers come from the registry (`setOpener` and the console's
+  own names retired), and QSO Details is worked out as it opens however it is opened.
+- **Phase C** (2026-10-31): your own layouts (`adif::layout::Named`; kept as `consoleLayouts`,
+  read entry by entry so one broken entry loses only itself): Save Layout As... (a sheet on the
+  console; the frame sizes recorded as shares; a name you have used is replaced) and Delete
+  Layout, in Console Layout Options after the built-in layouts. The Map's panes are kept in the
+  arrangement (`workspace::paneShown`/`setPane`); `mapSidebar`, `mapList` and `mapSelected` are
+  moved in once and cleared. A built-in layout keeps the panes as they are; yours brings its own.
+- **Phase D** (2026-11-01): styles arrange the panels. Each style has a built-in layout (presets
+  `social`, `chasing`, `contest`, `portable`) and, after Save, its own (`consoleStyleLayout<Style>`).
+  Choosing a style or Reset applies it through the console (opening it when closed), unless
+  **Arrange Panels** (`stylesArrangePanels`) is off; Restore Previous Layout re-applies the
+  console's arrangement from before (when it was open); Use Recommended Defaults forgets the
+  style's own. The field being typed in keeps the keyboard. Start Logging, Start Activation and
+  Start Contest are profiles (`openProfile`: a layout and their own set-up); Start Contest now
+  uses the Contest layout. The Map's list is hidden beside the spots' table as beside the Log
+  Table, and the Map's least height includes its list where it shows.
+- **Phase E** (2026-11-01): `src/plugin/Theme.{h,mm}`: spacing (`kMargin`, `kSpacing`; the
+  older `kADIFMargin` and `kADIFSpacing` are these), type (`small`, `body`, `digits`: the 91
+  hand-set small and monospaced-digit fonts now use them), colours (`styleAccent`, `fine`,
+  `warning`, `error`, `faint`) and hosting. A window that docks is hosted when it shows
+  (`orderWindow:relativeTo:` in `ADIF_DOCKABLE_WINDOW`), with no call of its own; docked, it takes
+  the console's look (`theme::rehost` on dock and undock). That fixed a double Night Mode tint
+  on every docked panel. Popovers are hosted through `theme::hostPopover` (two were missed
+  before). Not yet: the semantic colours at the older call sites, which keep the system colours
+  they name.
+- **Phase F** (2026-11-01): Settings is a window of its own (`settings.window`, "ADIF Lint
+  Settings"), no longer a card in the Map; Settings... no longer opens the Map. **Map Style** (the
+  Style Options card) is an operating panel: registry id `mapstyle`, dock item `kDockMapStyle`,
+  an `ADIFDockPanel` made with the Map, opened by the Map's palette button and the Panels menu,
+  dockable as a tab beside the Map. Not yet: Settings' sections as panels of their own, and
+  Operating Aids as a panel (section 8), for when they are wanted.
 
 ## Plan
 

@@ -9,6 +9,29 @@ Versions before 0.8.0 were development builds and were not published.
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-11-01
+
+### Added
+
+- Operating Console: an actions menu (**⋯**) in each frame's header: **Add Tab** puts any panel in the frame as a tab (from another frame, or opened into it), **Move to Its Own Frame** gives the tab in front a frame of its own again (a drag couldn't), and **Close** closes it. Everything a drag does can now be done from the keyboard and with VoiceOver.
+- Operating styles **arrange the panels** (Arrange Panels in the styles' menu, on at first): choosing a style, or Reset, puts the Operating Console in the style's layout, opening it when it is closed. Social: the Map with New QSO and QSO Details; Chasing: the Map over the spots, New QSO beside; Contest: New QSO over the log, the Map beside; Portable: New QSO, the Map over the log beside it. Save keeps the console's arrangement as the style's own as well (Info's "Its panels" says which), Restore Previous Layout puts the panels back, and Use Recommended Defaults brings back the style's layout. A field you are typing in keeps the keyboard. The four layouts are in Console Layout Options too.
+- Operating Console: **your own layouts**. **Save Layout As...** in Console Layout Options keeps the console as it is (its panels, tabs and frame sizes) and the Map's panes under a name; your layouts are listed after the built-in ones, ticked when chosen, and **Delete Layout** removes one. Saving under a name you have used replaces that layout.
+
+### Changed
+
+- **Settings** is a window of its own, **ADIF Lint Settings**, as Apple's guidelines have app-wide settings (it was a card in the Map's selected panel): Settings… in the menu, the Map's gear and every "add one in Settings" open it at the section that needs you, and no longer open the Map.
+- **Map Style** (it was Style Options, a card in the Map's selected panel) is a panel of its own: the Map's palette button and **Panels → Show Map Style** open it beside the Map, and in the Operating Console it can be a tab beside the Map. Tooltips that pointed to Style Options name Map Style.
+- Operating Console: a frame's menu lists the panels in the Panels menu's order, and the console opens each panel as the Panels menu does.
+- Start Contest opens the Operating Console in the Contest layout (New QSO over the log, the Map beside them) instead of the logging one.
+- Operating Console: the Map's own list is hidden while the spots' table is beside it too (as with the Log Table); where its list shows, the Map's frame is at least tall enough for it.
+- Map: whether its sidebar, list and selected panel show is kept with the console's arrangement (and so with your layouts), no longer as settings of their own; how they were is carried over once.
+
+### Fixed
+
+- Night Mode: a panel in the Operating Console was put through the red filter twice (its own, then the console's), so it was much darker than the same panel in a window of its own. The console now tints its frames once, and a panel that leaves it gets its own tint back.
+- Night Mode: the styles' Info popover and the space weather popover stayed in colour; every popover now follows Night Mode.
+- QSO Details opened from the Panels menu or the Map's toolbar showed its contact only after the next change in New QSO; it is now worked out as it opens.
+
 ## [1.8.0] - 2026-10-31
 
 ### Added
@@ -947,7 +970,8 @@ First public release.
 - **Fix Lengths**, as one undo step, and **Count Lengths in Characters**.
 - The `adiflint` command-line tool.
 
-[Unreleased]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.9.0...HEAD
+[1.9.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.5.0...v1.6.0

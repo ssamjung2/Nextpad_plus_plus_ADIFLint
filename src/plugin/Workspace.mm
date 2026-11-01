@@ -4,6 +4,7 @@
 #import "L10n.h"
 #import "Map.h"
 #import "Night.h"
+#import "Panels.h"
 #import "ToolWindow.h"
 #import "PluginHost.h"
 #import "Country.h"
@@ -14,6 +15,7 @@
 #include "adif_world.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <map>
 #include <vector>
@@ -36,6 +38,7 @@ const char *panelOf(int item) {
         case kDockSpots: return layout::kSpots;
         case kDockContactMap: return layout::kContactMap;
         case kDockQsoInfo: return layout::kQsoDetails;
+        case kDockMapStyle: return layout::kMapStyle;
         default: return "";
     }
 }
@@ -79,26 +82,37 @@ layout::Node *nodeAt(layout::Node &root, NSString *path) {
     return n;
 }
 
-NSString *itemName(int item) {
-    switch (item) {
-        case kDockMap: return T(@"Map");
-        case kDockLog: return T(@"Log Table");
-        case kDockNewQso: return T(@"New QSO");
-        case kDockSpots: return T(@"Activations & Spots");
-        case kDockContactMap: return T(@"Contact Map");
-        case kDockQsoInfo: return T(@"QSO Details");
-        default: return T(@"Empty");
-    }
+// A panel's name, as the Panels menu has it (Panels.mm).
+// Where a style's own layout is kept (its Save): "consoleStyleLayoutSocial".
+std::string styleLayoutKey(const std::string &style) {
+    std::string key = "consoleStyleLayout" + style;
+    if (key.size() > 18) key[18] = (char)std::toupper((unsigned char)key[18]);
+    return key;
 }
+
+NSString *itemName(int item) {
+    const panels::Spec *s = item != kDockNone ? panels::find(panelOf(item)) : nullptr;
+    return s ? T(s->title) : T(@"Empty");
+}
+
+// Shown, as the Panels menu shows it: opened (it docks itself when the console holds it), or brought forward.
+void openItem(int item) {
+    if (item != kDockNone) panels::setShown(panelOf(item), true);
+}
+
+bool gMapListShows = false;  // the Map in the console shows its own list (no table of the same records beside it)
 
 // Keep each frame large enough to use; longer content scrolls inside its frame.
 NSSize itemMinimum(int item) {
     switch (item) {
-        case kDockMap: return NSMakeSize(720, 460);  // room under its toolbar (its groups wrap below this width), header and footer for the zoom buttons
+        // Room under its toolbar (its groups wrap below this width), header and footer for the zoom
+        // buttons; and for its list under the map when that shows.
+        case kDockMap: return NSMakeSize(720, gMapListShows ? 600 : 460);
         case kDockLog: return NSMakeSize(380, 240);
         case kDockSpots: return NSMakeSize(400, 220);
         case kDockContactMap: return NSMakeSize(240, 200);
         case kDockQsoInfo: return NSMakeSize(320, 200);
+        case kDockMapStyle: return NSMakeSize(300, 260);
         default: return NSMakeSize(420, 300);
     }
 }
@@ -109,7 +123,7 @@ NSSize contentMinimum(int item) { return itemMinimum(item); }
 
 // ── A frame: its header (title, what it shows, close) over the item's content ──
 
-@interface ADIFDockFrame : NSView
+@interface ADIFDockFrame : NSView <NSMenuDelegate>
 @property(nonatomic) int index;                              // its stack's place among the console's (left to right, top to bottom)
 @property(nonatomic, readonly) int item;                     // the panel in front
 @property(nonatomic, readonly) NSArray<NSNumber *> *items;   // its panels, as tabs
@@ -117,6 +131,8 @@ NSSize contentMinimum(int item) { return itemMinimum(item); }
 @property(nonatomic, copy) void (^onSwap)(int from, int to);       // a frame dropped on this one's body: the two swap
 @property(nonatomic, copy) void (^onStack)(int from, int to);      // a frame dropped on this one's header: a tab here
 @property(nonatomic, copy) void (^onTab)(int index, int item);     // a tab chosen
+@property(nonatomic, copy) void (^onAddTab)(int index, int item);  // its actions menu: a panel as a tab here
+@property(nonatomic, copy) void (^onSplit)(int index);             // its actions menu: the tab in front to a frame of its own
 @property(nonatomic, copy) void (^onClose)(int index);             // its front panel closed
 - (void)showItems:(NSArray<NSNumber *> *)items front:(int)item title:(NSString *)title content:(NSView *)content;
 - (NSSize)leastSize;  // its panels' largest least size, with its header
@@ -174,6 +190,7 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
     NSPopUpButton *_choice;
     NSSegmentedControl *_tabs;
     NSButton *_close;
+    NSPopUpButton *_more;  // the frame's actions: Add Tab, Move to Its Own Frame, Close
     NSScrollView *_scroll;
     ADIFDockHeader *_header;
     NSView *_body;  // the scroll view's document: as big as the frame, or the content's least size when that is more
@@ -192,28 +209,31 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
     _header = header;
     [self registerForDraggedTypes:@[ kFramePasteboardType ]];
     _title = [NSTextField labelWithString:@""];
-    _title.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightSemibold];
+    _title.font = theme::small(NSFontWeightSemibold);
     _title.textColor = NSColor.secondaryLabelColor;
     _title.lineBreakMode = NSLineBreakByTruncatingTail;
     _title.translatesAutoresizingMaskIntoConstraints = NO;
     [_title setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
     _choice = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     _choice.controlSize = NSControlSizeSmall;
-    _choice.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    _choice.font = theme::small();
     _choice.bordered = NO;
     _choice.translatesAutoresizingMaskIntoConstraints = NO;
     _choice.toolTip = T(@"What this frame shows: choosing one that is in another frame swaps them");
     _choice.accessibilityLabel = T(@"Frame contents");
-    for (int item : {kDockNewQso, kDockLog, kDockSpots, kDockContactMap, kDockQsoInfo, kDockMap, kDockNone}) {
-        [_choice addItemWithTitle:itemName(item)];
-        _choice.lastItem.tag = item;
+    for (const panels::Spec &s : panels::all()) {  // the Panels menu's order, then none
+        if (itemOf(s.id) == kDockNone) continue;
+        [_choice addItemWithTitle:itemName(itemOf(s.id))];
+        _choice.lastItem.tag = itemOf(s.id);
     }
+    [_choice addItemWithTitle:itemName(kDockNone)];
+    _choice.lastItem.tag = kDockNone;
     _choice.target = self;
     _choice.action = @selector(chosen:);
     // Tabs, when the frame holds more than one panel: a click brings that one to the front.
     _tabs = [NSSegmentedControl segmentedControlWithLabels:@[] trackingMode:NSSegmentSwitchTrackingSelectOne target:self action:@selector(tabChosen:)];
     _tabs.controlSize = NSControlSizeSmall;
-    _tabs.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    _tabs.font = theme::small();
     _tabs.segmentStyle = NSSegmentStyleSeparated;
     _tabs.identifier = @"frame.tabs";
     _tabs.accessibilityLabel = T(@"Tabs");
@@ -230,6 +250,21 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
     _close.toolTip = T(@"Close this frame");
     _close.accessibilityLabel = T(@"Close this frame");
     _close.translatesAutoresizingMaskIntoConstraints = NO;
+    // What a drag does, from the keyboard and VoiceOver as well (HIG: a menu command for each drag).
+    _more = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:YES];
+    _more.bordered = NO;
+    _more.imagePosition = NSImageOnly;
+    ((NSPopUpButtonCell *)_more.cell).arrowPosition = NSPopUpNoArrow;
+    NSMenuItem *face = [[NSMenuItem alloc] initWithTitle:@"" action:nil keyEquivalent:@""];
+    face.image = [[NSImage imageWithSystemSymbolName:@"ellipsis.circle" accessibilityDescription:nil]
+        imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:12 weight:NSFontWeightRegular]];
+    [_more.menu addItem:face];
+    _more.menu.delegate = self;
+    _more.contentTintColor = NSColor.secondaryLabelColor;
+    _more.toolTip = T(@"Frame actions: a panel as a tab here, the tab in front to a frame of its own, close");
+    _more.accessibilityLabel = T(@"Frame actions");
+    _more.identifier = @"frame.actions";
+    _more.translatesAutoresizingMaskIntoConstraints = NO;
     NSBox *rule = [[NSBox alloc] initWithFrame:NSZeroRect];
     rule.boxType = NSBoxSeparator;
     rule.translatesAutoresizingMaskIntoConstraints = NO;
@@ -238,7 +273,7 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
     _dropMark.layer.backgroundColor = [NSColor.controlAccentColor colorWithAlphaComponent:0.25].CGColor;
     _dropMark.translatesAutoresizingMaskIntoConstraints = NO;
     _dropMark.hidden = YES;
-    for (NSView *v in @[ _dropMark, _title, _choice, _tabs, _close, rule ]) [header addSubview:v];
+    for (NSView *v in @[ _dropMark, _title, _choice, _tabs, _more, _close, rule ]) [header addSubview:v];
     _scroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
     _scroll.translatesAutoresizingMaskIntoConstraints = NO;
     _scroll.hasVerticalScroller = _scroll.hasHorizontalScroller = YES;
@@ -274,7 +309,11 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
         [_tabs.centerYAnchor constraintEqualToAnchor:header.centerYAnchor],
         _titleAfterChoice,
         [_title.centerYAnchor constraintEqualToAnchor:header.centerYAnchor],
-        [_close.leadingAnchor constraintGreaterThanOrEqualToAnchor:_title.trailingAnchor constant:6],
+        [_more.leadingAnchor constraintGreaterThanOrEqualToAnchor:_title.trailingAnchor constant:6],
+        [_more.trailingAnchor constraintEqualToAnchor:_close.leadingAnchor constant:-4],
+        [_more.centerYAnchor constraintEqualToAnchor:header.centerYAnchor],
+        [_more.widthAnchor constraintEqualToConstant:20],
+        [_more.heightAnchor constraintEqualToConstant:16],
         [_close.trailingAnchor constraintEqualToAnchor:header.trailingAnchor constant:-4],
         [_close.centerYAnchor constraintEqualToAnchor:header.centerYAnchor],
         [_close.widthAnchor constraintEqualToConstant:16],
@@ -360,6 +399,43 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
 
 - (void)closePressed:(id)sender {
     if (self.onClose) self.onClose(self.index);
+}
+
+// The actions menu, as the frame is now: each panel not here to add as a tab; the tab in front
+// to a frame of its own (with more than one); close the one in front.
+- (void)menuNeedsUpdate:(NSMenu *)menu {
+    if (menu != _more.menu) return;
+    while (menu.numberOfItems > 1) [menu removeItemAtIndex:1];
+    NSString *front = itemName(_item);
+    NSMenu *add = [[NSMenu alloc] initWithTitle:T(@"Add Tab")];
+    for (const panels::Spec &s : panels::all()) {
+        int item = itemOf(s.id);
+        if (item == kDockNone || [_items containsObject:@(item)] || item == _item) continue;
+        NSMenuItem *mi = [add addItemWithTitle:itemName(item) action:@selector(addTabChosen:) keyEquivalent:@""];
+        mi.target = self;
+        mi.tag = item;
+        mi.image = [NSImage imageWithSystemSymbolName:s.symbol accessibilityDescription:nil];
+    }
+    NSMenuItem *addItem = [menu addItemWithTitle:T(@"Add Tab") action:nil keyEquivalent:@""];
+    addItem.submenu = add;
+    addItem.identifier = @"frame.actions.addTab";
+    NSMenuItem *split = [menu addItemWithTitle:TF(@"Move {panel} to Its Own Frame", @{@"panel" : front}) action:@selector(splitChosen:) keyEquivalent:@""];
+    split.target = self;
+    split.identifier = @"frame.actions.split";
+    split.enabled = _items.count > 1;
+    menu.autoenablesItems = NO;
+    [menu addItem:NSMenuItem.separatorItem];
+    NSMenuItem *close = [menu addItemWithTitle:TF(@"Close {panel}", @{@"panel" : front}) action:@selector(closePressed:) keyEquivalent:@""];
+    close.target = self;
+    close.identifier = @"frame.actions.close";
+}
+
+- (void)addTabChosen:(NSMenuItem *)sender {
+    if (self.onAddTab) self.onAddTab(self.index, (int)sender.tag);
+}
+
+- (void)splitChosen:(id)sender {
+    if (self.onSplit) self.onSplit(self.index);
 }
 
 // Another frame dragged here by its header: over this one's header it would become a tab here;
@@ -598,7 +674,7 @@ bool countryBounds(const std::string &call, double *west, double *south, double 
     NSMutableParagraphStyle *cut = [[NSMutableParagraphStyle alloc] init];
     cut.lineBreakMode = NSLineBreakByTruncatingTail;  // one line, ended with "..." in a narrow frame (its tooltip has it all)
     [caption drawInRect:NSMakeRect(kADIFMargin, 4, NSWidth(bounds) - 2 * kADIFMargin, 18)
-         withAttributes:@{NSFontAttributeName : [NSFont systemFontOfSize:NSFont.smallSystemFontSize],
+         withAttributes:@{NSFontAttributeName : theme::small(),
                           NSForegroundColorAttributeName : NSColor.secondaryLabelColor,
                           NSParagraphStyleAttributeName : cut}];
     self.toolTip = caption;
@@ -684,7 +760,7 @@ static NSString *reasonSymbol(int kind, NSColor **colour) {
 
 - (void)show:(const workspace::QsoDetails &)d {
     for (NSView *v in [_stack.arrangedSubviews copy]) [v removeFromSuperview];
-    NSFont *small = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    NSFont *small = theme::small();
     if (d.call.empty()) {
         NSTextField *hint = [self text:tr("Type a call in New QSO: who it is, where, and why the contact is worth having show here, "
                                           "with your QSOs with it.")
@@ -748,7 +824,7 @@ static NSString *reasonSymbol(int kind, NSColor **colour) {
         [self heading:N(@"Your QSOs with this call")];
         std::string lines;
         for (const std::string &h : d.history) lines += (lines.empty() ? "" : "\n") + h;
-        NSTextField *list = [self text:lines font:[NSFont monospacedDigitSystemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightRegular]
+        NSTextField *list = [self text:lines font:theme::digits(NSFont.smallSystemFontSize, NSFontWeightRegular)
                                 colour:NSColor.labelColor];
         list.identifier = @"qsodetails.history";
         [self addFull:list];
@@ -769,7 +845,6 @@ void openAuxWindow(int item) {
         window.title = item == kDockContactMap ? T(@"Contact Map") : T(@"QSO Details");
         window.contentView = item == kDockContactMap ? [[ADIFContactMapView alloc] initWithFrame:NSMakeRect(0, 0, 360, 250)]
                                                      : [[ADIFQsoDetailsView alloc] initWithFrame:NSMakeRect(0, 0, 360, 250)];
-        ADIFNightTrack(window);
         [[NSNotificationCenter defaultCenter] addObserverForName:NSWindowWillCloseNotification  // closed (or its frame): the Map's button follows
                                                           object:window
                                                            queue:nil
@@ -818,8 +893,6 @@ void openAuxWindow(int item) {
 - (void)retitle:(NSWindow<ADIFDockable> *)window;
 @end
 
-static std::function<void()> gOpeners[kDockCount];
-
 // The console: its arrangement (adif::layout; saved as `consoleLayout`, and the preset it came from
 // as `consoleLayoutPreset`), shown as a tree of split views whose leaves are frames, one per stack
 // of panels. Each panel is still the window it was: docked, its content sits in its frame (the
@@ -833,7 +906,14 @@ static std::function<void()> gOpeners[kDockCount];
     NSTextField *_statusText, *_statusClock;
     NSTimer *_clock;
     layout::Arrangement _layout;
-    std::string _presetId;  // the built-in layout it started from (Console Layout Options ticks it)
+    std::string _presetId;  // the layout it started from, built in or yours ("mine:" and its name); Console Layout Options ticks it
+    std::vector<layout::Named> _mine;  // your own layouts (Save Layout As...), kept as `consoleLayouts`
+    std::map<std::string, layout::Arrangement> _styleLayouts;  // a style's own (its Save), by the style's id
+    layout::Arrangement _beforeStyle;  // the console before a style last arranged it (Restore Previous Layout)
+    std::string _beforeStyleId;
+    BOOL _beforeStyleActive, _hasBeforeStyle;
+    BOOL _builtListShows;  // the frames were sized with the Map's list showing
+    BOOL _rebuilding;
     BOOL _loaded;
     BOOL _active, _batching, _closing, _sizing, _saveQueued;
     std::string _builtShape;  // the tree the frames were built for
@@ -894,12 +974,40 @@ static std::function<void()> gOpeners[kDockCount];
     std::string saved = adifhost::setting("consoleLayout");
     std::optional<layout::Arrangement> a = saved.empty() ? std::nullopt : layout::read(saved);
     _layout = a ? *a : layout::migrate([](const std::string &key) { return adifhost::setting(key); });
+    _mine = layout::readNamed(adifhost::setting("consoleLayouts"));
     _presetId = adifhost::setting("consoleLayoutPreset");
-    if (!layout::preset(_presetId)) {
+    if (!saved.empty() && ![self arrangementFor:_presetId]) _presetId.clear();  // yours, since deleted: none ticked
+    if (saved.empty() && !layout::preset(_presetId)) {
         std::string index = adifhost::setting("layoutPreset");
         int i = index.empty() ? 0 : std::clamp(atoi(index.c_str()), 0, (int)layout::presets().size() - 1);
         _presetId = layout::presets()[(size_t)i].id;
     }
+    // The Map's panes, kept on their own before they were part of the arrangement: moved in, once.
+    static const std::pair<const char *, const char *> kOldPanes[] = {{"mapSidebar", "sidebar"}, {"mapList", "list"}, {"mapSelected", "selected"}};
+    bool moved = false;
+    for (const auto &[key, pane] : kOldPanes) {
+        std::string v = adifhost::setting(key);
+        if (v != "0" && v != "1") continue;
+        _layout = layout::setPane(_layout, layout::kMap, pane, v == "1");
+        adifhost::setSetting(key, "");
+        moved = true;
+    }
+    if (moved) [self saveSettings];
+}
+
+// A layout by its id: built in, yours ("mine:" and its name), or a style's own ("style:" and its id).
+- (const layout::Arrangement *)arrangementFor:(const std::string &)id {
+    if (const layout::Preset *p = layout::preset(id)) return &p->arrangement;
+    if (id.rfind("style:", 0) == 0) {
+        std::string style = id.substr(6);
+        if (!_styleLayouts.count(style))
+            if (std::optional<layout::Arrangement> a = layout::read(adifhost::setting(styleLayoutKey(style)))) _styleLayouts[style] = *a;
+        auto it = _styleLayouts.find(style);
+        return it == _styleLayouts.end() ? nullptr : &it->second;
+    }
+    if (id.rfind("mine:", 0) != 0) return nullptr;
+    const layout::Named *n = layout::findNamed(_mine, id.substr(5));
+    return n ? &n->arrangement : nullptr;
 }
 
 - (void)saveSettings {
@@ -931,7 +1039,7 @@ static std::function<void()> gOpeners[kDockCount];
     _host.collectionBehavior |= NSWindowCollectionBehaviorFullScreenPrimary;
     _host.autorecalculatesKeyViewLoop = YES;
     _host.delegate = self;
-    ADIFNightTrack(_host);
+    theme::host(_host);  // the console themes its frames, once
     __weak ADIFWorkspace *me = self;
     _host.keyEquivalent = ^BOOL(NSEvent *e) { return [me keyEquivalent:e]; };
     if (![_host setFrameUsingName:@"ADIFLoggingLayout"]) [_host setFrame:(_host.screen ?: NSScreen.mainScreen).visibleFrame display:NO];
@@ -947,14 +1055,14 @@ static std::function<void()> gOpeners[kDockCount];
     statusRule.boxType = NSBoxSeparator;
     statusRule.translatesAutoresizingMaskIntoConstraints = NO;
     _statusText = [NSTextField labelWithString:gStatus.empty() ? @"" : ADIFString(gStatus)];
-    _statusText.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    _statusText.font = theme::small();
     _statusText.textColor = NSColor.secondaryLabelColor;
     _statusText.lineBreakMode = NSLineBreakByTruncatingTail;
     _statusText.identifier = @"loggingLayout.status";
     _statusText.translatesAutoresizingMaskIntoConstraints = NO;
     [_statusText setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
     _statusClock = [NSTextField labelWithString:@""];
-    _statusClock.font = [NSFont monospacedDigitSystemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightRegular];
+    _statusClock.font = theme::digits(NSFont.smallSystemFontSize, NSFontWeightRegular);
     _statusClock.textColor = NSColor.secondaryLabelColor;
     _statusClock.identifier = @"loggingLayout.clock";
     _statusClock.translatesAutoresizingMaskIntoConstraints = NO;
@@ -1003,31 +1111,40 @@ static std::function<void()> gOpeners[kDockCount];
     return [self openPreset:"" allowEmptyQso:NO];
 }
 
+// Start Logging, Start Activation and Start Contest: each its layout and its own set-up (the
+// architecture's profiles; ADIFLint.mm and Contest.mm do the set-up). The console opened in the
+// layout, or put in it when it is open. An activation's log may be made after it opens.
+- (BOOL)openProfile:(const std::string &)layoutId allowEmptyQso:(BOOL)allowEmptyQso {
+    if (_active) return [self applyPreset:layoutId], YES;
+    return [self openPreset:layoutId allowEmptyQso:allowEmptyQso];
+}
+
 - (BOOL)openActivation {
-    if (_active) return [self applyPreset:"activation"], YES;
-    return [self openPreset:"activation" allowEmptyQso:YES];
+    return [self openProfile:"activation" allowEmptyQso:YES];
 }
 
 - (BOOL)openLogging {
-    if (_active) return [self applyPreset:"logging"], YES;
-    return [self openPreset:"logging" allowEmptyQso:NO];
+    return [self openProfile:"logging" allowEmptyQso:NO];
 }
 
-// A built-in layout's arrangement, the panes kept as they are.
+// A layout's arrangement: a built-in one keeps the panes as they are; yours brings its own.
 - (void)takePreset:(const std::string &)id {
-    const layout::Preset *p = layout::preset(id);
-    if (!p) return;
+    const layout::Arrangement *a = [self arrangementFor:id];
+    if (!a) return;
+    bool mine = !layout::preset(id);
     auto panes = _layout.panes;
-    _layout = p->arrangement;
-    _layout.panes = panes;
+    _layout = *a;
+    if (!mine) _layout.panes = panes;
     _presetId = id;
+    if (mine) worldmap::applyPanes();
 }
 
 - (BOOL)openPreset:(const std::string &)presetId allowEmptyQso:(BOOL)allowEmptyQso {
     _closing = NO;
     [self loadSettings];
     if (!presetId.empty()) [self takePreset:presetId];
-    if (!layout::inConsole(_layout, layout::kNewQso) && layout::shown(_layout).empty()) [self takePreset:_presetId];  // nothing left: its layout again
+    if (!layout::inConsole(_layout, layout::kNewQso) && layout::shown(_layout).empty())  // nothing left: its layout again
+        [self takePreset:[self arrangementFor:_presetId] ? _presetId : layout::presets()[0].id];
     [self saveSettings];
     [self makeHost];
     _active = YES;
@@ -1037,8 +1154,8 @@ static std::function<void()> gOpeners[kDockCount];
     [_host makeKeyAndOrderFront:nil];
     BOOL ok = YES;
     for (int item = 1; item < kDockCount; ++item) {
-        if (!layout::inConsole(_layout, panelOf(item)) || !gOpeners[item]) continue;
-        gOpeners[item]();
+        if (!layout::inConsole(_layout, panelOf(item))) continue;
+        openItem(item);
         // New QSO must open, unless an activation's log is still to be made (it takes its place when it opens).
         if (![self windowOf:item].dockHost && item == kDockNewQso && !allowEmptyQso) {
             ok = NO;
@@ -1108,6 +1225,7 @@ static std::function<void()> gOpeners[kDockCount];
         content.translatesAutoresizingMaskIntoConstraints = YES;
         content.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
         w.contentView = content;
+        theme::rehost(w);  // its own look again
     }
     [_content removeObjectForKey:@(item)];
     [_window removeObjectForKey:@(item)];
@@ -1151,6 +1269,7 @@ static std::function<void()> gOpeners[kDockCount];
         _content[@(item)] = content;
         _window[@(item)] = [NSValue valueWithNonretainedObject:w];
         w.dockHost = _host;
+        theme::rehost(w);  // the console's look: its content tinted once, by the console
     }
     if (!_batching) {  // shown: its tab to the front
         _layout = layout::bringToFront(_layout, panelOf(item));
@@ -1215,6 +1334,27 @@ static std::function<void()> gOpeners[kDockCount];
     [self rebuild];
 }
 
+// A frame's Add Tab: the panel a tab there, from another frame, or opened into it.
+- (void)addTab:(int)item to:(int)index {
+    int here = [self frontOf:index];
+    if (item == kDockNone || here == kDockNone || item == here) return;
+    BOOL docked = layout::inConsole(_layout, panelOf(item));
+    _layout = docked ? layout::moveToTab(_layout, panelOf(item), panelOf(here)) : layout::showInConsole(_layout, panelOf(item), panelOf(here));
+    [self saveSettings];
+    if (!docked) openItem(item);  // it docks into its place
+    [self rebuild];
+    ADIFPanelShownChanged();
+}
+
+// A frame's Move to Its Own Frame: its tab in front at the end of the console's top row.
+- (void)splitOut:(int)index {
+    int item = [self frontOf:index];
+    if (item == kDockNone || _frames[(NSUInteger)index].items.count < 2) return;
+    _layout = layout::showInConsole(layout::hide(_layout, panelOf(item)), panelOf(item));
+    [self saveSettings];
+    [self rebuild];
+}
+
 - (void)tab:(int)index item:(int)item {
     _layout = layout::bringToFront(_layout, panelOf(item));
     [self saveSettings];
@@ -1237,19 +1377,31 @@ static std::function<void()> gOpeners[kDockCount];
     NSWindow<ADIFDockable> *oldWindow = [self windowOf:old];
     if (oldWindow) [NSNotificationCenter.defaultCenter postNotificationName:NSWindowWillCloseNotification object:oldWindow];
     [self undock:old];
-    if (gOpeners[item]) gOpeners[item]();
+    openItem(item);
     [self rebuild];
     ADIFPanelShownChanged();
 }
 
 // A built-in layout: the panels it doesn't hold closed, those it does opened into their places.
 - (void)applyPreset:(const std::string &)id {
-    if (!layout::preset(id)) return;
+    [self loadSettings];
+    const layout::Arrangement *a = [self arrangementFor:id];
+    if (!a) return;
+    layout::Arrangement next = *a;
+    if (layout::preset(id)) next.panes = _layout.panes;  // a built-in layout keeps the panes as they are; yours brings its own
+    [self applyArrangement:next id:id];
+}
+
+// An arrangement, as the console's now: what it no longer holds closed, what it holds opened into its place.
+- (void)applyArrangement:(const layout::Arrangement &)next id:(const std::string &)id {
     [self loadSettings];
     bool was[kDockCount] = {};
     for (int item = 1; item < kDockCount; ++item) was[item] = [self shows:item];
-    [self takePreset:id];
+    bool panes = next.panes != _layout.panes;
+    _layout = next;
+    _presetId = id;
     [self saveSettings];
+    if (panes) worldmap::applyPanes();
     if (!_active) return;
     _batching = YES;
     for (int item = 1; item < kDockCount; ++item) {
@@ -1258,8 +1410,8 @@ static std::function<void()> gOpeners[kDockCount];
             NSWindow<ADIFDockable> *w = [self windowOf:item];
             if (w) [NSNotificationCenter.defaultCenter postNotificationName:NSWindowWillCloseNotification object:w];
             [self undock:item];
-        } else if (!was[item] && in && gOpeners[item]) {
-            gOpeners[item]();
+        } else if (!was[item] && in) {
+            openItem(item);
         }
     }
     _batching = NO;
@@ -1292,18 +1444,18 @@ static std::function<void()> gOpeners[kDockCount];
     }
     NSWindow<ADIFDockable> *w = [self windowOf:item];
     if (w.visible && !w.dockHost) [w orderOut:nil];  // its own window: into the console
-    if (gOpeners[item]) gOpeners[item]();
+    openItem(item);
 }
 
 // The frames back to their first sizes: the built-in layout's shares when the console is still its
 // shape, else by what each needs.
 - (void)resetSizes:(id)sender {
     [self loadSettings];
-    const layout::Preset *p = layout::preset(_presetId);
-    if (p && shapeOf(p->arrangement.console) == shapeOf(_layout.console)) {
+    const layout::Arrangement *p = [self arrangementFor:_presetId];
+    if (p && shapeOf(p->console) == shapeOf(_layout.console)) {
         auto panes = _layout.panes;
         auto fronts = _layout;
-        _layout = p->arrangement;
+        _layout = *p;
         _layout.panes = panes;
         for (const std::string &id : layout::shown(fronts))  // which tab is in front, as it was
             if (layout::inConsole(fronts, id)) {
@@ -1326,14 +1478,213 @@ static std::function<void()> gOpeners[kDockCount];
 
 - (void)menuNeedsUpdate:(NSMenu *)menu {
     [self loadSettings];
+    if (menu == _optionsMenu) [self fillMine];
     for (NSMenuItem *mi in menu.itemArray) {
         if (mi.action == @selector(presetChosen:)) {
             const layout::Preset *p = [self presetOf:mi.tag];
             mi.state = p && p->id == _presetId ? NSControlStateValueOn : NSControlStateValueOff;
         } else if (mi.action == @selector(frameToggled:)) {
             mi.state = layout::inConsole(_layout, panelOf((int)mi.tag)) ? NSControlStateValueOn : NSControlStateValueOff;
+        } else if (mi.action == @selector(mineChosen:)) {
+            mi.state = _presetId == "mine:" + std::string([mi.representedObject UTF8String]) ? NSControlStateValueOn : NSControlStateValueOff;
+        } else if (mi.action == @selector(saveLayoutAs:)) {
+            mi.enabled = _active;  // the console as it is
+        } else if ([mi.identifier isEqualToString:@"org.nextpad.adiflint.layouts.delete"]) {
+            mi.enabled = !_mine.empty();
         }
     }
+}
+
+// Your layouts in the menu: after the built-in ones, and in Delete Layout.
+- (void)fillMine {
+    for (NSMenuItem *mi in [_optionsMenu.itemArray copy])
+        if ([mi.identifier hasPrefix:@"org.nextpad.adiflint.layouts.mine"]) [_optionsMenu removeItem:mi];
+    NSInteger at = (NSInteger)layout::presets().size();
+    if (!_mine.empty()) {
+        NSMenuItem *rule = NSMenuItem.separatorItem;
+        rule.identifier = @"org.nextpad.adiflint.layouts.mine.rule";
+        [_optionsMenu insertItem:rule atIndex:at++];
+    }
+    NSMenu *remove = [[NSMenu alloc] initWithTitle:T(@"Delete Layout")];
+    for (const layout::Named &n : _mine) {
+        NSMenuItem *mi = [[NSMenuItem alloc] initWithTitle:ADIFString(n.name) action:@selector(mineChosen:) keyEquivalent:@""];
+        mi.target = self;
+        mi.representedObject = ADIFString(n.name);
+        mi.identifier = [@"org.nextpad.adiflint.layouts.mine." stringByAppendingString:ADIFString(n.name)];
+        [_optionsMenu insertItem:mi atIndex:at++];
+        NSMenuItem *gone = [remove addItemWithTitle:ADIFString(n.name) action:@selector(deleteChosen:) keyEquivalent:@""];
+        gone.target = self;
+        gone.representedObject = ADIFString(n.name);
+    }
+    for (NSMenuItem *mi in _optionsMenu.itemArray)
+        if ([mi.identifier isEqualToString:@"org.nextpad.adiflint.layouts.delete"]) mi.submenu = remove;
+}
+
+- (void)mineChosen:(NSMenuItem *)sender {
+    if (sender.representedObject) [self applyPreset:"mine:" + std::string([sender.representedObject UTF8String])];
+}
+
+- (void)deleteChosen:(NSMenuItem *)sender {
+    std::string name = [sender.representedObject UTF8String] ?: "";
+    _mine = layout::removeNamed(_mine, name);
+    adifhost::setSetting("consoleLayouts", layout::writeNamed(_mine));
+    if (layout::sameName(_presetId, "mine:" + name)) _presetId.clear();  // none ticked: the console stays as it is
+    [self saveSettings];
+}
+
+// The frames' sizes now, as shares of their splits (saved with a layout; a divider dragged records its own).
+- (void)recordShares:(NSView *)v {
+    if (![v isKindOfClass:NSSplitView.class]) return;
+    NSSplitView *s = (NSSplitView *)v;
+    layout::Node *n = nodeAt(_layout.console, s.identifier ?: @"");
+    double total = 0;
+    for (NSView *k in s.subviews) total += s.isVertical ? NSWidth(k.frame) : NSHeight(k.frame);
+    if (n && n->children.size() == s.subviews.count && total > 0)
+        for (NSUInteger i = 0; i < s.subviews.count; ++i)
+            n->children[i].share = (s.isVertical ? NSWidth(s.subviews[i].frame) : NSHeight(s.subviews[i].frame)) / total;
+    for (NSView *k in s.subviews) [self recordShares:k];
+}
+
+// Save Layout As...: a name for the console as it is, on a sheet; a name you have used replaces that layout.
+- (void)saveLayoutAs:(id)sender {
+    if (!_active || _host.attachedSheet) return;
+    NSWindow *sheet = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 420, 160) styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
+    NSTextField *title = [NSTextField labelWithString:T(@"Save Layout As")];
+    title.font = [NSFont boldSystemFontOfSize:NSFont.systemFontSize];
+    NSTextField *help = [NSTextField wrappingLabelWithString:T(@"A layout of your own: the console's panels, tabs and frame sizes as they are "
+                                                               @"now, and the Map's panes. Console Layout Options lists it with the others.")];
+    help.font = theme::small();
+    help.textColor = NSColor.secondaryLabelColor;
+    NSTextField *name = ADIFTextField(@"Name, e.g. Evening on 40m", 300);
+    name.identifier = @"layouts.name";
+    if (_presetId.rfind("mine:", 0) == 0) name.stringValue = ADIFString(_presetId.substr(5));  // yours, to save again
+    NSButton *cancel = [NSButton buttonWithTitle:T(@"Cancel") target:nil action:nil];
+    cancel.keyEquivalent = @"\033";
+    cancel.identifier = @"layouts.cancel";
+    NSButton *save = [NSButton buttonWithTitle:T(@"Save") target:nil action:nil];
+    save.keyEquivalent = @"\r";
+    save.identifier = @"layouts.save";
+    __weak ADIFWorkspace *me = self;
+    __weak NSWindow *weakSheet = sheet;
+    auto retitle = [=] {  // Replace when the name is one of yours
+        ADIFWorkspace *ws = me;
+        save.title = ws && layout::findNamed(ws->_mine, layout::cleanName(name.stringValue.UTF8String ?: "")) ? T(@"Replace") : T(@"Save");
+    };
+    retitle();
+    id observer = [NSNotificationCenter.defaultCenter addObserverForName:NSControlTextDidChangeNotification
+                                                                  object:name
+                                                                   queue:nil
+                                                              usingBlock:^(NSNotification *) { retitle(); }];
+    ADIFOnAction(cancel, ^{ [weakSheet.sheetParent endSheet:weakSheet returnCode:NSModalResponseCancel]; });
+    ADIFOnAction(save, ^{
+        ADIFWorkspace *ws = me;
+        std::string clean = layout::cleanName(name.stringValue.UTF8String ?: "");
+        if (!ws || clean.empty()) return NSBeep();
+        [ws keepLayoutAs:clean];
+        [weakSheet.sheetParent endSheet:weakSheet returnCode:NSModalResponseOK];
+    });
+    NSStackView *buttons = [NSStackView stackViewWithViews:@[ cancel, save ]];
+    buttons.spacing = kADIFSpacing;
+    NSStackView *stack = [NSStackView stackViewWithViews:@[ title, help, name, buttons ]];
+    stack.orientation = NSUserInterfaceLayoutOrientationVertical;
+    stack.alignment = NSLayoutAttributeLeading;
+    stack.spacing = 10;
+    stack.edgeInsets = NSEdgeInsetsMake(16, 18, 16, 18);
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    [sheet.contentView addSubview:stack];
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.topAnchor constraintEqualToAnchor:sheet.contentView.topAnchor], [stack.leadingAnchor constraintEqualToAnchor:sheet.contentView.leadingAnchor],
+        [stack.trailingAnchor constraintEqualToAnchor:sheet.contentView.trailingAnchor], [stack.bottomAnchor constraintEqualToAnchor:sheet.contentView.bottomAnchor],
+        [help.widthAnchor constraintEqualToConstant:384], [name.widthAnchor constraintEqualToAnchor:help.widthAnchor],
+    ]];
+    [stack setCustomSpacing:14 afterView:name];
+    [buttons.trailingAnchor constraintEqualToAnchor:help.trailingAnchor].active = YES;
+    sheet.initialFirstResponder = name;
+    theme::host(sheet);
+    [_host beginSheet:sheet completionHandler:^(NSModalResponse) { [NSNotificationCenter.defaultCenter removeObserver:observer]; }];
+}
+
+// The console as it is, sizes included, kept as your layout of that name (and ticked).
+- (void)keepLayoutAs:(const std::string &)name {
+    if (_root && layout::shown([self shownLayout]) == layout::shown(_layout)) [self recordShares:_root];
+    _mine = layout::saveNamed(_mine, name, _layout);
+    adifhost::setSetting("consoleLayouts", layout::writeNamed(_mine));
+    _presetId = "mine:" + layout::findNamed(_mine, name)->name;
+    [self saveSettings];
+}
+
+// ── Operating styles arrange the panels (the Map's style menu) ──
+
+- (std::string)styleLayoutId:(const std::string &)style {
+    std::string own = "style:" + style;
+    return [self arrangementFor:own] ? own : style;  // its own (Save), else its built-in layout
+}
+
+// The text field being typed in, if any: it keeps the keyboard when a style moves the panels.
+- (NSView *)typingField {
+    NSResponder *r = NSApp.keyWindow.firstResponder;
+    if (![r isKindOfClass:NSTextView.class] || !((NSTextView *)r).isFieldEditor) return nil;
+    id field = ((NSTextView *)r).delegate;
+    return [field isKindOfClass:NSView.class] ? field : nil;
+}
+
+- (void)arrangeForStyle:(const std::string &)style {
+    [self loadSettings];
+    std::string id = [self styleLayoutId:style];
+    if (![self arrangementFor:id]) return;
+    _beforeStyle = _layout, _beforeStyleId = _presetId, _beforeStyleActive = _active, _hasBeforeStyle = YES;
+    NSView *typing = [self typingField];
+    if (_active) [self applyPreset:id];
+    else [self openPreset:id allowEmptyQso:YES];  // no log yet: New QSO's place waits for one
+    if (typing.window) [typing.window makeFirstResponder:typing];
+}
+
+- (void)keepStyleLayout:(const std::string &)style {
+    [self loadSettings];
+    if (!_active) return;
+    if (_root && layout::shown([self shownLayout]) == layout::shown(_layout)) [self recordShares:_root];
+    adifhost::setSetting(styleLayoutKey(style), layout::write(_layout));
+    _styleLayouts[style] = _layout;
+    _presetId = "style:" + style;
+    [self saveSettings];
+}
+
+- (void)forgetStyleLayout:(const std::string &)style {
+    adifhost::setSetting(styleLayoutKey(style), "");
+    _styleLayouts.erase(style);
+}
+
+- (BOOL)styleLayoutDiffers:(const std::string &)style {
+    [self loadSettings];
+    const layout::Arrangement *a = [self arrangementFor:[self styleLayoutId:style]];
+    return _active && a && shapeOf(a->console) != shapeOf(_layout.console);
+}
+
+- (BOOL)styleLayoutIsOwn:(const std::string &)style {
+    [self loadSettings];
+    return [self arrangementFor:"style:" + style] != nullptr;
+}
+
+// Restore Previous Layout: the console as it was before the style arranged it (when it was open;
+// opened by the style, it stays open: closing it puts each panel back in its window).
+- (void)restoreBeforeStyle {
+    if (!_hasBeforeStyle) return;
+    _hasBeforeStyle = NO;
+    if (_beforeStyleActive && _active) [self applyArrangement:_beforeStyle id:_beforeStyleId];
+}
+
+// The panes of a panel (the Map's sidebar, list and selected panel), as the arrangement has them.
+- (BOOL)paneShown:(const char *)panel pane:(const char *)pane {
+    [self loadSettings];
+    return layout::paneShown(_layout, panel, pane);
+}
+
+- (void)setPane:(const char *)panel pane:(const char *)pane shown:(BOOL)on {
+    [self loadSettings];
+    if (layout::paneShown(_layout, panel, pane) == (bool)on && _layout.panes.count(panel) && _layout.panes[panel].count(pane)) return;
+    _layout = layout::setPane(_layout, panel, pane, on);
+    [self saveSettings];
+    if (!strcmp(panel, layout::kMap) && !strcmp(pane, "list")) [self rebuild];  // the Map's least size follows its list
 }
 
 - (NSMenuItem *)optionsMenuItem {
@@ -1347,7 +1698,15 @@ static std::function<void()> gOpeners[kDockCount];
         mi.tag = (NSInteger)i;
     }
     [_optionsMenu addItem:NSMenuItem.separatorItem];
-    for (int item : {kDockNewQso, kDockLog, kDockSpots, kDockContactMap, kDockQsoInfo, kDockMap}) {
+    NSMenuItem *saveAs = [_optionsMenu addItemWithTitle:T(@"Save Layout As...") action:@selector(saveLayoutAs:) keyEquivalent:@""];
+    saveAs.target = self;
+    saveAs.identifier = @"org.nextpad.adiflint.layouts.save";
+    NSMenuItem *remove = [_optionsMenu addItemWithTitle:T(@"Delete Layout") action:nil keyEquivalent:@""];
+    remove.identifier = @"org.nextpad.adiflint.layouts.delete";
+    remove.submenu = [[NSMenu alloc] initWithTitle:T(@"Delete Layout")];
+    _optionsMenu.autoenablesItems = NO;  // Save Layout As... and Delete Layout as menuNeedsUpdate sets them
+    [_optionsMenu addItem:NSMenuItem.separatorItem];
+    for (int item : {kDockNewQso, kDockLog, kDockSpots, kDockContactMap, kDockQsoInfo, kDockMap, kDockMapStyle}) {
         NSMenuItem *mi = [_optionsMenu addItemWithTitle:itemName(item) action:@selector(frameToggled:) keyEquivalent:@""];
         mi.target = self;
         mi.tag = item;
@@ -1374,6 +1733,10 @@ static std::function<void()> gOpeners[kDockCount];
             mi.title = itemName((int)mi.tag);
         else if (mi.action == @selector(resetSizes:))
             mi.title = T(@"Reset Frame Sizes");
+        else if (mi.action == @selector(saveLayoutAs:))
+            mi.title = T(@"Save Layout As...");
+        else if ([mi.identifier isEqualToString:@"org.nextpad.adiflint.layouts.delete"])
+            mi.title = T(@"Delete Layout");
     }
 }
 
@@ -1412,6 +1775,8 @@ static double weightOf(NSView *v, bool width) {
     f.onSwap = ^(int from, int to) { [me swap:from with:to]; };
     f.onStack = ^(int from, int to) { [me stack:from onto:to]; };
     f.onTab = ^(int at, int item) { [me tab:at item:item]; };
+    f.onAddTab = ^(int at, int item) { [me addTab:item to:at]; };
+    f.onSplit = ^(int at) { [me splitOut:at]; };
     return f;
 }
 
@@ -1456,8 +1821,14 @@ static double weightOf(NSView *v, bool width) {
 }
 
 - (void)rebuild {
-    if (!_active || _batching || _closing) return;
+    if (!_active || _batching || _closing || _rebuilding) return;
+    _rebuilding = YES;
     layout::Arrangement shown = [self shownLayout];
+    // The Map's own list hidden while a table of the same records (the Log Table, or the spots) is beside it.
+    bool listBeside = layout::inConsole(shown, layout::kMap) && (layout::inConsole(shown, layout::kLogTable) || layout::inConsole(shown, layout::kSpots));
+    gMapListShows = layout::inConsole(shown, layout::kMap) && !listBeside && layout::paneShown(_layout, layout::kMap, "list");
+    if (gMapListShows != _builtListShows) _builtShape.clear();  // the Map's least size changed: sized afresh
+    _builtListShows = gMapListShows;
     std::vector<const layout::Node *> stacks;
     stacksOf(shown.console, stacks);
     std::string shape = shapeOf(shown.console);
@@ -1500,7 +1871,8 @@ static double weightOf(NSView *v, bool width) {
     NSSize m = _root ? minimumOf(_root) : NSZeroSize;
     _host.contentMinSize = NSMakeSize(std::max<CGFloat>(m.width, 480), m.height + kStatusHeight + kADIFMargin);
     // Keep the standalone Map's list in its normal state; the static contact map has no log list.
-    worldmap::setListSuppressed([self shows:kDockMap] && [self shows:kDockLog]);
+    worldmap::setListSuppressed(listBeside);
+    _rebuilding = NO;
 }
 
 // ── Split delegate: no frame below its least size; a divider dragged keeps its shares ──
@@ -1560,6 +1932,14 @@ bool openActivation() {
     return [ws openActivation];
 }
 
+bool openContest() {
+    ADIFWorkspace *ws = ADIFWorkspace.shared;
+    ws.onChange = ^(BOOL on) {
+        if (gOnChange) gOnChange(on);
+    };
+    return [ws openProfile:"contest" allowEmptyQso:NO];
+}
+
 bool openLogging() {
     ADIFWorkspace *ws = ADIFWorkspace.shared;
     ws.onChange = ^(BOOL on) {
@@ -1611,15 +1991,40 @@ void toggleQsoDetails() {
     ADIFPanelShownChanged();
 }
 
-void setOpener(int item, std::function<void()> open) {
-    if (item > kDockNone && item < kDockCount) gOpeners[item] = std::move(open);
-}
-
 void setOnChange(std::function<void(bool)> onChange) { gOnChange = std::move(onChange); }
 
 bool show(NSWindow<ADIFDockable> *window) { return [ADIFWorkspace.shared dock:window]; }
 
 bool hide(NSWindow<ADIFDockable> *window, bool closing) { return [ADIFWorkspace.shared hide:window closing:closing]; }
+
+bool paneShown(const char *panel, const char *pane) { return [ADIFWorkspace.shared paneShown:panel pane:pane]; }
+
+bool stylesArrange() { return adifhost::setting("stylesArrangePanels") != "0"; }
+
+void setStylesArrange(bool on) { adifhost::setSetting("stylesArrangePanels", on ? "1" : "0"); }
+
+void styleChosen(const std::string &style) {
+    if (!style.empty() && stylesArrange()) [ADIFWorkspace.shared arrangeForStyle:style];
+}
+
+void keepStyleLayout(const std::string &style) {
+    if (stylesArrange()) [ADIFWorkspace.shared keepStyleLayout:style];
+}
+
+void forgetStyleLayout(const std::string &style) { [ADIFWorkspace.shared forgetStyleLayout:style]; }
+
+bool styleLayoutDiffers(const std::string &style) { return stylesArrange() && [ADIFWorkspace.shared styleLayoutDiffers:style]; }
+
+void restoreBeforeStyle() { [ADIFWorkspace.shared restoreBeforeStyle]; }
+
+std::string styleLayoutName(const std::string &style) {
+    if (!stylesArrange()) return tr("Not arranged: Arrange Panels is off");
+    if ([ADIFWorkspace.shared styleLayoutIsOwn:style]) return tr("Yours, kept with Save");
+    const adif::layout::Preset *p = adif::layout::preset(style);
+    return p ? tr(p->name) : std::string();
+}
+
+void setPane(const char *panel, const char *pane, bool shown) { [ADIFWorkspace.shared setPane:panel pane:pane shown:shown]; }
 
 bool visible(NSWindow<ADIFDockable> *window) {
     ADIFWorkspace *ws = ADIFWorkspace.shared;

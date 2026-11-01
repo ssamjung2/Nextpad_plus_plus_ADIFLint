@@ -1,4 +1,5 @@
 #import "ToolWindow.h"
+#import "Theme.h"
 #import "Night.h"
 #import "Workspace.h"
 
@@ -282,8 +283,8 @@ void ADIFSuggestAsYouType(NSComboBox *box, ADIFSuggestBlock suggest) {
                                                   usingBlock:^(NSNotification *) { [weak chose]; }];
 }
 
-const CGFloat kADIFMargin = 14;
-const CGFloat kADIFSpacing = 8;
+const CGFloat kADIFMargin = theme::kMargin;  // Theme.h's tokens, by their older names
+const CGFloat kADIFSpacing = theme::kSpacing;
 
 @implementation ADIFButtonRow {
     NSMutableArray<NSArray *> *_entries;  // view, its leading and top constraints, and whether it is a trailing one
@@ -451,7 +452,6 @@ static NSSize sizeOf(NSView *v, CGFloat width) {
                                            backing:NSBackingStoreBuffered
                                              defer:YES];
     _window.title = T(title);
-    ADIFNightTrack(_window);
     _window.floatingPanel = YES;
     _window.hidesOnDeactivate = YES;
     _window.releasedWhenClosed = NO;

@@ -22,7 +22,11 @@ namespace worldmap {
 void cmdMap();
 void cmdLiveMap();
 bool mapShown();  // open: its window, or its frame in the Operating Console
-void closeMap();  // the Map showing the spots: Live, or DX Chase or POTA when it is in one
+void closeMap();
+// Map Style (it was the Style Options card): a panel of its own, made with the Map.
+bool mapStyleShown();
+void openMapStyle();
+void closeMapStyle();  // the Map showing the spots: Live, or DX Chase or POTA when it is in one
 // Start Logging: the Map, once it is open, as an operating map: Live's spots of the last five
 // minutes, plain DX (no POTA parks or activators), at 2.5×.
 void showForLogging();
@@ -35,15 +39,10 @@ bool shownArea(std::array<double, 4> *box);
 void detailChanged();  // Map Detail regions were downloaded or removed
 // Where a spot's Use in New QSO sends its fields (New QSO, set up by ADIFLint.mm).
 void setSpotHandler(void (^handler)(const std::vector<std::pair<std::string, std::string>> &fields));
-#ifdef __OBJC__
-// What the Map's Settings card holds (ADIF Lint's settings, set up by ADIFLint.mm).
-void setSettingsProvider(NSView * (^provider)(void));
-#endif
-// The Map open, its selected panel shown and its Settings card open and in sight (the menu's
-// Settings..., and every "add it in Settings").
-void revealSettings();
 // The Map's own list hidden (true) while the Log Table shows the same records beside it, shown again after.
 void setListSuppressed(bool on);
+// The panes as the console's arrangement has them now (one of your layouts chosen).
+void applyPanes();
 #ifdef __OBJC__
 NSWindow *mapWindow();  // nil before the Map opens
 #endif
