@@ -564,7 +564,16 @@ toolbar (Stage 2); they are still open to review.
   style arranges the Operating Console (its built-in layout, or its own after Save), with the
   opt-out **Arrange Panels**; Restore Previous Layout and Use Recommended Defaults cover the
   panels too; a field being typed in keeps the keyboard.
-- **Next:** Stage 4 (Chasing: ranked, explained opportunities).
+- **Stage 4, Chasing (2026-11-01):** `src/core/adif_chase.{h,cpp}`: the opportunity model
+  (reasons: watch list, new DXCC, band, mode, IOTA, POTA park, unconfirmed with LoTW), weights
+  (`Weights`, for Stage 7's goal weights), a deterministic order (score, newest, call, frequency,
+  place) and the reasons in words with the spot's age; duplicates (worked today on the band and
+  mode group) and your own signal excluded. `testChase` in the core tests. On the Map: the
+  spots list and Wanted now in that order; Next Opportunity (the selected panel, ⌘G and ⇧⌘G);
+  in Chasing, the next one after logging a spotted station; Chasing's Operating Aids (the
+  call's opportunity, a duplicate, the frequency and mode against the spot, the next one with
+  Next).
+- **Next:** Stage 5 (Contest).
 
 ## Initial backlog
 

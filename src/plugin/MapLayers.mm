@@ -7,6 +7,7 @@
 #import "ParkOutlines.h"
 #import "PotaParks.h"
 #import "ToolWindow.h"
+#import <QuartzCore/QuartzCore.h>
 #include "adif_geo.h"
 #include "adif_worked.h"
 #include "adif_regions.h"
@@ -73,6 +74,15 @@ NSBezierPath *thinned(NSBezierPath *src, CGFloat tolerance) {
 }
 
 }  // namespace
+
+// A view the pointer passes through: the turning rings over the map (placeHoverRings).
+@interface ADIFPassThroughView : NSView
+@end
+@implementation ADIFPassThroughView
+- (NSView *)hitTest:(NSPoint)point {
+    return nil;
+}
+@end
 
 @implementation ADIFMapView (Layers)
 
@@ -217,6 +227,11 @@ NSBezierPath *thinned(NSBezierPath *src, CGFloat tolerance) {
     setFill(ctx, pal.background);
     CGContextFillRect(ctx, NSRectToCGRect(b));
     double ppu = [self ppu];
+    NSPoint origin = [self planeToView:0 y:0];
+    if (!(ppu > 0) || !std::isfinite(ppu) || !std::isfinite(origin.x) || !std::isfinite(origin.y)) {  // no room yet, or no view to fit: nothing to draw
+        CGContextRestoreGState(ctx);
+        return;
+    }
     CGFloat ink = pal.dark ? 1 : 0;
     NSBezierPath *world = [NSBezierPath bezierPath];
     std::vector<std::pair<double, double>> outline = _pr.outline();
@@ -1481,19 +1496,89 @@ bool mapkit::potaSpot(const adif::Spot &s) { return s.program == "POTA"; }
     return m;
 }
 
-// A POTA activator's spot: the park badge (a pale disc with a tree, here in the spot's colour)
-// with the spot's ring round it, a station calling from a park. Fainter as it ages, like the rest.
-- (void)drawPotaSpotAt:(NSPoint)p radius:(double)r color:(NSColor *)c alpha:(CGFloat)alpha lit:(BOOL)lit {
+// A POTA activator's spot: the park badge (a pale disc with a tree, here in the spot's colour: a
+// park you haven't hunted or one you have) with the spot's ring round it, a station calling from a
+// park; its DXCC's need in the ring's shape, as the other spots'. Fainter as it ages, like the rest.
+// Under the pointer its rings turn instead (placeHoverRings).
+- (void)drawPotaSpotAt:(NSPoint)p radius:(double)r color:(NSColor *)c alpha:(CGFloat)alpha lit:(BOOL)lit spot:(const ADIFMapSpot &)s hovered:(BOOL)hovered {
     CGContextRef ctx = NSGraphicsContext.currentContext.CGContext;
     CGContextSaveGState(ctx);
     CGContextSetAlpha(ctx, alpha);
     double ring = r * 1.6;
-    NSBezierPath *circle = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(p.x - ring, p.y - ring, 2 * ring, 2 * ring)];
-    circle.lineWidth = lit ? 2.2 : 1.4;
-    [c setStroke];
-    [circle stroke];
+    if (!hovered) [self strokeSpotRings:s at:p radius:ring color:c lit:lit];
     [self drawParkBadgeAt:p radius:r color:c worked:NO activated:NO lit:lit];
     CGContextRestoreGState(ctx);
+}
+
+// A spot's ring, its shape saying what it means for the log: a new DXCC two rings, a new band or
+// mode a dashed one.
+- (void)strokeSpotRings:(const ADIFMapSpot &)s at:(NSPoint)p radius:(double)ring color:(NSColor *)c lit:(BOOL)lit {
+    NSBezierPath *circle = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(p.x - ring, p.y - ring, 2 * ring, 2 * ring)];
+    circle.lineWidth = lit ? 2.2 : 1.4;
+    bool newBandOrMode = !s.spot.heardMe && (s.status.need == adif::SpotNeed::NewBand || s.status.need == adif::SpotNeed::NewMode);
+    if (newBandOrMode) {
+        const CGFloat dash[] = {2.6, 1.8};
+        [circle setLineDash:dash count:2 phase:0];
+    }
+    [c setStroke];
+    [circle stroke];
+    if (!s.spot.heardMe && s.status.need == adif::SpotNeed::NewDxcc) {
+        double outer = ring + 2.6 * _style.marker;
+        NSBezierPath *second = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(p.x - outer, p.y - outer, 2 * outer, 2 * outer)];
+        second.lineWidth = 1.1;
+        [second stroke];
+    }
+}
+
+// The spot under the pointer: its rings as long dashes turning opposite ways (held still with
+// Reduce Motion), on a layer over the map so that the map isn't drawn again to turn them.
+- (void)placeHoverRings {
+    bool on = _hover.kind == ADIFMapHit::Spot && _hover.index < _spots.size() && _style[kLayerSpots].show;
+    if (!on && !_hoverRingsView) return;
+    if (!_hoverRingsView) {
+        _hoverRingsView = [[ADIFPassThroughView alloc] initWithFrame:self.bounds];
+        _hoverRingsView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+        _hoverRingsView.layer = [CALayer layer];  // its own layers (layer-hosting)
+        _hoverRingsView.wantsLayer = YES;
+        _hoverRingsView.identifier = @"map.hoverRings";
+        for (int i = 0; i < 2; ++i) {
+            CAShapeLayer *r = [CAShapeLayer layer];
+            r.fillColor = nil;
+            r.lineWidth = i ? 1.4 : 2.0;
+            r.lineDashPattern = @[ @7, @4 ];
+            r.hidden = YES;
+            [_hoverRingsView.layer addSublayer:r];
+        }
+        [self addSubview:_hoverRingsView];
+    }
+    NSArray<CALayer *> *rings = _hoverRingsView.layer.sublayers;
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    for (CALayer *r in rings) r.hidden = !on;
+    if (!on) return [CATransaction commit];
+    const ADIFMapSpot &s = _spots[_hover.index];
+    NSPoint p = [self viewPointForLon:s.lon lat:s.lat];
+    NSColor *c = paletteAt(_style.palette).night ? NSColor.systemRedColor : [self spotColor:s];
+    bool still = NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
+    for (NSUInteger i = 0; i < rings.count; ++i) {
+        CAShapeLayer *r = (CAShapeLayer *)rings[i];
+        double rad = [self spotRadius:s] + (i ? 4.5 * _style.marker : 0);
+        r.frame = CGRectMake(p.x - rad - 2, p.y - rad - 2, 2 * rad + 4, 2 * rad + 4);
+        CGPathRef path = CGPathCreateWithEllipseInRect(CGRectMake(2, 2, 2 * rad, 2 * rad), nullptr);
+        r.path = path;
+        CGPathRelease(path);
+        r.strokeColor = c.CGColor;
+        if (still) [r removeAnimationForKey:@"turn"];
+        else if (![r animationForKey:@"turn"]) {
+            CABasicAnimation *turn = [CABasicAnimation animationWithKeyPath:@"lineDashPhase"];
+            turn.fromValue = @0;
+            turn.toValue = @(i ? -22 : 22);  // two of the pattern's 11 points: one way, and the other
+            turn.duration = 1.4;
+            turn.repeatCount = HUGE_VALF;
+            [r addAnimation:turn forKey:@"turn"];
+        }
+    }
+    [CATransaction commit];
 }
 
 - (double)spotRadius:(const ADIFMapSpot &)s {
@@ -1669,34 +1754,18 @@ bool mapkit::potaSpot(const adif::Spot &s) { return s.program == "POTA"; }
         const ADIFMapSpot &s = _spots[k];
         NSPoint p = [self viewPointForLon:s.lon lat:s.lat];
         if (!NSPointInRect(p, NSInsetRect(d.b, -12, -12))) continue;
-        bool lit = [self spotLit:k];
+        bool lit = [self spotLit:k], hovered = _hover.kind == ADIFMapHit::Spot && _hover.index == k;  // hovered: its rings turn instead
         CGFloat alpha = [self spotAlpha:s];
         if (potaSpot(s.spot)) {  // from a park: POTA's badge, calling
-            [self drawPotaSpotAt:p radius:6.5 * _style.marker color:[self spotColor:s] alpha:alpha lit:lit];
+            [self drawPotaSpotAt:p radius:6.5 * _style.marker color:[self spotColor:s] alpha:alpha lit:lit spot:s hovered:hovered];
             continue;
         }
         NSColor *c = [[self spotColor:s] colorWithAlphaComponent:alpha];
         double r = 3 * _style.marker, ring = 6 * _style.marker;
         NSBezierPath *dot = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(p.x - r, p.y - r, 2 * r, 2 * r)];
-        NSBezierPath *circle = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(p.x - ring, p.y - ring, 2 * ring, 2 * ring)];
         [c setFill];
         [dot fill];
-        circle.lineWidth = lit ? 2.2 : 1.4;
-        // What a spot means shows in its ring's shape too, not only its colour: a new DXCC two
-        // rings, a new band or mode a dashed one.
-        bool newBandOrMode = !s.spot.heardMe && (s.status.need == adif::SpotNeed::NewBand || s.status.need == adif::SpotNeed::NewMode);
-        if (newBandOrMode) {
-            const CGFloat dash[] = {2.6, 1.8};
-            [circle setLineDash:dash count:2 phase:0];
-        }
-        [c setStroke];
-        [circle stroke];
-        if (!s.spot.heardMe && s.status.need == adif::SpotNeed::NewDxcc) {
-            double outer = ring + 2.6 * _style.marker;
-            NSBezierPath *second = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(p.x - outer, p.y - outer, 2 * outer, 2 * outer)];
-            second.lineWidth = 1.1;
-            [second stroke];
-        }
+        if (!hovered) [self strokeSpotRings:s at:p radius:ring color:c lit:lit];
         [[NSColor colorWithCalibratedWhite:lit ? ink : (pal.dark && darkColour(c) ? 1 : 0) alpha:lit ? 1 : 0.7 * alpha] setStroke];
         dot.lineWidth = lit ? 1.4 : 0.8;
         [dot stroke];

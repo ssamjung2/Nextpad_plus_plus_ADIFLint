@@ -123,6 +123,12 @@ struct ADIFMapSpot {
     std::vector<ADIFSpotHeard> heard;  // newest first, one per spotter, at most 12, each where it is
     adif::SpotStatus status;           // what it means for the log (set by the view)
     std::string watched;               // what on your watch list it is for (adif::watchedFor), "" when nothing
+    // Chasing's (adif_chase.h, set by the Map): how much it offers you, why in words, and its place
+    // in the order (1 the best; 0 no opportunity).
+    int score = 0;
+    std::string why;
+    size_t rank = 0;
+    int reason = -1;  // its most valuable reason (adif::chase::Reason); -1 none
 };
 
 // A line of the information box (what is known about a clicked spot or spotter): a heading, or
@@ -304,6 +310,7 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
     std::vector<std::pair<NSRect, std::string>> _legendKeys;  // its entries that a click turns off or on
     std::vector<std::pair<std::string, bool>> _legendNames;   // theirs as they read, and whether off (accessibility actions)
     std::shared_ptr<struct ReliefShown> _reliefShown;          // the globe's terrain as last drawn (MapRelief.mm)
+    NSView *_hoverRingsView;                                    // over the map: the spot under the pointer's turning rings
 }
 @property(nonatomic) BOOL showContacts;
 @property(nonatomic) std::set<std::string> hiddenPrograms;
@@ -504,7 +511,9 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 - (void)drawParkLabelsIn:(NSRect)b;
 - (NSBezierPath *)spotMarkerAt:(NSPoint)p;
 - (double)spotRadius:(const ADIFMapSpot &)s;  // its marker's, ring and all
-- (void)drawPotaSpotAt:(NSPoint)p radius:(double)r color:(NSColor *)c alpha:(CGFloat)alpha lit:(BOOL)lit;
+- (void)placeHoverRings;  // the spot under the pointer's rings, turning (MapLayers.mm)
+- (void)drawPotaSpotAt:(NSPoint)p radius:(double)r color:(NSColor *)c alpha:(CGFloat)alpha lit:(BOOL)lit spot:(const ADIFMapSpot &)s hovered:(BOOL)hovered;
+- (void)strokeSpotRings:(const ADIFMapSpot &)s at:(NSPoint)p radius:(double)ring color:(NSColor *)c lit:(BOOL)lit;
 - (CGFloat)spotAlpha:(const ADIFMapSpot &)s;
 - (bool)spotLit:(size_t)k;     // under the pointer or chosen
 - (bool)spotterLit:(size_t)j;  // so, or a spotter of such a spot

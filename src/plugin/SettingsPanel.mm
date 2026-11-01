@@ -39,6 +39,8 @@
 
 @implementation ADIFSettingsPanel {
     NSMutableDictionary<NSString *, ADIFAccordion *> *_groups;
+    NSMutableDictionary<NSString *, NSStackView *> *_taken;  // a section's controls, in their panel
+    NSMutableDictionary<NSString *, NSView *> *_away;        // in its place here: where they are
     NSMutableArray<NSTextField *> *_user;    // per source; hidden for API-key sources
     NSMutableArray<NSSecureTextField *> *_secret;
     NSMutableArray<NSTextField *> *_status;
@@ -122,7 +124,7 @@ static NSString *colon(NSString *label) { return TF(@"{label}:", @{@"label" : la
 static NSStackView *field(NSString *label, NSView *control) {
     NSTextField *name = [NSTextField labelWithString:label];
     name.font = theme::small();
-    name.textColor = NSColor.secondaryLabelColor;
+    name.textColor = theme::faint();
     NSStackView *pair = [NSStackView stackViewWithViews:@[ name, control ]];
     pair.orientation = NSUserInterfaceLayoutOrientationVertical;
     pair.alignment = NSLayoutAttributeLeading;
@@ -164,7 +166,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     NSTextField *accounts = wrapping(@"Accounts and API keys for the online services. They are saved in your macOS Keychain "
                                      @"(items named \"ADIF Lint: ...\"), never in a file, and a saved password is never shown "
                                      @"here.",
-                                     NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+                                     NSFont.smallSystemFontSize, theme::faint());
     accounts.identifier = @"settings.accounts";
     [views addObject:accounts];
     for (NSInteger s = 0; s < ADIFSourceCount; ++s) {
@@ -202,10 +204,10 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     NSButton *profiles = [NSButton buttonWithTitle:T(@"Station Profiles...") target:self action:@selector(stationProfiles:)];
     profiles.toolTip = T(@"Named sets of your station's fields (home, portable, a club station) for New QSO and activations");
     ADIFWrapRow *buttons = [ADIFWrapRow rowWithViews:@[ save, profiles ]];
-    _stationStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    _stationStatus = wrapping(@"", NSFont.smallSystemFontSize, theme::faint());
     NSTextField *help = wrapping(@"Used when a log doesn't say: New QSO fills STATION_CALLSIGN and MY_GRIDSQUARE from them "
                                  @"in a new log, and the exports use the callsign. Worked Before searches the logs folder.",
-                                 NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+                                 NSFont.smallSystemFontSize, theme::faint());
     return sectionStack(N(@"Your Station"), @"person.crop.circle", @[ help, field(T(@"Callsign:"), _stationCall), field(T(@"Grid:"), _stationGrid), field(T(@"Logs folder:"), folder), buttons,
                                                _stationStatus ],
                         @"settings.station");
@@ -232,7 +234,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
 
 - (void)setStationStatus:(NSString *)text ok:(BOOL)ok {
     _stationStatus.stringValue = T(text);
-    _stationStatus.textColor = ok ? NSColor.secondaryLabelColor : NSColor.systemRedColor;
+    _stationStatus.textColor = ok ? theme::faint() : theme::error();
 }
 
 - (NSView *)editorSection {
@@ -265,7 +267,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     NSTextField *help = wrapping(@"The ADIF version the problem marks, Check Log and autocomplete follow, and the one the logs ADIF Lint "
                                  @"writes declare. Choose an older one when your logs must suit a program that reads it: fields and "
                                  @"values that came later are marked, with the version that brought them.",
-                                 NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+                                 NSFont.smallSystemFontSize, theme::faint());
     NSMutableArray *views = [boxes mutableCopy];
     [views addObjectsFromArray:@[ field(T(@"Check against:"), _adifVersion), help ]];
     return sectionStack(N(@"Editor"), @"pencil", views, @"settings.editor");
@@ -309,7 +311,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
                                  @"an AI, and are waiting for review by native speakers; anything not yet translated shows in "
                                  @"English, and so does the User Guide. The menu and new messages change at once; windows ADIF "
                                  @"Lint has already shown change when Nextpad++ starts again.",
-                                 NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+                                 NSFont.smallSystemFontSize, theme::faint());
     return sectionStack(N(@"Language"), @"globe", @[ help, field(T(@"Language:"), _language) ], @"settings.language");
 }
 
@@ -334,7 +336,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
                                  @"too), imports from the online services, downloads and web pages are refused while it is on; "
                                  @"everything that works on this Mac's files goes on, and Monitor still hears the programs on "
                                  @"this Mac. Also in the ADIF Lint menu: Offline Mode.",
-                                 NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+                                 NSFont.smallSystemFontSize, theme::faint());
     return sectionStack(N(@"Offline Mode"), @"wifi.slash", @[ help, _offline ], @"settings.offline");
 }
 
@@ -345,7 +347,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
         @"build (protomaps.com) and kept on this Mac; the Map draws only from what is kept here. Check Size reads the build's "
         @"index for the region and says what it would take (a city is about 10 MB with streets and buildings, a state hundreds); "
         @"Download fetches it.",
-        NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+        NSFont.smallSystemFontSize, theme::faint());
     _detailRegion = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     _detailRegion.identifier = @"settings.mapdetail.region";
     _detailLevel = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
@@ -359,12 +361,12 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     _detailStop = [NSButton buttonWithTitle:T(@"Stop") target:self action:@selector(detailStop:)];
     _detailDownload.enabled = _detailStop.enabled = NO;
     ADIFWrapRow *buttons = [ADIFWrapRow rowWithViews:@[ _detailCheck, _detailDownload, _detailStop ]];
-    _detailStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    _detailStatus = wrapping(@"", NSFont.smallSystemFontSize, theme::faint());
     _detailStatus.identifier = @"settings.mapdetail.status";
     _detailInstalled = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     _detailInstalled.identifier = @"settings.mapdetail.installed";
     _detailRemove = [NSButton buttonWithTitle:T(@"Remove") target:self action:@selector(detailRemove:)];
-    _detailSummary = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    _detailSummary = wrapping(@"", NSFont.smallSystemFontSize, theme::faint());
     _detailSummary.identifier = @"settings.mapdetail.summary";
     return sectionStack(N(@"Map Detail"), @"map", @[ help, field(colon(T(@"Region")), _detailRegion), field(colon(T(@"Detail")), _detailLevel), buttons, _detailStatus,
                                              field(T(@"Downloaded:"), _detailInstalled), _detailRemove, _detailSummary ],
@@ -401,7 +403,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
 
 - (void)setMapDetailState:(NSString *)message ok:(BOOL)ok checked:(BOOL)checked busy:(BOOL)busy {
     _detailStatus.stringValue = T(message);
-    _detailStatus.textColor = ok ? NSColor.secondaryLabelColor : NSColor.systemRedColor;
+    _detailStatus.textColor = ok ? theme::faint() : theme::error();
     _detailDownload.enabled = checked && !busy;
     _detailStop.enabled = busy;
     _detailCheck.enabled = !busy;
@@ -448,7 +450,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
         @"Suggestions: New QSO Control-Option-N, Log Table Control-Option-T, Check Log Control-Option-C, Next Problem "
         @"Control-Option-Down, Previous Problem Control-Option-Up, Spots Control-Option-S (pick others if Nextpad++ "
         @"already uses one).",
-        NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+        NSFont.smallSystemFontSize, theme::faint());
     return sectionStack(N(@"Keyboard Shortcuts"), @"keyboard", @[ help ], @"settings.keyboard");
 }
 
@@ -471,9 +473,9 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     NSTextField *help = wrapping(@"DXCC entity, CQ and ITU zones and continent from a call's prefix, offline, for Enrich from "
                                  @"Country Data and New QSO. From Jim Reisert AD1C's country files (country-files.com, "
                                  @"MIT licence), updated every few weeks. Update downloads the newest release.",
-                                 NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+                                 NSFont.smallSystemFontSize, theme::faint());
     _countryUpdate = [NSButton buttonWithTitle:T(@"Update") target:self action:@selector(countryUpdate:)];
-    _countryStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    _countryStatus = wrapping(@"", NSFont.smallSystemFontSize, theme::faint());
     return sectionStack(N(@"Country Data"), @"flag", @[ help, _countryUpdate, _countryStatus ], @"settings.country");
 }
 
@@ -481,12 +483,12 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     NSTextField *help = wrapping(@"Marks the stations that upload to LoTW, with their last upload, in New QSO's lookup line and the "
                                  @"Spots window. It uses ARRL's list of LoTW users (lotw.arrl.org, about 6 MB, updated weekly), "
                                  @"downloaded when you press Update and again when a week old.",
-                                 NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+                                 NSFont.smallSystemFontSize, theme::faint());
     _lotwOn = [NSButton checkboxWithTitle:T(@"Show LoTW users") target:self action:@selector(lotwToggled:)];
     _lotwUpdate = [NSButton buttonWithTitle:T(@"Update") target:self action:@selector(lotwUpdate:)];
     ADIFWrapRow *row = [ADIFWrapRow rowWithViews:@[ _lotwOn, _lotwUpdate ]];
     row.spacing = 12;
-    _lotwStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    _lotwStatus = wrapping(@"", NSFont.smallSystemFontSize, theme::faint());
     return sectionStack(N(@"LoTW Users"), @"checkmark.seal", @[ help, row, _lotwStatus ], @"settings.lotwusers");
 }
 
@@ -505,7 +507,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     _lotwOn.state = on ? NSControlStateValueOn : NSControlStateValueOff;
     _lotwUpdate.enabled = YES;
     _lotwStatus.stringValue = T(text);
-    _lotwStatus.textColor = ok ? NSColor.secondaryLabelColor : NSColor.systemRedColor;
+    _lotwStatus.textColor = ok ? theme::faint() : theme::error();
     [self summarize];
 }
 
@@ -515,9 +517,9 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
                                  @"the Map's Parks in View lists them. Download fetches POTA's list of "
                                  @"parks (pota.app, about 9.5 MB: every park's name and place) into the plugin's settings folder on "
                                  @"this Mac; download again for new parks. ADIF Lint isn't affiliated with Parks on the Air.",
-                                 NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+                                 NSFont.smallSystemFontSize, theme::faint());
     _potaUpdate = [NSButton buttonWithTitle:T(@"Download") target:self action:@selector(potaUpdate:)];
-    _potaStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    _potaStatus = wrapping(@"", NSFont.smallSystemFontSize, theme::faint());
     // Park Outlines: a POTA location's park boundaries, downloaded when asked.
     NSTextField *outlinesTitle = [NSTextField labelWithString:T(@"Park Outlines")];
     outlinesTitle.font = [NSFont boldSystemFontOfSize:NSFont.smallSystemFontSize + 1];
@@ -527,7 +529,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
         @"Denmark, Germany, Luxembourg and Switzerland, and for US parks USGS's PAD-US, matched by name and by POTA's place for the park "
         @"(dashed on the map, and said so). A state can take a minute; Overpass is sometimes too busy, and then OpenStreetMap's are left "
         @"for another try.",
-        NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+        NSFont.smallSystemFontSize, theme::faint());
     _outlinesLocation = [[NSComboBox alloc] initWithFrame:NSZeroRect];
     _outlinesLocation.completes = YES;
     _outlinesLocation.numberOfVisibleItems = 15;
@@ -539,14 +541,14 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     _outlinesDownload = [NSButton buttonWithTitle:T(@"Download") target:self action:@selector(outlinesDownload:)];
     _outlinesDownload.identifier = @"settings.outlines.download";
     ADIFWrapRow *outlinesRow = [ADIFWrapRow rowWithViews:@[ _outlinesLocation, _outlinesDownload ]];
-    _outlinesStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    _outlinesStatus = wrapping(@"", NSFont.smallSystemFontSize, theme::faint());
     _outlinesStatus.identifier = @"settings.outlines.status";
     // What is downloaded: a location each in the menu (to remove one), and all of them summed up.
     _outlinesHave = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     _outlinesHave.identifier = @"settings.outlines.installed";
     _outlinesRemove = [NSButton buttonWithTitle:T(@"Remove") target:self action:@selector(outlinesRemove:)];
     _outlinesRemove.identifier = @"settings.outlines.remove";
-    _outlinesSummary = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    _outlinesSummary = wrapping(@"", NSFont.smallSystemFontSize, theme::faint());
     _outlinesSummary.identifier = @"settings.outlines.summary";
     [self fillOutlines];
     return sectionStack(N(@"POTA Parks"), @"leaf", @[ help, _potaUpdate, _potaStatus, outlinesTitle, outlinesHelp, outlinesRow, _outlinesStatus,
@@ -591,7 +593,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     if (parkoutlines::busy()) return;
     if (none) {
         _outlinesStatus.stringValue = T(@"Download POTA's park list first.");
-        _outlinesStatus.textColor = NSColor.secondaryLabelColor;
+        _outlinesStatus.textColor = theme::faint();
     } else {
         [self showOutlinesLocation];
     }
@@ -615,7 +617,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
                                        {{"location", location}, {"have", std::to_string(d.outlines)}, {"from", parkoutlines::sources(d)}, {"date", d.date}});
     }
     _outlinesStatus.stringValue = @(text.c_str());
-    _outlinesStatus.textColor = NSColor.secondaryLabelColor;
+    _outlinesStatus.textColor = theme::faint();
 }
 
 - (void)outlinesLocationChosen:(id)sender {
@@ -635,7 +637,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
             ADIFSettingsPanel *me = weakSelf;
             if (!me) return;
             me->_outlinesStatus.stringValue = what;
-            me->_outlinesStatus.textColor = NSColor.secondaryLabelColor;
+            me->_outlinesStatus.textColor = theme::faint();
         },
         ^(BOOL ok, NSString *message) {
             ADIFSettingsPanel *me = weakSelf;
@@ -644,7 +646,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
             NSInteger at = [me->_outlinesHave indexOfItemWithRepresentedObject:chosen];
             if (at >= 0) [me->_outlinesHave selectItemAtIndex:at];  // the one just downloaded
             me->_outlinesStatus.stringValue = message;
-            me->_outlinesStatus.textColor = ok ? NSColor.secondaryLabelColor : NSColor.systemRedColor;
+            me->_outlinesStatus.textColor = ok ? theme::faint() : theme::error();
         });
 }
 
@@ -658,7 +660,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
 - (void)potaUpdate:(id)sender {
     _potaUpdate.enabled = NO;
     _potaStatus.stringValue = T(@"Downloading POTA's park list...");
-    _potaStatus.textColor = NSColor.secondaryLabelColor;
+    _potaStatus.textColor = theme::faint();
     if (self.onPotaUpdate) self.onPotaUpdate();
 }
 
@@ -666,7 +668,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     [self fillOutlines];  // the list's locations (it may have just been downloaded)
     _potaUpdate.enabled = YES;
     _potaStatus.stringValue = T(text);
-    _potaStatus.textColor = ok ? NSColor.secondaryLabelColor : NSColor.systemRedColor;
+    _potaStatus.textColor = ok ? theme::faint() : theme::error();
 }
 
 - (NSView *)iotaSection {
@@ -674,23 +676,23 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
                                  @"The group list is \u00A9 RSGB and IOTA Ltd, who allow downloading it for your own personal, "
                                  @"non-commercial use, so ADIF Lint doesn't include it: Download fetches it from iota-world.org "
                                  @"(about 290 KB) into the plugin's settings folder on this Mac. Download again to update it.",
-                                 NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+                                 NSFont.smallSystemFontSize, theme::faint());
     _iotaUpdate = [NSButton buttonWithTitle:T(@"Download") target:self action:@selector(iotaUpdate:)];
-    _iotaStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    _iotaStatus = wrapping(@"", NSFont.smallSystemFontSize, theme::faint());
     return sectionStack(N(@"IOTA Groups"), @"drop", @[ help, _iotaUpdate, _iotaStatus ], @"settings.iota");
 }
 
 - (void)iotaUpdate:(id)sender {
     _iotaUpdate.enabled = NO;
     _iotaStatus.stringValue = T(@"Downloading IOTA's group list...");
-    _iotaStatus.textColor = NSColor.secondaryLabelColor;
+    _iotaStatus.textColor = theme::faint();
     if (self.onIotaUpdate) self.onIotaUpdate();
 }
 
 - (void)setIotaStatus:(NSString *)text ok:(BOOL)ok {
     _iotaUpdate.enabled = YES;
     _iotaStatus.stringValue = T(text);
-    _iotaStatus.textColor = ok ? NSColor.secondaryLabelColor : NSColor.systemRedColor;
+    _iotaStatus.textColor = ok ? theme::faint() : theme::error();
 }
 
 - (void)countryUpdate:(id)sender {
@@ -702,11 +704,11 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
 - (void)setCountryStatus:(NSString *)text ok:(BOOL)ok {
     _countryUpdate.enabled = YES;
     _countryStatus.stringValue = T(text);
-    _countryStatus.textColor = ok ? NSColor.secondaryLabelColor : NSColor.systemRedColor;
+    _countryStatus.textColor = ok ? theme::faint() : theme::error();
 }
 
 - (ADIFAccordion *)sectionFor:(ADIFSource)source {
-    NSTextField *help = wrapping(ADIFSourceCredentialHelp(source), NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    NSTextField *help = wrapping(ADIFSourceCredentialHelp(source), NSFont.smallSystemFontSize, theme::faint());
 
     BOOL apiKey = ADIFSourceCredentialKind(source) == ADIFCredentialAPIKey;
     NSTextField *user = [NSTextField textFieldWithString:@""];
@@ -722,7 +724,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     NSButton *remove = [NSButton buttonWithTitle:T(@"Remove") target:self action:@selector(remove:)];
     for (NSButton *b in @[ save, test, remove ]) b.tag = source;
     ADIFWrapRow *buttons = [ADIFWrapRow rowWithViews:@[ save, test, remove ]];
-    NSTextField *status = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    NSTextField *status = wrapping(@"", NSFont.smallSystemFontSize, theme::faint());
 
     ADIFAccordion *section = sectionStack(ADIFSourceName(source), @"key", @[ help, userField, secretField, buttons, status ],
                                           [NSString stringWithFormat:@"settings.source.%ld", (long)source]);
@@ -735,14 +737,14 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
 
 - (void)setStatus:(NSString *)text ok:(BOOL)ok forSource:(NSInteger)s {
     _status[(NSUInteger)s].stringValue = T(text);
-    _status[(NSUInteger)s].textColor = ok ? NSColor.secondaryLabelColor : NSColor.systemRedColor;
+    _status[(NSUInteger)s].textColor = ok ? theme::faint() : theme::error();
 }
 
 - (NSView *)spotsSection {
     NSTextField *help = wrapping(@"Where the Map's Spots layer gets its spots. Nothing is fetched until you tick Show under Spots on the Map, and "
                                  @"only while the Map is open; nothing at all in Offline Mode. New QSO's Spot when logging boxes post "
                                  @"the stations you log on the DX cluster connected here.",
-                                 NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+                                 NSFont.smallSystemFontSize, theme::faint());
     _spotsSpothole = [ADIFWrappingCheckbox boxWithTitle:@"Spothole: POTA, WWFF, GMA and other programs, and the DX clusters and RBN it reads "
                                                         @"(spothole.app, every 2 minutes; SOTA left out)"
                                                  target:self
@@ -789,7 +791,7 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     _spotsEmail.toolTip = T(@"PSKReporter asks the programs that query it for a contact email address (appcontact), in case of a problem. "
                             @"Leave it empty to send none.");
     NSButton *save = [NSButton buttonWithTitle:T(@"Save") target:self action:@selector(spotsChanged:)];
-    _spotsStatus = wrapping(@"", NSFont.smallSystemFontSize, NSColor.secondaryLabelColor);
+    _spotsStatus = wrapping(@"", NSFont.smallSystemFontSize, theme::faint());
     _spotsSpothole.identifier = @"settings.spots.spothole", _spotsCluster.identifier = @"settings.spots.cluster";
     _spotsPsk.identifier = @"settings.spots.psk", _spotsNode.identifier = @"settings.spots.node";
     _spotsLogin.identifier = @"settings.spots.login", _spotsCommands.identifier = @"settings.spots.commands";
@@ -876,6 +878,74 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     say(@"settings.spots", sources.count ? [sources componentsJoinedByString:@", "] : T(@"none"));
     for (NSInteger s = 0; s < ADIFSourceCount; ++s)
         say([NSString stringWithFormat:@"settings.source.%ld", (long)s], ADIFHasSecret((ADIFSource)s) ? T(@"Saved##summary") : T(@"not set"));
+}
+
+// ── Sections as panels of their own ──
+
+- (NSView *)takeSection:(NSString *)ident {
+    if (!_taken) _taken = [NSMutableDictionary dictionary], _away = [NSMutableDictionary dictionary];
+    if (_taken[ident]) return _taken[ident];
+    ADIFAccordion *group = _groups[ident];
+    NSStackView *body = [group.body isKindOfClass:NSStackView.class] ? (NSStackView *)group.body : nil;
+    if (!body) return nil;
+    NSStackView *out = [NSStackView stackViewWithViews:@[]];
+    out.orientation = NSUserInterfaceLayoutOrientationVertical;
+    out.alignment = NSLayoutAttributeLeading;
+    out.spacing = body.spacing;
+    out.identifier = [ident stringByAppendingString:@".panel"];
+    for (NSView *v in [body.arrangedSubviews copy]) {
+        [body removeArrangedSubview:v];
+        [v removeFromSuperview];
+        [out addArrangedSubview:v];
+        [v.widthAnchor constraintEqualToAnchor:out.widthAnchor].active = YES;
+    }
+    NSTextField *where = wrapping(@"Shown in a panel of its own.", NSFont.smallSystemFontSize, theme::faint());
+    NSButton *show = [NSButton buttonWithTitle:T(@"Show It") target:nil action:nil];
+    show.identifier = [ident stringByAppendingString:@".showPanel"];
+    __weak ADIFSettingsPanel *me = self;
+    NSString *name = [ident copy];
+    ADIFOnAction(show, ^{
+        ADIFSettingsPanel *panel = me;
+        if (panel.onShowSection) panel.onShowSection(name);
+    });
+    NSStackView *note = [NSStackView stackViewWithViews:@[ where, show ]];
+    note.spacing = kADIFSpacing;
+    note.identifier = [ident stringByAppendingString:@".away"];
+    [body addArrangedSubview:note];
+    [note.widthAnchor constraintEqualToAnchor:body.widthAnchor].active = YES;
+    _taken[ident] = out, _away[ident] = note;
+    return out;
+}
+
+- (void)returnSection:(NSString *)ident {
+    NSStackView *out = _taken[ident];
+    NSStackView *body = (NSStackView *)_groups[ident].body;
+    if (!out || !body) return;
+    [body removeArrangedSubview:_away[ident]];
+    [_away[ident] removeFromSuperview];
+    for (NSView *v in [out.arrangedSubviews copy]) {
+        [out removeArrangedSubview:v];
+        [v removeFromSuperview];
+        [body addArrangedSubview:v];
+        [v.widthAnchor constraintEqualToAnchor:body.widthAnchor].active = YES;
+    }
+    [_taken removeObjectForKey:ident];
+    [_away removeObjectForKey:ident];
+}
+
+- (void)offerPanel:(NSString *)ident tip:(NSString *)tip {
+    NSButton *b = [NSButton buttonWithImage:[NSImage imageWithSystemSymbolName:@"macwindow.on.rectangle" accessibilityDescription:tip] target:nil action:nil];
+    b.bordered = NO;
+    b.contentTintColor = theme::faint();
+    b.toolTip = tip;
+    b.identifier = [ident stringByAppendingString:@".openPanel"];
+    __weak ADIFSettingsPanel *me = self;
+    NSString *name = [ident copy];
+    ADIFOnAction(b, ^{
+        ADIFSettingsPanel *panel = me;
+        if (panel.onShowSection) panel.onShowSection(name);
+    });
+    [_groups[ident].header addAccessory:b];
 }
 
 - (void)refresh {

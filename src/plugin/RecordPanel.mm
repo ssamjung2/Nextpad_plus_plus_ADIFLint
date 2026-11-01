@@ -14,7 +14,7 @@ static NSString *const kNoteColumn = @"note";
 static NSString *const kLineBreakGlyph = @"⏎";  // ⏎
 
 // Problems in their colour; plain text dimmed.
-static NSColor *severityColor(int severity) { return severity < 0 ? NSColor.secondaryLabelColor : ADIFSeverityColor(severity); }
+static NSColor *severityColor(int severity) { return severity < 0 ? theme::faint() : ADIFSeverityColor(severity); }
 
 static NSButton *symbolButton(NSString *symbol, NSString *fallback, NSString *tip, id target, SEL action) {
     NSImage *image = [NSImage imageWithSystemSymbolName:symbol accessibilityDescription:tip];
@@ -157,7 +157,7 @@ static NSButton *symbolButton(NSString *symbol, NSString *fallback, NSString *ti
     _snapshot = snapshot;
     _title.stringValue = ADIFString(snapshot.title);
     _health.stringValue = ADIFString(snapshot.health);
-    _health.textColor = snapshot.healthSeverity >= 0 ? severityColor(snapshot.healthSeverity) : NSColor.secondaryLabelColor;
+    _health.textColor = snapshot.healthSeverity >= 0 ? severityColor(snapshot.healthSeverity) : theme::faint();
     _health.toolTip = ADIFString(snapshot.health);
     _footer.stringValue = ADIFString(snapshot.footer);
     _footer.textColor = severityColor(snapshot.footerSeverity);
@@ -252,7 +252,7 @@ static NSButton *symbolButton(NSString *symbol, NSString *fallback, NSString *ti
             f = [NSTextField labelWithString:@""];
             f.identifier = @"pos.cell";
             f.alignment = NSTextAlignmentRight;
-            f.textColor = NSColor.secondaryLabelColor;
+            f.textColor = theme::faint();
             f.font = theme::digits(NSFont.smallSystemFontSize, NSFontWeightRegular);
         }
         f.stringValue = [NSString stringWithFormat:@"%ld", (long)model + 1];

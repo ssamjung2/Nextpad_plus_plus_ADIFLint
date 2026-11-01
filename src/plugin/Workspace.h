@@ -13,7 +13,8 @@
 #include <utility>
 #include <vector>
 
-enum ADIFDockItem { kDockNone = 0, kDockMap, kDockLog, kDockNewQso, kDockSpots, kDockContactMap, kDockQsoInfo, kDockMapStyle, kDockCount };
+enum ADIFDockItem { kDockNone = 0, kDockMap, kDockLog, kDockNewQso, kDockSpots, kDockContactMap, kDockQsoInfo, kDockMapStyle, kDockAids, kDockSpotSources, kDockStation,
+                    kDockClocks, kDockCount };
 
 @protocol ADIFDockable <NSObject>
 @property(nonatomic) int dockItem;                   // an ADIFDockItem; kDockNone: never docks
@@ -54,6 +55,9 @@ void setOnChange(std::function<void(bool active)> onChange);
 // The status bar's text (the log, what was last done); the UTC time sits beside it.
 void setStatus(const std::string &text);
 void setQsoFields(const std::vector<std::pair<std::string, std::string>> &fields);
+// The grid square the lookup found for a call (a callbook's; "" none): the Contact Map places the
+// contact there while New QSO has no GRIDSQUARE of its own.
+void setLookupGrid(const std::string &call, const std::string &grid);
 // What QSO Details shows of the contact being logged (ADIFLint.mm works it out from New QSO, its
 // lookup and the log): who it is and where, why it is worth having (adif::contactInterest), the
 // lookup's facts, this QSO, and your QSOs with the call.

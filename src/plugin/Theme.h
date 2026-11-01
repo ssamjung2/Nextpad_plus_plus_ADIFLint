@@ -23,7 +23,17 @@ NSColor *styleAccent(int style);  // an operating style's own, by adif::styles o
 NSColor *fine();                  // done: worked, confirmed, saved
 NSColor *warning();
 NSColor *error();
-NSColor *faint();  // hints and status lines
+NSColor *faint();    // secondary text: hints, notes and status lines
+NSColor *fainter();  // what is off or unavailable
+// A status by its severity, as the tool windows and New QSO show it: 0 a note (blue), 1 a warning,
+// 2 an error, 3 fine; anything else the label's colour.
+NSColor *severity(int s);
+// Why a contact is worth having (adif::InterestKind, by number): its mark, and every reason's
+// colour by its mark, the same in the Map's selected panel, QSO Details and Chasing's
+// opportunities: on the watch list yellow, a new entity pink, a new band or mode teal, a park,
+// confirmed or new for an activation green, a duplicate red, the rest faint.
+NSString *interestSymbol(int kind);
+NSColor *markColour(NSString *symbol);
 
 // Hosting: each window and popover the plugin shows, themed now and whenever Night Mode changes
 // (held weakly). Hosting again does nothing more.

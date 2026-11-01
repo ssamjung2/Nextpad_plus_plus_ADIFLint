@@ -33,6 +33,69 @@ Node *stackHolding(Node &n, std::string_view panel) {
     return found;
 }
 
+// The child indices down to the stack holding `panel`; false when none does.
+bool pathTo(const Node &n, std::string_view panel, std::vector<size_t> &path) {
+    if (n.kind == Node::Kind::Stack) return std::find(n.panels.begin(), n.panels.end(), panel) != n.panels.end();
+    for (size_t i = 0; i < n.children.size(); ++i) {
+        path.push_back(i);
+        if (pathTo(n.children[i], panel, path)) return true;
+        path.pop_back();
+    }
+    return false;
+}
+
+std::vector<std::string> panelsIn(const Node &n) {
+    std::vector<std::string> out;
+    eachStack(n, [&](const Node &s) { out.insert(out.end(), s.panels.begin(), s.panels.end()); });
+    return out;
+}
+
+// The child indices down to the smallest node holding every one of `panels`.
+std::vector<size_t> smallestHolding(const Node &root, const std::vector<std::string> &panels) {
+    std::vector<size_t> path;
+    const Node *n = &root;
+    for (bool deeper = true; deeper && n->kind != Node::Kind::Stack;) {
+        deeper = false;
+        for (size_t i = 0; i < n->children.size() && !deeper; ++i) {
+            std::vector<std::string> in = panelsIn(n->children[i]);
+            if (std::all_of(panels.begin(), panels.end(), [&](const std::string &p) { return std::find(in.begin(), in.end(), p) != in.end(); })) {
+                path.push_back(i);
+                n = &n->children[i];
+                deeper = true;
+            }
+        }
+    }
+    return path;
+}
+
+bool sideways(Side side) { return side == Side::Left || side == Side::Right; }  // a row's
+bool leading(Side side) { return side == Side::Left || side == Side::Top; }
+
+// `added` (a stack) on `side` of the stack holding `target` (which is in the console): in the split
+// holding that stack when it is of the side's kind, the two halving its share; else the two in a
+// split of their own, in its place.
+void putBeside(Arrangement &a, Node added, std::string_view target, Side side) {
+    std::vector<size_t> path;
+    if (!pathTo(a.console, target, path)) return;
+    Node *n = &a.console, *parent = nullptr;
+    for (size_t i : path) parent = n, n = &n->children[i];
+    Node::Kind kind = sideways(side) ? Node::Kind::Row : Node::Kind::Column;
+    if (parent && parent->kind == kind) {
+        n->share /= 2;
+        added.share = n->share;
+        parent->children.insert(parent->children.begin() + (long)(path.back() + (leading(side) ? 0 : 1)), std::move(added));
+        return;
+    }
+    Node old = std::move(*n);
+    double outer = old.share;
+    old.share = added.share = 0.5;
+    std::vector<Node> kids;
+    if (leading(side)) kids.push_back(std::move(added));
+    kids.push_back(std::move(old));
+    if (!leading(side)) kids.push_back(std::move(added));
+    *n = kind == Node::Kind::Row ? row(std::move(kids), outer) : column(std::move(kids), outer);
+}
+
 // Out of every stack and window (the tree tidied later).
 void removeEverywhere(Arrangement &a, std::string_view panel) {
     eachStack(a.console, [&](Node &s) {
@@ -105,7 +168,7 @@ std::string quote(std::string_view s) {
 
 std::string number(double v) {
     char b[32];
-    std::snprintf(b, sizeof b, "%.6g", v);
+    std::snprintf(b, sizeof b, "%.10g", v);  // shares worked out from others (a panel closed) read back the same
     return b;
 }
 
@@ -210,7 +273,8 @@ Arrangement fill(const Node &tree, const std::array<int, 5> &items) {
 }  // namespace
 
 const std::vector<std::string> &knownPanels() {
-    static const std::vector<std::string> all = {kMap, kLogTable, kNewQso, kSpots, kContactMap, kQsoDetails, kMapStyle};
+    static const std::vector<std::string> all = {kMap,      kLogTable, kNewQso,      kSpots,   kContactMap, kQsoDetails,
+                                                 kMapStyle, kAids,     kSpotSources, kStation, kClocks};
     return all;
 }
 
@@ -238,7 +302,12 @@ bool operator==(const Node &a, const Node &b) {
     return a.kind == b.kind && same(a.share, b.share) && a.children == b.children && a.panels == b.panels && a.front == b.front;
 }
 bool operator==(const Frame &a, const Frame &b) { return same(a.x, b.x) && same(a.y, b.y) && same(a.w, b.w) && same(a.h, b.h); }
-bool operator==(const Arrangement &a, const Arrangement &b) { return a.console == b.console && a.windows == b.windows && a.panes == b.panes; }
+bool operator==(const Place &a, const Place &b) {
+    return a.tab == b.tab && a.beside == b.beside && a.tabAt == b.tabAt && a.next == b.next && a.split == b.split && a.before == b.before && same(a.share, b.share);
+}
+bool operator==(const Arrangement &a, const Arrangement &b) {
+    return a.console == b.console && a.windows == b.windows && a.panes == b.panes && a.closed == b.closed;
+}
 
 std::vector<std::string> shown(const Arrangement &a) {
     std::vector<std::string> out;
@@ -299,6 +368,139 @@ Arrangement hide(Arrangement a, std::string_view panel) {
     return tidy(a);
 }
 
+std::optional<Place> placeOf(const Arrangement &a, std::string_view panel) {
+    std::vector<size_t> path;
+    if (!pathTo(a.console, panel, path)) return std::nullopt;
+    const Node *s = &a.console, *parent = nullptr;
+    for (size_t i : path) parent = s, s = &s->children[i];
+    Place p;
+    size_t at = (size_t)(std::find(s->panels.begin(), s->panels.end(), panel) - s->panels.begin());
+    if (s->panels.size() > 1) {  // a tab: beside the one before it (the next, when it is first)
+        p.tab = true, p.tabAt = at, p.beside = s->panels[at > 0 ? at - 1 : 1];
+        return p;
+    }
+    if (!parent) return std::nullopt;
+    size_t i = path.back();
+    p.next = panelsIn(parent->children[i > 0 ? i - 1 : i + 1]);  // after the frame before it (before the next, when it is first)
+    p.split = parent->kind, p.before = i == 0, p.share = s->share;
+    return p;
+}
+
+Arrangement showAt(Arrangement a, std::string_view panel, const Place &place) {
+    if (inConsole(a, panel)) return tidy(a);
+    if (place.tab) {
+        Node *s = place.beside.empty() ? nullptr : stackHolding(a.console, place.beside);
+        if (!s) return showInConsole(std::move(a), panel);
+        a.windows.erase(std::string(panel));
+        size_t at = std::min(place.tabAt, s->panels.size());
+        s->panels.insert(s->panels.begin() + (long)at, std::string(panel));
+        s->front = at;
+        return tidy(a);
+    }
+    std::vector<std::string> next;
+    for (const std::string &p : place.next)
+        if (inConsole(a, p)) next.push_back(p);
+    if (next.empty() || place.split == Node::Kind::Stack) return showInConsole(std::move(a), panel);
+    a.windows.erase(std::string(panel));
+    std::vector<size_t> path = smallestHolding(a.console, next);
+    Node *n = &a.console, *parent = nullptr;
+    for (size_t i : path) parent = n, n = &n->children[i];
+    double share = place.share > 0 && place.share < 1 ? place.share : 0;
+    Node added = stack({std::string(panel)}, share);
+    if (parent && parent->kind == place.split) {  // into that split again, the others giving up its share
+        bool all = share > 0 && std::all_of(parent->children.begin(), parent->children.end(), [](const Node &k) { return k.share > 0; });
+        for (Node &k : parent->children) k.share = all ? k.share * (1 - share) : 0;
+        if (!all) added.share = 0;
+        parent->children.insert(parent->children.begin() + (long)(path.back() + (place.before ? 0 : 1)), std::move(added));
+    } else {  // the split it was in had only that part left: made again
+        Node old = std::move(*n);
+        double outer = old.share;
+        old.share = share > 0 ? 1 - share : 0;
+        std::vector<Node> kids;
+        if (place.before) kids.push_back(std::move(added));
+        kids.push_back(std::move(old));
+        if (!place.before) kids.push_back(std::move(added));
+        *n = place.split == Node::Kind::Row ? row(std::move(kids), outer) : column(std::move(kids), outer);
+    }
+    return tidy(a);
+}
+
+Arrangement closePanel(Arrangement a, std::string_view panel) {
+    std::optional<Place> p = placeOf(a, panel);
+    a = hide(std::move(a), panel);
+    if (p) a.closed[std::string(panel)] = *p;
+    return a;
+}
+
+Arrangement reopenPanel(Arrangement a, std::string_view panel) {
+    auto it = a.closed.find(std::string(panel));
+    if (it == a.closed.end()) return showInConsole(std::move(a), panel);
+    Place p = it->second;
+    a.closed.erase(it);
+    return showAt(std::move(a), panel, p);
+}
+
+Arrangement splitBeside(Arrangement a, std::string_view panel, std::string_view target, Side side) {
+    if (panel == target || !inConsole(a, target)) return tidy(a);
+    removeEverywhere(a, panel);
+    a = tidy(a);
+    putBeside(a, stack({std::string(panel)}), target, side);
+    return tidy(a);
+}
+
+Arrangement moveFrame(Arrangement a, std::string_view panel, std::string_view target, Side side, double share) {
+    Node *s = stackHolding(a.console, panel);
+    if (!s || (!target.empty() && (!inConsole(a, target) || std::find(s->panels.begin(), s->panels.end(), target) != s->panels.end())))
+        return tidy(a);
+    Node moved = stack(s->panels, 0, s->front);
+    s->panels.clear();
+    a = tidy(a);
+    if (a.console.kind == Node::Kind::Stack && a.console.panels.empty()) {  // it was the whole console
+        a.console = std::move(moved);
+        return tidy(a);
+    }
+    if (!target.empty()) {
+        putBeside(a, std::move(moved), target, side);
+        return tidy(a);
+    }
+    Node::Kind kind = sideways(side) ? Node::Kind::Row : Node::Kind::Column;
+    double part = share > 0 && share < 1 ? share : 0;
+    Node old = std::move(a.console);
+    if (old.kind == kind) {  // the console is a split of that kind already: one more at its end
+        bool all = part > 0 && std::all_of(old.children.begin(), old.children.end(), [](const Node &k) { return k.share > 0; });
+        for (Node &k : old.children) k.share = all ? k.share * (1 - part) : 0;
+        moved.share = all ? part : 0;
+        old.children.insert(leading(side) ? old.children.begin() : old.children.end(), std::move(moved));
+        a.console = std::move(old);
+        return tidy(a);
+    }
+    old.share = part > 0 ? 1 - part : 0;
+    moved.share = part;
+    std::vector<Node> kids;
+    if (leading(side)) kids.push_back(std::move(moved));
+    kids.push_back(std::move(old));
+    if (!leading(side)) kids.push_back(std::move(moved));
+    a.console = kind == Node::Kind::Row ? row(std::move(kids)) : column(std::move(kids));
+    return tidy(a);
+}
+
+Node::Kind splitOf(const Arrangement &a, std::string_view panel) {
+    std::vector<size_t> path;
+    if (!pathTo(a.console, panel, path) || path.empty()) return Node::Kind::Stack;
+    const Node *parent = &a.console;
+    for (size_t k = 0; k + 1 < path.size(); ++k) parent = &parent->children[path[k]];
+    return parent->kind;
+}
+
+Arrangement alignSplit(Arrangement a, std::string_view panel, Node::Kind kind) {
+    std::vector<size_t> path;
+    if (kind == Node::Kind::Stack || !pathTo(a.console, panel, path) || path.empty()) return tidy(a);
+    Node *parent = &a.console;
+    for (size_t k = 0; k + 1 < path.size(); ++k) parent = &parent->children[path[k]];
+    parent->kind = kind;  // tidied: merged into a split around it of the same kind
+    return tidy(a);
+}
+
 Arrangement moveToTab(Arrangement a, std::string_view panel, std::string_view target) {
     if (panel == target || !inConsole(a, target)) return tidy(a);
     removeEverywhere(a, panel);
@@ -346,6 +548,8 @@ Arrangement tidy(Arrangement a, const std::vector<std::string> &known) {
     }
     for (auto it = a.panes.begin(); it != a.panes.end();)
         it = std::find(known.begin(), known.end(), it->first) != known.end() && !it->second.empty() ? std::next(it) : a.panes.erase(it);
+    for (auto it = a.closed.begin(); it != a.closed.end();)
+        it = std::find(known.begin(), known.end(), it->first) != known.end() && !seen.count(it->first) ? std::next(it) : a.closed.erase(it);
     return a;
 }
 
@@ -403,7 +607,26 @@ std::string write(const Arrangement &a) {
         out += "}";
         first = false;
     }
-    return out + "}}";
+    out += "}";
+    if (!a.closed.empty()) {
+        out += ",\"closed\":{";
+        first = true;
+        for (const auto &[panel, p] : a.closed) {
+            out += (first ? "" : ",") + quote(panel) + ":{";
+            if (p.tab) {
+                out += "\"tab\":" + quote(p.beside) + ",\"at\":" + std::to_string(p.tabAt);
+            } else {
+                out += "\"next\":[";
+                for (size_t i = 0; i < p.next.size(); ++i) out += (i ? "," : "") + quote(p.next[i]);
+                out += std::string("],\"split\":") + (p.split == Node::Kind::Column ? "\"column\"" : "\"row\"") + ",\"before\":" + (p.before ? "true" : "false");
+                if (p.share > 0) out += ",\"share\":" + number(p.share);
+            }
+            out += "}";
+            first = false;
+        }
+        out += "}";
+    }
+    return out + "}";
 }
 
 namespace {
@@ -434,6 +657,25 @@ std::optional<Arrangement> readValue(const json::Value &v, std::string &w) {
                 if (on.type == json::Value::Type::Bool) a.panes[id][pane] = on.boolean;
         }
     }
+    if (const json::Value *cs = v.get("closed"); cs && cs->isObject())  // a place that can't be read is left out
+        for (const auto &[id, c] : cs->members) {
+            if (!c.isObject()) continue;
+            Place p;
+            if (const json::Value *tab = c.get("tab")) {
+                const json::Value *at = c.get("at");
+                if (!tab->isString() || !at || !at->isNumber() || at->number < 0) continue;
+                p.tab = true, p.beside = tab->text, p.tabAt = (size_t)at->number;
+            } else {
+                const json::Value *next = c.get("next"), *split = c.get("split"), *before = c.get("before"), *share = c.get("share");
+                if (!next || !next->isArray() || next->stride || !split || !split->isString() || (split->text != "row" && split->text != "column")) continue;
+                for (const json::Value &n : next->items)
+                    if (n.isString()) p.next.push_back(n.text);
+                p.split = split->text == "column" ? Node::Kind::Column : Node::Kind::Row;
+                p.before = before && before->type == json::Value::Type::Bool && before->boolean;
+                p.share = share && share->isNumber() && share->number > 0 && share->number < 1 ? share->number : 0;
+            }
+            a.closed[id] = p;
+        }
     return tidy(a);
 }
 
@@ -467,6 +709,28 @@ bool sameName(std::string_view a, std::string_view b) {
     for (size_t i = 0; i < a.size(); ++i)
         if (std::tolower((unsigned char)a[i]) != std::tolower((unsigned char)b[i])) return false;
     return true;
+}
+
+std::string writeAdjusted(const std::map<std::string, Arrangement> &layouts) {
+    std::string out = "{\"v\":" + std::to_string(kVersion) + ",\"adjusted\":{";
+    bool first = true;
+    for (const auto &[id, a] : layouts) {
+        out += (first ? "" : ",") + quote(id) + ":" + write(a);
+        first = false;
+    }
+    return out + "}}";
+}
+
+std::map<std::string, Arrangement> readAdjusted(std::string_view text) {
+    std::map<std::string, Arrangement> out;
+    json::Value v;
+    std::string why;
+    if (!json::parse(text, &v, &why, 2'000'000) || !v.isObject()) return out;
+    const json::Value *version = v.get("v"), *all = v.get("adjusted");
+    if (!version || !version->isNumber() || version->number != kVersion || !all || !all->isObject()) return out;
+    for (const auto &[id, layout] : all->members)
+        if (std::optional<Arrangement> a = readValue(layout, why); a && !id.empty()) out[id] = *a;
+    return out;
 }
 
 std::string writeNamed(const std::vector<Named> &list) {
@@ -526,14 +790,14 @@ const std::vector<Preset> &presets() {
             a.console = std::move(console);
             out.push_back({id, name, tidy(a)});
         };
-        add("social", N_("Social: the Map, with New QSO and QSO Details beside it"),
-            row({stack({kMap}, 0.6), column({stack({kNewQso}, 0.6), stack({kQsoDetails}, 0.4)}, 0.4)}));
-        add("chasing", N_("Chasing: the Map over the spots, New QSO beside them"),
-            row({column({stack({kMap}, 0.62), stack({kSpots}, 0.38)}, 0.64), stack({kNewQso}, 0.36)}));
+        add("social", N_("Social: the Map, with New QSO, Operating Aids and QSO Details beside it"),
+            row({stack({kMap}, 0.6), column({stack({kNewQso}, 0.5), stack({kAids}, 0.2), stack({kQsoDetails}, 0.3)}, 0.4)}));
+        add("chasing", N_("Chasing: the Map over the spots, New QSO and Operating Aids beside them"),
+            row({column({stack({kMap}, 0.62), stack({kSpots}, 0.38)}, 0.64), column({stack({kNewQso}, 0.7), stack({kAids}, 0.3)}, 0.36)}));
         add("contest", N_("Contest: New QSO over the log, the Map beside them"),
             row({column({stack({kNewQso}, 0.55), stack({kLogTable}, 0.45)}, 0.4), stack({kMap}, 0.6)}));
-        add("portable", N_("Portable: New QSO, with the Map over the log beside it"),
-            row({stack({kNewQso}, 0.36), column({stack({kMap}, 0.6), stack({kLogTable}, 0.4)}, 0.64)}));
+        add("portable", N_("Portable: New QSO over Operating Aids, with the Map over the log beside them"),
+            row({column({stack({kNewQso}, 0.7), stack({kAids}, 0.3)}, 0.36), column({stack({kMap}, 0.6), stack({kLogTable}, 0.4)}, 0.64)}));
         return out;
     }();
     return all;

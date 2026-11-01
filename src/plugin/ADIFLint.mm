@@ -74,6 +74,7 @@
 #include "adif_upload.h"
 #include "adif_geo.h"
 #include "adif_programs.h"
+#include "adif_layout.h"
 
 #include <algorithm>
 #include <tuple>
@@ -1756,6 +1757,7 @@ static void showLookupInfo();
 static void updateQsoDetails();
 static void updateAids(bool pause, bool logged);
 static void aidPressed(NSString *action, NSInteger row);
+static std::optional<adif::styles::OperatingStyle> aidsStyle();
 // The last check of New QSO's values, for Operating Aids: whether it is a duplicate, what is missing.
 static struct {
     bool duplicate = false;
@@ -1879,6 +1881,8 @@ static void logQso() {
         workspace::setStatus(done + "  ·  " + g.qsoTargetLine);
         [g.qso focusField:"CALL"];
         updateAids(true, true);
+        for (const auto &f : c.fields)  // Chasing: on to the next opportunity
+            if (f.first == "CALL") worldmap::qsoLogged(f.second);
         if (workspace::active()) {  // the new QSO chosen on the Map and in the Log Table
             worldmap::showRecord((int)adif::recordCount(after.model));
             logtools::showRecordInTable(start);
@@ -1990,7 +1994,6 @@ static void showQsoRows(NppHandle h, const adif::LintResult &r) {
             g.qso.lookupSource = s == "off" ? 0 : s == "qrz" ? 2 : s == "hamqth" ? 3 : 1;  // country data by default
         }
         g.qso.onLog = ^{ logQso(); };
-        g.qso.onAid = ^(NSString *action, NSInteger row) { aidPressed(action, row); };
         [[NSNotificationCenter defaultCenter] addObserverForName:NSWindowWillCloseNotification  // closed (or its frame): the Map's button follows
                                                           object:g.qso.window
                                                            queue:nil
@@ -1999,6 +2002,12 @@ static void showQsoRows(NppHandle h, const adif::LintResult &r) {
                                                           object:nil
                                                            queue:nil
                                                       usingBlock:^(NSNotification *) { updateAids(true, false); }];
+        [[NSNotificationCenter defaultCenter] addObserverForName:ADIFOpportunitiesChangedNotification  // Chasing's aids follow the spots
+                                                          object:nil
+                                                           queue:nil
+                                                      usingBlock:^(NSNotification *) {
+                                                          if (aidsStyle() == adif::styles::OperatingStyle::Chasing) updateAids(false, false);
+                                                      }];
         [[NSNotificationCenter defaultCenter] addObserverForName:ADIFOfflineChangedNotification  // Portable says so
                                                           object:nil
                                                            queue:nil
@@ -2195,6 +2204,7 @@ static void showLookupInfo() {
     for (const adif::LookupFact &f : facts) [rows addObject:@[ ADIFString(f.label), ADIFString(f.value), ADIFString(f.tip) ]];
     [g.qso setLookupFacts:rows message:ADIFString(g.lookup.message) severity:-1];
     gDetailsLookup = {call, s.name, s.qth, s.state, s.country.empty() && s.entity ? s.entity->name : s.country, facts};
+    workspace::setLookupGrid(call, s.gridFromCallbook ? s.grid : "");
     updateQsoDetails();
     updateAids(true, false);  // the lookup filled what it could: a natural pause
 }
@@ -2382,7 +2392,7 @@ static std::vector<std::string> aidsList(const std::string &v) {
 
 static std::optional<adif::styles::OperatingStyle> aidsStyle() {
     std::optional<adif::styles::OperatingStyle> s = adif::styles::parse(adifhost::setting("mapOperatingStyle"));
-    if (s == adif::styles::OperatingStyle::Social || s == adif::styles::OperatingStyle::Portable) return s;
+    if (s == adif::styles::OperatingStyle::Social || s == adif::styles::OperatingStyle::Portable || s == adif::styles::OperatingStyle::Chasing) return s;
     return std::nullopt;
 }
 // Each style's own choices: "aidsLevelSocial", "aidsTimingPortable", "aidsTopicsOffSocial".
@@ -2459,15 +2469,101 @@ static std::string aidsNoteField() { return [g.qso hasField:"NOTES"] ? "NOTES" :
 
 static NSMenu *aidsMenu(adif::styles::OperatingStyle style);
 
+// ── Operating Aids as a panel of its own ──
+
+@interface ADIFAidsPage : NSView  // the panel's page: the aids from the top
+@end
+@implementation ADIFAidsPage
+- (BOOL)isFlipped { return YES; }
+@end
+
+static struct {
+    ADIFDockPanel *window;
+    ADIFAidsView *view;
+    NSTextField *empty;  // why there are none: no style that has them, or New QSO not open
+} gAidsPanel;
+
+static void makeAidsPanel() {
+    if (gAidsPanel.window) return;
+    ADIFDockPanel *w = [[ADIFDockPanel alloc] initWithContentRect:NSMakeRect(0, 0, 360, 280)
+                                                        styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable
+                                                          backing:NSBackingStoreBuffered
+                                                            defer:YES];
+    w.dockItem = kDockAids;
+    w.title = T(@"Operating Aids");
+    w.identifier = @"aids.window";
+    w.releasedWhenClosed = NO;
+    w.floatingPanel = YES;  // links to press, nothing to type: a panel (HIG)
+    w.hidesOnDeactivate = YES;
+    w.contentMinSize = NSMakeSize(280, 140);
+    gAidsPanel.view = [[ADIFAidsView alloc] initWithPrefix:@"aids"];
+    gAidsPanel.view.onAid = ^(NSString *action, NSInteger row) { aidPressed(action, row); };
+    gAidsPanel.empty = [NSTextField wrappingLabelWithString:T(@"Operating Aids come with the Social, Chasing and Portable styles (the Map's "
+                                                              @"toolbar), for the contact in New QSO.")];
+    gAidsPanel.empty.font = theme::small();
+    gAidsPanel.empty.textColor = theme::faint();
+    gAidsPanel.empty.identifier = @"aids.empty";
+    NSStackView *page = [NSStackView stackViewWithViews:@[ gAidsPanel.empty, gAidsPanel.view ]];
+    page.orientation = NSUserInterfaceLayoutOrientationVertical;
+    page.alignment = NSLayoutAttributeLeading;
+    page.spacing = 6;
+    page.edgeInsets = NSEdgeInsetsMake(kADIFMargin, kADIFMargin, kADIFMargin, kADIFMargin);
+    page.translatesAutoresizingMaskIntoConstraints = NO;
+    NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
+    scroll.hasVerticalScroller = YES;
+    scroll.autohidesScrollers = YES;
+    scroll.drawsBackground = NO;
+    ADIFAidsPage *doc = [[ADIFAidsPage alloc] initWithFrame:NSZeroRect];
+    doc.translatesAutoresizingMaskIntoConstraints = NO;
+    [doc addSubview:page];
+    scroll.documentView = doc;
+    NSClipView *clip = scroll.contentView;
+    [NSLayoutConstraint activateConstraints:@[
+        [doc.leadingAnchor constraintEqualToAnchor:clip.leadingAnchor], [doc.topAnchor constraintEqualToAnchor:clip.topAnchor],
+        [doc.widthAnchor constraintEqualToAnchor:clip.widthAnchor],
+        [page.topAnchor constraintEqualToAnchor:doc.topAnchor], [page.leadingAnchor constraintEqualToAnchor:doc.leadingAnchor],
+        [page.trailingAnchor constraintEqualToAnchor:doc.trailingAnchor], [page.bottomAnchor constraintEqualToAnchor:doc.bottomAnchor],
+        [gAidsPanel.view.widthAnchor constraintEqualToAnchor:page.widthAnchor constant:-2 * kADIFMargin],
+        [gAidsPanel.empty.widthAnchor constraintEqualToAnchor:gAidsPanel.view.widthAnchor],
+    ]];
+    w.contentView = scroll;
+    [w center];
+    [[NSNotificationCenter defaultCenter] addObserverForName:NSWindowWillCloseNotification  // closed (or its frame): the Map's button follows
+                                                      object:w
+                                                       queue:nil
+                                                  usingBlock:^(NSNotification *) { ADIFPanelShownChanged(); }];
+    gAidsPanel.window = w;
+}
+
+// The aids in their panel (made when it first opens; kept up to date while it is closed).
+static void showAids(NSString *title, const std::vector<ADIFAidRow> &rows, NSMenu *menu, BOOL hidden) {
+    if (!gAidsPanel.view) return;
+    [gAidsPanel.view setTitle:title rows:rows menu:menu hidden:hidden];
+    gAidsPanel.empty.hidden = title != nil;
+}
+
+namespace adifhost {
+bool aidsPanelShown() { return gAidsPanel.window && gAidsPanel.window.visible; }
+void openAidsPanel() {
+    makeAidsPanel();
+    [gAidsPanel.window makeKeyAndOrderFront:nil];
+    if (g.qso) updateAids(false, false);
+    else showAids(nil, {}, nil, NO);  // no New QSO yet: why there are none
+}
+void closeAidsPanel() {
+    if (aidsPanelShown()) [gAidsPanel.window performClose:nil];  // docked: its frame closes
+}
+}  // namespace adifhost
+
 // The strip as things are: Portable's facts or the earlier QSOs (each check), the suggestions (afresh
 // at a natural pause: a new call or the lookup's answer, a QSO logged; or only after each QSO; or
 // only on Skip, as its timing says). `pause`: a natural pause now; `logged`: a QSO was just logged.
 static void updateAids(bool pause, bool logged) {
     if (!g.qso) return;
     std::optional<adif::styles::OperatingStyle> style = aidsStyle();
-    if (!style) return [g.qso setAidsTitle:nil rows:{} menu:nil hidden:NO];
+    if (!style) return showAids(nil, {}, nil, NO);
     NSString *styleName = T(ADIFString(adif::styles::title(*style)));
-    if (gAids.hidden) return [g.qso setAidsTitle:TF(@"Operating Aids ({style}): hidden", @{@"style" : styleName}) rows:{} menu:nil hidden:YES];
+    if (gAids.hidden) return showAids(TF(@"Operating Aids ({style}): hidden", @{@"style" : styleName}), {}, nil, YES);
     aids::Level level = aids::parseLevel(adifhost::setting(aidsKey("Level", *style)));
     aids::Timing timing = aids::parseTiming(adifhost::setting(aidsKey("Timing", *style)));
     std::vector<ADIFAidRow> rows;
@@ -2477,7 +2573,19 @@ static void updateAids(bool pause, bool logged) {
         for (char &c : call) c = (char)std::toupper((unsigned char)c);
         aidsEarlier(h, call);
         if (level != aids::Level::Off) {
-            if (*style == adif::styles::OperatingStyle::Portable) {
+            if (*style == adif::styles::OperatingStyle::Chasing) {  // the opportunities (adif_chase.h, ranked on the Map)
+                for (const worldmap::ChaseLine &l : worldmap::chaseLines(call, qsoValue("FREQ"), qsoValue("MODE"))) {
+                    ADIFAidRow r;
+                    r.text = l.text, r.severity = l.severity, r.symbol = ADIFString(l.symbol), r.next = l.next;
+                    rows.push_back(r);
+                }
+                if (gQsoState.duplicate && !call.empty()) {
+                    ADIFAidRow d;
+                    d.text = trf("A duplicate: {call} is in the log today on this band and mode", {{"call", call}});
+                    d.severity = 2, d.symbol = @"exclamationmark.triangle";
+                    rows.insert(rows.begin(), d);
+                }
+            } else if (*style == adif::styles::OperatingStyle::Portable) {
                 aidsSync(h);
                 aids::PortableState ps;
                 ps.activation = station::activationProgress(docText(h), freshLint(h).model);
@@ -2516,7 +2624,9 @@ static void updateAids(bool pause, bool logged) {
         // The suggestions: afresh at the moments the timing allows, else as they were.
         bool callChanged = call != gAids.call;
         if (callChanged) gAids.call = call, gAids.skip = 0;
-        bool afresh = !gAids.chosen || (timing == aids::Timing::Pauses && (callChanged || pause)) || (timing != aids::Timing::Manual && logged);
+        bool afresh = *style != adif::styles::OperatingStyle::Chasing &&  // Chasing's are its opportunities, not topics
+                      (!gAids.chosen || (timing == aids::Timing::Pauses && (callChanged || pause)) || (timing != aids::Timing::Manual && logged));
+        if (*style == adif::styles::OperatingStyle::Chasing) gAids.shown.clear();
         if (afresh) {
             aids::Context c;
             c.style = *style;
@@ -2548,7 +2658,7 @@ static void updateAids(bool pause, bool logged) {
     }
     NSString *title = level == aids::Level::Off ? TF(@"Operating Aids ({style}): off", @{@"style" : styleName})
                                                 : TF(@"Operating Aids ({style})", @{@"style" : styleName});
-    [g.qso setAidsTitle:title rows:rows menu:aidsMenu(*style) hidden:NO];
+    showAids(title, rows, aidsMenu(*style), NO);
 }
 
 // Choose the suggestions again now (Skip, Dismiss, Note, an option changed).
@@ -2562,6 +2672,10 @@ static void aidPressed(NSString *action, NSInteger row) {
     if ([action isEqualToString:@"hide"] || [action isEqualToString:@"show"]) {
         gAids.hidden = [action isEqualToString:@"hide"];
         return aidsAfresh();
+    }
+    if ([action isEqualToString:@"next"]) {  // Chasing: the next opportunity, chosen on the map
+        worldmap::nextOpportunity(1);
+        return updateAids(false, false);
     }
     if (!style || row < (NSInteger)gAids.facts || (size_t)row - gAids.facts >= gAids.shown.size()) return;
     const aids::Prompt &p = *gAids.shown[(size_t)row - gAids.facts].prompt;
@@ -2598,6 +2712,15 @@ static NSMenu *aidsMenu(adif::styles::OperatingStyle style) {
         return i;
     };
     aids::Level level = aids::parseLevel(adifhost::setting(aidsKey("Level", style)));
+    if (style == adif::styles::OperatingStyle::Chasing) {  // its opportunities shown or not; no suggestions to tune
+        NSMenuItem *shown = [menu addItemWithTitle:T(@"Show the Opportunities") action:nil keyEquivalent:@""];
+        shown.state = level == aids::Level::Off ? NSControlStateValueOff : NSControlStateValueOn;
+        ADIFBlockMenuItem(shown, ^{
+            adifhost::setSetting(aidsKey("Level", style), std::string(aids::levelId(level == aids::Level::Off ? aids::Level::Standard : aids::Level::Off)));
+            aidsAfresh();
+        });
+        return menu;
+    }
     heading(T(@"Suggestions at once"));
     static NSString *const kLevels[] = {N(@"Off##aids"), N(@"Minimal (one)"), N(@"Standard (two)"), N(@"More (three)")};
     for (int i = 0; i < 4; ++i) {
@@ -2839,6 +2962,13 @@ static void ensureSettings() {
                             logsFolder:ADIFString(dir)];
         };
         g.settings.onStationProfiles = ^{ station::cmdStationProfiles(); };
+        // Spot Sources and Your Station as panels of their own (through the Panels menu's calls).
+        g.settings.onShowSection = ^(NSString *ident) {
+            if ([ident isEqualToString:@"settings.spots"]) panels::setShown(adif::layout::kSpotSources, true);
+            else if ([ident isEqualToString:@"settings.station"]) panels::setShown(adif::layout::kStation, true);
+        };
+        [g.settings offerPanel:@"settings.spots" tip:T(@"Spot Sources in a panel of its own, beside the spots or as a tab in the Operating Console")];
+        [g.settings offerPanel:@"settings.station" tip:T(@"Your Station in a panel of its own, beside New QSO or as a tab in the Operating Console")];
         g.settings.onOfflineToggled = ^(BOOL on) { ADIFSetOffline(on); };
         g.settings.onLanguageChosen = ^(NSString *code) {
             adifhost::setSetting("uiLanguage", ADIFStd(code));
@@ -2951,7 +3081,90 @@ static NSWindow *settingsWindow() {
     return w;
 }
 
+// ── Settings sections as panels of their own ──
+
+// Spot Sources (Settings' Spots section) and Your Station: normal windows (they have fields to
+// type in) that dock, so they can be tabs in the Operating Console. Opened, the section's
+// controls move into the panel; closed, they go back to Settings.
+struct SectionPanel {
+    NSString *section, *name;  // Settings' group; its panel's in the registry
+    int item;
+    NSString *title;  // English, for T()
+    ADIFDockWindow *window;
+};
+static SectionPanel gSectionPanels[] = {
+    {@"settings.spots", @"spotsources", kDockSpotSources, N(@"Spot Sources"), nil},
+    {@"settings.station", @"station", kDockStation, N(@"Your Station"), nil},
+};
+
+static void openSectionPanel(SectionPanel &p) {
+    ensureSettings();
+    if (!p.window) {
+        ADIFDockWindow *w = [[ADIFDockWindow alloc] initWithContentRect:NSMakeRect(0, 0, 400, 460)
+                                                              styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
+                                                                        NSWindowStyleMaskResizable | NSWindowStyleMaskMiniaturizable
+                                                                backing:NSBackingStoreBuffered
+                                                                  defer:YES];
+        w.dockItem = p.item;
+        w.title = T(p.title);
+        w.identifier = [@"settings.panel." stringByAppendingString:p.name];
+        w.releasedWhenClosed = NO;
+        w.tabbingMode = NSWindowTabbingModeDisallowed;
+        w.contentMinSize = NSMakeSize(320, 200);
+        NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
+        scroll.hasVerticalScroller = YES;
+        scroll.autohidesScrollers = YES;
+        scroll.drawsBackground = NO;
+        scroll.documentView = [[ADIFSettingsPage alloc] initWithFrame:NSZeroRect];
+        scroll.documentView.translatesAutoresizingMaskIntoConstraints = NO;
+        NSClipView *clip = scroll.contentView;
+        [NSLayoutConstraint activateConstraints:@[
+            [scroll.documentView.leadingAnchor constraintEqualToAnchor:clip.leadingAnchor],
+            [scroll.documentView.topAnchor constraintEqualToAnchor:clip.topAnchor],
+            [scroll.documentView.widthAnchor constraintEqualToAnchor:clip.widthAnchor],
+        ]];
+        w.contentView = scroll;
+        [w center];
+        NSString *section = p.section;
+        [[NSNotificationCenter defaultCenter] addObserverForName:NSWindowWillCloseNotification  // closed (or its frame): the controls back in Settings
+                                                          object:w
+                                                           queue:nil
+                                                      usingBlock:^(NSNotification *) {
+                                                          [g.settings returnSection:section];
+                                                          ADIFPanelShownChanged();
+                                                      }];
+        p.window = w;
+    }
+    NSView *page = ((NSScrollView *)p.window.contentView).documentView;  // docked too: the window answers with its frame's content
+    if (NSView *controls = [g.settings takeSection:p.section]; controls && controls.superview != page) {
+        controls.translatesAutoresizingMaskIntoConstraints = NO;
+        [page addSubview:controls];
+        [NSLayoutConstraint activateConstraints:@[
+            [controls.topAnchor constraintEqualToAnchor:page.topAnchor constant:kADIFMargin],
+            [controls.leadingAnchor constraintEqualToAnchor:page.leadingAnchor constant:kADIFMargin],
+            [controls.trailingAnchor constraintEqualToAnchor:page.trailingAnchor constant:-kADIFMargin],
+            [page.bottomAnchor constraintEqualToAnchor:controls.bottomAnchor constant:kADIFMargin],
+        ]];
+    }
+    [g.settings showSource:-1];  // its values as they are now
+    [p.window makeKeyAndOrderFront:nil];
+}
+
+namespace adifhost {
+bool spotSourcesShown() { return gSectionPanels[0].window && gSectionPanels[0].window.visible; }
+void openSpotSources() { openSectionPanel(gSectionPanels[0]); }
+void closeSpotSources() {
+    if (spotSourcesShown()) [gSectionPanels[0].window performClose:nil];
+}
+bool stationShown() { return gSectionPanels[1].window && gSectionPanels[1].window.visible; }
+void openStation() { openSectionPanel(gSectionPanels[1]); }
+void closeStation() {
+    if (stationShown()) [gSectionPanels[1].window performClose:nil];
+}
+}  // namespace adifhost
+
 static void openSettings(NSInteger source) {
+    if (source == -4 && adifhost::spotSourcesShown()) return adifhost::openSpotSources();  // the Spots section is in its own panel
     NSWindow *w = settingsWindow();
     [w makeKeyAndOrderFront:nil];
     [g.settings showSource:source];

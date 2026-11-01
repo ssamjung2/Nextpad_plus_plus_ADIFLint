@@ -42,6 +42,7 @@
 #include "adif_stats.h"
 #include "adif_aids.h"
 #include "adif_layout.h"
+#include "adif_chase.h"
 #include "adif_styles.h"
 
 #include <algorithm>
@@ -3172,6 +3173,15 @@ static void testWorld() {
         CHECK(holds(281, 40.4, -3.7) && !holds(281, 28.1, -15.4) && holds(29, 28.0, -15.6) && holds(339, 43.2, 142.8) && holds(462, -26.2, 28.0) &&
                   !holds(462, -29.5, 28.2) && holds(432, -29.5, 28.2),
               "Spain without the Canaries; Japan has Hokkaido; Lesotho is a hole in South Africa");
+        // The entity at a place, as DX Chase finds yours: EN52's middle, Fairbanks, Maui, Edinburgh,
+        // Lesotho's middle (inside South Africa), Johannesburg; none in the mid-Atlantic.
+        double glat = 0, glon = 0;
+        CHECK(gridToLatLon("EN52", &glat, &glon) && dxccAt(land, glat, glon) == 291 && dxccAt(land, 64.84, -147.72) == 6 &&
+                  dxccAt(land, 20.75, -156.25) == 110 && dxccAt(land, 55.95, -3.2) == 279 && dxccAt(land, -29.5, 28.2) == 432 &&
+                  dxccAt(land, -26.2, 28.0) == 462 && dxccAt(land, 30, -30) == 0,
+              "the entity at a place: EN52 the United States, Fairbanks Alaska, Maui Hawaii, Edinburgh Scotland, Lesotho, Johannesburg South "
+              "Africa, none at sea (Lesotho's middle: %d)",
+              dxccAt(land, -29.5, 28.2));
     }
         CHECK(isPlaceholderGrid("jj00aa") && isPlaceholderGrid("AA00") && !isPlaceholderGrid("JJ00ab") && !isPlaceholderGrid("AA01") &&
                   isPlaceholderPlace(0, 0) && !isPlaceholderPlace(0, 0.001),
@@ -3861,6 +3871,52 @@ static void testSpotsCore() {
                   spotPriority(spotStatus(w, dlPark, &ct)) == 3 &&
                   spotPriority(spotStatus(w, spot("DL1ABC", "20m", "CW"), &ct)) == 4,
               "the most wanted first: a new DXCC, a new band, a new park, then the rest");
+        {  // Chasing's opportunities: every need counted, weighed, explained, in a fixed order
+            using namespace adif::chase;
+            auto at = [&](Spot s, long long epoch, const char *khz = "14025") {
+                s.epoch = epoch, s.khz = khz;
+                return s;
+            };
+            Spot iota = spot("DL9AAA", "40m", "FT8");  // worked there: only the island counts
+            iota.program = "IOTA", iota.refs = {"EU-005"};
+            Spot mine = spot("K1ME", "20m", "CW");
+            mine.heardMe = true;
+            std::vector<Spot> spots = {at(spot("DL1ABC", "20m", "CW"), 900),       // confirmed: nothing
+                                       at(spot("DL9AAA", "17m", "CW"), 950),       // a new band
+                                       at(spot("JA1XYZ", "20m", "CW"), 800),       // a new DXCC
+                                       at(spot("JA2AAA", "20m", "CW"), 990),       // a new DXCC, newer
+                                       at(iota, 990), at(newPark, 990),            // a new IOTA group; a new park (US: a new DXCC too)
+                                       at(spot("DL2XYZ", "40m", "FT4"), 995),      // worked today in that mode group: a duplicate
+                                       at(spot("DL9AAA", "40m", "FT8"), 980),      // worked, not confirmed: LoTW makes it one
+                                       at(mine, 999)};
+            Inputs in;
+            in.worked = &w, in.countries = &ct, in.now = 1000, in.watch = {"JA1XYZ"};
+            in.workedToday = {todayKey("DL2XYZ", "40M", "FT8")};
+            in.usesLotw = [](const std::string &call) { return call == "DL9AAA"; };
+            std::vector<Opportunity> o = rank(spots, in);
+            std::string order;
+            for (const Opportunity &x : o) order += std::to_string(x.spot) + ":" + std::to_string(x.score) + " ";
+            CHECK(order == "2:160 5:120 3:100 4:40 1:40 7:10 ",
+                  "ranked: the watched new DXCC, the new park in a new entity, a new DXCC, the island (unconfirmed too) before the older new band "
+                  "of the same score, an unconfirmed entity; the confirmed, the duplicate and my own signal not (%s)", order.c_str());
+            CHECK(o.size() == 6 && o[0].reasons == std::vector<Reason>({Reason::NewDxcc, Reason::Watched}) &&
+                      o[0].why == "New DXCC entity (Japan); On your watch list (JA1XYZ). Spotted 3 min ago." &&
+                      o[1].reasons == std::vector<Reason>({Reason::NewDxcc, Reason::NewPark}) &&
+                      o[5].why == "Fed. Rep. of Germany worked on 40m, not confirmed; they use LoTW. Spotted 20 s ago.",
+                  "explained, the most valuable reason first, with how fresh: %s | %s", o.empty() ? "" : o[0].why.c_str(), o.size() > 5 ? o[5].why.c_str() : "");
+            in.usesLotw = nullptr;
+            in.weights.newBand = 200;
+            std::vector<Opportunity> again = rank(spots, in);
+            CHECK(again.size() == 5 && again[0].spot == 1 && rank(spots, in).front().spot == again[0].spot && again[4].spot == 4,
+                  "the weights set the order; unknown LoTW: no unconfirmed opportunity; the same spots, the same order");
+            spots[2].epoch = spots[3].epoch = 990;
+            spots[3].activator = "JA0AAA";
+            in.weights = Weights();
+            in.watch.clear();
+            std::vector<Opportunity> tie = rank(spots, in);
+            CHECK(tie.size() >= 2 && tie[1].spot == 3 && tie[2].spot == 2, "an equal score and time: by the call");
+            CHECK(age(42) == "42 s" && age(125) == "2 min" && age(3600) == "1 h" && age(3900) == "1 h 5 min" && age(-1).empty(), "ages");
+        }
         std::vector<std::pair<std::string, SlotState>> slots = bandSlots(w, 230);
         auto slot = [&](const char *b) {
             for (const auto &s : slots)
@@ -3943,6 +3999,23 @@ static void testSpotsCore() {
     f = SpotFilter();
     f.programs = {""};
     CHECK(spotMatches(f, berlin, now, &ct, nullptr) && !spotMatches(f, madison, now, &ct, nullptr), "plain DX spots only");
+    f = SpotFilter();
+    f.notDxcc = {291};  // DX Chase from the United States
+    CHECK(spotMatches(f, berlin, now, &ct, nullptr) && spotMatches(f, tokyo, now, &ct, nullptr) && !spotMatches(f, madison, now, &ct, nullptr) &&
+              spotMatches(f, madison, now, nullptr, nullptr),
+          "your own country's stations left out (by the country data: without it, none)");
+    {  // The stations spotted, who heard them, and both: a station's portable form and a skimmer's suffix are the same station
+        Spot heard = berlin;
+        heard.activator = "DL1ABC/P", heard.spotter = "W3LPL-#";
+        f = SpotFilter();
+        f.stations = {"dl1abc"};
+        bool spotted = spotMatches(f, heard, now, &ct, nullptr) && !spotMatches(f, tokyo, now, &ct, nullptr);
+        f = SpotFilter();
+        f.spotters = {"W3LPL", "KM4IYW"};
+        bool by = spotMatches(f, heard, now, &ct, nullptr) && !spotMatches(f, tokyo, now, &ct, nullptr);
+        f.stations = {"JA1XYZ"};
+        CHECK(spotted && by && !spotMatches(f, heard, now, &ct, nullptr), "spots of chosen stations, heard by chosen spotters, and both at once");
+    }
     MapQso mq = spotQso(madison, &ct);
     CHECK(mq.potaHunted.size() == 1 && mq.potaHunted[0] == "US-1234" && mq.areas.state == "WI" && mq.located, "a POTA spot as a QSO with a park");
 
@@ -4636,8 +4709,11 @@ static void testLayouts() {
     for (const char *style : {"social", "chasing", "contest", "portable"})
         CHECK(preset(style) && inConsole(preset(style)->arrangement, kMap) && inConsole(preset(style)->arrangement, kNewQso),
               "the %s style's layout: the Map and New QSO in the console", style);
-    CHECK(shown(preset("chasing")->arrangement) == (Ids{kMap, kSpots, kNewQso}) && shown(preset("social")->arrangement) == (Ids{kMap, kNewQso, kQsoDetails}),
-          "Chasing: the Map over the spots, New QSO beside; Social: the Map, New QSO and QSO Details");
+    CHECK(shown(preset("chasing")->arrangement) == (Ids{kMap, kSpots, kNewQso, kAids}) &&
+              shown(preset("social")->arrangement) == (Ids{kMap, kNewQso, kAids, kQsoDetails}) &&
+              shown(preset("portable")->arrangement) == (Ids{kNewQso, kAids, kMap, kLogTable}) && !inConsole(preset("contest")->arrangement, kAids),
+          "Chasing: the Map over the spots, New QSO over the aids beside; Social: the Map, New QSO, the aids and QSO Details; Portable "
+          "the aids under New QSO; Contest, which has none, no aids");
     for (const Preset &p : presets()) CHECK(problems(p.arrangement).empty(), "layout %s is sound", p.id.c_str());
     const Preset *act = preset("activation"), *qsoLog = preset("qso-log");
     CHECK(act && shown(act->arrangement) == (Ids{kNewQso, kQsoDetails, kContactMap, kLogTable, kSpots}) && act->arrangement.console.kind == Node::Kind::Row &&
@@ -4695,6 +4771,86 @@ static void testLayouts() {
     CHECK(w.windows.count(kLogTable) && w.windows[kLogTable] == (Frame{1, 2, 3, 4}) && inConsole(w, kMap), "a window and a console tab trade places, the frame staying");
     for (const std::string &p : shown(b)) b = hide(b, p);
     CHECK(shown(b).empty() && problems(b).empty() && b.console.kind == Node::Kind::Stack, "every panel hidden: an empty console");
+
+    // A panel closed goes back to its place: each of Activation's (a frame of its own in a row or
+    // a column, with its share; the split it was in made again where that had gone); a tab beside
+    // the panel before it; at the end of the top row when its neighbours have gone too.
+    for (const std::string &p : shown(act->arrangement)) {
+        std::optional<Place> at = placeOf(act->arrangement, p);
+        Arrangement back = at ? showAt(hide(act->arrangement, p), p, *at) : Arrangement();
+        CHECK(at && !at->tab && back == act->arrangement, "Activation: %s closed and opened again, back in its place (%s)", p.c_str(), write(back).c_str());
+    }
+    {
+        Arrangement tabs = showInConsole(act->arrangement, kMapStyle, kLogTable);
+        std::optional<Place> tab = placeOf(tabs, kMapStyle);
+        CHECK(tab && tab->tab && tab->beside == kLogTable && showAt(hide(tabs, kMapStyle), kMapStyle, *tab) == tabs, "a tab: back beside the log, in front");
+        std::optional<Place> details = placeOf(act->arrangement, kQsoDetails);
+        Arrangement gone = hide(hide(act->arrangement, kQsoDetails), kContactMap);
+        Arrangement again = details ? showAt(gone, kQsoDetails, *details) : gone;
+        CHECK(details && shown(again).back() == kQsoDetails && problems(again).empty(),
+              "its neighbour closed too: at the end of the top row (%s)", write(again).c_str());
+        Arrangement solo;
+        solo.console = stack({kMap});
+        CHECK(!placeOf(solo, kMap) && !placeOf(showInWindow(act->arrangement, kMap), kMap) && !placeOf(act->arrangement, kMap),
+              "no place for the console's only panel, or one not in it");
+    }
+
+    // Closed panels keep their places in the arrangement, written and read back with it.
+    {
+        Arrangement c = closePanel(closePanel(act->arrangement, kLogTable), kQsoDetails);
+        std::optional<Arrangement> r = read(write(c));
+        CHECK(r && *r == c && c.closed.size() == 2 && !shows(c, kLogTable) && problems(c).empty(), "closed places kept, written and read back (%s)",
+              write(c).c_str());
+        CHECK(reopenPanel(reopenPanel(c, kLogTable), kQsoDetails) == act->arrangement, "both opened again: Activation as it was");
+        CHECK(reopenPanel(c, kMapStyle) == showInConsole(c, kMapStyle) && showInConsole(c, kLogTable).closed.count(kLogTable) == 0,
+              "a panel with no place: at the end of the top row; one shown another way: its place forgotten");
+        CHECK(read("{\"v\":1,\"console\":{\"stack\":[\"map\"]},\"closed\":{\"logtable\":{\"split\":\"diagonal\"},\"spots\":{\"tab\":\"map\",\"at\":0}}}")
+                      ->closed.size() == 1,
+              "a closed place that can't be read is left out, not the rest");
+    }
+
+    // Regions: a frame's region split in two; frames moved beside another or to the console's edge;
+    // a split's frames side by side or one above the other.
+    {
+        Arrangement r = splitBeside(qsoLog->arrangement, kMap, kLogTable, Side::Top);
+        const Node &right = r.console.children[1];
+        CHECK(r.console.kind == Node::Kind::Row && right.kind == Node::Kind::Column && right.children.size() == 2 && right.children[0].panels == (Ids{kMap}) &&
+                  right.children[1].panels == (Ids{kLogTable}) && std::fabs(right.children[0].share - 0.5) < 1e-9 && problems(r).empty(),
+              "Split Down above the log: its region in two halves, the Map on top (%s)", write(r).c_str());
+        r = splitBeside(r, kSpots, kNewQso, Side::Right);
+        CHECK(shown(r) == (Ids{kNewQso, kSpots, kMap, kLogTable}) && r.console.children.size() == 3 && problems(r).empty(),
+              "Split Right in a row: one more frame in that row");
+        r = moveFrame(r, kNewQso, "", Side::Bottom, 0.3);
+        CHECK(r.console.kind == Node::Kind::Column && r.console.children.back().panels == (Ids{kNewQso}) &&
+                  std::fabs(r.console.children.back().share - 0.3) < 1e-9 && problems(r).empty(),
+              "New QSO moved to the bottom edge: the whole width, at 0.3 (%s)", write(r).c_str());
+        CHECK(splitOf(r, kMap) == Node::Kind::Column && splitOf(r, kSpots) == Node::Kind::Row && splitOf(r, kNewQso) == Node::Kind::Column,
+              "the split each frame is in");
+        r = alignSplit(r, kMap, Node::Kind::Row);
+        CHECK(r.console.children[0].kind == Node::Kind::Row && r.console.children[0].children.size() == 3 && shown(r) == (Ids{kSpots, kMap, kLogTable, kNewQso}) &&
+                  problems(r).empty(),
+              "the Map and the log side by side: in the row with the spots (%s)", write(r).c_str());
+        r = moveFrame(r, kSpots, kLogTable, Side::Bottom);
+        CHECK(splitOf(r, kSpots) == Node::Kind::Column && shown(r) == (Ids{kMap, kLogTable, kSpots, kNewQso}) && problems(r).empty(),
+              "the spots' frame moved below the log (%s)", write(r).c_str());
+        Arrangement tabbed = moveToTab(r, kSpots, kMap);
+        Arrangement out = splitBeside(tabbed, kSpots, kMap, Side::Left);
+        CHECK(splitOf(out, kSpots) == Node::Kind::Row && placeOf(tabbed, kSpots)->tab && placeOf(out, kMap) && !placeOf(out, kMap)->tab && problems(out).empty(),
+              "a tab split out to the left of its own frame");
+        Arrangement solo;
+        solo.console = stack({kMap});
+        CHECK(moveFrame(solo, kMap, "", Side::Left) == solo && moveFrame(r, kMap, kMap, Side::Left) == r && splitBeside(r, kMap, kMap, Side::Top) == r,
+              "nothing to move beside itself, or in a console of one frame");
+    }
+
+    // The layouts as adjusted: written and read back; what can't be read left out.
+    {
+        std::map<std::string, Arrangement> adjusted = {{"logging", closePanel(preset("logging")->arrangement, kLogTable)}, {"mine:Evening on 40m", act->arrangement}};
+        CHECK(readAdjusted(writeAdjusted(adjusted)) == adjusted, "adjusted layouts written and read back (%s)", writeAdjusted(adjusted).c_str());
+        CHECK(readAdjusted("{\"v\":1,\"adjusted\":{\"x\":{\"v\":2},\"y\":{\"v\":1,\"console\":{\"stack\":[\"map\"]}}}}").size() == 1 &&
+                  readAdjusted("nope").empty() && readAdjusted("{\"v\":2,\"adjusted\":{}}").empty(),
+              "an adjusted layout that can't be read is left out, not the rest");
+    }
 
     // A row with shares keeps them summing to 1 when a panel joins it.
     Arrangement two;

@@ -9,7 +9,7 @@
 
 @interface ADIFSettingsPanel : NSObject
 
-@property(nonatomic, readonly) NSView *view;  // the groups, for the Map's Settings card
+@property(nonatomic, readonly) NSView *view;  // the groups, for the Settings window
 // A credential was saved or removed for this source.
 @property(nonatomic, copy) void (^onChanged)(NSInteger source);
 
@@ -67,6 +67,14 @@
 - (void)setOffline:(BOOL)on;
 
 - (void)showWelcome;                   // first run: a welcome, and Your Station open
+// A section in a panel of its own (Spot Sources, Your Station: ADIFLint.mm): its controls move
+// out, in a view of their own (nil: no such section), and its place here says where they are,
+// with a button (onShowSection) to show them; back here when the panel closes. `offerPanel`
+// puts a button on the section's header that opens its panel.
+- (NSView *)takeSection:(NSString *)ident;
+- (void)returnSection:(NSString *)ident;
+- (void)offerPanel:(NSString *)ident tip:(NSString *)tip;
+@property(nonatomic, copy) void (^onShowSection)(NSString *ident);
 - (void)showSource:(NSInteger)source;  // that source's group open, its first field focused (-3: country data, -4: spots)
 - (void)openGroup:(NSString *)ident;   // "settings.station", "settings.source.0"...
 - (void)refresh;                       // reload what is saved

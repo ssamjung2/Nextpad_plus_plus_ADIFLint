@@ -12,12 +12,14 @@
 #include "adif_layout.h"
 #include "adif_needs.h"
 #include "adif_parks.h"
+#include "adif_spots.h"
 #include "adif_world.h"
 
 #include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <map>
+#include <tuple>
 #include <vector>
 
 namespace {
@@ -39,6 +41,10 @@ const char *panelOf(int item) {
         case kDockContactMap: return layout::kContactMap;
         case kDockQsoInfo: return layout::kQsoDetails;
         case kDockMapStyle: return layout::kMapStyle;
+        case kDockAids: return layout::kAids;
+        case kDockSpotSources: return layout::kSpotSources;
+        case kDockStation: return layout::kStation;
+        case kDockClocks: return layout::kClocks;
         default: return "";
     }
 }
@@ -113,6 +119,10 @@ NSSize itemMinimum(int item) {
         case kDockContactMap: return NSMakeSize(240, 200);
         case kDockQsoInfo: return NSMakeSize(320, 200);
         case kDockMapStyle: return NSMakeSize(300, 260);
+        case kDockAids: return NSMakeSize(300, 160);
+        case kDockSpotSources: return NSMakeSize(340, 300);
+        case kDockStation: return NSMakeSize(320, 220);
+        case kDockClocks: return NSMakeSize(220, 100);
         default: return NSMakeSize(420, 300);
     }
 }
@@ -133,14 +143,21 @@ NSSize contentMinimum(int item) { return itemMinimum(item); }
 @property(nonatomic, copy) void (^onTab)(int index, int item);     // a tab chosen
 @property(nonatomic, copy) void (^onAddTab)(int index, int item);  // its actions menu: a panel as a tab here
 @property(nonatomic, copy) void (^onSplit)(int index);             // its actions menu: the tab in front to a frame of its own
+@property(nonatomic, copy) void (^onSplitBeside)(int index, int item, int side);  // Split Right or Split Down: a panel beside it, the region in two
+@property(nonatomic, copy) void (^onAlign)(int index, int kind);                   // Side by Side (1) or One Above the Other (2)
+@property(nonatomic, copy) void (^onMoveFrame)(int index, int side);               // Move Frame: to an edge of the console
+@property(nonatomic, copy) void (^onMoveBeside)(int from, int to, int side);       // a frame dropped near this one's edge: beside it there
+@property(nonatomic) int split;  // the split it is in: 0 none (the whole console), 1 side by side, 2 one above the other
 @property(nonatomic, copy) void (^onClose)(int index);             // its front panel closed
 - (void)showItems:(NSArray<NSNumber *> *)items front:(int)item title:(NSString *)title content:(NSView *)content;
 - (NSSize)leastSize;  // its panels' largest least size, with its header
 @end
 
 // A frame's header: its menu (or its tabs), title and close button, and a handle to drag the frame
-// by: onto another frame's body the two swap; onto its header the frame becomes a tab there (the
-// menu does the first from the keyboard and VoiceOver).
+// by: onto the middle of another frame the two swap; onto its header the frame becomes a tab
+// there; near one of its edges it goes beside it there, that region split in two (the frame's
+// menus do each from the keyboard and VoiceOver). Sides as layout::Side: 0 left, 1 right, 2 top,
+// 3 bottom.
 static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.frame";
 
 @interface ADIFDockHeader : NSView <NSDraggingSource>
@@ -197,6 +214,7 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
     NSView *_content;
     NSLayoutConstraint *_titleAfterChoice, *_titleAfterTabs;
     NSView *_dropMark;  // over the header while a frame dropped there would become a tab
+    NSView *_edgeMark;  // over the half of the body a frame dropped near that edge would take
 }
 
 - (instancetype)initWithFrame:(NSRect)frame {
@@ -205,12 +223,13 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
     _items = @[];
     ADIFDockHeader *header = [[ADIFDockHeader alloc] initWithFrame:NSZeroRect];
     header.translatesAutoresizingMaskIntoConstraints = NO;
-    header.toolTip = T(@"Drag a frame by its header onto another frame to swap them, or onto its header to make it a tab there");
+    header.toolTip = T(@"Drag a frame by its header onto another frame to swap them, onto its header to make it a tab there, or near one of its "
+                        @"edges to put it beside that frame there");
     _header = header;
     [self registerForDraggedTypes:@[ kFramePasteboardType ]];
     _title = [NSTextField labelWithString:@""];
     _title.font = theme::small(NSFontWeightSemibold);
-    _title.textColor = NSColor.secondaryLabelColor;
+    _title.textColor = theme::faint();
     _title.lineBreakMode = NSLineBreakByTruncatingTail;
     _title.translatesAutoresizingMaskIntoConstraints = NO;
     [_title setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
@@ -246,7 +265,7 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
     _close.bordered = NO;
     _close.imagePosition = NSImageOnly;
     _close.imageScaling = NSImageScaleProportionallyDown;
-    _close.contentTintColor = NSColor.secondaryLabelColor;
+    _close.contentTintColor = theme::faint();
     _close.toolTip = T(@"Close this frame");
     _close.accessibilityLabel = T(@"Close this frame");
     _close.translatesAutoresizingMaskIntoConstraints = NO;
@@ -260,8 +279,9 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
         imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:12 weight:NSFontWeightRegular]];
     [_more.menu addItem:face];
     _more.menu.delegate = self;
-    _more.contentTintColor = NSColor.secondaryLabelColor;
-    _more.toolTip = T(@"Frame actions: a panel as a tab here, the tab in front to a frame of its own, close");
+    _more.contentTintColor = theme::faint();
+    _more.toolTip = T(@"Frame actions: a panel as a tab here or beside it, the frames side by side or one above the other, the frame to an edge "
+                      @"of the console, close");
     _more.accessibilityLabel = T(@"Frame actions");
     _more.identifier = @"frame.actions";
     _more.translatesAutoresizingMaskIntoConstraints = NO;
@@ -273,6 +293,12 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
     _dropMark.layer.backgroundColor = [NSColor.controlAccentColor colorWithAlphaComponent:0.25].CGColor;
     _dropMark.translatesAutoresizingMaskIntoConstraints = NO;
     _dropMark.hidden = YES;
+    _edgeMark = [[NSView alloc] initWithFrame:NSZeroRect];
+    _edgeMark.wantsLayer = YES;
+    _edgeMark.layer.backgroundColor = [NSColor.controlAccentColor colorWithAlphaComponent:0.2].CGColor;
+    _edgeMark.layer.borderColor = NSColor.controlAccentColor.CGColor;
+    _edgeMark.layer.borderWidth = 2;
+    _edgeMark.hidden = YES;
     for (NSView *v in @[ _dropMark, _title, _choice, _tabs, _more, _close, rule ]) [header addSubview:v];
     _scroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
     _scroll.translatesAutoresizingMaskIntoConstraints = NO;
@@ -419,11 +445,47 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
     NSMenuItem *addItem = [menu addItemWithTitle:T(@"Add Tab") action:nil keyEquivalent:@""];
     addItem.submenu = add;
     addItem.identifier = @"frame.actions.addTab";
+    // Split Right and Split Down: a panel (another of its tabs, from another frame, or not shown) beside it.
+    for (auto [title, ident, side] : {std::tuple{N(@"Split Right"), @"frame.actions.splitRight", 1}, std::tuple{N(@"Split Down"), @"frame.actions.splitDown", 3}}) {
+        NSMenu *beside = [[NSMenu alloc] initWithTitle:T(title)];
+        for (const panels::Spec &s : panels::all()) {
+            int item = itemOf(s.id);
+            if (item == kDockNone || item == _item) continue;
+            NSMenuItem *mi = [beside addItemWithTitle:itemName(item) action:@selector(splitBesideChosen:) keyEquivalent:@""];
+            mi.target = self;
+            mi.tag = item;
+            mi.representedObject = @(side);
+            mi.image = [NSImage imageWithSystemSymbolName:s.symbol accessibilityDescription:nil];
+        }
+        NSMenuItem *mi = [menu addItemWithTitle:T(title) action:nil keyEquivalent:@""];
+        mi.submenu = beside;
+        mi.identifier = ident;
+    }
     NSMenuItem *split = [menu addItemWithTitle:TF(@"Move {panel} to Its Own Frame", @{@"panel" : front}) action:@selector(splitChosen:) keyEquivalent:@""];
     split.target = self;
     split.identifier = @"frame.actions.split";
     split.enabled = _items.count > 1;
     menu.autoenablesItems = NO;
+    // The frames of its split side by side or one above the other; the frame to an edge of the console.
+    [menu addItem:NSMenuItem.separatorItem];
+    for (auto [title, ident, kind] : {std::tuple{N(@"Side by Side"), @"frame.actions.sideBySide", 1}, std::tuple{N(@"One Above the Other"), @"frame.actions.oneAbove", 2}}) {
+        NSMenuItem *mi = [menu addItemWithTitle:T(title) action:@selector(alignChosen:) keyEquivalent:@""];
+        mi.target = self;
+        mi.tag = kind;
+        mi.identifier = ident;
+        mi.state = self.split == kind ? NSControlStateValueOn : NSControlStateValueOff;
+        mi.enabled = self.split != 0;
+    }
+    NSMenu *edges = [[NSMenu alloc] initWithTitle:T(@"Move Frame")];
+    for (auto [title, side] : {std::pair{N(@"To the Left Edge"), 0}, std::pair{N(@"To the Right Edge"), 1}, std::pair{N(@"To the Top Edge"), 2}, std::pair{N(@"To the Bottom Edge"), 3}}) {
+        NSMenuItem *mi = [edges addItemWithTitle:T(title) action:@selector(moveFrameChosen:) keyEquivalent:@""];
+        mi.target = self;
+        mi.tag = side;
+    }
+    NSMenuItem *move = [menu addItemWithTitle:T(@"Move Frame") action:nil keyEquivalent:@""];
+    move.submenu = edges;
+    move.identifier = @"frame.actions.move";
+    move.enabled = self.split != 0;
     [menu addItem:NSMenuItem.separatorItem];
     NSMenuItem *close = [menu addItemWithTitle:TF(@"Close {panel}", @{@"panel" : front}) action:@selector(closePressed:) keyEquivalent:@""];
     close.target = self;
@@ -438,8 +500,21 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
     if (self.onSplit) self.onSplit(self.index);
 }
 
+- (void)splitBesideChosen:(NSMenuItem *)sender {
+    if (self.onSplitBeside) self.onSplitBeside(self.index, (int)sender.tag, [sender.representedObject intValue]);
+}
+
+- (void)alignChosen:(NSMenuItem *)sender {
+    if (self.onAlign && self.split != sender.tag) self.onAlign(self.index, (int)sender.tag);
+}
+
+- (void)moveFrameChosen:(NSMenuItem *)sender {
+    if (self.onMoveFrame) self.onMoveFrame(self.index, (int)sender.tag);
+}
+
 // Another frame dragged here by its header: over this one's header it would become a tab here;
-// over its body the two would swap. Marked while it is over, then done on the drop.
+// near an edge of its body (its outer quarter) it would go beside it there; over the middle the
+// two would swap. Marked while it is over, then done on the drop.
 - (int)draggedFrom:(id<NSDraggingInfo>)info {
     NSString *v = [info.draggingPasteboard stringForType:kFramePasteboardType];
     return v ? v.intValue : -1;
@@ -447,16 +522,33 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
 - (BOOL)overHeader:(id<NSDraggingInfo>)info {
     return NSPointInRect([_header convertPoint:info.draggingLocation fromView:nil], _header.bounds);
 }
-- (void)markDrop:(int)kind {  // 0 none, 1 swap (the frame), 2 a tab (the header)
+// 0 none, 1 swap (the middle), 2 a tab (the header), 3 to 6 beside it (left, right, top, bottom).
+- (int)dropKind:(id<NSDraggingInfo>)info {
+    if ([self overHeader:info]) return 2;
+    NSPoint p = [self convertPoint:info.draggingLocation fromView:nil];
+    NSRect body = NSMakeRect(0, 0, NSWidth(self.bounds), std::max<CGFloat>(NSHeight(self.bounds) - kHeaderHeight, 1));
+    CGFloat x = (p.x - NSMinX(body)) / std::max<CGFloat>(NSWidth(body), 1), y = (p.y - NSMinY(body)) / NSHeight(body);
+    CGFloat near[] = {x, 1 - x, 1 - y, y};  // left, right, top, bottom (not flipped: y up)
+    int side = (int)(std::min_element(near, near + 4) - near);
+    return near[side] < 0.25 ? 3 + side : 1;
+}
+- (void)markDrop:(int)kind {
     self.wantsLayer = YES;
     self.layer.borderWidth = kind == 1 ? 2 : 0;
     self.layer.borderColor = NSColor.controlAccentColor.CGColor;
     _dropMark.hidden = kind != 2;
+    _edgeMark.hidden = kind < 3;
+    if (kind < 3) return;
+    CGFloat w = NSWidth(self.bounds), h = NSHeight(self.bounds) - kHeaderHeight;
+    NSRect halves[] = {NSMakeRect(0, 0, w / 2, h), NSMakeRect(w / 2, 0, w / 2, h), NSMakeRect(0, h / 2, w, h / 2), NSMakeRect(0, 0, w, h / 2)};
+    _edgeMark.frame = halves[kind - 3];
+    if (_edgeMark.superview != self) [self addSubview:_edgeMark];
+    else [self addSubview:_edgeMark positioned:NSWindowAbove relativeTo:nil];
 }
 - (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)info {
     int from = [self draggedFrom:info];
     BOOL ok = from >= 0 && from != self.index;
-    [self markDrop:ok ? ([self overHeader:info] ? 2 : 1) : 0];
+    [self markDrop:ok ? [self dropKind:info] : 0];
     return ok ? NSDragOperationMove : NSDragOperationNone;
 }
 - (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)info {
@@ -469,7 +561,11 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
     [self markDrop:0];
     int from = [self draggedFrom:info];
     if (from < 0 || from == self.index) return NO;
-    if ([self overHeader:info]) {
+    int kind = [self dropKind:info];
+    if (kind >= 3) {
+        if (!self.onMoveBeside) return NO;
+        self.onMoveBeside(from, self.index, kind - 3);
+    } else if (kind == 2) {
         if (!self.onStack) return NO;
         self.onStack(from, self.index);
     } else {
@@ -490,6 +586,7 @@ ADIF_DOCKABLE_WINDOW
 
 namespace {
 std::vector<std::pair<std::string, std::string>> gQsoFields;
+std::string gLookupGrid, gLookupGridCall;  // the lookup's grid square for a call (setLookupGrid)
 ADIFDockPanel *gContactMapWindow;
 ADIFDockPanel *gQsoInfoWindow;
 workspace::QsoDetails gQsoDetails;  // what QSO Details shows, kept for when it opens
@@ -536,7 +633,40 @@ bool countryBounds(const std::string &call, double *west, double *south, double 
 
 @interface ADIFContactMapView : NSView
 @end
+// The contact (New QSO's) and your station on a small map, the way between them, and (Spot Info,
+// on at first) a card of its spot when it is spotted, in a corner clear of both. The contact where
+// New QSO's GRIDSQUARE or LAT and LON put it, else at the grid the lookup found, else where its spot
+// places it, else in its country (roughly); your station
+// at MY_LAT and MY_LON, else MY_GRIDSQUARE (a station profile's, a park's), else Your Station's grid.
+// The map shows both.
 @implementation ADIFContactMapView
+- (instancetype)initWithFrame:(NSRect)frame {
+    if (!(self = [super initWithFrame:frame])) return nil;
+    NSButton *info = [NSButton buttonWithImage:[NSImage imageWithSystemSymbolName:@"info.circle" accessibilityDescription:nil] target:self
+                                        action:@selector(spotInfoToggled:)];
+    info.alternateImage = [NSImage imageWithSystemSymbolName:@"info.circle.fill" accessibilityDescription:nil];
+    [info setButtonType:NSButtonTypePushOnPushOff];
+    info.bordered = NO;
+    info.state = adifhost::setting("contactMapSpotInfo") == "0" ? NSControlStateValueOff : NSControlStateValueOn;
+    info.contentTintColor = theme::faint();
+    info.identifier = @"contactmap.spotinfo";
+    info.toolTip = T(@"Spot Info: when the station in New QSO is spotted, its spot in short (what to tune, why it's worth having, its park, "
+                     @"how fresh)");
+    info.accessibilityLabel = T(@"Spot Info");
+    info.frame = NSMakeRect(NSWidth(frame) - 26, 3, 20, 20);
+    info.autoresizingMask = NSViewMinXMargin | NSViewMaxYMargin;  // top right (flipped)
+    [self addSubview:info];
+    __weak ADIFContactMapView *me = self;  // a new spot of the station: its card again
+    [[NSNotificationCenter defaultCenter] addObserverForName:ADIFOpportunitiesChangedNotification
+                                                      object:nil
+                                                       queue:nil
+                                                  usingBlock:^(NSNotification *) { [me setNeedsDisplay:YES]; }];
+    return self;
+}
+- (void)spotInfoToggled:(NSButton *)sender {
+    adifhost::setSetting("contactMapSpotInfo", sender.state == NSControlStateValueOn ? "1" : "0");
+    self.needsDisplay = YES;
+}
 - (BOOL)isFlipped { return YES; }
 - (void)drawRect:(NSRect)dirtyRect {
     NSRect bounds = self.bounds;
@@ -544,34 +674,49 @@ bool countryBounds(const std::string &call, double *west, double *south, double 
     NSRectFill(bounds);
 
     double lat = 0, lon = 0;
-    std::string grid = fieldValue("GRIDSQUARE");
+    std::string call = fieldValue("CALL"), grid = fieldValue("GRIDSQUARE");
     bool located = adif::gridToLatLon(grid, &lat, &lon);
     bool approximate = false;
     if (!located)
         located = adif::locationToDegrees(fieldValue("LAT"), true, &lat) &&
                   adif::locationToDegrees(fieldValue("LON"), false, &lon);
+    std::string lookupGrid = adif::sameStation(gLookupGridCall, call) ? gLookupGrid : "";
+    if (!located && adif::gridToLatLon(lookupGrid, &lat, &lon)) located = true, grid = lookupGrid;  // the callbook's
+    if (!located) {  // a spotted station: where its spot places it
+        std::string spotGrid;
+        if (worldmap::spotPlaceFor(call, &lat, &lon, &spotGrid)) located = true, grid = spotGrid;
+    }
     adif::CountryInfo entity;
-    bool hasEntity = !ADIFCountries().empty() && ADIFCountries().lookup(fieldValue("CALL"), &entity);
+    bool hasEntity = !ADIFCountries().empty() && ADIFCountries().lookup(call, &entity);
     if (!located && hasEntity) {
         lat = entity.lat;
         lon = entity.lon;
         located = approximate = true;
     }
+    // Your station: where it is now (MY_LAT and MY_LON), else its grid (MY_GRIDSQUARE), else Your
+    // Station's, else the log's (the Map's home: its most used MY_GRIDSQUARE).
+    double hlat = 0, hlon = 0;
+    bool home = (adif::locationToDegrees(fieldValue("MY_LAT"), true, &hlat) && adif::locationToDegrees(fieldValue("MY_LON"), false, &hlon)) ||
+                adif::gridToLatLon(fieldValue("MY_GRIDSQUARE"), &hlat, &hlon) || adif::gridToLatLon(adifhost::setting("stationGrid"), &hlat, &hlon) ||
+                adif::gridToLatLon(worldmap::stationHome(), &hlat, &hlon);
 
     NSRect map = NSInsetRect(bounds, 12, 12);
     map.origin.y += 22;
     map.size.height -= 22;
     double west = -180, south = -82, east = 180, north = 85;
-    bool countryZoom = located && countryBounds(fieldValue("CALL"), &west, &south, &east, &north);
-    if (countryZoom) {
-        // Show all mapped territory plus its surrounding region, while keeping the contact in view.
-        west = std::min(west, lon); east = std::max(east, lon);
-        south = std::min(south, lat); north = std::max(north, lat);
-        double dx = std::max(30.0, east - west) * 0.14;
-        double dy = std::max(20.0, north - south) * 0.14;
-        west -= dx; east += dx; south -= dy; north += dy;
-    } else if (located) {
-        west = lon - 12; east = lon + 12; south = lat - 9; north = lat + 9;
+    // Placed roughly, the contact's whole country; else a little round it. Then your station too, the
+    // contact's side of the date line taken nearest to it, and room round both.
+    bool countryZoom = located && approximate && countryBounds(call, &west, &south, &east, &north);
+    if (located) {
+        if (!countryZoom) west = lon - 3, east = lon + 3, south = lat - 2, north = lat + 2;
+        if (home) {
+            double hl = hlon;
+            while (hl - lon > 180) hl -= 360;
+            while (hl - lon < -180) hl += 360;
+            west = std::min(west, hl), east = std::max(east, hl), south = std::min(south, hlat), north = std::max(north, hlat);
+        }
+        double dx = std::max(8.0, east - west) * 0.14, dy = std::max(5.0, north - south) * 0.14;
+        west -= dx, east += dx, south -= dy, north += dy;
     }
     south = std::max(-85.0, south); north = std::min(85.0, north);
     double centerLat = (south + north) / 2;
@@ -592,7 +737,7 @@ bool countryBounds(const std::string &call, double *west, double *south, double 
         return NSMakePoint(NSMinX(map) + (x - west) / std::max(1.0, east - west) * NSWidth(map),
                             NSMinY(map) + (north - y) / std::max(1.0, north - south) * NSHeight(map));
     };
-    [[NSColor.tertiaryLabelColor colorWithAlphaComponent:0.25] setStroke];
+    [[theme::fainter() colorWithAlphaComponent:0.25] setStroke];
     for (int i = 1; i < 6; ++i) {
         CGFloat x = NSMinX(map) + NSWidth(map) * i / 6.0;
         CGFloat y = NSMinY(map) + NSHeight(map) * i / 6.0;
@@ -615,22 +760,23 @@ bool countryBounds(const std::string &call, double *west, double *south, double 
         bool started = false;
         double previous = 0;
         for (const auto &point : points) {
-            if (started && std::abs(point.first - previous) > 180) {
+            // Broken where it crosses the map's seam (half the world from its middle), not drawn across the map.
+            double x = point.first;
+            while (x - centerLon > 180) x -= 360;
+            while (x - centerLon < -180) x += 360;
+            if (started && std::abs(x - previous) > 180) {
                 [land closePath]; started = false;
             }
             NSPoint p = mapPoint(point.first, point.second);
             if (!started) [land moveToPoint:p], started = true;
             else [land lineToPoint:p];
-            previous = point.first;
+            previous = x;
         }
         if (started) [land closePath];
         [land fill];
         [[NSColor.separatorColor colorWithAlphaComponent:0.35] setStroke];
         [land stroke];
     }
-    double hlat = 0, hlon = 0;
-    bool home = adif::gridToLatLon(fieldValue("MY_GRIDSQUARE"), &hlat, &hlon) ||
-                adif::gridToLatLon(adifhost::setting("stationGrid"), &hlat, &hlon);
     if (home) {  // your station, and the way to the contact when both are in sight
         NSPoint h = mapPoint(hlon, hlat), p = located ? mapPoint(lon, lat) : h;
         if (NSPointInRect(h, map) && located) {
@@ -661,9 +807,14 @@ bool countryBounds(const std::string &call, double *west, double *south, double 
         [NSColor.whiteColor setStroke]; [marker stroke];
     }
     [NSGraphicsContext restoreGraphicsState];
+    std::vector<NSPoint> marked;  // the card keeps clear of them
+    if (located) marked.push_back(mapPoint(lon, lat));
+    if (home) marked.push_back(mapPoint(hlon, hlat));
+    [self drawSpotCardIn:map clearOf:marked];
     NSString *caption = approximate ? [NSString stringWithFormat:T(@"Approximate home location: %@"), ADIFString(entity.name)]
-                       : located ? [NSString stringWithFormat:@"%@  ·  %.2f°, %.2f°", ADIFString(fieldValue("CALL")), lat, lon]
-                                : T(@"A grid square (or LAT and LON) places the contact");
+                        : located   ? [NSString stringWithFormat:@"%@  ·  %@", ADIFString(call),
+                                                                 grid.empty() ? [NSString stringWithFormat:@"%.2f°, %.2f°", lat, lon] : ADIFString(grid)]
+                                    : T(@"A grid square (or LAT and LON) places the contact");
     if (located && home) {
         double km = adif::greatCircleKm(hlat, hlon, lat, lon);
         long bearing = std::lround(adif::initialBearing(hlat, hlon, lat, lon)) % 360;
@@ -673,11 +824,55 @@ bool countryBounds(const std::string &call, double *west, double *south, double 
     }
     NSMutableParagraphStyle *cut = [[NSMutableParagraphStyle alloc] init];
     cut.lineBreakMode = NSLineBreakByTruncatingTail;  // one line, ended with "..." in a narrow frame (its tooltip has it all)
-    [caption drawInRect:NSMakeRect(kADIFMargin, 4, NSWidth(bounds) - 2 * kADIFMargin, 18)
+    [caption drawInRect:NSMakeRect(kADIFMargin, 4, NSWidth(bounds) - 2 * kADIFMargin - 24, 18)
          withAttributes:@{NSFontAttributeName : theme::small(),
-                          NSForegroundColorAttributeName : NSColor.secondaryLabelColor,
+                          NSForegroundColorAttributeName : theme::faint(),
                           NSParagraphStyleAttributeName : cut}];
     self.toolTip = caption;
+}
+
+// Spot Info: the contact's spot in short, on a card in the first corner (top left, top right, bottom
+// left, bottom right) that covers neither station.
+- (void)drawSpotCardIn:(NSRect)map clearOf:(const std::vector<NSPoint> &)marked {
+    if (adifhost::setting("contactMapSpotInfo") == "0") return;
+    std::string call = fieldValue("CALL");
+    std::vector<std::pair<std::string, std::string>> rows = worldmap::spotInfoFor(call, 6);
+    if (rows.empty()) return;
+    NSDictionary *head = @{NSFontAttributeName : theme::small(NSFontWeightSemibold), NSForegroundColorAttributeName : NSColor.labelColor};
+    NSDictionary *label = @{NSFontAttributeName : theme::small(), NSForegroundColorAttributeName : theme::faint()};
+    NSMutableParagraphStyle *cut = [[NSMutableParagraphStyle alloc] init];
+    cut.lineBreakMode = NSLineBreakByTruncatingTail;
+    NSDictionary *value = @{NSFontAttributeName : theme::small(), NSForegroundColorAttributeName : NSColor.labelColor, NSParagraphStyleAttributeName : cut};
+    CGFloat labels = 0, values = 0, line = 15;
+    for (const auto &[l, v] : rows) {
+        labels = std::max(labels, [ADIFString(l) sizeWithAttributes:label].width);
+        values = std::max(values, [ADIFString(v) sizeWithAttributes:value].width);
+    }
+    NSString *title = TF(@"{call} spotted", @{@"call" : ADIFString(call).uppercaseString});
+    CGFloat width = std::min<CGFloat>(std::max<CGFloat>(labels + 8 + values, [title sizeWithAttributes:head].width) + 16, NSWidth(map) - 16);
+    CGFloat height = (rows.size() + 1) * line + 10;
+    NSRect corners[] = {NSMakeRect(NSMinX(map) + 8, NSMinY(map) + 8, width, height), NSMakeRect(NSMaxX(map) - 8 - width, NSMinY(map) + 8, width, height),
+                        NSMakeRect(NSMinX(map) + 8, NSMaxY(map) - 8 - height, width, height),
+                        NSMakeRect(NSMaxX(map) - 8 - width, NSMaxY(map) - 8 - height, width, height)};
+    NSRect card = corners[0];
+    for (const NSRect &c : corners)
+        if (std::none_of(marked.begin(), marked.end(), [&](NSPoint p) { return NSPointInRect(p, NSInsetRect(c, -10, -10)); })) {
+            card = c;
+            break;
+        }
+    NSBezierPath *back = [NSBezierPath bezierPathWithRoundedRect:card xRadius:6 yRadius:6];
+    [[NSColor.windowBackgroundColor colorWithAlphaComponent:0.9] setFill];
+    [back fill];
+    [[NSColor.separatorColor colorWithAlphaComponent:0.8] setStroke];
+    [back stroke];
+    [title drawAtPoint:NSMakePoint(NSMinX(card) + 8, NSMinY(card) + 5) withAttributes:head];
+    CGFloat y = NSMinY(card) + 5 + line;
+    for (const auto &[l, v] : rows) {
+        [ADIFString(l) drawAtPoint:NSMakePoint(NSMinX(card) + 8, y) withAttributes:label];
+        CGFloat x = NSMinX(card) + 8 + labels + 8;
+        [ADIFString(v) drawInRect:NSMakeRect(x, y, NSMaxX(card) - 8 - x, line) withAttributes:value];
+        y += line;
+    }
 }
 @end
 
@@ -731,31 +926,17 @@ bool countryBounds(const std::string &call, double *west, double *south, double 
 - (void)heading:(NSString *)title {
     NSTextField *h = [NSTextField labelWithString:[T(title) uppercaseString]];
     h.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize - 1 weight:NSFontWeightSemibold];
-    h.textColor = NSColor.secondaryLabelColor;
+    h.textColor = theme::faint();
     [_stack addArrangedSubview:h];
     [_stack setCustomSpacing:3 afterView:h];
     if (_stack.arrangedSubviews.count > 1) [_stack setCustomSpacing:12 afterView:_stack.arrangedSubviews[_stack.arrangedSubviews.count - 2]];
 }
 
-// Each reason's mark and colour: what the Map's selected panel uses for the same reason.
+// Each reason's mark and colour: Theme.h's, as the Map's selected panel uses for the same reason.
 static NSString *reasonSymbol(int kind, NSColor **colour) {
-    using K = adif::InterestKind;
-    switch ((K)kind) {
-        case K::Watched: *colour = NSColor.systemYellowColor; return @"star.fill";
-        case K::Duplicate: *colour = NSColor.systemRedColor; return @"exclamationmark.triangle.fill";
-        case K::NewForActivation: *colour = NSColor.systemGreenColor; return @"checkmark.circle.fill";
-        case K::NewDxcc: *colour = NSColor.systemOrangeColor; return @"star.circle.fill";
-        case K::NewBand: *colour = NSColor.systemBlueColor; return @"plus.circle.fill";
-        case K::NewMode: *colour = NSColor.systemBlueColor; return @"plus.circle";
-        case K::Worked: *colour = NSColor.secondaryLabelColor; return @"checkmark.circle";
-        case K::Confirmed: *colour = NSColor.systemGreenColor; return @"checkmark.circle.fill";
-        case K::ParkToPark: *colour = NSColor.systemGreenColor; return @"leaf.fill";
-        case K::NewPark: *colour = NSColor.systemGreenColor; return @"leaf";
-        case K::Before: *colour = NSColor.secondaryLabelColor; return @"person.crop.circle";
-        case K::FirstQso: *colour = NSColor.secondaryLabelColor; return @"person.crop.circle.badge.plus";
-    }
-    *colour = NSColor.secondaryLabelColor;
-    return @"circle";
+    NSString *symbol = theme::interestSymbol(kind);
+    *colour = theme::markColour(symbol);
+    return symbol;
 }
 
 - (void)show:(const workspace::QsoDetails &)d {
@@ -765,7 +946,7 @@ static NSString *reasonSymbol(int kind, NSColor **colour) {
         NSTextField *hint = [self text:tr("Type a call in New QSO: who it is, where, and why the contact is worth having show here, "
                                           "with your QSOs with it.")
                                   font:small
-                                colour:NSColor.secondaryLabelColor];
+                                colour:theme::faint()];
         hint.identifier = @"qsodetails.hint";
         [self addFull:hint];
         return;
@@ -780,7 +961,7 @@ static NSString *reasonSymbol(int kind, NSColor **colour) {
     top.alignment = NSLayoutAttributeFirstBaseline;
     top.spacing = 10;
     [self addFull:top];
-    if (!d.where.empty()) [self addFull:[self text:d.where font:small colour:NSColor.secondaryLabelColor]];
+    if (!d.where.empty()) [self addFull:[self text:d.where font:small colour:theme::faint()]];
 
     if (!d.why.empty()) {
         [self heading:N(@"Why this contact")];
@@ -809,7 +990,7 @@ static NSString *reasonSymbol(int kind, NSColor **colour) {
         for (const auto &[label, value] : d.facts) {
             NSTextField *l = [NSTextField labelWithString:ADIFString(label)];
             l.font = small;
-            l.textColor = NSColor.secondaryLabelColor;
+            l.textColor = theme::faint();
             [grid addRowWithViews:@[ l, [self text:value font:small colour:NSColor.labelColor] ]];
         }
         [grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
@@ -899,13 +1080,17 @@ void openAuxWindow(int item) {
 // front one of a stack shows; the others wait behind their tabs), and the window's own calls
 // (show, close, visible, title) are answered for it. Only what has docked is shown; a panel in the
 // arrangement that hasn't opened yet (New QSO before an activation's log exists) takes its place
-// when it docks. A panel not in the arrangement opens as a window of its own.
+// when it docks. A panel not in the arrangement opens as a window of its own, unless it was closed
+// from the console: then it goes back to its place there (kept in the arrangement). Each layout
+// keeps your changes to it (Reset Layout forgets them), and the frames are kept at least as big
+// as their panels need.
 @implementation ADIFWorkspace {
     ADIFWorkspaceWindow *_host;
     NSView *_treeHolder;
     NSTextField *_statusText, *_statusClock;
     NSTimer *_clock;
     layout::Arrangement _layout;
+    std::map<std::string, layout::Arrangement> _adjusted;  // each layout as you changed it, by its id (`consoleLayoutsAdjusted`)
     std::string _presetId;  // the layout it started from, built in or yours ("mine:" and its name); Console Layout Options ticks it
     std::vector<layout::Named> _mine;  // your own layouts (Save Layout As...), kept as `consoleLayouts`
     std::map<std::string, layout::Arrangement> _styleLayouts;  // a style's own (its Save), by the style's id
@@ -975,6 +1160,7 @@ void openAuxWindow(int item) {
     std::optional<layout::Arrangement> a = saved.empty() ? std::nullopt : layout::read(saved);
     _layout = a ? *a : layout::migrate([](const std::string &key) { return adifhost::setting(key); });
     _mine = layout::readNamed(adifhost::setting("consoleLayouts"));
+    _adjusted = layout::readAdjusted(adifhost::setting("consoleLayoutsAdjusted"));
     _presetId = adifhost::setting("consoleLayoutPreset");
     if (!saved.empty() && ![self arrangementFor:_presetId]) _presetId.clear();  // yours, since deleted: none ticked
     if (saved.empty() && !layout::preset(_presetId)) {
@@ -1013,6 +1199,44 @@ void openAuxWindow(int item) {
 - (void)saveSettings {
     adifhost::setSetting("consoleLayout", layout::write(_layout));
     adifhost::setSetting("consoleLayoutPreset", _presetId);
+    [self noteAdjusted];
+}
+
+// A layout as you changed it, else as it comes (built in, or yours as saved).
+- (const layout::Arrangement *)adjustedFor:(const std::string &)id {
+    auto it = _adjusted.find(id);
+    return it != _adjusted.end() ? &it->second : [self arrangementFor:id];
+}
+
+// The console as the layout it came from has it now: kept for that layout, or forgotten when it
+// is as the layout comes (a built-in layout's panes aside: they stay as they are). An empty
+// console (its last frame closed) changes nothing.
+- (void)noteAdjusted {
+    if (_presetId.empty() || !_loaded) return;
+    const layout::Arrangement *base = [self arrangementFor:_presetId];
+    if (!base || layout::shown(_layout).empty()) return;
+    layout::Arrangement plain = *base;
+    if (layout::preset(_presetId)) plain.panes = _layout.panes;
+    auto it = _adjusted.find(_presetId);
+    bool changed = _layout == plain ? it != _adjusted.end() : it == _adjusted.end() || it->second != _layout;
+    if (!changed) return;
+    if (_layout == plain) _adjusted.erase(it);
+    else _adjusted[_presetId] = _layout;
+    adifhost::setSetting("consoleLayoutsAdjusted", layout::writeAdjusted(_adjusted));
+}
+
+// Reset Layout: the layout chosen as it comes, your changes to it forgotten.
+- (void)resetLayout:(id)sender {
+    [self loadSettings];
+    if (!_adjusted.erase(_presetId)) return;
+    adifhost::setSetting("consoleLayoutsAdjusted", layout::writeAdjusted(_adjusted));
+    if (_active) return [self applyPreset:_presetId];
+    [self takePreset:_presetId];
+    [self saveSettings];
+}
+
+- (void)forgetAdjusted:(const std::string &)id {
+    if (_adjusted.erase(id)) adifhost::setSetting("consoleLayoutsAdjusted", layout::writeAdjusted(_adjusted));
 }
 
 // While a divider is dragged: saved once it rests.
@@ -1056,14 +1280,14 @@ void openAuxWindow(int item) {
     statusRule.translatesAutoresizingMaskIntoConstraints = NO;
     _statusText = [NSTextField labelWithString:gStatus.empty() ? @"" : ADIFString(gStatus)];
     _statusText.font = theme::small();
-    _statusText.textColor = NSColor.secondaryLabelColor;
+    _statusText.textColor = theme::faint();
     _statusText.lineBreakMode = NSLineBreakByTruncatingTail;
     _statusText.identifier = @"loggingLayout.status";
     _statusText.translatesAutoresizingMaskIntoConstraints = NO;
     [_statusText setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
     _statusClock = [NSTextField labelWithString:@""];
     _statusClock.font = theme::digits(NSFont.smallSystemFontSize, NSFontWeightRegular);
-    _statusClock.textColor = NSColor.secondaryLabelColor;
+    _statusClock.textColor = theme::faint();
     _statusClock.identifier = @"loggingLayout.clock";
     _statusClock.translatesAutoresizingMaskIntoConstraints = NO;
     [_statusClock setContentHuggingPriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
@@ -1129,7 +1353,7 @@ void openAuxWindow(int item) {
 
 // A layout's arrangement: a built-in one keeps the panes as they are; yours brings its own.
 - (void)takePreset:(const std::string &)id {
-    const layout::Arrangement *a = [self arrangementFor:id];
+    const layout::Arrangement *a = [self adjustedFor:id];
     if (!a) return;
     bool mine = !layout::preset(id);
     auto panes = _layout.panes;
@@ -1259,9 +1483,14 @@ void openAuxWindow(int item) {
 - (BOOL)dock:(NSWindow<ADIFDockable> *)w {
     if (!_active || _closing || w.dockItem == kDockNone) return NO;
     int item = w.dockItem;
-    // Its place in the arrangement; with none it stays a window of its own, rather than put out
-    // what is in a frame (New QSO, in the middle of an activation).
-    if (!layout::inConsole(_layout, panelOf(item))) return NO;
+    // Its place in the arrangement, or the one it was closed from (back there); with neither it
+    // stays a window of its own, rather than put out what is in a frame (New QSO, in the middle of
+    // an activation).
+    if (!layout::inConsole(_layout, panelOf(item))) {
+        if (!_layout.closed.count(panelOf(item))) return NO;
+        _layout = layout::reopenPanel(_layout, panelOf(item));
+        [self saveSettings];
+    }
     if (!_content[@(item)]) {
         [w orderOut:nil];
         NSView *content = w.contentView;
@@ -1291,10 +1520,11 @@ void openAuxWindow(int item) {
     return YES;
 }
 
-// A panel out of the console: told it closed, its content back in its window.
+// A panel out of the console: told it closed, its content back in its window. Where it was is
+// kept, for opening it there again.
 - (void)closeItem:(int)item {
     if (item == kDockNone || !layout::inConsole(_layout, panelOf(item))) return;
-    _layout = layout::hide(_layout, panelOf(item));
+    _layout = layout::closePanel(_layout, panelOf(item));
     [self saveSettings];
     NSWindow<ADIFDockable> *w = [self windowOf:item];
     if (w) [NSNotificationCenter.defaultCenter postNotificationName:NSWindowWillCloseNotification object:w];
@@ -1330,6 +1560,50 @@ void openAuxWindow(int item) {
     int a = [self frontOf:from], b = [self frontOf:to];
     if (a == kDockNone || b == kDockNone || a == b) return;
     _layout = layout::moveToTab(_layout, panelOf(a), panelOf(b));
+    [self saveSettings];
+    [self rebuild];
+}
+
+// A frame's Split Right or Split Down: `item` in a frame of its own beside it, the region in two
+// (from another frame or tab, or opened into it).
+- (void)split:(int)index with:(int)item side:(int)side {
+    int here = [self frontOf:index];
+    if (item == kDockNone || here == kDockNone || item == here) return;
+    BOOL docked = layout::inConsole(_layout, panelOf(item));
+    _layout = layout::splitBeside(_layout, panelOf(item), panelOf(here), (layout::Side)side);
+    [self saveSettings];
+    if (!docked) openItem(item);  // it docks into its place
+    [self rebuild];
+    ADIFPanelShownChanged();
+}
+
+// A frame's Side by Side or One Above the Other: the frames of its split so.
+- (void)align:(int)index kind:(int)kind {
+    int here = [self frontOf:index];
+    if (here == kDockNone) return;
+    _layout = layout::alignSplit(_layout, panelOf(here), kind == 2 ? layout::Node::Kind::Column : layout::Node::Kind::Row);
+    [self saveSettings];
+    [self rebuild];
+}
+
+// A frame's Move Frame: to an edge of the console, the whole height or width, as wide (or tall) as
+// it needs, between a fifth and a half of the console.
+- (void)moveFrame:(int)index toEdge:(int)side {
+    int here = [self frontOf:index];
+    if (here == kDockNone) return;
+    bool across = side == 0 || side == 1;
+    NSSize least = _frames[(NSUInteger)index].leastSize, room = _treeHolder.bounds.size;
+    double part = std::clamp(across ? least.width / std::max<CGFloat>(room.width, 1) : least.height / std::max<CGFloat>(room.height, 1), 0.2, 0.5);
+    _layout = layout::moveFrame(_layout, panelOf(here), "", (layout::Side)side, part);
+    [self saveSettings];
+    [self rebuild];
+}
+
+// A frame dropped near another's edge: beside it there, that region in two.
+- (void)moveFrame:(int)from beside:(int)to side:(int)side {
+    int a = [self frontOf:from], b = [self frontOf:to];
+    if (a == kDockNone || b == kDockNone || a == b) return;
+    _layout = layout::moveFrame(_layout, panelOf(a), panelOf(b), (layout::Side)side);
     [self saveSettings];
     [self rebuild];
 }
@@ -1385,7 +1659,7 @@ void openAuxWindow(int item) {
 // A built-in layout: the panels it doesn't hold closed, those it does opened into their places.
 - (void)applyPreset:(const std::string &)id {
     [self loadSettings];
-    const layout::Arrangement *a = [self arrangementFor:id];
+    const layout::Arrangement *a = [self adjustedFor:id];
     if (!a) return;
     layout::Arrangement next = *a;
     if (layout::preset(id)) next.panes = _layout.panes;  // a built-in layout keeps the panes as they are; yours brings its own
@@ -1431,11 +1705,11 @@ void openAuxWindow(int item) {
     [self loadSettings];
     if (layout::inConsole(_layout, panelOf(item))) {
         if (_active) return [self closeItem:item];
-        _layout = layout::hide(_layout, panelOf(item));
+        _layout = layout::closePanel(_layout, panelOf(item));
         [self saveSettings];
         return;
     }
-    _layout = layout::showInConsole(_layout, panelOf(item));
+    _layout = layout::reopenPanel(_layout, panelOf(item));
     [self saveSettings];
     if (!_active) return;
     if (_content[@(item)]) {  // already docked (behind nothing: it was out of the arrangement)
@@ -1491,6 +1765,8 @@ void openAuxWindow(int item) {
             mi.enabled = _active;  // the console as it is
         } else if ([mi.identifier isEqualToString:@"org.nextpad.adiflint.layouts.delete"]) {
             mi.enabled = !_mine.empty();
+        } else if (mi.action == @selector(resetLayout:)) {
+            mi.enabled = _adjusted.count(_presetId) > 0;  // the layout chosen, changed since
         }
     }
 }
@@ -1526,6 +1802,7 @@ void openAuxWindow(int item) {
 
 - (void)deleteChosen:(NSMenuItem *)sender {
     std::string name = [sender.representedObject UTF8String] ?: "";
+    if (const layout::Named *n = layout::findNamed(_mine, name)) [self forgetAdjusted:"mine:" + n->name];
     _mine = layout::removeNamed(_mine, name);
     adifhost::setSetting("consoleLayouts", layout::writeNamed(_mine));
     if (layout::sameName(_presetId, "mine:" + name)) _presetId.clear();  // none ticked: the console stays as it is
@@ -1554,7 +1831,7 @@ void openAuxWindow(int item) {
     NSTextField *help = [NSTextField wrappingLabelWithString:T(@"A layout of your own: the console's panels, tabs and frame sizes as they are "
                                                                @"now, and the Map's panes. Console Layout Options lists it with the others.")];
     help.font = theme::small();
-    help.textColor = NSColor.secondaryLabelColor;
+    help.textColor = theme::faint();
     NSTextField *name = ADIFTextField(@"Name, e.g. Evening on 40m", 300);
     name.identifier = @"layouts.name";
     if (_presetId.rfind("mine:", 0) == 0) name.stringValue = ADIFString(_presetId.substr(5));  // yours, to save again
@@ -1652,6 +1929,9 @@ void openAuxWindow(int item) {
 - (void)forgetStyleLayout:(const std::string &)style {
     adifhost::setSetting(styleLayoutKey(style), "");
     _styleLayouts.erase(style);
+    [self loadSettings];
+    [self forgetAdjusted:style];  // its built-in layout as it comes, too
+    [self forgetAdjusted:"style:" + style];
 }
 
 - (BOOL)styleLayoutDiffers:(const std::string &)style {
@@ -1706,12 +1986,16 @@ void openAuxWindow(int item) {
     remove.submenu = [[NSMenu alloc] initWithTitle:T(@"Delete Layout")];
     _optionsMenu.autoenablesItems = NO;  // Save Layout As... and Delete Layout as menuNeedsUpdate sets them
     [_optionsMenu addItem:NSMenuItem.separatorItem];
-    for (int item : {kDockNewQso, kDockLog, kDockSpots, kDockContactMap, kDockQsoInfo, kDockMap, kDockMapStyle}) {
+    for (int item : {kDockNewQso, kDockLog, kDockSpots, kDockContactMap, kDockQsoInfo, kDockMap, kDockMapStyle, kDockAids, kDockClocks, kDockSpotSources, kDockStation}) {
         NSMenuItem *mi = [_optionsMenu addItemWithTitle:itemName(item) action:@selector(frameToggled:) keyEquivalent:@""];
         mi.target = self;
         mi.tag = item;
     }
     [_optionsMenu addItem:NSMenuItem.separatorItem];
+    NSMenuItem *resetLayout = [_optionsMenu addItemWithTitle:T(@"Reset Layout") action:@selector(resetLayout:) keyEquivalent:@""];
+    resetLayout.target = self;
+    resetLayout.identifier = @"org.nextpad.adiflint.layouts.reset";
+    resetLayout.toolTip = T(@"The layout chosen as it comes: your changes to it (its panels, tabs, splits and frame sizes) forgotten");
     NSMenuItem *reset = [_optionsMenu addItemWithTitle:T(@"Reset Frame Sizes") action:@selector(resetSizes:) keyEquivalent:@""];
     reset.target = self;
     _optionsMenuItem = [[NSMenuItem alloc] initWithTitle:T(@"Console Layout Options") action:nil keyEquivalent:@""];
@@ -1733,6 +2017,8 @@ void openAuxWindow(int item) {
             mi.title = itemName((int)mi.tag);
         else if (mi.action == @selector(resetSizes:))
             mi.title = T(@"Reset Frame Sizes");
+        else if (mi.action == @selector(resetLayout:))
+            mi.title = T(@"Reset Layout");
         else if (mi.action == @selector(saveLayoutAs:))
             mi.title = T(@"Save Layout As...");
         else if ([mi.identifier isEqualToString:@"org.nextpad.adiflint.layouts.delete"])
@@ -1777,6 +2063,10 @@ static double weightOf(NSView *v, bool width) {
     f.onTab = ^(int at, int item) { [me tab:at item:item]; };
     f.onAddTab = ^(int at, int item) { [me addTab:item to:at]; };
     f.onSplit = ^(int at) { [me splitOut:at]; };
+    f.onSplitBeside = ^(int at, int item, int side) { [me split:at with:item side:side]; };
+    f.onAlign = ^(int at, int kind) { [me align:at kind:kind]; };
+    f.onMoveFrame = ^(int at, int side) { [me moveFrame:at toEdge:side]; };
+    f.onMoveBeside = ^(int from, int to, int side) { [me moveFrame:from beside:to side:side]; };
     return f;
 }
 
@@ -1818,6 +2108,38 @@ static double weightOf(NSView *v, bool width) {
     }
     [s layoutSubtreeIfNeeded];
     for (NSView *k in s.subviews) [self defaultSizes:k];
+}
+
+// Each split's frames at least their least sizes: those short of it grown, the room taken from the
+// others in proportion to what they have above theirs. Not saved as shares: the layout keeps its own.
+- (void)fitFrames:(NSView *)v {
+    if (![v isKindOfClass:NSSplitView.class]) return;
+    NSSplitView *s = (NSSplitView *)v;
+    bool width = s.isVertical;
+    NSUInteger n = s.subviews.count;
+    std::vector<CGFloat> size(n), least(n);
+    CGFloat lacking = 0, spare = 0;
+    for (NSUInteger i = 0; i < n; ++i) {
+        NSSize m = minimumOf(s.subviews[i]);
+        size[i] = width ? NSWidth(s.subviews[i].frame) : NSHeight(s.subviews[i].frame);
+        least[i] = width ? m.width : m.height;
+        if (size[i] < least[i]) lacking += least[i] - size[i];
+        else spare += size[i] - least[i];
+    }
+    if (lacking > 0.5 && spare > 0) {
+        CGFloat take = std::min(lacking, spare), at = 0;
+        for (NSUInteger i = 0; i < n; ++i) size[i] = size[i] < least[i] ? least[i] : size[i] - (size[i] - least[i]) / spare * take;
+        BOOL was = _sizing;
+        _sizing = YES;
+        for (NSUInteger i = 0; i + 1 < n; ++i) {
+            at += size[i];
+            [s setPosition:std::round(at) ofDividerAtIndex:(NSInteger)i];
+            at += s.dividerThickness;
+        }
+        [s layoutSubtreeIfNeeded];
+        _sizing = was;
+    }
+    for (NSView *k in s.subviews) [self fitFrames:k];
 }
 
 - (void)rebuild {
@@ -1867,9 +2189,21 @@ static double weightOf(NSView *v, bool width) {
         int front = itemOf(stacks[i]->panels[std::min(stacks[i]->front, stacks[i]->panels.size() - 1)]);
         NSWindow<ADIFDockable> *w = [self windowOf:front];
         [_frames[i] showItems:items front:front title:w ? w.title : @"" content:_content[@(front)]];
+        layout::Node::Kind in = layout::splitOf(shown, stacks[i]->panels.front());
+        _frames[i].split = in == layout::Node::Kind::Row ? 1 : in == layout::Node::Kind::Column ? 2 : 0;
     }
     NSSize m = _root ? minimumOf(_root) : NSZeroSize;
     _host.contentMinSize = NSMakeSize(std::max<CGFloat>(m.width, 480), m.height + kStatusHeight + kADIFMargin);
+    // A panel in a frame smaller than it needs (chosen there, swapped or split in): the window at
+    // least the frames' least size, then each frame at least its own, the room taken from the others.
+    if (_root) {
+        NSSize now = _host.contentView.frame.size;
+        if (now.width < _host.contentMinSize.width || now.height < _host.contentMinSize.height)
+            [_host setContentSize:NSMakeSize(std::max(now.width, _host.contentMinSize.width), std::max(now.height, _host.contentMinSize.height))];
+        [_host.contentView layoutSubtreeIfNeeded];
+        [self fitFrames:_root];
+        [_host.contentView layoutSubtreeIfNeeded];  // the panels in the frames moved, laid out too
+    }
     // Keep the standalone Map's list in its normal state; the static contact map has no log list.
     worldmap::setListSuppressed(listBeside);
     _rebuilding = NO;
@@ -1963,6 +2297,11 @@ void setStatus(const std::string &text) {
 
 void setQsoFields(const std::vector<std::pair<std::string, std::string>> &fields) {
     gQsoFields = fields;
+    [gContactMapWindow.contentView setNeedsDisplay:YES];
+}
+
+void setLookupGrid(const std::string &call, const std::string &grid) {
+    gLookupGridCall = call, gLookupGrid = grid;
     [gContactMapWindow.contentView setNeedsDisplay:YES];
 }
 

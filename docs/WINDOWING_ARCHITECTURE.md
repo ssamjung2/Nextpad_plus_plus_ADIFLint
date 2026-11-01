@@ -302,14 +302,50 @@ alone doesn't express); panes inside a panel may use `NSSplitViewItem` where it 
   (`orderWindow:relativeTo:` in `ADIF_DOCKABLE_WINDOW`), with no call of its own; docked, it takes
   the console's look (`theme::rehost` on dock and undock). That fixed a double Night Mode tint
   on every docked panel. Popovers are hosted through `theme::hostPopover` (two were missed
-  before). Not yet: the semantic colours at the older call sites, which keep the system colours
-  they name.
+  before). The older call sites followed (2026-11-01): statuses use `fine`, `warning`, `error`
+  and `severity`; secondary text `faint` and `fainter` (160 places); a reason's mark and colour
+  `interestSymbol` and `markColour`, so the Map and QSO Details agree. Colours that name a kind
+  of thing rather than a state (the map's markers, its badges, the Contact Map's drawing) keep
+  their own.
+- **After Phase F** (2026-11-01): **Settings sections as panels**: Spot Sources (`spotsources`,
+  Settings' Spots) and Your Station (`station`), normal windows that dock. Opened, the
+  section's controls move into the panel (`ADIFSettingsPanel takeSection:`), and Settings says
+  where they are; closed, `returnSection:` puts them back. Another section is one entry in
+  `gSectionPanels` and the registry.
+- **After Phase F** (2026-11-01): **Operating Aids** is also a panel (registry id `aids`, dock
+  item `kDockAids`; section 8): the strip is one view class, `ADIFAidsView`, that New QSO and the
+  panel both use, and ADIFLint.mm fills whichever shows.
+- **After Phase F** (2026-11-01): the Log Table and Activations & Spots are normal windows
+  (`ADIFToolWindow initWithTitle:size:headline:normal:`), as section 1's rule for typing-heavy
+  panels has it; the task windows stay floating panels.
 - **Phase F** (2026-11-01): Settings is a window of its own (`settings.window`, "ADIF Lint
   Settings"), no longer a card in the Map; Settings... no longer opens the Map. **Map Style** (the
   Style Options card) is an operating panel: registry id `mapstyle`, dock item `kDockMapStyle`,
   an `ADIFDockPanel` made with the Map, opened by the Map's palette button and the Panels menu,
   dockable as a tab beside the Map. Not yet: Settings' sections as panels of their own, and
   Operating Aids as a panel (section 8), for when they are wanted.
+- **Phase G** (2026-11-01): **layouts you adjust, and regions**. A panel closed from the console
+  keeps its place in the arrangement (`Arrangement::closed`, a `layout::Place`: a tab beside a
+  panel, or a frame beside the part of the console holding its neighbours, with its share;
+  written with the arrangement), and `reopenPanel` puts it back there; `dock:` docks a closed
+  panel there rather than leaving it a window. Each layout keeps your changes
+  (`consoleLayoutsAdjusted`, `readAdjusted`/`writeAdjusted`, by the console's id for it:
+  `logging`, `mine:<name>`, `style:<style>`), recorded with every save and forgotten when the
+  console is as the layout comes; choosing a layout, Start Logging and the styles use your
+  version, and **Reset Layout** forgets it (a style's Use Recommended Defaults forgets its
+  layouts' too). Regions: `splitBeside` (Split Right, Split Down: a region in two),
+  `moveFrame` (beside another frame's edge, or along the console's), `alignSplit` (Side by
+  Side, One Above the Other) and `splitOf`; a frame dropped near another's edge (its outer
+  quarter) goes beside it there. Frames are fitted to their panels' least sizes after every
+  rebuild (`fitFrames`: those short of it grown from the others' room, the window grown first
+  if it must), not only when the tree's shape changes, so a panel chosen into a small frame
+  gets the room it needs; the fitted sizes aren't saved as shares.
+- **After Phase G** (2026-11-01): New QSO keeps to logging. Its clocks are the **Clocks** panel
+  (`src/plugin/Clocks.{h,mm}`, registry id `clocks`, dock item `kDockClocks`; the zones chosen
+  kept as `clockZones`), Operating Aids are only ever their panel (the Social, Chasing and
+  Portable layouts hold it under New QSO; In Its Own Panel is gone), and the lookup's facts are
+  QSO Details' (New QSO links to it). The Aids and Clocks panels have buttons in the Map's
+  toolbar (`mapToolbar` in the registry).
 
 ## Plan
 

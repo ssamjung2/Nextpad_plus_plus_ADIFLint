@@ -1091,7 +1091,7 @@ void bulkZoneInfo() {
     NSTimeZone *z = zoneNamed(bulk.zone.stringValue);
     if (!z) {
         bulk.zoneInfo.stringValue = T(@"Unknown zone: type a name like America/Chicago");
-        bulk.zoneInfo.textColor = NSColor.systemRedColor;
+        bulk.zoneInfo.textColor = theme::error();
         return;
     }
     NSInteger off = z.secondsFromGMT;
@@ -1099,7 +1099,7 @@ void bulkZoneInfo() {
     bulk.zoneInfo.stringValue = [NSString stringWithFormat:T(@"UTC%c%ld:%02ld now%@; each QSO uses the offset on its own date"),
                                                            off < 0 ? '-' : '+', (long)labs(off) / 3600, (long)labs(off) % 3600 / 60,
                                                            abbr.length ? [NSString stringWithFormat:@" (%@)", abbr] : @""];
-    bulk.zoneInfo.textColor = NSColor.secondaryLabelColor;
+    bulk.zoneInfo.textColor = theme::faint();
     bulk.zoneInfo.toolTip = bulk.zoneInfo.stringValue;  // in full, when a long language cuts it short
 }
 
@@ -2724,9 +2724,9 @@ namespace logtools {
 
 void cmdPotaSpots() {
     if (!spots.w) {
-        ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"Spots" size:NSMakeSize(1060, 520) headline:NO];
+        ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"Spots" size:NSMakeSize(1060, 520) headline:NO normal:YES];  // its filters are typed in
         spots.w = w;
-        ((ADIFDockPanel *)w.window).dockItem = kDockSpots;
+        ((NSWindow<ADIFDockable> *)w.window).dockItem = kDockSpots;
         w.window.title = T(@"Activations & Spots");
         [[NSNotificationCenter defaultCenter] addObserverForName:NSWindowWillCloseNotification  // closed (or its frame): the Map's button follows
                                                           object:w.window
@@ -2816,9 +2816,9 @@ void showRecordInTable(size_t start) {
 
 void cmdLogTable() {
     if (!table.w) {
-        ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"Log Table" size:NSMakeSize(980, 560) headline:NO];
+        ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"Log Table" size:NSMakeSize(980, 560) headline:NO normal:YES];  // its cells are edited
         table.w = w;
-        ((ADIFDockPanel *)w.window).dockItem = kDockLog;
+        ((NSWindow<ADIFDockable> *)w.window).dockItem = kDockLog;
         [[NSNotificationCenter defaultCenter] addObserverForName:NSWindowWillCloseNotification  // closed (or its frame): the Map's button follows
                                                           object:w.window
                                                            queue:nil
@@ -2828,7 +2828,7 @@ void cmdLogTable() {
         table.search.sendsSearchStringImmediately = YES;
         [table.search.widthAnchor constraintEqualToConstant:260].active = YES;
         table.count = ADIFLabel(@"");
-        table.count.textColor = NSColor.secondaryLabelColor;
+        table.count.textColor = theme::faint();
         [w addOptionRow:@[ table.search, table.count ]];
         ADIFOnAction(table.search, ^{
             [table.w setFilter:table.search.stringValue];

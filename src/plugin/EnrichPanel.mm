@@ -7,7 +7,7 @@
 #import "Lookup.h"
 
 // Problems in their colour; plain text dimmed.
-static NSColor *severityColor(int severity) { return severity < 0 ? NSColor.secondaryLabelColor : ADIFSeverityColor(severity); }
+static NSColor *severityColor(int severity) { return severity < 0 ? theme::faint() : ADIFSeverityColor(severity); }
 
 // The fields the window offers, and which sources provide them: bit (1 << ADIFSource).
 const unsigned kQrz = 1u << ADIFSourceQRZ, kHamQth = 1u << ADIFSourceHamQTH, kCountryData = 1u << ADIFSourceCountryData;
@@ -64,7 +64,7 @@ static const std::vector<FieldOption> &fieldOptions() {
     NSView *root = _window.contentView;
 
     _target = [NSTextField labelWithString:@""];
-    _target.textColor = NSColor.secondaryLabelColor;
+    _target.textColor = theme::faint();
     _target.lineBreakMode = NSLineBreakByTruncatingMiddle;
 
     _account = [NSTextField labelWithString:@""];
@@ -159,7 +159,7 @@ static const std::vector<FieldOption> &fieldOptions() {
     _all = [NSButton buttonWithTitle:T(@"Tick All") target:self action:@selector(tickAll:)];
     _none = [NSButton buttonWithTitle:T(@"Untick All") target:self action:@selector(tickNone:)];
     _credit = [NSTextField labelWithString:@""];
-    _credit.textColor = NSColor.secondaryLabelColor;
+    _credit.textColor = theme::faint();
     _close = [NSButton buttonWithTitle:T(@"Close") target:self action:@selector(closePressed:)];
     _close.keyEquivalent = @"\033";
     _apply = [NSButton buttonWithTitle:T(@"Apply Changes") target:self action:@selector(apply:)];
@@ -329,7 +329,7 @@ static const std::vector<FieldOption> &fieldOptions() {
     else if ([ident isEqualToString:@"field"]) f.stringValue = ADIFString(r.field);
     else if ([ident isEqualToString:@"current"]) {
         f.stringValue = r.current.empty() ? T(@"(none)") : ADIFString(r.current);
-        f.textColor = r.current.empty() ? NSColor.tertiaryLabelColor : NSColor.systemOrangeColor;
+        f.textColor = r.current.empty() ? theme::fainter() : theme::warning();  // filled in, or changed
     } else {
         f.stringValue = ADIFString(r.value);
     }

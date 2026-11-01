@@ -1,6 +1,7 @@
 // The panels: see Panels.h.
 #import "Panels.h"
 
+#import "Clocks.h"
 #import "L10n.h"
 #import "LogTools.h"
 #import "Map.h"
@@ -43,6 +44,10 @@ const Calls *callsFor(const std::string &id) {
         {adif::layout::kContactMap, {workspace::contactMapShown, workspace::openContactMap, closeContactMap}},
         {adif::layout::kQsoDetails, {workspace::qsoDetailsShown, adifhost::openQsoDetails, closeQsoDetails}},
         {adif::layout::kMapStyle, {worldmap::mapStyleShown, worldmap::openMapStyle, worldmap::closeMapStyle}},
+        {adif::layout::kAids, {adifhost::aidsPanelShown, adifhost::openAidsPanel, adifhost::closeAidsPanel}},
+        {adif::layout::kSpotSources, {adifhost::spotSourcesShown, adifhost::openSpotSources, adifhost::closeSpotSources}},
+        {adif::layout::kStation, {adifhost::stationShown, adifhost::openStation, adifhost::closeStation}},
+        {adif::layout::kClocks, {clocks::shown, clocks::open, clocks::close}},
     };
     for (const auto &[pid, calls] : kCalls)
         if (id == pid) return &calls;
@@ -85,6 +90,13 @@ const std::vector<Spec> &all() {
          N(@"QSO Details: who New QSO's contact is, why it's worth having, and your QSOs with the call (on while it shows; click again to close it)"),
          @"map.qsodetails", true},
         {adif::layout::kMapStyle, N(@"Map Style"), @"paintpalette", nil, nil, false},  // the Map's own button opens it
+        {adif::layout::kAids, N(@"Operating Aids"), @"text.bubble",
+         N(@"Operating Aids: the operating style's facts and suggestions for the contact in New QSO (on while it shows; click again to close it)"),
+         @"map.aids", true},
+        {adif::layout::kClocks, N(@"Clocks"), @"clock",
+         N(@"Clocks: UTC, your local time and the time zones you choose (on while it shows; click again to close it)"), @"map.clocks", true},
+        {adif::layout::kSpotSources, N(@"Spot Sources"), @"dot.radiowaves.left.and.right", nil, nil, false},  // Settings' sections
+        {adif::layout::kStation, N(@"Your Station"), @"house", nil, nil, false},
     };
     return specs;
 }

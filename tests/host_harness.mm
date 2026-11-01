@@ -14,6 +14,7 @@
 #include "Scintilla.h"
 
 #import <Cocoa/Cocoa.h>
+#import <QuartzCore/QuartzCore.h>
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -380,9 +381,10 @@ static NSStackView *lookupRow(NSWindow *w) {
     }
     return nil;
 }
-// New QSO's lookup facts, "Name: fact" each, " | " between, then its message.
-static std::string lookupInfo(NSWindow *w) {
-    NSGridView *g = (NSGridView *)viewWithIdentifier(w.contentView, @"qso.facts");
+// A lookup's facts, "Name: fact" each, " | " between: QSO Details' (`qsodetails.facts`), or New QSO's
+// message (`qso.facts`).
+static std::string lookupInfo(NSWindow *w, NSString *grid = @"qso.facts") {
+    NSGridView *g = (NSGridView *)viewWithIdentifier(w.contentView, grid);
     if (!g) return "(no lookup facts)";
     std::string out;
     for (NSInteger r = 0; r < g.numberOfRows; ++r) {
@@ -392,6 +394,50 @@ static std::string lookupInfo(NSWindow *w) {
         out += (out.empty() ? "" : " | ") + (n.empty() ? v : n + ": " + v);
     }
     return out;
+}
+
+// A panel shown from the Panels menu ("clocks", "contactmap"...), as a person would; then its window.
+static NSWindow *showPanel(NSString *panel, NSString *title) {
+    for (NSWindow *w in NSApp.windows)  // shown already: the menu would hide it
+        if ([w.title isEqualToString:title] && w.visible) return w;
+    NSMenuItem *show = nil;
+    std::function<void(NSMenu *)> seek = [&](NSMenu *m) {
+        for (NSMenuItem *mi in m.itemArray) {
+            if ([mi.identifier isEqualToString:[@"org.nextpad.adiflint.panels." stringByAppendingString:panel]]) show = mi;
+            if (mi.submenu) seek(mi.submenu);
+        }
+    };
+    seek(NSApp.mainMenu);
+    if (show) [show.menu performActionForItemAtIndex:[show.menu indexOfItem:show]];
+    pump(0.3);
+    for (NSWindow *w in NSApp.windows)
+        if ([w.title isEqualToString:title] && w.visible) return w;
+    return nil;
+}
+
+// The lookup's facts, where they are now: QSO Details (opened from the Panels menu when it isn't;
+// it works them out while it is open).
+static std::string detailsFacts() {
+    auto details = []() -> NSWindow * {
+        for (NSWindow *w in NSApp.windows)
+            if ([w.title isEqualToString:@"QSO Details"] && w.visible) return w;
+        return nil;
+    };
+    NSWindow *dw = details();
+    if (!dw) {
+        NSMenuItem *show = nil;
+        std::function<void(NSMenu *)> seek = [&](NSMenu *m) {
+            for (NSMenuItem *mi in m.itemArray) {
+                if ([mi.identifier isEqualToString:@"org.nextpad.adiflint.panels.qsodetails"]) show = mi;
+                if (mi.submenu) seek(mi.submenu);
+            }
+        };
+        seek(NSApp.mainMenu);
+        if (show) [show.menu performActionForItemAtIndex:[show.menu indexOfItem:show]];
+        pump(0.3);
+        dw = details();
+    }
+    return dw ? lookupInfo(dw, @"qsodetails.facts") : std::string("(no QSO Details)");
 }
 
 static std::string utcDate() {
@@ -955,15 +1001,17 @@ int main(int argc, char **argv) {
             [panelsMenu performActionForItemAtIndex:[panelsMenu indexOfItem:panelItem(@"logtable")]];
             pump(0.3);
             NSWindow *table = windowTitled(@"Log Table");
+            bool tableNormal = table && ![table isKindOfClass:NSPanel.class] && (table.styleMask & NSWindowStyleMaskMiniaturizable);
             NSString *openTitle = panelItem(@"logtable").title;
             [panelsMenu performActionForItemAtIndex:[panelsMenu indexOfItem:panelItem(@"logtable")]];
             pump(0.3);
-            CHECK(panelsAt > menuIndexWithIdentifier(operating) && panelsAt < menuIndexWithIdentifier(map) && panelsMenu.numberOfItems == 7 &&
+            CHECK(panelsAt > menuIndexWithIdentifier(operating) && panelsAt < menuIndexWithIdentifier(map) && panelsMenu.numberOfItems == 11 &&
                       [closedTitle isEqualToString:@"Show Log Table"] && table.visible == NO && [openTitle isEqualToString:@"Hide Log Table"] &&
                       [panelItem(@"logtable").title isEqualToString:@"Show Log Table"] &&
                       [panelItem(@"map").title isEqualToString:windowIdentified(@"map.window").visible ? @"Hide Map" : @"Show Map"],  // the welcome's Settings is the Map's
-                  "the Panels menu in Logging & Operating: seven panels, Show or Hide as each is (%s, then %s), the Log Table opened and closed",
+                  "the Panels menu in Logging & Operating: eleven panels, Show or Hide as each is (%s, then %s), the Log Table opened and closed",
                   closedTitle.UTF8String, openTitle.UTF8String);
+            CHECK(tableNormal, "the Log Table: a normal window (its cells are typed in), which minimizes to the Dock");
             {  // Map Style: a panel, from the Panels menu; Settings: a window of its own (the welcome's). Both were cards in the Map.
                 bool mapWas = windowIdentified(@"map.window").visible;
                 [panelsMenu performActionForItemAtIndex:[panelsMenu indexOfItem:panelItem(@"mapstyle")]];
@@ -979,6 +1027,19 @@ int main(int argc, char **argv) {
                       "Map Style: a panel, shown and hidden from the Panels menu; Settings: a window of its own; no card of either in the Map");
                 if (!mapWas) [mapW performClose:nil];  // as it was
                 pump(0.2);
+            }
+            {  // Spot Sources: Settings' Spots section in a panel of its own, its place in Settings saying so; back when it closes
+                [panelsMenu performActionForItemAtIndex:[panelsMenu indexOfItem:panelItem(@"spotsources")]];
+                pump(0.3);
+                NSWindow *sourcesW = windowIdentified(@"settings.panel.spotsources"), *setW = windowIdentified(@"settings.window");
+                bool out = sourcesW.visible && viewWithIdentifier(sourcesW.contentView, @"settings.spots.spothole") &&
+                           !viewWithIdentifier(setW.contentView, @"settings.spots.spothole") && viewWithIdentifier(setW.contentView, @"settings.spots.away") &&
+                           [panelItem(@"spotsources").title isEqualToString:@"Hide Spot Sources"] && ![sourcesW isKindOfClass:NSPanel.class];
+                [sourcesW performClose:nil];
+                pump(0.3);
+                CHECK(out && !sourcesW.visible && viewWithIdentifier(setW.contentView, @"settings.spots.spothole") &&
+                          !viewWithIdentifier(setW.contentView, @"settings.spots.away") && viewWithIdentifier(setW.contentView, @"settings.spots.openPanel"),
+                      "Spot Sources: Settings' Spots section in a window of its own, Settings saying where; closed, back in Settings");
             }
         }
         NSMenuItem *preferencesMenu = menuIndexWithIdentifier(@"org.nextpad.adiflint.section.preferences") >= 0
@@ -2171,9 +2232,10 @@ int main(int argc, char **argv) {
                 callField.stringValue = @"K1AE";
                 [[NSNotificationCenter defaultCenter] postNotificationName:NSControlTextDidChangeNotification object:callField];
                 pump(0.4);
-                CHECK(lookupInfo(qw2).find("Worked before: ") != std::string::npos && lookupInfo(qw2).find("1 QSO in 1 other log") != std::string::npos &&
+                std::string facts = detailsFacts();
+                CHECK(facts.find("Worked before: ") != std::string::npos && facts.find("1 QSO in 1 other log") != std::string::npos &&
                           ![summaryLabel(qw2.contentView).stringValue containsString:@"other log"],
-                      "New QSO shows worked before among its facts, not in its summary: %s", lookupInfo(qw2).c_str());
+                      "worked before among the lookup's facts (QSO Details), not in New QSO's summary: %s", facts.c_str());
                 [qw2 orderOut:nil];
             }
             for (NSWindow *w in @[ tw ?: NSNull.null, sw2 ?: NSNull.null, aw ?: NSNull.null, dw ?: NSNull.null ])
@@ -2248,7 +2310,7 @@ int main(int argc, char **argv) {
                       "spot copied to New QSO, with SIG and SIG_INFO rows added");
                 if (qw4) {
                     pump(0.8);  // the lookup line (country, the park's history) fills in after a pause
-                    std::string spotInfo = lookupInfo(qw4);
+                    std::string spotInfo = detailsFacts();
                     CHECK(spotInfo.find("Country: UNITED STATES OF AMERICA") == 0 && spotInfo.find("Reference: US-12593: a new park!") != std::string::npos,
                           "a spot runs the lookup: %s", spotInfo.c_str());
                     snapshot(qw4, "new-qso-spot");
@@ -2324,7 +2386,7 @@ int main(int argc, char **argv) {
                               [qsoControl(qw5, @"SIG_INFO").stringValue isEqualToString:@"KFF-5255"],
                           "WWFF spot copied to New QSO");
                     pump(0.8);
-                    std::string info = qw5 ? lookupInfo(qw5) : "";
+                    std::string info = qw5 ? detailsFacts() : "";
                     CHECK(info.find("KFF-5255: a new reference!") != std::string::npos, "the reference's history: %s", info.c_str());
                     if (qw5) {
                         qsoControl(qw5, @"CALL").stringValue = @"";
@@ -3016,24 +3078,59 @@ int main(int argc, char **argv) {
                 qsoControl(qw, @"GRIDSQUARE").stringValue = @"JO62";
                 qsoControl(qw, @"CALL").stringValue = @"DL2XYZ";
                 [[NSNotificationCenter defaultCenter] postNotificationName:NSControlTextDidChangeNotification object:qsoControl(qw, @"CALL")];
-                for (int i = 0; i < 40 && lookupInfo(qw).find("km") == std::string::npos; ++i) pump(0.05);
-                std::string info = lookupInfo(qw);
-                CHECK(info.find("Country: FEDERAL REPUBLIC OF GERMANY \u00B7 EU \u00B7 CQ 14 \u00B7 ITU 28 \u00B7 DXCC 230") != std::string::npos &&
+                // The lookup's facts are QSO Details': New QSO links to it while it is closed (closed here: earlier checks opened it).
+                for (NSWindow *w in [NSApp.windows copy])
+                    if ([w.title isEqualToString:@"QSO Details"] && w.visible) [w performClose:nil];
+                pump(0.2);
+                NSButton *detailsLink = (NSButton *)viewWithIdentifier(qw.contentView, @"qso.lookup.details");
+                for (int i = 0; i < 40 && detailsLink.hidden; ++i) pump(0.05);
+                bool linked = detailsLink && !detailsLink.hidden;
+                [detailsLink performClick:nil];
+                pump(0.3);
+                NSWindow *dw = windowTitled(@"QSO Details");
+                for (int i = 0; i < 40 && lookupInfo(dw, @"qsodetails.facts").find("km") == std::string::npos; ++i) pump(0.05);
+                std::string info = lookupInfo(dw, @"qsodetails.facts");
+                CHECK(linked && dw.visible && detailsLink.hidden && lookupInfo(qw).find("Country") == std::string::npos &&
+                          info.find("Country: FEDERAL REPUBLIC OF GERMANY \u00B7 EU \u00B7 CQ 14 \u00B7 ITU 28 \u00B7 DXCC 230") != std::string::npos &&
                           info.find("Distance: ") != std::string::npos && info.find(" km at ") != std::string::npos &&
                           info.find("(long path ") != std::string::npos && info.find("Local time: ") != std::string::npos && info.find("(UTC+1)") != std::string::npos,
-                      "the lookup's facts: %s", info.c_str());
+                      "the lookup's facts in QSO Details, not New QSO (Show in QSO Details %d, then hidden): %s", linked, info.c_str());
+                if (dw) {
+                    [dw setContentSize:NSMakeSize(420, 420)];
+                    snapshot(dw, "qso-details");
+                }
+                [dw performClose:nil];
+                pump(0.2);
+                {  // The Contact Map: the contact at its grid, the way from your station (Your Station's grid) in its caption; Spot Info
+                   // (its card when the station is spotted) on at first, a click turns it off
+                    NSMenuItem *show = nil;
+                    std::function<void(NSMenu *)> seekPanel = [&](NSMenu *m) {
+                        for (NSMenuItem *mi in m.itemArray) {
+                            if ([mi.identifier isEqualToString:@"org.nextpad.adiflint.panels.contactmap"]) show = mi;
+                            if (mi.submenu) seekPanel(mi.submenu);
+                        }
+                    };
+                    seekPanel(NSApp.mainMenu);
+                    if (show) [show.menu performActionForItemAtIndex:[show.menu indexOfItem:show]];
+                    pump(0.3);
+                    NSWindow *cm = windowTitled(@"Contact Map");
+                    [cm setContentSize:NSMakeSize(520, 340)];
+                    [cm.contentView display];  // drawn: its caption is its tooltip
+                    snapshot(cm, "contact-map");
+                    NSString *caption = cm.contentView.toolTip ?: @"";
+                    NSButton *spotInfo = cm ? (NSButton *)viewWithIdentifier(cm.contentView, @"contactmap.spotinfo") : nil;
+                    bool infoOn = spotInfo.state == NSControlStateValueOn;
+                    [spotInfo performClick:nil];
+                    bool infoOff = spotInfo.state == NSControlStateValueOff;
+                    [spotInfo performClick:nil];
+                    CHECK(cm.visible && [caption hasPrefix:@"DL2XYZ  \u00B7  JO62  \u00B7  "] && [caption containsString:@" at "] && infoOn && infoOff,
+                          "the Contact Map: %s; Spot Info on, then off (%d %d)", caption.UTF8String, infoOn, infoOff);
+                    [cm performClose:nil];
+                    pump(0.2);
+                }
                 CHECK([qsoControl(qw, @"DXCC").stringValue isEqualToString:@"230"] && [qsoControl(qw, @"CONT").stringValue isEqualToString:@"EU"],
                       "empty fields filled from the prefix");
                 [qw.contentView layoutSubtreeIfNeeded];
-                {  // each fact inside the window, whole in its tooltip
-                    bool inside = true, tips = true;
-                    int n = 0;
-                    for (NSTextField *f; (f = (NSTextField *)viewWithIdentifier(qw.contentView, [NSString stringWithFormat:@"qso.fact.%d", n])); ++n) {
-                        inside &= NSMaxX([f convertRect:f.bounds toView:nil]) <= NSWidth(qw.contentView.bounds) - 11;
-                        tips &= [f.toolTip hasPrefix:f.stringValue];
-                    }
-                    CHECK(n >= 4 && inside && tips, "the lookup's %d facts inside the window, each whole in its tooltip", n);
-                }
                 [qw.contentView layoutSubtreeIfNeeded];
                 CHECK(overlaps(qw.contentView) == 0, "New QSO with the lookup row does not overlap (%d)", overlaps(qw.contentView));
                 snapshot(qw, "new-qso-lookup");
@@ -4161,8 +4258,8 @@ int main(int argc, char **argv) {
                 qsoControl(qwl, @"CALL").stringValue = call;
                 [[NSNotificationCenter defaultCenter] postNotificationName:NSControlTextDidChangeNotification object:qsoControl(qwl, @"CALL")];
                 pump(0.9);  // the lookup runs 0.6 s after typing; under load, a little later
-                for (int k = 0; k < 20 && lookupInfo(qwl) == previous; ++k) pump(0.1);
-                return previous = lookupInfo(qwl);
+                for (int k = 0; k < 20 && detailsFacts() == previous; ++k) pump(0.1);
+                return previous = detailsFacts();
             };
             std::string recent = lookupLine(@"K1AB"), old = lookupLine(@"K1PRK"), none = lookupLine(@"W9ZZZ");
             CHECK(recent.find("QSL: LoTW user (last upload 2026-09-30)") != std::string::npos &&
@@ -6486,6 +6583,32 @@ int main(int argc, char **argv) {
                 NSButton *useSpot = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.spots.use");
                 CHECK([described containsString:@"by K1TTT (DX cluster); not in this log."] && !useSpot.hidden,
                       "a spot clicked: %s", described.UTF8String);
+                {  // Its information in the order you work it: what to tune, why, then the details, the source last but Heard by
+                    // (the rows a spot has: DL1ABC's country isn't in the test country file, nor its mode in the spot)
+                    std::string info = ((NSString *)[mapView performSelector:@selector(infoText)]).UTF8String;
+                    size_t last = 0, found = 0;
+                    bool inOrder = true;
+                    for (const char *label : {"Frequency: ", "Mode: ", "Band: ", "For this log: ", "Reference: ", "Name: ", "Spotted: ", "Comment: ", "Signal report: ",
+                                              "Distance: ", "In this log: ", "Grid: ", "Country: ", "Position: ", "Source: ", "Heard by: "})
+                        if (size_t at = info.find(std::string("\n") + label); at != std::string::npos) inOrder &= at > last, last = at, ++found;
+                    CHECK(inOrder && found >= 8 && info.find("\nFrequency: ") < info.find("\nSpotted: ") && info.find("\nDistance: ") < info.find("\nSource: "),
+                          "the spot's information in operating order: %s", [@(info.c_str()) stringByReplacingOccurrencesOfString:@"\n" withString:@" | "].UTF8String);
+                }
+                {  // Under the pointer, its rings turn: long dashes, the two one way and the other; away from it, gone
+                    [mapView mouseMoved:mouse(NSEventTypeMouseMoved, berlin, 0)];
+                    pump(0.1);
+                    NSView *ringsView = viewWithIdentifier(mapView, @"map.hoverRings");
+                    NSArray<CALayer *> *rings = ringsView.layer.sublayers;
+                    bool shown = rings.count == 2 && !rings[0].hidden && !rings[1].hidden;
+                    CABasicAnimation *one = (CABasicAnimation *)[rings.firstObject animationForKey:@"turn"], *two = (CABasicAnimation *)[rings.lastObject animationForKey:@"turn"];
+                    bool reduced = NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
+                    bool opposite = reduced || (one && two && [one.toValue doubleValue] * [two.toValue doubleValue] < 0);
+                    bool dashed = rings.count == 2 && [((CAShapeLayer *)rings[0]).lineDashPattern isEqualToArray:@[ @7, @4 ]];
+                    [mapView mouseExited:mouse(NSEventTypeMouseMoved, berlin, 0)];
+                    pump(0.1);
+                    CHECK(ringsView && shown && opposite && dashed && rings[0].hidden && rings[1].hidden,
+                          "a spot under the pointer: its two rings in long dashes, turning opposite ways (%d %d %d); away, gone", shown, opposite, dashed);
+                }
                 if (mapw) snapshot(mapw, "map-spots");
                 // The list beside the map, of spots: each station spotted in view, with its frequency, mode and age;
                 // a row chooses the spot as a click on it does.
@@ -6536,6 +6659,14 @@ int main(int argc, char **argv) {
                     pick(colour, @"Colour by confirmation");
                     [kind sendAction:kind.action to:kind.target];
                     NSColor *smNeed = markColour(sm), *dlNeed = markColour(dl);
+                    {  // POTA activators' spots by their park: the legend has a park not hunted and one hunted (VoiceOver's actions name them)
+                        [mapView display];
+                        NSMutableArray *names = [NSMutableArray array];
+                        for (NSAccessibilityCustomAction *a in mapView.accessibilityCustomActions) [names addObject:a.name];
+                        NSString *all = [names componentsJoinedByString:@" | "];
+                        CHECK([all containsString:@"POTA activators: a park you haven't hunted"] && [all containsString:@"POTA activators: a park you've hunted"],
+                              "the legend: POTA activators by their park (%s)", all.UTF8String);
+                    }
                     pick(colour, @"Colour by band");
                     [kind sendAction:kind.action to:kind.target];
                     NSColor *smBand = markColour(sm);
@@ -6658,7 +6789,7 @@ int main(int argc, char **argv) {
                 CHECK([skimmed containsString:@"by W3LPL-# (Spothole)"] && [skimmed containsString:@"Signal report +20 dB."], "a skimmer's spot: %s",
                       skimmed.UTF8String);
                 box = infoText();
-                CHECK(box.find("JA1XYZ\nFrequency: 14025 kHz\nBand: 20m\nMode: CW\nSpotted: ") == 0 &&
+                CHECK(box.find("JA1XYZ\nFrequency: 14025 kHz\nMode: CW\nBand: 20m\nSpotted: ") == 0 &&
                           box.find("Source: Spothole (RBN)") != std::string::npos && box.find("Location:") == std::string::npos &&
                           box.find("Signal report: +20 dB") != std::string::npos && box.find("Position: 35.60\u00B0 N, 139.70\u00B0 E (from the spot)") != std::string::npos &&
                           box.find("Distance: ") != std::string::npos && box.find("In this log: not in this log") != std::string::npos &&
@@ -6769,12 +6900,14 @@ int main(int argc, char **argv) {
                 for (NSWindow *w in NSApp.windows)
                     if ([w.identifier isEqualToString:@"map.style"]) [w orderOut:nil];
 
-                // Only spots of one station: DL1ABC (the cluster's spot), with K1TTT, which heard it.
-                NSButton *onlyBox = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.spots.only");
-                NSTextField *onlyCall = (NSTextField *)viewWithIdentifier(mapw.contentView, @"map.spots.onlyCall");
-                CHECK(onlyBox && onlyCall && [onlyBox isDescendantOf:viewWithIdentifier(mapw.contentView, @"map.group.spots")] &&
-                          onlyBox.state == NSControlStateValueOff,
-                      "Only spots of, in the Spots group, off at first");
+                // More Filters' Spots. Who hears one station: DL1ABC (the cluster's spot), with K1TTT, which heard it.
+                [(NSButton *)viewWithIdentifier(mapw.contentView, @"map.filter.more") performClick:nil];
+                pump(0.2);
+                NSButton *onlyBox = (NSButton *)popoverView(@"map.spots.only");
+                NSTextField *onlyCall = (NSTextField *)popoverView(@"map.spots.onlyCall");
+                CHECK(onlyBox && onlyCall && [onlyBox isDescendantOf:popoverView(@"map.filters")] && !viewWithIdentifier(mapw.contentView, @"map.spots.only") &&
+                          onlyBox.state == NSControlStateValueOff && [onlyBox.title isEqualToString:@"Show who hears"],
+                      "Who hears, in More Filters' Spots (no longer in the sidebar), off at first");
                 onlyCall.stringValue = @"dl1abc";
                 [onlyCall sendAction:onlyCall.action to:onlyCall.target];
                 [(NSButton *)viewWithIdentifier(mapw.contentView, @"map.spots.open") performClick:nil];
@@ -6782,10 +6915,43 @@ int main(int argc, char **argv) {
                 spotStatus = (NSTextField *)popoverView(@"map.spots.status");
                 CHECK(onlyBox.state == NSControlStateValueOn && [onlyCall.stringValue isEqualToString:@"DL1ABC"] &&
                           [spotStatus.stringValue hasPrefix:@"1 station on the map"],
-                      "a callsign typed: only its spots (%s)", spotStatus.stringValue.UTF8String);
+                      "a callsign typed: who hears it (%s)", spotStatus.stringValue.UTF8String);
                 setBox(onlyBox, false);
-                CHECK(![spotStatus.stringValue hasPrefix:@"1 station on the map"], "Only spots of off: every station again (%s)",
+                CHECK(![spotStatus.stringValue hasPrefix:@"1 station on the map"], "Who hears off: every station again (%s)",
                       spotStatus.stringValue.UTF8String);
+                {  // Stations spotted and Heard by, alone and together; a tag removes one
+                    NSTokenField *spotted = (NSTokenField *)popoverView(@"map.filter.spotted"), *heardBy = (NSTokenField *)popoverView(@"map.filter.heardBy");
+                    auto scope = [&]() {
+                        pump(0.2);
+                        return std::string(((NSTextField *)viewWithIdentifier(mapw.contentView, @"map.scope")).stringValue.UTF8String);
+                    };
+                    auto calls = [&](NSTokenField *t, NSArray *list) {
+                        t.objectValue = list;
+                        [t sendAction:t.action to:t.target];
+                    };
+                    calls(spotted, @[ @"dl1abc" ]);
+                    std::string one = scope();
+                    calls(heardBy, @[ @"K1TTT" ]);
+                    std::string both = scope();
+                    if (NSView *filters = popoverView(@"map.filters")) snapshot(filters.window, "map-filters-spots");
+                    calls(heardBy, @[ @"N0BODY" ]);
+                    std::string none = scope();
+                    NSButton *tag = nil;
+                    for (NSView *v in viewWithIdentifier(mapw.contentView, @"map.chips").subviews)
+                        if ([v isKindOfClass:NSButton.class] && [((NSButton *)v).title hasPrefix:@"Heard by: N0BODY"]) tag = (NSButton *)v;
+                    [tag performClick:nil];
+                    std::string untagged = scope();
+                    calls(spotted, @[]);
+                    std::string all = scope();
+                    auto count = [](const std::string &t) {  // "●  1 of 5 stations on the map": 1
+                        size_t of = t.find(" of ");
+                        size_t from = of == std::string::npos ? 0 : t.rfind(' ', of - 1);
+                        return of == std::string::npos ? -1 : std::atoi(t.substr(from + 1, of - from - 1).c_str());
+                    };
+                    CHECK(count(one) == 1 && count(both) == 1 && count(none) == 0 && tag && count(untagged) == 1 && count(all) > 1,
+                          "Stations spotted DL1ABC (%s); heard by K1TTT too (%s), by N0BODY (%s); its tag removed (%s); none chosen (%s)", one.c_str(),
+                          both.c_str(), none.c_str(), untagged.c_str(), all.c_str());
+                }
                 for (NSWindow *w in [NSApp.windows copy])
                     if (viewWithIdentifier(w.contentView, @"map.spots")) [w orderOut:nil];
 
@@ -6797,6 +6963,14 @@ int main(int argc, char **argv) {
                 [mapView mouseUp:mouse(NSEventTypeLeftMouseUp, berlin, 1)];
                 [useSpot performClick:nil];
                 pump(0.3);
+                if (getenv("ADIFLINT_SNAPSHOT_DIR"))  // the Contact Map of the spotted station, its Spot Info card on
+                    if (NSWindow *cm = showPanel(@"contactmap", @"Contact Map")) {
+                        [cm setContentSize:NSMakeSize(560, 380)];
+                        [cm.contentView display];
+                        snapshot(cm, "contact-map-spot");
+                        [cm performClose:nil];
+                        pump(0.2);
+                    }
                 NSWindow *qwLog = qsoWindow();
                 NSButton *spotCluster = (NSButton *)viewWithIdentifier(qwLog.contentView, @"qso.spot.cluster");
                 NSButton *spotPota = (NSButton *)viewWithIdentifier(qwLog.contentView, @"qso.spot.pota");
@@ -6885,14 +7059,69 @@ int main(int argc, char **argv) {
                         [program selectItemAtIndex:0];
                         [program sendAction:program.action to:program.target];
                     }
-                    // New QSO's clocks: UTC and local time, ticking.
-                    NSView *utcClock = qwL ? viewWithIdentifier(qwL.contentView, @"newqso.clock.utc") : nil;
-                    NSView *localClock = qwL ? viewWithIdentifier(qwL.contentView, @"newqso.clock.local") : nil;
-                    NSString *utcSpoken = utcClock.accessibilityLabel;
-                    CHECK(utcClock && localClock && utcClock.frame.size.width > 100 && [utcSpoken hasPrefix:@"UTC"] &&
-                              [utcSpoken rangeOfString:@"^UTC .*\\d\\d:\\d\\d:\\d\\d$" options:NSRegularExpressionSearch].location != NSNotFound,
-                          "New QSO: UTC and local clocks at the top (%s)", utcSpoken.UTF8String);
-                    if (qwL && localClock) {  // within the frame as it is seen, with a long note: the note wraps, nothing widens it
+                    {  // The Clocks panel (Panels menu): UTC and local time at first, ticking; Add Clock adds a city's, a clock's
+                       // own menu removes it; New QSO has none of its own.
+                        NSMenuItem *show = nil;
+                        std::function<void(NSMenu *)> seekPanel = [&](NSMenu *m) {
+                            for (NSMenuItem *mi in m.itemArray) {
+                                if ([mi.identifier isEqualToString:@"org.nextpad.adiflint.panels.clocks"]) show = mi;
+                                if (mi.submenu) seekPanel(mi.submenu);
+                            }
+                        };
+                        seekPanel(NSApp.mainMenu);
+                        if (show) [show.menu performActionForItemAtIndex:[show.menu indexOfItem:show]];
+                        pump(0.3);
+                        NSWindow *cw = windowIdentified(@"clocks.window");
+                        NSView *utcClock = cw ? viewWithIdentifier(cw.contentView, @"clock.utc") : nil, *localClock = cw ? viewWithIdentifier(cw.contentView, @"clock.local") : nil;
+                        NSString *utcSpoken = utcClock.accessibilityLabel;
+                        NSPopUpButton *add = cw ? (NSPopUpButton *)viewWithIdentifier(cw.contentView, @"clocks.add") : nil;
+                        NSInteger chicago = [add.menu indexOfItemWithTitle:[NSString stringWithFormat:@"Chicago (%@)",
+                                                                                                     [[NSTimeZone timeZoneWithName:@"America/Chicago"] abbreviationForDate:NSDate.date]]];
+                        if (chicago > 0) [add.menu performActionForItemAtIndex:chicago];
+                        pump(0.3);
+                        NSView *cityClock = cw ? viewWithIdentifier(cw.contentView, @"clock.America/Chicago") : nil;
+                        {  // London and Tokyo too, for the picture; then removed
+                            NSDate *now = NSDate.date;
+                            for (NSString *zone in @[ @"Europe/London", @"Asia/Tokyo" ]) {
+                                NSString *city = [[zone componentsSeparatedByString:@"/"].lastObject stringByReplacingOccurrencesOfString:@"_" withString:@" "];
+                                NSString *t = [NSString stringWithFormat:@"%@ (%@)", city, [[NSTimeZone timeZoneWithName:zone] abbreviationForDate:now]];
+                                NSInteger at = [add.menu indexOfItemWithTitle:t];
+                                if (at > 0) [add.menu performActionForItemAtIndex:at];
+                                pump(0.2);
+                            }
+                            [cw setContentSize:NSMakeSize(470, 200)];
+                            [cw.contentView layoutSubtreeIfNeeded];
+                            snapshot(cw, "clocks");
+                            for (NSString *zone in @[ @"Europe/London", @"Asia/Tokyo" ]) {
+                                NSView *c = viewWithIdentifier(cw.contentView, [@"clock." stringByAppendingString:zone]);
+                                NSInteger at = [c.menu indexOfItemWithTitle:@"Remove This Clock"];
+                                if (at >= 0) [c.menu performActionForItemAtIndex:at];
+                                pump(0.2);
+                            }
+                            cityClock = viewWithIdentifier(cw.contentView, @"clock.America/Chicago");
+                        }
+                        NSString *citySpoken = cityClock.accessibilityLabel;
+                        auto zonesSaved = [&]() {
+                            NSString *f = [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint.ini"] encoding:NSUTF8StringEncoding error:nil];
+                            NSRange at = [f rangeOfString:@"\nclockZones="];
+                            if (at.location == NSNotFound) return std::string();
+                            NSString *rest = [f substringFromIndex:NSMaxRange(at)];
+                            return std::string([rest componentsSeparatedByString:@"\n"].firstObject.UTF8String);
+                        };
+                        bool saved = zonesSaved() == "UTC,local,America/Chicago";
+                        NSMenu *own = cityClock.menu;
+                        NSInteger remove = [own indexOfItemWithTitle:@"Remove This Clock"];
+                        if (remove >= 0) [own performActionForItemAtIndex:remove];
+                        pump(0.3);
+                        CHECK(show && cw.visible && utcClock && localClock && NSWidth(utcClock.frame) > 100 && [utcSpoken hasPrefix:@"UTC"] &&
+                                  [utcSpoken rangeOfString:@"^UTC .*\\d\\d:\\d\\d:\\d\\d$" options:NSRegularExpressionSearch].location != NSNotFound &&
+                                  chicago > 0 && [citySpoken hasPrefix:@"CHICAGO \u00B7 C"] && saved && remove >= 0 && zonesSaved() == "UTC,local" &&
+                                  !viewWithIdentifier(cw.contentView, @"clock.America/Chicago") && !viewWithIdentifier(qwL.contentView, @"clock.utc"),
+                              "Clocks: UTC and local time (%s); Chicago added (%s), then removed; none in New QSO", utcSpoken.UTF8String, citySpoken.UTF8String);
+                        [cw performClose:nil];
+                        pump(0.2);
+                    }
+                    if (qwL) {  // within the frame as it is seen, with a long note: the note wraps, nothing widens it
                         NSView *qc = qwL.contentView;
                         NSTextField *note = (NSTextField *)viewWithIdentifier(qc, @"newqso.note");
                         NSString *was = note.stringValue;
@@ -6902,17 +7131,14 @@ int main(int argc, char **argv) {
                         [host.contentView layoutSubtreeIfNeeded];  // the note's height follows its width
                         NSClipView *clip = qc.enclosingScrollView.contentView;
                         CGFloat seen = clip ? NSWidth(clip.bounds) : NSWidth(qc.bounds);
-                        NSRect lc = [localClock convertRect:localClock.bounds toView:qc], uc = [utcClock convertRect:utcClock.bounds toView:qc];
                         NSRect nr = note ? [note convertRect:note.bounds toView:qc] : NSZeroRect;
                         // What it needs fits the Operating Console's least frame (420; Workspace.mm's itemMinimum): at 493 (the
                         // problems' column 150 wide) the clocks and notes ran past a narrow frame's edge.
                         CHECK(qc.fittingSize.width <= 420, "New QSO needs no more than its least frame: %.0f wide", qc.fittingSize.width);
-                        CHECK(clip && NSWidth(qc.frame) <= seen + 0.5 && NSMaxX(lc) <= seen - 10 && NSMinX(uc) >= 10 &&
-                                  std::fabs(NSWidth(lc) - NSWidth(uc)) < 1 && note && NSMaxX(nr) <= seen &&
+                        CHECK(clip && NSWidth(qc.frame) <= seen + 0.5 && note && NSMaxX(nr) <= seen &&
                                   (NSHeight(nr) > 20 || note.attributedStringValue.size.width <= NSWidth(nr) + 1),  // wrapped, or it fits on one line
-                              "New QSO with a long note: as wide as its frame (%.0f of %.0f), the clocks the same width within it (%.0f to %.0f), "
-                              "the note wrapped (to %.0f, %.0f high)",
-                              NSWidth(qc.frame), seen, NSMinX(uc), NSMaxX(lc), NSMaxX(nr), NSHeight(nr));
+                              "New QSO with a long note: as wide as its frame (%.0f of %.0f), the note wrapped (to %.0f, %.0f high)", NSWidth(qc.frame), seen,
+                              NSMaxX(nr), NSHeight(nr));
                         note.stringValue = was;
                     }
                     // The Log Table's New File... and Open File..., before Bulk Edit Selected...
@@ -6933,9 +7159,20 @@ int main(int argc, char **argv) {
                         }
                     };
                     findLayouts(NSApp.mainMenu);
-                    auto chooseLayout = [&](NSInteger i) {
+                    auto resetLayout = [&](NSMenu *options) {  // Reset Layout, when the layout chosen was changed
+                        [options.delegate menuNeedsUpdate:options];
+                        for (NSMenuItem *r in options.itemArray)
+                            if ([r.identifier isEqualToString:@"org.nextpad.adiflint.layouts.reset"] && r.enabled)
+                                return [options performActionForItemAtIndex:[options indexOfItem:r]], true;
+                        return false;
+                    };
+                    auto chooseAsChanged = [&](NSInteger i) {  // a layout as you left it
                         NSMenuItem *mi = layouts[(NSUInteger)i];
                         [mi.menu performActionForItemAtIndex:[mi.menu indexOfItem:mi]];
+                    };
+                    auto chooseLayout = [&](NSInteger i) {  // a layout as it comes: a layout keeps your changes, so the tests' own are reset
+                        chooseAsChanged(i);
+                        resetLayout(layouts[(NSUInteger)i].menu);
                     };
                     NSInteger count = (NSInteger)layouts.count;
                     CHECK(count >= 9, "Start Logging: layouts to choose (%ld)", (long)count);
@@ -7094,9 +7331,10 @@ int main(int argc, char **argv) {
                         pump(0.3);
                         CHECK(framesOf().size() == before && frameShowing(qwL) && frameShowing(tw) && frameShowing(qwL) != frameShowing(tw),
                               "The layout chosen again: a frame each, no tabs");
-                        // The Map's list is hidden while the Log Table shares the console; the Log Table's frame
-                        // closed, then the Map's, the Map opens on its own with its list at its size (it came back
-                        // with no height, its search field's button over the status bar).
+                        // The Map's list is hidden while the Log Table shares the console. The Log Table's frame
+                        // closed, then the Map's: the Map opens in its place again. In a layout without it, the Map
+                        // opens on its own with its list at its size (it came back with no height, its search
+                        // field's button over the status bar).
                         auto closeFrameOf = [&](NSWindow *w) {
                             NSView *f = frameShowing(w);
                             NSButton *close = nil;
@@ -7116,10 +7354,15 @@ int main(int argc, char **argv) {
                         bool closedBoth = closeFrameOf(tw) && closeFrameOf(mapw0);
                         run("Map & Explorer...");
                         pump(0.5);
+                        bool mapBack = frameShowing(mapw0) != nil;
+                        chooseLayout(5);  // QSO and log only: no Map
+                        pump(0.3);
+                        run("Map & Explorer...");
+                        pump(0.5);
                         mapList = viewWithIdentifier(mapw0.contentView, @"map.list");
-                        CHECK(hiddenWithLog && closedBoth && mapw0.visible && !frameShowing(mapw0) && mapList && !mapList.hidden && NSHeight(mapList.frame) >= 110 &&
-                                  overlaps(mapw0.contentView) == 0,
-                              "The Map back on its own after the Log Table's frame and its own closed: its list shown at its size (%.0f high)",
+                        CHECK(hiddenWithLog && closedBoth && mapBack && mapw0.visible && !frameShowing(mapw0) && mapList && !mapList.hidden &&
+                                  NSHeight(mapList.frame) >= 110 && overlaps(mapw0.contentView) == 0,
+                              "The Map's frame closed: it opens in its place again (%d); on its own, its list shown at its size (%.0f high)", mapBack,
                               NSHeight(mapList.frame));
                         [mapw0 performClose:nil];
                         chooseLayout(0);
@@ -7178,6 +7421,117 @@ int main(int argc, char **argv) {
                             CHECK(logTab && frameShowing(tw) && !frameShowing(qwL) && [[frameShowing(tw) valueForKey:@"items"] count] == 2,
                                   "Frame actions: Add Tab moves the Log Table from its frame into New QSO's, in front of it");
                             typeCall(@"");
+                            chooseLayout(0);
+                            pump(0.3);
+                        }
+                        {  // Regions: a frame's region split in two (Split Down), its frames side by side, a frame to the console's edge,
+                           // one dropped near another's edge; a panel chosen into a frame too small for it gets the room it needs; and
+                           // the layout keeps all of it (a closed panel's place too) until Reset Layout.
+                            auto menuOf = [&](NSWindow *w) -> NSMenu * {
+                                NSView *f = frameShowing(w);
+                                NSPopUpButton *more = f ? (NSPopUpButton *)viewWithIdentifier(f, @"frame.actions") : nil;
+                                if (more) [more.menu.delegate menuNeedsUpdate:more.menu];
+                                return more.menu;
+                            };
+                            auto item = [&](NSMenu *m, NSString *ident) -> NSMenuItem * {
+                                for (NSMenuItem *mi in m.itemArray)
+                                    if ([mi.identifier isEqualToString:ident]) return mi;
+                                return nil;
+                            };
+                            auto choose = [&](NSMenuItem *mi, NSString *sub) {
+                                NSMenu *m = sub ? mi.submenu : mi.menu;
+                                NSInteger at = sub ? [m indexOfItemWithTitle:sub] : [m indexOfItem:mi];
+                                if (!mi || at < 0 || !(sub ? [m itemAtIndex:at] : mi).enabled) return false;
+                                [m performActionForItemAtIndex:at];
+                                pump(0.4);
+                                [host.contentView layoutSubtreeIfNeeded];
+                                return true;
+                            };
+                            auto rectOf = [&](NSWindow *w) {
+                                NSView *f = frameShowing(w);
+                                return f ? [f convertRect:f.bounds toView:nil] : NSZeroRect;
+                            };
+                            NSWindow *qdw = nil;
+                            for (NSWindow *w in NSApp.windows)
+                                if ([w.title isEqualToString:@"QSO Details"]) qdw = w;
+                            chooseLayout(8);  // the Map over the log, New QSO on the right
+                            pump(0.3);
+                            size_t frames = framesOf().size();
+                            NSMenu *qsoMenu = menuOf(qwL);
+                            bool aloneInRow = !item(qsoMenu, @"frame.actions.oneAbove").state && item(qsoMenu, @"frame.actions.sideBySide").state;
+                            bool splitDown = choose(item(qsoMenu, @"frame.actions.splitDown"), @"QSO Details");
+                            if (!qdw)
+                                for (NSWindow *w in NSApp.windows)
+                                    if ([w.title isEqualToString:@"QSO Details"]) qdw = w;
+                            NSRect q = rectOf(qwL), d = rectOf(qdw);
+                            CHECK(aloneInRow && splitDown && framesOf().size() == frames + 1 && std::fabs(NSMinX(q) - NSMinX(d)) < 2 && NSMaxY(d) <= NSMinY(q) + 2 &&
+                                      std::fabs(NSWidth(q) - NSWidth(d)) < 2,
+                                  "Split Down: New QSO's region in two, QSO Details below it (%s under %s)", NSStringFromRect(d).UTF8String,
+                                  NSStringFromRect(q).UTF8String);
+                            NSMenu *detailsMenu = menuOf(qdw);
+                            bool above = item(detailsMenu, @"frame.actions.oneAbove").state == NSControlStateValueOn;
+                            bool turned = choose(item(detailsMenu, @"frame.actions.sideBySide"), nil);
+                            q = rectOf(qwL), d = rectOf(qdw);
+                            CHECK(above && turned && std::fabs(NSMinY(q) - NSMinY(d)) < 2 && NSMinX(d) >= NSMaxX(q) - 2,
+                                  "Side by Side: New QSO and QSO Details beside each other (%s, %s)", NSStringFromRect(q).UTF8String, NSStringFromRect(d).UTF8String);
+                            NSRect all = [framesOf().front().superview convertRect:framesOf().front().superview.bounds toView:nil];
+                            for (NSView *f : framesOf()) all = NSUnionRect(all, [f convertRect:f.bounds toView:nil]);
+                            bool moved = choose(item(menuOf(qdw), @"frame.actions.move"), @"To the Left Edge");
+                            d = rectOf(qdw);
+                            CHECK(moved && std::fabs(NSMinX(d) - NSMinX(all)) < 2 && NSHeight(d) >= NSHeight(all) - 2,
+                                  "Move Frame to the left edge: QSO Details the whole height on the left (%s in %s)", NSStringFromRect(d).UTF8String,
+                                  NSStringFromRect(all).UTF8String);
+                            // QSO Details' frame dropped near the bottom edge of the log's: below the log, the log's region in two.
+                            NSView *df = frameShowing(qdw), *lfr = frameShowing(tw);
+                            FakeDrag *edge = [[FakeDrag alloc] init];
+                            edge.draggingPasteboard = [NSPasteboard pasteboardWithUniqueName];
+                            [edge.draggingPasteboard clearContents];
+                            [edge.draggingPasteboard setString:[[df valueForKey:@"index"] stringValue] forType:@"org.nextpad.adiflint.frame"];
+                            NSRect lr = [lfr convertRect:lfr.bounds toView:nil];
+                            edge.draggingLocation = NSMakePoint(NSMidX(lr), NSMinY(lr) + 6);
+                            bool edgeMarked = [(id<NSDraggingDestination>)lfr draggingUpdated:(id<NSDraggingInfo>)(id)edge] == NSDragOperationMove && !lfr.layer.borderWidth;
+                            bool edgeDropped = [(id<NSDraggingDestination>)lfr performDragOperation:(id<NSDraggingInfo>)(id)edge];
+                            pump(0.4);
+                            [host.contentView layoutSubtreeIfNeeded];
+                            NSRect l = rectOf(tw);
+                            d = rectOf(qdw);
+                            CHECK(edgeMarked && edgeDropped && NSMaxY(d) <= NSMinY(l) + 2 && std::fabs(NSMinX(d) - NSMinX(l)) < 2,
+                                  "A frame dropped near the log's bottom edge: below the log (%s under %s)", NSStringFromRect(d).UTF8String, NSStringFromRect(l).UTF8String);
+                            // The Map chosen in QSO Details' frame (the header's menu): they swap, and the Map's frame gets what the Map needs.
+                            NSPopUpButton *contents = nil;
+                            std::function<void(NSView *)> seekChoice = [&](NSView *v) {
+                                if ([v isKindOfClass:NSPopUpButton.class] && [v.accessibilityLabel isEqualToString:@"Frame contents"]) contents = (NSPopUpButton *)v;
+                                for (NSView *k in v.subviews) seekChoice(k);
+                            };
+                            seekChoice(frameShowing(qdw));
+                            [contents selectItemWithTitle:@"Map"];
+                            [contents sendAction:contents.action to:contents.target];
+                            pump(0.4);
+                            [host.contentView layoutSubtreeIfNeeded];
+                            NSRect m = rectOf(mapw0);
+                            CHECK(contents && NSWidth(m) >= 720 - 1 && NSHeight(m) >= 460 + 24 - 1 && frameShowing(qdw),
+                                  "The Map chosen in a small frame: it swaps in, its frame at least the Map's least size (%s)", NSStringFromRect(m).UTF8String);
+                            // The layout keeps it all: another chosen, then this one again; a closed panel's place too.
+                            closeFrameOf(tw);
+                            NSMenu *options = layouts.firstObject.menu;
+                            chooseAsChanged(0);
+                            pump(0.3);
+                            chooseAsChanged(8);
+                            pump(0.3);
+                            bool kept = frameShowing(qdw) != nil && !frameShowing(tw);
+                            [options.delegate menuNeedsUpdate:options];
+                            bool resettable = item(options, @"org.nextpad.adiflint.layouts.reset").enabled;
+                            NSButton *logButton = (NSButton *)viewWithIdentifier(mapw0.contentView, @"map.logtable");
+                            [logButton performClick:nil];
+                            pump(0.4);
+                            bool placed = frameShowing(tw) != nil && tw.visible;
+                            bool reset = resetLayout(options);
+                            pump(0.4);
+                            [options.delegate menuNeedsUpdate:options];
+                            CHECK(kept && resettable && logButton && placed && reset && !frameShowing(qdw) && frameShowing(tw) && frameShowing(mapw0) &&
+                                      framesOf().size() == frames && !item(options, @"org.nextpad.adiflint.layouts.reset").enabled,
+                                  "Another layout and back: the changes kept, the Log Table opening in its place (%d %d); Reset Layout: as the layout comes", kept,
+                                  placed);
                             chooseLayout(0);
                             pump(0.3);
                         }
@@ -7714,6 +8068,74 @@ int main(int argc, char **argv) {
                 CHECK([offScope containsString:@"Offline Mode: nothing is fetched"], "offline: the toolbar says so (%s)", offScope.UTF8String);
                 for (NSWindow *w in [NSApp.windows copy])
                     if (viewWithIdentifier(w.contentView, @"map.spots")) [w orderOut:nil];
+                {  // Only DX: DX Chase leaves out the stations in your own DXCC entity, the one your grid is in, with a tag
+                   // saying so; unticked in Sources and Filters they are back; Live leaves nobody out. The country file
+                   // here is the first 60 lines of AD1C's, without the United States, so home goes to Rome (JN61) for
+                   // this: the Order of Malta is the only entity there, its land is Italy's, and 1A0KM is yours. Still
+                   // offline: the spots stay as they were, and no feed runs while Settings is open.
+                    NSSegmentedControl *wf = (NSSegmentedControl *)viewWithIdentifier(mapw.contentView, @"map.workflow");
+                    NSTableView *views = (NSTableView *)viewWithIdentifier(mapw.contentView, @"map.views");
+                    NSTableView *rowsTable = (NSTableView *)viewWithIdentifier(mapw.contentView, @"map.list.table");
+                    auto toWorkflow = [&](NSInteger w) {
+                        wf.selectedSegment = w;
+                        [wf sendAction:wf.action to:wf.target];
+                        pump(0.3);
+                    };
+                    auto listedCalls = [&]() {
+                        pump(0.3);
+                        std::string calls;
+                        for (NSInteger k = 0; k < [rowsTable.dataSource numberOfRowsInTableView:rowsTable]; ++k)
+                            calls += std::string(calls.empty() ? "" : " ") + cell(rowsTable, k, @"call").UTF8String;
+                        return calls;
+                    };
+                    auto dxTag = [&]() -> NSButton * {
+                        for (NSView *v in viewWithIdentifier(mapw.contentView, @"map.chips").subviews)
+                            if ([v isKindOfClass:NSButton.class] && [((NSButton *)v).title hasPrefix:@"Only DX"]) return (NSButton *)v;
+                        return nil;
+                    };
+                    auto setHome = [&](NSString *grid) -> NSString * {  // Your Station's grid saved; the one it had
+                        run("Settings...");
+                        NSWindow *sw = settingsWindow();
+                        openSettingsGroup(sw, @"settings.station");
+                        NSTextField *field = sw ? (NSTextField *)viewWithIdentifier(sw.contentView, @"settings.station.grid") : nil;
+                        NSView *station = sw ? viewWithIdentifier(sw.contentView, @"settings.station") : nil;
+                        NSString *was = field.stringValue ?: @"";
+                        field.stringValue = grid;
+                        [findButton(station ?: sw.contentView, @"Save") performClick:nil];
+                        closeSettings();
+                        return was;
+                    };
+                    NSString *home = setHome(@"JN61");  // "" here: home is the log's MY_GRIDSQUARE
+                    toWorkflow(1);
+                    toWorkflow(2);  // the Map again, from Rome
+                    [views selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
+                    std::string dxOnly = listedCalls();
+                    bool tagged = dxTag() != nil;
+                    [(NSButton *)viewWithIdentifier(mapw.contentView, @"map.spots.open") performClick:nil];
+                    pump(0.2);
+                    NSButton *dxBox = (NSButton *)popoverView(@"map.spots.dxOnly");
+                    std::string boxTitle = dxBox.title.UTF8String ?: "";
+                    bool ticked = dxBox.state == NSControlStateValueOn && dxBox.enabled;
+                    [dxBox performClick:nil];
+                    std::string everyone = listedCalls();
+                    bool untagged = dxTag() == nil;
+                    [dxBox performClick:nil];  // on again: DX Chase as it was
+                    for (NSWindow *w in [NSApp.windows copy])
+                        if (viewWithIdentifier(w.contentView, @"map.spots")) [w orderOut:nil];
+                    toWorkflow(1);
+                    std::string live = listedCalls();
+                    bool liveTagless = dxTag() == nil;
+                    setHome(home);
+                    toWorkflow(2);
+                    [views selectRowIndexes:[NSIndexSet indexSetWithIndex:1] byExtendingSelection:NO];  // Needed on its band, as DX Chase was
+                    std::string back = listedCalls();
+                    toWorkflow(1);  // Live, as the Map was
+                    CHECK(tagged && ticked && boxTitle == "Only DX: not Sov Mil Order of Malta" && untagged && liveTagless &&
+                              dxOnly.find("1A0KM") == std::string::npos && dxOnly.find("JA1XYZ") != std::string::npos &&
+                              everyone.find("1A0KM") != std::string::npos && live.find("1A0KM") != std::string::npos && back == "1A0KM",
+                          "DX Chase from Rome, Only DX: %s (%s; unticked: %s; Live: %s; home '%s' again: %s), its tag (%d %d %d)", boxTitle.c_str(),
+                          dxOnly.c_str(), everyone.c_str(), live.c_str(), home.UTF8String, back.c_str(), tagged, untagged, liveTagless);
+                }
                 run("Offline Mode");
                 setBox(mapBox(@"show", @"spots"), false);
                 dispatch_source_cancel(acceptSrc);
@@ -8020,12 +8442,27 @@ int main(int argc, char **argv) {
                     run("New QSO...");
                     pump(0.3);
                     NSWindow *aw = qsoWindow();
+                    // The aids are in their own panel (Panels menu): opened here, as from the menu.
+                    auto showAidsPanel = [&]() {
+                        NSMenuItem *show = nil;
+                        std::function<void(NSMenu *)> seekPanel = [&](NSMenu *m) {
+                            for (NSMenuItem *mi in m.itemArray) {
+                                if ([mi.identifier isEqualToString:@"org.nextpad.adiflint.panels.aids"]) show = mi;
+                                if (mi.submenu) seekPanel(mi.submenu);
+                            }
+                        };
+                        seekPanel(NSApp.mainMenu);
+                        if (show) [show.menu performActionForItemAtIndex:[show.menu indexOfItem:show]];
+                        pump(0.3);
+                        return windowIdentified(@"aids.window");
+                    };
+                    NSWindow *pw = showAidsPanel();
                     auto text = [&](NSString *ident) {
-                        NSControl *c = aw ? (NSControl *)viewWithIdentifier(aw.contentView, ident) : nil;
+                        NSControl *c = pw ? (NSControl *)viewWithIdentifier(pw.contentView, ident) : nil;
                         return std::string((c ? c.stringValue : @"").UTF8String);
                     };
                     auto press = [&](NSString *ident) {
-                        NSButton *b = aw ? (NSButton *)viewWithIdentifier(aw.contentView, ident) : nil;
+                        NSButton *b = pw ? (NSButton *)viewWithIdentifier(pw.contentView, ident) : nil;
                         [b performClick:nil];
                         pump(0.2);
                         return b != nil;
@@ -8033,7 +8470,7 @@ int main(int argc, char **argv) {
                     auto rowsSaid = [&]() {
                         std::string all;
                         for (int k = 0; k < 12; ++k)
-                            if (NSView *v = viewWithIdentifier(aw.contentView, [NSString stringWithFormat:@"newqso.aids.row.%d", k]))
+                            if (NSView *v = viewWithIdentifier(pw.contentView, [NSString stringWithFormat:@"aids.row.%d", k]))
                                 all += std::string(all.empty() ? "" : " | ") + ((NSTextField *)v).stringValue.UTF8String;
                         return all;
                     };
@@ -8044,7 +8481,7 @@ int main(int argc, char **argv) {
                         pump(0.5);
                     };
                     auto optionsItem = [&](NSString *prefix) -> std::pair<NSMenu *, NSInteger> {
-                        NSPopUpButton *m = aw ? (NSPopUpButton *)viewWithIdentifier(aw.contentView, @"newqso.aids.menu") : nil;
+                        NSPopUpButton *m = pw ? (NSPopUpButton *)viewWithIdentifier(pw.contentView, @"aids.menu") : nil;
                         std::function<std::pair<NSMenu *, NSInteger>(NSMenu *)> seek = [&](NSMenu *menu) -> std::pair<NSMenu *, NSInteger> {
                             for (NSInteger k = 0; k < menu.numberOfItems; ++k) {
                                 NSMenuItem *mi = [menu itemAtIndex:k];
@@ -8062,39 +8499,39 @@ int main(int argc, char **argv) {
                         pump(0.2);
                         return menu != nil;
                     };
-                    CHECK(aw && text(@"newqso.aids.title").empty(), "Operating Aids: none with no style chosen");
+                    CHECK(aw && text(@"aids.title").empty(), "Operating Aids: none with no style chosen");
                     styleMenu(@"social");
                     typeCall(@"K1ABC");
-                    snapshot(aw, "newqso-aids-social");
+                    snapshot(pw, "aids-social");
                     std::string social = rowsSaid();
-                    CHECK(text(@"newqso.aids.title") == "Operating Aids (Social)" && social.find("Before: 1 QSO with K1ABC, the last 2026-10-01 on 40m SSB") == 0 &&
+                    CHECK(text(@"aids.title") == "Operating Aids (Social)" && social.find("Before: 1 QSO with K1ABC, the last 2026-10-01 on 40m SSB") == 0 &&
                               social.find("Your notes then: talked about his 3-element yagi") != std::string::npos,
                           "Social: your QSO with K1ABC before, and what you noted (%s)", social.c_str());
-                    std::string first = text(@"newqso.aids.row.2"), second = text(@"newqso.aids.row.3");
+                    std::string first = text(@"aids.row.2"), second = text(@"aids.row.3");
                     CHECK(!first.empty() && !second.empty() && social.find("rig and antenna") == std::string::npos &&
-                              [((NSTextField *)viewWithIdentifier(aw.contentView, @"newqso.aids.row.2")).accessibilityLabel hasPrefix:@"Suggestion: "],
+                              [((NSTextField *)viewWithIdentifier(pw.contentView, @"aids.row.2")).accessibilityLabel hasPrefix:@"Suggestion: "],
                           "Social: two suggestions, none about the antenna the notes have, each said to VoiceOver as a suggestion (%s; %s)", first.c_str(),
                           second.c_str());
-                    press(@"newqso.aids.skip.2");
-                    CHECK(text(@"newqso.aids.row.2") == second, "Skip: the next suggestion moves up (%s)", text(@"newqso.aids.row.2").c_str());
+                    press(@"aids.skip.2");
+                    CHECK(text(@"aids.row.2") == second, "Skip: the next suggestion moves up (%s)", text(@"aids.row.2").c_str());
                     // Note: a few words in NOTES, for you to finish; that topic isn't suggested again.
                     NSInteger noteRow = -1;
                     for (int k = 2; k < 6 && noteRow < 0; ++k)
-                        if (viewWithIdentifier(aw.contentView, [NSString stringWithFormat:@"newqso.aids.note.%d", k])) noteRow = k;
-                    std::string noted = noteRow >= 0 ? text([NSString stringWithFormat:@"newqso.aids.row.%ld", (long)noteRow]) : "";
-                    press([NSString stringWithFormat:@"newqso.aids.note.%ld", (long)noteRow]);
+                        if (viewWithIdentifier(pw.contentView, [NSString stringWithFormat:@"aids.note.%d", k])) noteRow = k;
+                    std::string noted = noteRow >= 0 ? text([NSString stringWithFormat:@"aids.row.%ld", (long)noteRow]) : "";
+                    press([NSString stringWithFormat:@"aids.note.%ld", (long)noteRow]);
                     std::string notes = qsoControl(aw, @"NOTES").stringValue.UTF8String;
                     CHECK(noteRow >= 0 && notes.size() > 2 && notes.back() == ' ' && notes.find(':') != std::string::npos && rowsSaid().find(noted) == std::string::npos &&
                               [aw.firstResponder isKindOfClass:NSTextView.class],
                           "Note: \"%s\" in NOTES to finish, the caret there; %s not suggested again", notes.c_str(), noted.c_str());
-                    std::string dismissedText = text(@"newqso.aids.row.2");
-                    press(@"newqso.aids.dismiss.2");
+                    std::string dismissedText = text(@"aids.row.2");
+                    press(@"aids.dismiss.2");
                     CHECK(!iniValue("aidsDismissed").empty() && rowsSaid().find(dismissedText) == std::string::npos,
                           "Dismiss: %s gone, and kept gone (%s)", dismissedText.c_str(), iniValue("aidsDismissed").c_str());
                     option(@"Minimal");
-                    bool minimal = text(@"newqso.aids.row.2").size() && text(@"newqso.aids.row.3").empty();
+                    bool minimal = text(@"aids.row.2").size() && text(@"aids.row.3").empty();
                     option(@"Off");
-                    bool offTitle = text(@"newqso.aids.title") == "Operating Aids (Social): off" && rowsSaid().empty();
+                    bool offTitle = text(@"aids.title") == "Operating Aids (Social): off" && rowsSaid().empty();
                     option(@"Standard");
                     option(@"Station and antenna");  // a topic off
                     bool topicOff = iniValue("aidsTopicsOffSocial").find("station") != std::string::npos;
@@ -8106,16 +8543,26 @@ int main(int argc, char **argv) {
                           "Options: work and projects (and stage of life) off until turned on");
                     option(@"Bring Back Dismissed");
                     CHECK(iniValue("aidsDismissed").empty(), "Options: the dismissed suggestions brought back");
-                    press(@"newqso.aids.hide");
-                    bool hid = text(@"newqso.aids.title") == "Operating Aids (Social): hidden" && rowsSaid().empty() && viewWithIdentifier(aw.contentView, @"newqso.aids.show");
-                    press(@"newqso.aids.show");
-                    CHECK(hid && text(@"newqso.aids.title") == "Operating Aids (Social)" && !rowsSaid().empty(), "Hide for the session, then Show");
+                    {  // The aids are in their panel only: closed and opened again, as they were (kept while it is closed); none in New QSO
+                        std::string before = rowsSaid();
+                        [pw performClose:nil];
+                        pump(0.3);
+                        bool closed = !pw.visible;
+                        pw = showAidsPanel();
+                        CHECK(closed && pw.visible && rowsSaid() == before && text(@"aids.title") == "Operating Aids (Social)" &&
+                                  !viewWithIdentifier(aw.contentView, @"newqso.aids") && !viewWithIdentifier(aw.contentView, @"aids"),
+                              "Operating Aids in their own panel: closed and opened again as they were (%s); none in New QSO", rowsSaid().c_str());
+                    }
+                    press(@"aids.hide");
+                    bool hid = text(@"aids.title") == "Operating Aids (Social): hidden" && rowsSaid().empty() && viewWithIdentifier(pw.contentView, @"aids.show");
+                    press(@"aids.show");
+                    CHECK(hid && text(@"aids.title") == "Operating Aids (Social)" && !rowsSaid().empty(), "Hide for the session, then Show");
                     // Portable: the station's state as facts, then a brief suggestion.
                     styleMenu(@"portable");
                     typeCall(@"N0NEW");
-                    snapshot(aw, "newqso-aids-portable");
+                    snapshot(pw, "aids-portable");
                     std::string portable = rowsSaid();
-                    CHECK(text(@"newqso.aids.title") == "Operating Aids (Portable)" && portable.find("Ready to log") != std::string::npos &&
+                    CHECK(text(@"aids.title") == "Operating Aids (Portable)" && portable.find("Ready to log") != std::string::npos &&
                               portable.find("Duplicate check: not in this log") != std::string::npos && portable.find("Saved locally") != std::string::npos &&
                               portable.find("Waiting to sync: 1 QSO not yet uploaded to QRZ.com") != std::string::npos,
                           "Portable: ready, the duplicate check, saved, waiting to sync (%s)", portable.c_str());
@@ -8154,7 +8601,72 @@ int main(int argc, char **argv) {
                     run("Offline Mode");
                     H.modified = false;
                     styleMenu(@"chasing");
-                    CHECK(text(@"newqso.aids.title").empty(), "Chasing: no Operating Aids (its own come with its stage)");
+                    {  // Chasing (Stage 4): the spots ranked as opportunities, each explained; Next in the aids, the Map's button and keys; on after a QSO
+                        wfBar.selectedSegment = 1;  // Live, all spots: several opportunities to step through (DX Chase keeps one here)
+                        [wfBar sendAction:wfBar.action to:wfBar.target];
+                        pump(0.3);
+                        NSButton *liveSpots = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.show.spots");
+                        bool spotsWere = liveSpots.state == NSControlStateValueOn;
+                        if (!spotsWere) {
+                            liveSpots.state = NSControlStateValueOn;
+                            [liveSpots sendAction:liveSpots.action to:liveSpots.target];
+                            pump(0.6);
+                        }
+                        if (NSTableView *quickViews = (NSTableView *)viewWithIdentifier(mapw.contentView, @"map.views"))
+                            [quickViews selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
+                        pump(0.5);
+                        auto chosenCall = [&]() -> std::string {  // the spot chosen on the map, as the selected panel names it
+                            NSTextField *t = (NSTextField *)viewWithIdentifier(mapw.contentView, @"map.contact.title");
+                            return t ? std::string(t.stringValue.UTF8String) : std::string();
+                        };
+                        auto nextLine = [&]() -> std::pair<NSInteger, std::string> {
+                            for (int k = 0; k < 6; ++k)
+                                if (viewWithIdentifier(pw.contentView, [NSString stringWithFormat:@"aids.next.%d", k]))
+                                    return {k, text([NSString stringWithFormat:@"aids.row.%d", k])};
+                            return {-1, ""};
+                        };
+                        auto callIn = [](const std::string &line) {  // "Next: K1ABC on 14025 kHz CW. ..."
+                            size_t on = line.find(" on ");
+                            return line.size() > 6 && on != std::string::npos ? line.substr(6, on - 6) : std::string();
+                        };
+                        auto [row, line] = nextLine();
+                        std::string named = callIn(line);
+                        CHECK(text(@"aids.title") == "Operating Aids (Chasing)" && row >= 0 && line.find("Next: ") == 0 &&
+                                  line.find("Spotted ") != std::string::npos && !named.empty(),
+                              "Chasing's aids: the next opportunity, why it matters and how fresh, with Next (%s)", rowsSaid().c_str());
+                        press([NSString stringWithFormat:@"aids.next.%ld", (long)row]);
+                        pump(0.3);
+                        std::string first = chosenCall();
+                        auto [row2, line2] = nextLine();
+                        NSButton *nextButton = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.next");
+                        CHECK(!named.empty() && first.find(named) == 0 && nextButton && !nextButton.hidden && callIn(line2) != named,
+                              "Next chooses on the map the opportunity the aids named (%s: %s), and they name the one after it (%s)", named.c_str(), first.c_str(),
+                              line2.c_str());
+                        [nextButton performClick:nil];
+                        pump(0.3);
+                        std::string second = chosenCall();
+                        NSEvent *back = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint
+                                                    modifierFlags:NSEventModifierFlagCommand | NSEventModifierFlagShift timestamp:0 windowNumber:mapw.windowNumber
+                                                          context:nil characters:@"G" charactersIgnoringModifiers:@"g" isARepeat:NO keyCode:5];
+                        bool took = [mapw performKeyEquivalent:back];
+                        pump(0.3);
+                        CHECK(!second.empty() && second != first && took && chosenCall() == first,
+                              "Next Opportunity: the one after it (%s); Shift-Command-G the one before again (%s)", second.c_str(), chosenCall().c_str());
+                        // Use it in New QSO and log it: on to the next opportunity.
+                        if (NSButton *use = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.spots.use")) [use performClick:nil];
+                        pump(0.3);
+                        std::string usedCall = qsoControl(aw, @"CALL").stringValue.UTF8String;
+                        H.modified = true;
+                        [findButton(aw.contentView, @"Log QSO") performClick:nil];
+                        pump(1.0);
+                        H.modified = false;
+                        CHECK(!usedCall.empty() && first.find(usedCall) == 0 && !chosenCall().empty() && chosenCall().find(usedCall) != 0,
+                              "Logged %s from the spot: on to the next opportunity (%s)", usedCall.c_str(), chosenCall().c_str());
+                        if (!spotsWere) {
+                            liveSpots.state = NSControlStateValueOff;
+                            [liveSpots sendAction:liveSpots.action to:liveSpots.target];
+                        }
+                    }
                     styleMenu(@"No Style");
                     [aw orderOut:nil];
                     H.doc = wasDoc, H.path = wasPath;
@@ -8182,7 +8694,13 @@ int main(int argc, char **argv) {
                             }
                             return nil;
                         };
-                        if (NSMenuItem *mi = seek(NSApp.mainMenu)) [mi.menu performActionForItemAtIndex:[mi.menu indexOfItem:mi]];
+                        if (NSMenuItem *mi = seek(NSApp.mainMenu)) {
+                            [mi.menu performActionForItemAtIndex:[mi.menu indexOfItem:mi]];
+                            [mi.menu.delegate menuNeedsUpdate:mi.menu];  // as the layout comes (it keeps your changes)
+                            for (NSMenuItem *r in mi.menu.itemArray)
+                                if ([r.identifier isEqualToString:@"org.nextpad.adiflint.layouts.reset"] && r.enabled)
+                                    [mi.menu performActionForItemAtIndex:[mi.menu indexOfItem:r]];
+                        }
                         pump(0.5);
                     };
                     styleMenu(@"Arrange Panels");  // on again
@@ -8191,8 +8709,14 @@ int main(int argc, char **argv) {
                     NSWindow *console = windowTitled(@"Operating Console");
                     NSWindow *spotsW = windowTitled(@"Activations & Spots"), *qsoW = qsoWindow();
                     std::string chasingPanels = infoPanels();
+                    NSWindow *bulkLike = nil;
+                    for (NSWindow *w in NSApp.windows)
+                        if ([w isKindOfClass:NSPanel.class] && [w respondsToSelector:NSSelectorFromString(@"dockItem")] && [[w valueForKey:@"dockItem"] intValue] == 0) bulkLike = w;
+                    CHECK(spotsW && ![spotsW isKindOfClass:NSPanel.class] && (spotsW.styleMask & NSWindowStyleMaskMiniaturizable) &&
+                              (!bulkLike || ((NSPanel *)bulkLike).floatingPanel),
+                          "Activations & Spots: a normal window (its filters are typed in); the task windows stay floating panels");
                     CHECK(console.visible && dockedIn(mapw) == console && dockedIn(spotsW) == console && dockedIn(qsoW) == console &&
-                              chasingPanels == "Its panels: Chasing: the Map over the spots, New QSO beside them",
+                              chasingPanels == "Its panels: Chasing: the Map over the spots, New QSO and Operating Aids beside them",
                           "Arrange Panels: Chasing opens the console with the Map over the spots and New QSO beside them (%s)", chasingPanels.c_str());
                     chooseConsoleLayout(@"Map over the log, QSO on the right");
                     NSWindow *logW = windowTitled(@"Log Table");
@@ -8202,6 +8726,23 @@ int main(int argc, char **argv) {
                     CHECK(saveOn && dockedIn(logW) == console && kept.find("\"logtable\"") != std::string::npos && kept.find("\"spots\"") == std::string::npos &&
                               ownPanels == "Its panels: Yours, kept with Save",
                           "Save with the panels moved: the console's arrangement kept as Chasing's own (%s)", ownPanels.c_str());
+                    {  // The Map's Log Table button closes its frame, and opens it again in its place there, not as a window of its own
+                        NSButton *logButton = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.logtable");
+                        auto where = [&]() {
+                            NSView *v = logW.contentView;
+                            return NSStringFromRect([v convertRect:v.bounds toView:nil]);
+                        };
+                        NSString *was = where();
+                        [logButton performClick:nil];
+                        pump(0.4);
+                        bool closed = dockedIn(logW) != console && !logW.visible && logButton.state == NSControlStateValueOff;
+                        [logButton performClick:nil];
+                        pump(0.4);
+                        NSString *now = where();
+                        CHECK(logButton && closed && dockedIn(logW) == console && logButton.state == NSControlStateValueOn && [now isEqualToString:was],
+                              "the Log Table button closes its frame (%d) and opens it in its place in the console again (%s, was %s)", closed,
+                              now.UTF8String, was.UTF8String);
+                    }
                     styleMenu(@"social");
                     pump(0.5);
                     NSWindow *detailsW = windowTitled(@"QSO Details");
@@ -8215,7 +8756,7 @@ int main(int argc, char **argv) {
                     pump(0.5);
                     closePopovers();
                     CHECK(iniValue("consoleStyleLayoutChasing").empty() && dockedIn(spotsW) == console && dockedIn(logW) != console &&
-                              infoPanels() == "Its panels: Chasing: the Map over the spots, New QSO beside them",
+                              infoPanels() == "Its panels: Chasing: the Map over the spots, New QSO and Operating Aids beside them",
                           "Use Recommended Defaults: Chasing's own panels forgotten, its built-in layout again");
                     styleMenu(@"No Style");
                     styleMenu(@"Arrange Panels");  // off, as the tests after expect
@@ -8469,6 +9010,68 @@ int main(int argc, char **argv) {
                     viewSwitch.selectedSegment = 0;
                     [viewSwitch sendAction:viewSwitch.action to:viewSwitch.target];
                     [sumw orderOut:nil];
+                }
+                // The Operating Console on the sample log: Start Logging's layout (the Map over the log, New QSO beside), QSO
+                // Details split in under New QSO and the Clocks under it, a call typed: the guide's and the README's picture.
+                run("Start Logging");
+                pump(0.5);
+                if (NSWindow *console = windowTitled(@"Operating Console")) {
+                    NSMenuItem *resetItem = nil;
+                    std::function<void(NSMenu *)> seekReset = [&](NSMenu *m) {
+                        for (NSMenuItem *mi in m.itemArray) {
+                            if ([mi.identifier isEqualToString:@"org.nextpad.adiflint.layouts.reset"]) resetItem = mi;
+                            if (mi.submenu) seekReset(mi.submenu);
+                        }
+                    };
+                    auto resetLayout = [&]() {
+                        resetItem = nil;
+                        seekReset(NSApp.mainMenu);
+                        if (resetItem) {
+                            [resetItem.menu.delegate menuNeedsUpdate:resetItem.menu];
+                            if (resetItem.enabled) [resetItem.menu performActionForItemAtIndex:[resetItem.menu indexOfItem:resetItem]];
+                        }
+                        pump(0.4);
+                    };
+                    resetLayout();  // as it comes
+                    [console setContentSize:NSMakeSize(1600, 1000)];
+                    auto frameOf = [&](NSWindow *w) -> NSView * {
+                        NSView *found = nil;
+                        std::function<void(NSView *)> seek = [&](NSView *v) {
+                            if ([NSStringFromClass(v.class) isEqualToString:@"ADIFDockFrame"] && [w.contentView isDescendantOf:v]) found = v;
+                            for (NSView *k in v.subviews) seek(k);
+                        };
+                        seek(console.contentView);
+                        return found;
+                    };
+                    auto splitDown = [&](NSWindow *w, NSString *panel) {
+                        NSView *f = frameOf(w);
+                        NSPopUpButton *more = f ? (NSPopUpButton *)viewWithIdentifier(f, @"frame.actions") : nil;
+                        [more.menu.delegate menuNeedsUpdate:more.menu];
+                        for (NSMenuItem *mi in more.menu.itemArray)
+                            if ([mi.identifier isEqualToString:@"frame.actions.splitDown"]) {
+                                NSInteger at = [mi.submenu indexOfItemWithTitle:panel];
+                                if (at >= 0) [mi.submenu performActionForItemAtIndex:at];
+                            }
+                        pump(0.4);
+                    };
+                    NSWindow *qsoW = qsoWindow();
+                    splitDown(qsoW, @"QSO Details");
+                    NSWindow *detailsW = nil;
+                    for (NSWindow *w in NSApp.windows)
+                        if ([w.title isEqualToString:@"QSO Details"]) detailsW = w;
+                    if (detailsW) splitDown(detailsW, @"Clocks");
+                    qsoControl(qsoW, @"CALL").stringValue = @"DL2XYZ";
+                    qsoControl(qsoW, @"GRIDSQUARE").stringValue = @"JO62qm";
+                    [[NSNotificationCenter defaultCenter] postNotificationName:NSControlTextDidChangeNotification object:qsoControl(qsoW, @"CALL")];
+                    pump(1.2);
+                    [console.contentView layoutSubtreeIfNeeded];
+                    snapshot(console, "docs-operating-console");
+                    qsoControl(qsoW, @"CALL").stringValue = @"";
+                    qsoControl(qsoW, @"GRIDSQUARE").stringValue = @"";
+                    [[NSNotificationCenter defaultCenter] postNotificationName:NSControlTextDidChangeNotification object:qsoControl(qsoW, @"CALL")];
+                    resetLayout();
+                    [console performClose:nil];
+                    pump(0.3);
                 }
             }
             [mapw orderOut:nil];

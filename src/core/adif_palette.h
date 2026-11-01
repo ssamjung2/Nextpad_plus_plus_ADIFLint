@@ -30,6 +30,7 @@ struct MapPalette {
     bool night = false;                 // shown red on black, to keep night vision: each colour as a red of its brightness
     // Spots, coloured by what they mean for the log: a new DXCC entity, a band new for its entity.
     unsigned needDxcc = 0xFF375F, needBand = 0x64D2FF;
+    unsigned potaNew = 0x7FB2FF, potaHunted = 0x34C759;  // a POTA activator's spot: a park you haven't hunted, one you have
 };
 size_t mapPaletteCount();
 // Clamped: 0 standard, 1 colour-blind safe, 2 high contrast, 3 light, 4 night (red).

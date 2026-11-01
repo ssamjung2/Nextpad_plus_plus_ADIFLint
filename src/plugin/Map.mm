@@ -20,6 +20,7 @@
 #import "ToolWindow.h"
 #import "Workspace.h"
 #include "adif_layout.h"
+#include "adif_chase.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include "adif_detail.h"
 #include "adif_beacons.h"
@@ -117,10 +118,10 @@ static NSAttributedString *treeMark(NSColor *color) {
     if (row < 0 || (size_t)row >= _rows.size()) return f;
     const ADIFViewRow &r = _rows[(size_t)row];
     if (mark && r.tree) {
-        f.attributedStringValue = treeMark(r.color ?: NSColor.secondaryLabelColor);
+        f.attributedStringValue = treeMark(r.color ?: theme::faint());
     } else if (mark) {
         f.stringValue = r.color ? @"●" : @"";
-        f.textColor = r.color ?: NSColor.secondaryLabelColor;
+        f.textColor = r.color ?: theme::faint();
     } else {
         f.stringValue = self.text ? self.text(r, column) : @"";
     }
@@ -331,7 +332,7 @@ struct ADIFQuickRow {
         count.identifier = @"count";
         count.alignment = NSTextAlignmentRight;
         count.font = theme::digits(NSFont.smallSystemFontSize, NSFontWeightRegular);
-        count.textColor = NSColor.secondaryLabelColor;
+        count.textColor = theme::faint();
         [count setContentHuggingPriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
         for (NSView *v in @[ icon, title, count ]) {
             v.translatesAutoresizingMaskIntoConstraints = NO;
@@ -360,7 +361,7 @@ struct ADIFQuickRow {
                                                                      green:((r.colour >> 8) & 255) / 255.0
                                                                       blue:(r.colour & 255) / 255.0
                                                                      alpha:1]
-                                               : NSColor.secondaryLabelColor;
+                                               : theme::faint();
     cell.textField.stringValue = ADIFString(r.title);
     count.stringValue = ADIFString(r.count);
     cell.toolTip = ADIFString(r.tip);
@@ -443,6 +444,7 @@ struct ADIFQuickRow {
 @end
 
 NSString *const ADIFOperatingStyleChangedNotification = @"ADIFOperatingStyleChangedNotification";
+NSString *const ADIFOpportunitiesChangedNotification = @"ADIFOpportunitiesChangedNotification";
 
 namespace worldmap {
 namespace {
@@ -553,6 +555,8 @@ struct {
     // The watch list: the selected panel's Watch, its editor (the Spots section), and the header's
     // bell, with the watched stations spotted (those not seen since it was last opened tint it).
     NSButton *watchButton = nil, *watchEdit = nil, *bell = nil;
+    NSButton *nextButton = nil;  // the selected panel's Next Opportunity
+    size_t opportunities = 0;    // the spots ranked as opportunities (Chasing)
     NSMenu *bellMenu = nil;
     NSMenu *homeMenu = nil;  // the Home button's own: set or forget the Home view
     NSSearchField *findField = nil;  // the header's search: a call, grid square, DXCC entity or park, found on the map
@@ -567,6 +571,7 @@ struct {
     NSPopover *filterPopover = nil;
     NSButton *continent[7] = {}, *parksToo = nil;
     NSTokenField *dxccTokens = nil, *stateTokens = nil, *countyTokens = nil, *potaTokens = nil;
+    NSTokenField *spottedTokens = nil, *heardByTokens = nil;  // More Filters' Spots: the stations spotted, who heard them
     NSTextField *cqField = nil, *ituField = nil;
     NSTextField *withinField = nil, *withinUnits = nil;  // within so far of your station
     NSPopUpButton *recordsPopup = nil;                   // which records: all, without a square, duplicates, with problems
@@ -580,6 +585,7 @@ struct {
     NSPopover *spotsPopover = nil;
     NSPopUpButton *spotAge = nil, *spotProgram = nil;
     NSButton *spotSource[3] = {};
+    NSButton *spotDxOnly = nil;  // Only DX: your own country's stations left out
     NSTextField *spotStatus = nil;
     id spotsObserver = nil, closeObserver = nil;
     // The list beside the map: what it lists (the QSOs chosen; the contacts, parks or spots in
@@ -656,6 +662,9 @@ void fillLayerMenu(NSMenu *menu);
 bool mapShortcut(NSEvent *e);
 bool stepList(int by);
 void useSelectedSpot();
+void rankOpportunities(std::vector<ADIFMapSpot> &marks, long long now);
+void centerChosen();
+std::optional<adif::styles::OperatingStyle> operatingStyle();
 void layerChanged(MapLayerId id, int which);
 int lensOfView(int view);
 void showList(const std::vector<size_t> &qsos, ADIFMapHit::Kind kind);
@@ -671,7 +680,7 @@ void goHomeView();
 
 // Faint text, as faint as the system's Increase contrast (Accessibility) allows: secondary then.
 bool moreContrast() { return NSWorkspace.sharedWorkspace.accessibilityDisplayShouldIncreaseContrast; }
-NSColor *faintInk() { return moreContrast() ? NSColor.secondaryLabelColor : NSColor.tertiaryLabelColor; }
+NSColor *faintInk() { return moreContrast() ? theme::faint() : theme::fainter(); }
 
 bool flag(const char *key, bool fallback) {
     std::string v = setting(key);
@@ -889,7 +898,7 @@ void showSlots(int dxcc, const std::string &entity, const std::string &call) {
     auto colourOf = [&](adif::SlotState st) {
         return st == adif::SlotState::Confirmed ? rgb(pal.confirmed) : st == adif::SlotState::Worked ? rgb(pal.worked) : faintInk();
     };
-    add(entity + ":  ", NSColor.secondaryLabelColor, theme::small(NSFontWeightSemibold));
+    add(entity + ":  ", theme::faint(), theme::small(NSFontWeightSemibold));
     for (const auto &[band, st] : adif::bandSlots(w, dxcc)) {
         std::string b = band.size() > 1 && band.back() == 'm' && isdigit((unsigned char)band[band.size() - 2]) ? band.substr(0, band.size() - 1) : band;
         add(b + " ", colourOf(st), st == adif::SlotState::None ? font : bold);
@@ -909,7 +918,7 @@ void showSlots(int dxcc, const std::string &entity, const std::string &call) {
         std::string worked = c == w.calls.end() ? trf("{call} not in this log", {{"call", call}})
                                                 : trp("{call}: {n} QSO", "{call}: {n} QSOs", (long long)c->second.qsos, {{"call", call}}) +
                                                       (c->second.confirmed ? ", " + tr("confirmed") : "");
-        add("  \u00B7  " + worked, NSColor.secondaryLabelColor, theme::small());
+        add("  \u00B7  " + worked, theme::faint(), theme::small());
     }
     mw.slots.attributedStringValue = out;
 }
@@ -1259,12 +1268,12 @@ void showChosenFacts(const ADIFMapHit &h) {
     while (mw.chosenFacts.numberOfRows > 0) [mw.chosenFacts removeRowAtIndex:0];
     for (const Fact &f : facts) {
         NSImageView *icon = [NSImageView imageViewWithImage:[NSImage imageWithSystemSymbolName:f.symbol accessibilityDescription:nil] ?: [[NSImage alloc] init]];
-        icon.contentTintColor = NSColor.secondaryLabelColor;
+        icon.contentTintColor = theme::faint();
         icon.symbolConfiguration = [NSImageSymbolConfiguration configurationWithPointSize:NSFont.smallSystemFontSize weight:NSFontWeightRegular];
         [icon.widthAnchor constraintEqualToConstant:16].active = YES;
         NSTextField *l = [NSTextField labelWithString:ADIFString(f.label)];
         l.font = theme::small();
-        l.textColor = NSColor.secondaryLabelColor;
+        l.textColor = theme::faint();
         NSStackView *name = [NSStackView stackViewWithViews:@[ icon, l ]];
         name.spacing = 5;
         // A fact the source doesn't give says so, rather than being left out.
@@ -1286,8 +1295,7 @@ void showChosenFacts(const ADIFMapHit &h) {
         NSString *symbol = reason.symbol;
         const std::string &text = reason.text;
         NSImageView *icon = [NSImageView imageViewWithImage:[NSImage imageWithSystemSymbolName:symbol accessibilityDescription:nil] ?: [[NSImage alloc] init]];
-        icon.contentTintColor = [symbol isEqualToString:@"star.fill"] ? NSColor.systemYellowColor : [symbol hasPrefix:@"star"] ? NSColor.systemPinkColor : [symbol hasPrefix:@"plus"] ? NSColor.systemTealColor
-                                : [symbol hasPrefix:@"leaf"] ? NSColor.systemGreenColor : NSColor.secondaryLabelColor;
+        icon.contentTintColor = theme::markColour(symbol);  // as QSO Details colours the same reason
         [icon.widthAnchor constraintEqualToConstant:16].active = YES;
         NSTextField *t = [NSTextField wrappingLabelWithString:ADIFString(text)];
         t.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize + 1];
@@ -1327,7 +1335,7 @@ void showChosenFacts(const ADIFMapHit &h) {
             [out appendAttributedString:[[NSAttributedString alloc]
                                             initWithString:ADIFString(heading ? line.substr(2) : line)
                                                 attributes:@{NSFontAttributeName : heading ? head : plain,
-                                                             NSForegroundColorAttributeName : heading ? NSColor.secondaryLabelColor : NSColor.labelColor}]];
+                                                             NSForegroundColorAttributeName : heading ? theme::faint() : NSColor.labelColor}]];
         }
         mw.detailsText.attributedStringValue = out;
     }
@@ -1633,29 +1641,32 @@ std::vector<ADIFInfoRow> spotInfo(const ADIFMapHit &h) {
     if (h.kind == ADIFMapHit::Spot && h.index < mw.view.spots.size()) {
         const ADIFMapSpot &ms = mw.view.spots[h.index];
         const adif::Spot &sp = ms.spot;
+        // In the order you work a station: what to tune, why it's worth it, what to log (its
+        // park), how fresh the spot is, where to point; then whether you have it, the facts of
+        // the place, and who heard it.
         rows.push_back({sp.heardMe ? trf("{call}: your signal", {{"call", sp.activator}}) : sp.activator, "", true});
         row(N_("Frequency"), sp.khz.empty() ? "" : sp.khz + " kHz");
-        row(N_("Band"), sp.band);
         row(N_("Mode"), sp.mode);
-        std::string age = adif::spotAge(sp.epoch, now);
-        if (!sp.time.empty()) row(N_("Spotted"), sp.time + " UTC" + (age.empty() ? "" : " (" + age + ")"));
+        row(N_("Band"), sp.band);
+        if (!sp.heardMe) row(N_("For this log"), spotNeedLine(ms.status, sp.band));
         // Spothole keeps where it had the spot from (Cluster, RBN, POTA...) where POTA keeps the location.
         bool via = sp.source == adif::SpotSource::Spothole && !sp.location.empty();
-        row(N_("Source"), tr(adif::spotSourceName(sp.source)) + (via ? " (" + sp.location + ")" : ""));
         std::string refs;
         for (const std::string &r : sp.refs) refs += (refs.empty() ? "" : ", ") + r;
         if (refs.empty()) refs = sp.reference;
         if (!refs.empty()) row(N_("Reference"), sp.program.empty() ? refs : sp.program + " " + refs);
         row(N_("Name"), sp.park);
         if (!via && sp.location != sp.program) row(N_("Location"), sp.location);
+        std::string age = adif::spotAge(sp.epoch, now);
+        if (!sp.time.empty()) row(N_("Spotted"), sp.time + " UTC" + (age.empty() ? "" : " (" + age + ")"));
+        row(N_("Comment"), sp.comments);
         row(N_("Signal report"), adif::spotSnr(sp));
-        row(N_("Grid"), sp.grid);
-        position(ms.lat, ms.lon, adif::spotPlace(sp, countries).from);
-        country(sp.activator);
         distance(ms.lat, ms.lon, ms.rough);
         if (!sp.heardMe) row(N_("In this log"), inLog(sp));
-        if (!sp.heardMe) row(N_("For this log"), spotNeedLine(ms.status, sp.band));
-        row(N_("Comment"), sp.comments);
+        row(N_("Grid"), sp.grid);
+        country(sp.activator);
+        position(ms.lat, ms.lon, adif::spotPlace(sp, countries).from);
+        row(N_("Source"), tr(adif::spotSourceName(sp.source)) + (via ? " (" + sp.location + ")" : ""));
         std::vector<std::string> by;
         for (const ADIFSpotHeard &hd : ms.heard) by.push_back(heard(hd.call, hd.hasSnr, hd.snr, hd.epoch));
         list(N_("Heard by"), by);
@@ -1799,9 +1810,9 @@ void fillSolarTile() {
     std::string sum = solarSummary();
     const adif::SpaceWeather &w = solar::weather();
     mw.solarTile.title = on && !sum.empty() ? ADIFString(sum) : T(@"Space weather");
-    mw.solarTile.contentTintColor = !on || sum.empty() ? NSColor.secondaryLabelColor
-                                    : w.g >= 3 ? NSColor.systemRedColor
-                                    : w.g >= 1 ? NSColor.systemOrangeColor
+    mw.solarTile.contentTintColor = !on || sum.empty() ? theme::faint()
+                                    : w.g >= 3 ? theme::error()
+                                    : w.g >= 1 ? theme::warning()
                                                : NSColor.labelColor;
     mw.solarTile.toolTip = ADIFString(on ? solar::status() + (w.g >= 0 ? "; " + trf("geomagnetic storms G{g} ({text})", {{"g", std::to_string(w.g)}, {"text", w.gText}}) : "") +
                                                ". " + tr("Click for more")
@@ -1863,7 +1874,7 @@ NSView *solarPopoverView() {
         grid.identifier = @"map.solar.facts";
         for (const auto &[label, value] : rows) {
             NSTextField *l = [NSTextField labelWithString:ADIFString(label)], *v = [NSTextField labelWithString:ADIFString(value.empty() ? tr("Unavailable") : value)];
-            l.textColor = NSColor.secondaryLabelColor;
+            l.textColor = theme::faint();
             v.font = theme::digits(NSFont.systemFontSize, NSFontWeightRegular);
             [grid addRowWithViews:@[ l, v ]];
         }
@@ -1871,7 +1882,7 @@ NSView *solarPopoverView() {
         [parts addObject:grid];
         NSTextField *status = [NSTextField wrappingLabelWithString:ADIFString(solar::status())];
         status.font = theme::small();
-        status.textColor = NSColor.secondaryLabelColor;
+        status.textColor = theme::faint();
         status.identifier = @"map.solar.status";
         [status.widthAnchor constraintLessThanOrEqualToConstant:340].active = YES;
         [parts addObject:status];
@@ -2136,7 +2147,7 @@ NSView *buildStyleOptions() {
     auto note = [&](NSString *text) {  // a label over the boxes after it
         NSTextField *t = ADIFLabel(text);
         t.font = theme::small();
-        t.textColor = NSColor.secondaryLabelColor;
+        t.textColor = theme::faint();
         [groups.back().views addObject:t];
     };
     auto add = [&](const StyleChoice &c) {
@@ -2317,6 +2328,46 @@ std::string homeGrid(const std::map<std::string, size_t> &myGrids) {
     return most ? g : "";
 }
 
+// Each entity's land, worked out once from the country file's names and places.
+const std::map<int, std::vector<adif::RingRef>> &entityLand() {
+    static std::map<int, std::vector<adif::RingRef>> land;
+    static size_t landFor = 0;
+    const adif::CountryTable &countries = ADIFCountries();
+    if (landFor != countries.entities()) {
+        std::vector<adif::EntityPlace> places;
+        for (const adif::CountryInfo &c : countries.all()) places.push_back({c.dxcc, c.lat, c.lon, c.name});
+        land = adif::dxccRings(places);
+        landFor = countries.entities();
+    }
+    return land;
+}
+
+// Your DXCC entity, whose stations Only DX leaves out: the one whose land holds home (Your
+// Station's grid, else the log's MY_GRIDSQUARE), else your callsign's; 0 when neither says.
+int homeEntity() {
+    static std::string forHome, forCall;
+    static size_t forCountries = 0;
+    static int entity = 0;
+    const adif::CountryTable &countries = ADIFCountries();
+    std::string call = setting("stationCall");
+    if (mw.home == forHome && call == forCall && countries.entities() == forCountries) return entity;
+    forHome = mw.home, forCall = call, forCountries = countries.entities();
+    double lat, lon;
+    entity = !mw.home.empty() && adif::gridToLatLon(mw.home, &lat, &lon) ? adif::dxccAt(entityLand(), lat, lon) : 0;
+    if (!entity) entity = entityOf(0, call);
+    return entity;
+}
+
+// Only DX: your own country's stations left out of the spots. DX Chase's at first ("" there).
+bool dxOnly() {
+    std::string v = setting("mapSpotsDxOnly");
+    return v.empty() ? workflow() == 2 : v == "1";
+}
+
+// The entity Only DX leaves out now: yours, while it is on and you haven't named the stations
+// (Who hears, or Stations spotted: those are shown whatever their country); 0 none.
+int dxOnlyEntity() { return dxOnly() && !flag("mapSpotsOnly", false) && setting("mapSpotsStations").empty() ? homeEntity() : 0; }
+
 // The Mode filter's choices: the common modes, then the log's and the spots' (as they are heard),
 // each once. Kept by title when it is still there.
 std::set<std::string> gLogModes;
@@ -2462,15 +2513,7 @@ void refresh() {
             e.qsos.push_back(i);
             e.confirmed |= mw.data.qsos[i].confirmed;
         }
-        // Each entity's land, worked out once from the country file's names and places.
-        static std::map<int, std::vector<adif::RingRef>> land;
-        static size_t landFor = 0;
-        if (landFor != countries.entities()) {
-            std::vector<adif::EntityPlace> places;
-            for (const adif::CountryInfo &c : countries.all()) places.push_back({c.dxcc, c.lat, c.lon, c.name});
-            land = adif::dxccRings(places);
-            landFor = countries.entities();
-        }
+        const std::map<int, std::vector<adif::RingRef>> &land = entityLand();
         for (auto &kv : byDxcc)
             if (auto it = land.find(kv.first); it != land.end()) kv.second.land = it->second;
         mw.dxcc.clear();
@@ -2525,7 +2568,7 @@ void refresh() {
                                              initWithString:ADIFString("   " + (call.empty() ? "" : call + "  \u00B7  ") + documentName() + "  \u00B7  " +
                                                                        plural(mw.data.qsos.size(), "QSO"))
                                                  attributes:@{NSFontAttributeName : [NSFont systemFontOfSize:NSFont.systemFontSize weight:NSFontWeightMedium],
-                                                              NSForegroundColorAttributeName : NSColor.secondaryLabelColor}]];
+                                                              NSForegroundColorAttributeName : theme::faint()}]];
             mw.summaryLabel.attributedStringValue = line;
             mw.summaryLabel.toolTip = line.string;
         }
@@ -2747,6 +2790,7 @@ void fillContinentPopup() {
 void refresh();
 void refreshSpots();
 void fillPlaceControls();
+void fillSpotsPopover();
 void chooseQuickView(NSInteger row);
 std::string entityName(int dxcc, const std::string &call);
 
@@ -2819,12 +2863,33 @@ void fillFilterChips() {
             }
         if (mw.spotLens > 0 && mw.quickRows && (size_t)mw.spotLens < mw.quickRows.rows.size())
             chip(mw.quickRows.rows[(size_t)mw.spotLens].title, ^{ chooseQuickView(0); });
+        for (auto [key, label] : {std::pair{"mapSpotsStations", N_("Spotted: {calls}")}, std::pair{"mapSpotsSpotters", N_("Heard by: {calls}")}})
+            if (std::vector<std::string> calls = splitSetting(key, ','); !calls.empty()) {
+                std::string k = key;
+                chip(trf(label, {{"calls", list(calls)}}), ^{
+                    setSetting(k.c_str(), "");
+                    if (mw.filterPopover) fillPlaceControls();
+                    refreshSpots();
+                });
+            }
+        if (flag("mapSpotsOnly", false))
+            chip(trf("Who hears {call}", {{"call", setting("mapSpotsOnlyCall").empty() ? setting("stationCall") : setting("mapSpotsOnlyCall")}}), ^{
+                saveFlag("mapSpotsOnly", false);
+                if (mw.filterPopover) fillPlaceControls();
+                refreshSpots();
+            });
+        if (dxOnlyEntity())  // short: the toolbar wraps less (Sources and Filters names the country)
+            chip(tr("Only DX"), ^{
+                setSetting("mapSpotsDxOnly", "0");
+                fillSpotsPopover();
+                refreshSpots();
+            });
     }
     mw.chips.hidden = mw.chips.arrangedSubviews.count == 0;
 }
 
 void updateFilterButton() {
-    size_t n = placeKinds(savedPlaceFilter());
+    size_t n = placeKinds(savedPlaceFilter()), spotKinds = 0;
     mw.moreFilters.title = n ? [NSString stringWithFormat:T(@"More Filters (%zu)..."), n] : T(@"More Filters...");
     // Clear says how many filters are on, and its tooltip which, in a line ("20m · FT8 · New band").
     std::vector<std::string> active;
@@ -2838,6 +2903,19 @@ void updateFilterButton() {
         std::string program = setting("mapSpotsProgram");
         if (!program.empty() && workflow() != 3) active.push_back(program == "-" ? tr("Plain DX only") : program);
         if (!setting("mapSpotsHidden").empty() && mw.spotSourceBar.indexOfSelectedItem > 0) active.push_back(ADIFStd(mw.spotSourceBar.titleOfSelectedItem));
+        if (int home = dxOnlyEntity()) active.push_back(trf("Only DX: not {country}", {{"country", entityName(home, "")}}));
+        for (auto [key, label] : {std::pair{"mapSpotsStations", N_("Spotted: {calls}")}, std::pair{"mapSpotsSpotters", N_("Heard by: {calls}")}})
+            if (std::vector<std::string> calls = splitSetting(key, ','); !calls.empty()) {
+                std::string all;
+                for (const std::string &c : calls) all += (all.empty() ? "" : ", ") + c;
+                active.push_back(trf(label, {{"calls", all}}));
+                ++spotKinds;
+            }
+        if (flag("mapSpotsOnly", false)) {
+            active.push_back(trf("Who hears {call}", {{"call", setting("mapSpotsOnlyCall").empty() ? setting("stationCall") : setting("mapSpotsOnlyCall")}}));
+            ++spotKinds;
+        }
+        if (spotKinds) mw.moreFilters.title = [NSString stringWithFormat:T(@"More Filters (%zu)..."), n + spotKinds];  // its Spots too
     }
     if (n) active.push_back(trp("{n} more filter", "{n} more filters", (long long)n));
     std::string list;
@@ -2909,6 +2987,10 @@ void fillPlaceControls() {
     set(mw.stateTokens, splitSetting("mapFilterStates", ','));
     set(mw.countyTokens, splitSetting("mapFilterCounties", ';'));
     set(mw.potaTokens, splitSetting("mapFilterPota", ','));
+    set(mw.spottedTokens, splitSetting("mapSpotsStations", ','));
+    set(mw.heardByTokens, splitSetting("mapSpotsSpotters", ','));
+    mw.spotsOnly.state = flag("mapSpotsOnly", false) ? NSControlStateValueOn : NSControlStateValueOff;
+    mw.spotsOnlyCall.stringValue = ADIFString(setting("mapSpotsOnlyCall"));
     auto join = [](const std::vector<std::string> &v) {
         std::string out;
         for (const std::string &s : v) out += (out.empty() ? "" : ", ") + s;
@@ -2993,6 +3075,28 @@ void showMoreFilters() {
         mw.stateTokens = tokenField(@"map.filter.states", N(@"US states, e.g. WI, IL"), states, @", ");
         mw.countyTokens = tokenField(@"map.filter.counties", N(@"US counties, e.g. WI,Dane; WI,Milwaukee"), counties, @";");
         mw.potaTokens = tokenField(@"map.filter.pota", N(@"POTA locations, e.g. US-WI, CA-ON"), locations, @", ");
+        // Spots (Live): the stations on the air and those that heard them, from the calls in the spots now.
+        NSMutableOrderedSet<NSString *> *onAir = [NSMutableOrderedSet orderedSet], *listening = [NSMutableOrderedSet orderedSet];
+        for (const adif::Spot &sp : spotfeeds::spots().spots()) {
+            if (!sp.activator.empty()) [onAir addObject:ADIFString(sp.activator)];
+            if (!sp.spotter.empty()) [listening addObject:ADIFString(adif::spotterCall(sp.spotter))];
+        }
+        auto callsChanged = [](NSTokenField *t, const char *key) {
+            std::string v;
+            for (const std::string &c : tokens(t)) v += (v.empty() ? "" : ",") + ADIFStd([ADIFString(c) uppercaseString]);
+            setSetting(key, v);
+            refreshSpots();
+            updateFilterButton();
+        };
+        mw.spottedTokens = tokenField(@"map.filter.spotted", N(@"calls, e.g. 1A0KM, K9ABC"), onAir.array, @", ");
+        mw.spottedTokens.toolTip = T(@"Only the spots of these stations: the stations on the air (a portable call is the same station)");
+        ADIFOnAction(mw.spottedTokens, ^{ callsChanged(mw.spottedTokens, "mapSpotsStations"); });
+        mw.heardByTokens = tokenField(@"map.filter.heardBy", N(@"spotters' calls, e.g. W3LPL, KM4IYW"), listening.array, @", ");
+        mw.heardByTokens.toolTip = T(@"Only what these stations heard: the spots they made (a DX cluster spotter, a Reverse Beacon skimmer, a "
+                                     @"PSKReporter receiver). With Stations spotted too: those stations, as these heard them");
+        ADIFOnAction(mw.heardByTokens, ^{ callsChanged(mw.heardByTokens, "mapSpotsSpotters"); });
+        NSStackView *whoHears = [NSStackView stackViewWithViews:@[ mw.spotsOnly, mw.spotsOnlyCall ]];
+        whoHears.spacing = 6;
         NSMutableArray *conts = [NSMutableArray array];
         for (int i = 0; i < 7; ++i) {
             mw.continent[i] = ADIFCheckbox(@(kContinents[i]), false);
@@ -3037,16 +3141,18 @@ void showMoreFilters() {
         NSButton *clear = [NSButton buttonWithTitle:T(@"Clear These Filters") target:nil action:nil];
         ADIFOnAction(clear, ^{
             for (const char *key : {"mapFilterContinents", "mapFilterDxcc", "mapFilterCq", "mapFilterItu", "mapFilterStates", "mapFilterCounties",
-                                    "mapFilterRegions", "mapFilterPota", "mapFilterWithinKm", "mapFilterRecords"})
+                                    "mapFilterRegions", "mapFilterPota", "mapFilterWithinKm", "mapFilterRecords", "mapSpotsStations", "mapSpotsSpotters"})
                 setSetting(key, "");
+            saveFlag("mapSpotsOnly", false);
             fillPlaceControls();
             refresh();
+            refreshSpots();
         });
         // In groups, each under its heading: where, how far, the programs, which records.
         auto group = [](NSString *title) {
             NSTextField *t = ADIFLabel(title);
             t.font = theme::small(NSFontWeightSemibold);
-            t.textColor = NSColor.secondaryLabelColor;
+            t.textColor = theme::faint();
             return t;
         };
         NSArray *rowsOfGrid = @[
@@ -3055,7 +3161,9 @@ void showMoreFilters() {
             @[ ADIFLabel(@"US regions:"), mw.regions ], @[ group(N(@"How far")), [NSGridCell emptyContentView] ], @[ ADIFLabel(@"Within:"), within ],
             @[ group(N(@"Programs")), [NSGridCell emptyContentView] ], @[ ADIFLabel(@"POTA locations:"), mw.potaTokens ],
             @[ ADIFLabel(@"POTA parks in:"), mw.parkPlacesButton ],
-            @[ [NSGridCell emptyContentView], mw.parksToo ], @[ group(N(@"Which records")), [NSGridCell emptyContentView] ],
+            @[ [NSGridCell emptyContentView], mw.parksToo ], @[ group(N(@"Spots")), [NSGridCell emptyContentView] ],
+            @[ ADIFLabel(@"Stations spotted:"), mw.spottedTokens ], @[ ADIFLabel(@"Heard by:"), mw.heardByTokens ], @[ ADIFLabel(@"Who hears:"), whoHears ],
+            @[ group(N(@"Which records")), [NSGridCell emptyContentView] ],
             @[ ADIFLabel(@"Records:"), mw.recordsPopup ], @[ [NSGridCell emptyContentView], clear ]
         ];
         NSGridView *grid = [NSGridView gridViewWithViews:rowsOfGrid];
@@ -3063,7 +3171,7 @@ void showMoreFilters() {
         grid.columnSpacing = 10;
         [grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
         grid.rowAlignment = NSGridRowAlignmentFirstBaseline;
-        for (NSInteger r : {0, 7, 9, 13}) {  // the headings, across both columns, at the left
+        for (NSInteger r : {0, 7, 9, 13, 17}) {  // the headings, across both columns, at the left
             [grid mergeCellsInHorizontalRange:NSMakeRange(0, 2) verticalRange:NSMakeRange(r, 1)];
             [grid cellAtColumnIndex:0 rowIndex:r].xPlacement = NSGridCellPlacementLeading;
             [grid rowAtIndex:r].topPadding = r ? 6 : 0;
@@ -3074,7 +3182,7 @@ void showMoreFilters() {
                                                                  @"values. Changes apply as you make them. Band, mode, dates and "
                                                                  @"confirmation are in the toolbar (in Live, the spots' age and source too).")];
         help.font = theme::small();
-        help.textColor = NSColor.secondaryLabelColor;
+        help.textColor = theme::faint();
         help.translatesAutoresizingMaskIntoConstraints = NO;
         NSView *content = [[NSView alloc] initWithFrame:NSZeroRect];
         content.identifier = @"map.filters";
@@ -3143,7 +3251,7 @@ void showDateRange() {
         row.spacing = 8;
         NSTextField *help = [NSTextField wrappingLabelWithString:T(@"The QSOs from the first day to the last, both included (UTC, as QSO_DATE has them).")];
         help.font = theme::small();
-        help.textColor = NSColor.secondaryLabelColor;
+        help.textColor = theme::faint();
         NSStackView *stack = [NSStackView stackViewWithViews:@[ help, row ]];
         stack.orientation = NSUserInterfaceLayoutOrientationVertical;
         stack.alignment = NSLayoutAttributeLeading;
@@ -3204,6 +3312,9 @@ adif::SpotFilter spotFilter() {
         std::string call = setting("mapSpotsOnlyCall");
         f.onlyCall = call.empty() ? setting("stationCall") : call;
     }
+    f.stations = splitSetting("mapSpotsStations", ',');  // More Filters' Spots
+    f.spotters = splitSetting("mapSpotsSpotters", ',');
+    if (int home = dxOnlyEntity()) f.notDxcc = {home};
     return f;
 }
 
@@ -3235,6 +3346,13 @@ void fillSpotsPopover() {
     if (pota) [mw.spotProgram selectItemWithTitle:@"POTA"];
     mw.spotProgram.enabled = !pota;  // POTA's own: Live has the others
     mw.spotProgram.toolTip = pota ? T(@"POTA shows POTA's activators only: Live has every program's spots") : nil;
+    int home = homeEntity();
+    mw.spotDxOnly.state = dxOnly() ? NSControlStateValueOn : NSControlStateValueOff;
+    mw.spotDxOnly.enabled = home != 0;
+    mw.spotDxOnly.title = home ? TF(@"Only DX: not {country}", @{@"country" : ADIFString(entityName(home, ""))}) : T(@"Only DX");
+    mw.spotDxOnly.toolTip = home ? T(@"Leave out the stations in your own DXCC entity: the one your grid is in (Settings, Your Station), else your "
+                                     @"callsign's. DX Chase starts with it on; Only spots of shows all of one station's spots")
+                                 : T(@"Your grid or callsign first (Settings, Your Station): Only DX leaves out the stations in your own DXCC entity");
     std::string st = spotfeeds::status();
     if (!c.spothole && !c.cluster && !c.psk) st = tr("No spot source is turned on: choose them in Settings (Spots).");
     else if (st.empty()) st = tr("Tick Show under Spots to fetch them.");
@@ -3327,6 +3445,7 @@ void refreshSpots() {
             const std::set<std::string> &off = look.legendHidden;
             if (!look.legend || off.empty()) return false;
             if (mapkit::potaSpot(sp) && off.count("spot.pota")) return true;
+            if (mapkit::potaSpot(sp) && look.colorBy == 0) return off.count(st.newPark ? "spot.pota.new" : "spot.pota.hunted") > 0;  // by its park
             if (look.colorBy == 1) return off.count("band." + sp.band) > 0;
             if (look.colorBy != 0) return false;
             switch (st.need) {
@@ -3370,9 +3489,7 @@ void refreshSpots() {
         // The feeds' health as a dot: green with a spot in the last 15 minutes and every source turned
         // on answering; orange when the spots are older or a source is failing (named after it); grey off.
         std::vector<std::string> trouble = show ? spotfeeds::troubled() : std::vector<std::string>{};
-        NSColor *dot = !show ? NSColor.tertiaryLabelColor
-                       : newest > 0 && now - newest < 900 && trouble.empty() ? NSColor.systemGreenColor
-                                                                             : NSColor.systemOrangeColor;
+        NSColor *dot = !show ? theme::fainter() : newest > 0 && now - newest < 900 && trouble.empty() ? theme::fine() : theme::warning();
         if (ADIFOffline() && !trouble.empty()) live += "  \u00B7  " + tr("Offline Mode: nothing is fetched");
         else if (!trouble.empty()) {
             std::string names;
@@ -3403,7 +3520,10 @@ void refreshSpots() {
         updateFilterButton();  // Clear and the tags, as the spots' filters are
     }
     mw.view.legendSpotBands = spotBands;
+    rankOpportunities(marks, now);
     [mw.view setSpots:marks now:now maxAge:f.maxAge];
+    mw.nextButton.hidden = mw.opportunities == 0;
+    [[NSNotificationCenter defaultCenter] postNotificationName:ADIFOpportunitiesChangedNotification object:nil];
     fillRecentSpots();
     fillBandConditions();
     queueViewList();
@@ -3595,7 +3715,7 @@ void fillBandConditions() {
         NSTextField *f = [NSTextField labelWithString:ADIFString(text)];
         f.font = head ? [NSFont systemFontOfSize:NSFont.smallSystemFontSize - 1 weight:NSFontWeightMedium]
                       : [NSFont monospacedDigitSystemFontOfSize:NSFont.smallSystemFontSize weight:bold ? NSFontWeightSemibold : NSFontWeightRegular];
-        f.textColor = head ? NSColor.secondaryLabelColor : NSColor.labelColor;
+        f.textColor = head ? theme::faint() : NSColor.labelColor;
         f.alignment = NSTextAlignmentRight;
         return f;
     };
@@ -3706,7 +3826,7 @@ void showSpotsPopover() {
         NSTextField *help = [NSTextField wrappingLabelWithString:T(@"The spots the Spots layer shows. Where they come from is set in Settings (Spots); "
                                                                  @"the Map's band, mode and place filters apply to them too.")];
         help.font = theme::small();
-        help.textColor = NSColor.secondaryLabelColor;
+        help.textColor = theme::faint();
         NSMutableArray *ageTitles = [NSMutableArray array];
         for (const char *t : kSpotAgeTitles) [ageTitles addObject:@(t)];
         mw.spotAge = ADIFPopup(ageTitles);
@@ -3738,15 +3858,21 @@ void showSpotsPopover() {
             setSetting("mapSpotsProgram", i <= 0 ? "" : i == 1 ? "-" : ADIFStd(mw.spotProgram.titleOfSelectedItem));
             refreshSpots();
         });
+        mw.spotDxOnly = ADIFCheckbox(@"Only DX", dxOnly());
+        mw.spotDxOnly.identifier = @"map.spots.dxOnly";
+        ADIFOnAction(mw.spotDxOnly, ^{
+            setSetting("mapSpotsDxOnly", mw.spotDxOnly.state == NSControlStateValueOn ? "1" : "0");
+            refreshSpots();
+        });
         mw.spotStatus = [NSTextField wrappingLabelWithString:@""];
         mw.spotStatus.font = theme::small();
-        mw.spotStatus.textColor = NSColor.secondaryLabelColor;
+        mw.spotStatus.textColor = theme::faint();
         mw.spotStatus.identifier = @"map.spots.status";
         NSButton *settings = [NSButton buttonWithTitle:T(@"Settings...") target:nil action:nil];
         ADIFOnAction(settings, ^{ openSettings(-4); });
         NSGridView *grid = [NSGridView gridViewWithViews:@[
             @[ ADIFLabel(@"Newer than:"), mw.spotAge ], @[ ADIFLabel(@"From:"), sourceRow ], @[ ADIFLabel(@"Program:"), mw.spotProgram ],
-            @[ [NSGridCell emptyContentView], settings ]
+            @[ [NSGridCell emptyContentView], mw.spotDxOnly ], @[ [NSGridCell emptyContentView], settings ]
         ]];
         grid.rowSpacing = 8;
         grid.columnSpacing = 10;
@@ -3962,7 +4088,7 @@ void showParkPlaces() {
                                       @"locations (US states, Canadian provinces, other countries' regions, as POTA names them) and, in a US "
                                       @"state, these counties. It starts at your station's location; the parks you worked always show.")];
         help.font = theme::small();
-        help.textColor = NSColor.secondaryLabelColor;
+        help.textColor = theme::faint();
         help.translatesAutoresizingMaskIntoConstraints = NO;
         NSView *content = [[NSView alloc] initWithFrame:NSZeroRect];
         content.identifier = @"map.parkplaces";
@@ -3989,15 +4115,128 @@ void showParkPlaces() {
     [mw.parkPlacesPopover showRelativeToRect:mw.parkPlacesButton.bounds ofView:mw.parkPlacesButton preferredEdge:NSRectEdgeMaxX];
 }
 
-// How good a chance a spot is, by the workflow's goal (the lower the better): your watch list
-// first; in POTA the parks you haven't hunted, then the other activators, then the rest as
-// elsewhere: a new DXCC, a new band, a new mode, a new park; your own signal last.
+// How good a chance a spot is, by the workflow's goal (the lower the better): Chasing's order
+// (adif_chase.h: every need a spot meets, weighed); in POTA your watch list, the parks you haven't
+// hunted, then the other activators, then the rest. Your own signal last.
 int opportunity(const ADIFMapSpot &ms) {
     if (ms.spot.heardMe) return 99;
-    if (!ms.watched.empty()) return -1;
-    int need = adif::spotPriority(ms.status);
-    if (workflow() != 3) return need;
-    return ms.status.newPark ? 0 : mapkit::potaSpot(ms.spot) ? 1 : 2 + need;
+    if (workflow() == 3) return !ms.watched.empty() ? -1 : ms.status.newPark ? 0 : mapkit::potaSpot(ms.spot) ? 1 : 2 + adif::spotPriority(ms.status);
+    return ms.rank ? (int)ms.rank - 100000 : 0;
+}
+
+// Chasing's opportunities among the spots: each one's score, reasons and place in the order.
+void rankOpportunities(std::vector<ADIFMapSpot> &marks, long long now) {
+    std::vector<adif::Spot> spots;
+    for (const ADIFMapSpot &m : marks) spots.push_back(m.spot);
+    adif::chase::Inputs in;
+    in.worked = &mw.view.worked;
+    in.countries = &ADIFCountries();
+    in.watch = watchList();
+    in.now = now;
+    char today[16];
+    time_t t = (time_t)now;
+    strftime(today, sizeof today, "%Y%m%d", gmtime(&t));
+    for (const adif::MapQso &q : mw.data.qsos)
+        if (q.date8 == today) in.workedToday.insert(adif::chase::todayKey(q.call, q.band, q.mode));
+    in.usesLotw = [](const std::string &call) { return !ADIFLotwLastUpload(call).empty(); };
+    std::vector<adif::chase::Opportunity> ranked = adif::chase::rank(spots, in);
+    for (ADIFMapSpot &m : marks) m.score = 0, m.why.clear(), m.rank = 0, m.reason = -1;
+    for (size_t r = 0; r < ranked.size(); ++r) {
+        ADIFMapSpot &m = marks[ranked[r].spot];
+        m.score = ranked[r].score, m.why = ranked[r].why, m.rank = r + 1, m.reason = (int)ranked[r].reasons.front();
+    }
+    mw.opportunities = ranked.size();
+}
+
+// The spots ranked, by place: the index of each (the best first).
+std::vector<size_t> rankedSpots() {
+    std::vector<size_t> out(mw.opportunities, SIZE_MAX);
+    for (size_t k = 0; k < mw.view.spots.size(); ++k)
+        if (size_t r = mw.view.spots[k].rank; r > 0 && r <= out.size()) out[r - 1] = k;
+    out.erase(std::remove(out.begin(), out.end(), SIZE_MAX), out.end());
+    return out;
+}
+
+// The place in Chasing's order that Next Opportunity goes to: the one after the spot chosen (before
+// it, step -1), the best when none is chosen; ranked.size() when there are none.
+size_t opportunityAfterChosen(const std::vector<size_t> &ranked, int step) {
+    if (ranked.empty()) return 0;
+    ADIFMapHit now = mw.view.selectedHit;
+    size_t at = ranked.size();
+    if (now.kind == ADIFMapHit::Spot)
+        for (size_t r = 0; r < ranked.size(); ++r)
+            if (ranked[r] == now.index) at = r;
+    if (at == ranked.size()) return step >= 0 ? 0 : ranked.size() - 1;
+    return (at + (step >= 0 ? 1 : ranked.size() - 1)) % ranked.size();
+}
+
+bool stepOpportunity(int step) {
+    std::vector<size_t> ranked = rankedSpots();
+    if (!mw.window || ranked.empty()) {
+        NSBeep();
+        return false;
+    }
+    size_t next = opportunityAfterChosen(ranked, step);
+    size_t k = ranked[next];
+    const ADIFMapSpot &ms = mw.view.spots[k];
+    ADIFMapHit h;
+    h.kind = ADIFMapHit::Spot, h.index = k, h.square = adif::squareAt(ms.lon, ms.lat);
+    [mw.view selectHit:h];
+    centerChosen();
+    NSString *said = TF(@"Opportunity {n} of {count}: {call}, {band} {mode}. {why}",
+                        @{@"n" : @(next + 1), @"count" : @(ranked.size()), @"call" : ADIFString(ms.spot.activator), @"band" : ADIFString(ms.spot.band),
+                          @"mode" : ADIFString(ms.spot.mode), @"why" : ADIFString(ms.why)});
+    NSAccessibilityPostNotificationWithUserInfo(mw.window, NSAccessibilityAnnouncementRequestedNotification,
+                                                @{NSAccessibilityAnnouncementKey : said, NSAccessibilityPriorityKey : @(NSAccessibilityPriorityHigh)});
+    [[NSNotificationCenter defaultCenter] postNotificationName:ADIFOpportunitiesChangedNotification object:nil];
+    return true;
+}
+
+void advanceAfterLog(const std::string &call) {
+    if (!mw.window || operatingStyle() != adif::styles::OperatingStyle::Chasing || call.empty()) return;
+    bool spotted = false;  // a station on the map (the log's change may have cleared what was chosen)
+    for (const ADIFMapSpot &ms : mw.view.spots) spotted |= adif::lookupCall(ms.spot.activator) == adif::lookupCall(call);
+    if (!spotted) return;
+    // Once the log has it (and the spot is no longer an opportunity), the next one.
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ stepOpportunity(1); });
+}
+
+std::vector<ChaseLine> chaseLinesFor(const std::string &call, const std::string &freqMHz, const std::string &mode) {
+    std::vector<ChaseLine> out;
+    std::vector<size_t> ranked = rankedSpots();
+    std::string key = adif::lookupCall(call);
+    const ADIFMapSpot *theirs = nullptr;
+    for (const ADIFMapSpot &ms : mw.view.spots)
+        if (!key.empty() && adif::lookupCall(ms.spot.activator) == key && (!theirs || ms.rank > 0)) theirs = &ms;
+    if (theirs && theirs->rank > 0) {
+        out.push_back({trf("Opportunity {n} of {count}: {why}", {{"n", std::to_string(theirs->rank)}, {"count", std::to_string(ranked.size())}, {"why", theirs->why}}),
+                       0, "scope", false});
+    } else if (theirs) {
+        out.push_back({trf("{call} is spotted, but brings nothing new: {need} on {band}", {{"call", theirs->spot.activator},
+                                                                                           {"need", adif::spotNeedText(theirs->status.need)},
+                                                                                           {"band", theirs->spot.band}}),
+                       1, "info.circle", false});
+    }
+    if (theirs) {  // ready to log: the spot's frequency and mode as New QSO has them
+        double spotKhz = std::atof(theirs->spot.khz.c_str()), qsoKhz = std::atof(freqMHz.c_str()) * 1000;
+        bool freqOff = spotKhz > 0 && qsoKhz > 0 && std::fabs(spotKhz - qsoKhz) > 1;
+        bool modeOff = !mode.empty() && !theirs->spot.mode.empty() && adif::modeGroup(mode) != adif::modeGroup(theirs->spot.mode);
+        if (freqOff || modeOff)
+            out.push_back({trf("The spot says {khz} kHz {mode}: check the frequency and mode before logging",
+                               {{"khz", theirs->spot.khz}, {"mode", theirs->spot.mode}}),
+                           1, "exclamationmark.circle", false});
+    }
+    if (!ranked.empty()) {  // what Next chooses: the one after the spot chosen on the map (the best when none is)
+        const ADIFMapSpot &ms = mw.view.spots[ranked[opportunityAfterChosen(ranked, 1)]];
+        if (&ms != theirs || ranked.size() > 1)
+            out.push_back({trf("Next: {call} on {khz} kHz {mode}. {why}", {{"call", ms.spot.activator}, {"khz", ms.spot.khz}, {"mode", ms.spot.mode}, {"why", ms.why}}),
+                           0, "arrow.forward.circle", true});
+    }
+    if (ranked.empty())
+        out.push_back({live() && mw.view.style[kLayerSpots].show ? tr("No opportunities among the spots now: none brings anything new to your log")
+                                                                   : tr("No opportunities: Live shows the spots, with the Spots layer on"),
+                       0, "binoculars", false});
+    return out;
 }
 
 // ── The list beside the map: the QSOs chosen; the contacts, parks or spots in view ──
@@ -4348,7 +4587,7 @@ std::vector<ADIFViewRow> issueRows(double lat, double lon) {
         auto at = byQso.find(mw.issues[i].qso);
         ADIFViewRow r = at != byQso.end() ? at->second : ADIFViewRow();
         r.item = i;
-        r.color = mw.issues[i].error ? NSColor.systemRedColor : NSColor.systemOrangeColor;
+        r.color = mw.issues[i].error ? theme::error() : theme::warning();
         rows.push_back(r);
     }
     return rows;
@@ -4786,7 +5025,7 @@ void showSituation() {
         NSTextField *f = [NSTextField labelWithString:ADIFString(text)];
         f.font = head ? [NSFont systemFontOfSize:NSFont.smallSystemFontSize - 1 weight:NSFontWeightMedium]
                       : theme::digits(NSFont.smallSystemFontSize + 1, NSFontWeightMedium);
-        f.textColor = head ? NSColor.secondaryLabelColor : NSColor.labelColor;
+        f.textColor = head ? theme::faint() : NSColor.labelColor;
         f.alignment = NSTextAlignmentRight;
         return f;
     };
@@ -4796,7 +5035,7 @@ void showSituation() {
         b.bordered = NO;
         b.alignment = NSTextAlignmentLeft;
         b.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize + 1];
-        b.contentTintColor = view >= 0 ? NSColor.linkColor : NSColor.secondaryLabelColor;
+        b.contentTintColor = view >= 0 ? NSColor.linkColor : theme::faint();
         b.identifier = [NSString stringWithFormat:@"map.stat.%ld", (long)stats.numberOfRows - 1];
         b.toolTip = view >= 0 ? T(@"Show this layer in History") : mw.situation.stringValue;
         if (view >= 0) ADIFOnAction(b, ^{
@@ -4817,7 +5056,7 @@ void showSituation() {
     auto spanning = [&](const std::string &text) {  // across both columns
         NSTextField *f = number(text, false);
         f.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize + 1];
-        f.textColor = NSColor.secondaryLabelColor;
+        f.textColor = theme::faint();
         return f;
     };
     statRow(tr("Today"), spanning(g.today ? plural(g.today, "QSO") : tr("no QSOs yet")), nil, -1);
@@ -4847,17 +5086,14 @@ void showSituation() {
     }
     if (g.states) line += " " + trp("{n} US state worked.", "{n} US states worked.", (long long)g.states);
     mw.today.stringValue = ADIFString(line);
-    // The spots most wanted: a new DXCC first, then a new band, mode or park; the newest first.
+    // The spots most wanted, in Chasing's order (adif_chase.h).
     for (NSView *v in [mw.wanted.arrangedSubviews copy])
         if (v != mw.wantedLabel) [mw.wanted removeView:v];
     const std::vector<ADIFMapSpot> &spots = mw.view.spots;
     std::vector<size_t> wanted;
     for (size_t k = 0; k < spots.size(); ++k)
-        if (!spots[k].spot.heardMe && adif::spotWanted(spots[k].status)) wanted.push_back(k);
-    std::stable_sort(wanted.begin(), wanted.end(), [&](size_t a, size_t b) {
-        int pa = opportunity(spots[a]), pb = opportunity(spots[b]);
-        return pa != pb ? pa < pb : spots[a].spot.epoch > spots[b].spot.epoch;
-    });
+        if (spots[k].rank > 0) wanted.push_back(k);
+    std::stable_sort(wanted.begin(), wanted.end(), [&](size_t a, size_t b) { return spots[a].rank < spots[b].rank; });
     if (!mw.view.style[kLayerSpots].show)
         mw.wantedLabel.stringValue = !live() ? T(@"Spots: Live shows who is on the air now, and which of them you need.")
                                                      : T(@"Spots: tick the Spots layer's Show for who is on the air, and which you need.");
@@ -4866,9 +5102,12 @@ void showSituation() {
     else mw.wantedLabel.stringValue = T(@"Wanted now:");
     for (size_t i = 0; i < wanted.size() && i < 6; ++i) {
         const ADIFMapSpot &ms = spots[wanted[i]];
-        std::string need = ms.status.need == adif::SpotNeed::NewDxcc || ms.status.need == adif::SpotNeed::NewBand || ms.status.need == adif::SpotNeed::NewMode
-                               ? adif::spotNeedText(ms.status.need)
-                               : tr("new park");
+        using R = adif::chase::Reason;
+        std::string need = ms.reason == (int)R::NewDxcc || ms.reason == (int)R::NewBand || ms.reason == (int)R::NewMode ? adif::spotNeedText(ms.status.need)
+                           : ms.reason == (int)R::Watched                                                              ? tr("watched")
+                           : ms.reason == (int)R::NewIota                                                              ? tr("new IOTA")
+                           : ms.reason == (int)R::Unconfirmed                                                          ? tr("to confirm")
+                                                                                                                       : tr("new park");
         std::string activator = ms.spot.activator, band = ms.spot.band;
         NSButton *b = [NSButton buttonWithTitle:@"" target:nil action:nil];
         b.bordered = NO;
@@ -4899,7 +5138,7 @@ void showSituation() {
     if (wanted.size() > 6) {
         NSTextField *more = [NSTextField labelWithString:TF(@"and {n} more", @{@"n" : @(wanted.size() - 6)})];
         more.font = theme::small();
-        more.textColor = NSColor.secondaryLabelColor;
+        more.textColor = theme::faint();
         [mw.wanted addArrangedSubview:more];
     }
     // The busiest bands (stations spotted on each), and the sun where you are.
@@ -5194,7 +5433,7 @@ int quickView() {
 // View, and the sun's shading.
 std::vector<std::string> workflowKeys() {
     std::vector<std::string> keys = {"mapContacts", "mapPaths", "mapMine", "mapColorBy", "mapListKind", "mapQuickView", "mapGreyLine", "mapDayNight",
-                                     "mapSpotsProgram"};
+                                     "mapSpotsProgram", "mapSpotsDxOnly"};
     for (const LayerUi &l : kLayerUi) {
         if (l.showKey) keys.push_back(l.showKey);
         keys.push_back(l.overlayKey);
@@ -5217,10 +5456,11 @@ std::string liveDefault(const std::string &key) {
 }
 
 // A workflow's first time: History as the settings were; Live as above; DX Chase, Live for the
-// DXCC entities and bands you need (Needed on its band, plain DX spots, no parks, the grey line);
+// DXCC entities and bands you need (Needed on its band, plain DX spots, none of your own
+// country's stations, no parks, the grey line);
 // POTA, Live for the parks (POTA activators, every park, no DXCC shading).
 std::string workflowDefault(const std::string &key, int wf) {
-    static const std::map<std::string, std::string> kDxChase = {{"mapQuickView", "1"}, {"mapShowPota", "0"}, {"mapSpotsProgram", "-"}};
+    static const std::map<std::string, std::string> kDxChase = {{"mapQuickView", "1"}, {"mapShowPota", "0"}, {"mapSpotsProgram", "-"}, {"mapSpotsDxOnly", "1"}};
     static const std::map<std::string, std::string> kPota = {{"mapQuickView", "6"}, {"mapShowPota", "1"}, {"mapPota", "1"}, {"mapPotaLabels", "1"},
                                                              {"mapDxcc", "0"},       {"mapGreyLine", "0"}, {"mapSpotsProgram", "POTA"}};
     if (wf <= 0) return "";
@@ -5471,7 +5711,7 @@ void showSaveView(NSView *anchor) {
         NSTextField *help = [NSTextField wrappingLabelWithString:T(@"A Quick View of your own, in this workflow: the layers, colours and filters as "
                                                                    @"they are now, and in Live which spots show.")];
         help.font = theme::small();
-        help.textColor = NSColor.secondaryLabelColor;
+        help.textColor = theme::faint();
         NSStackView *line = [NSStackView stackViewWithViews:@[ mw.saveViewName, save ]];
         line.spacing = 8;
         NSStackView *stack = [NSStackView stackViewWithViews:@[ help, line ]];
@@ -5813,6 +6053,7 @@ std::pair<std::string, std::string> describeStyleSetting(const std::string &key,
         return {tr("Colour by"), pick(@[ N(@"Colour by confirmation"), N(@"Colour by band"), N(@"Colour by mode"), N(@"Colour by QSO count"), N(@"Colour by year first worked") ], 0)};
     if (key == "mapListKind") return {tr("List"), pick(@[ N(@"Selected"), N(@"Contacts"), N(@"Parks"), N(@"Spots"), N(@"Recent"), N(@"Issues"), N(@"DXCC") ], 0)};
     if (key == "mapSpotsProgram") return {tr("Program"), tr(value == "-" ? "Plain DX only" : value == "POTA" ? "POTA only" : "Any program")};
+    if (key == "mapSpotsDxOnly") return {tr("Only DX"), onOff(wf == 2)};  // DX Chase's at first
     static const std::map<std::string, std::pair<const char *, bool>> kBoxes = {
         {"mapRings", {N_("Distance rings from my grid"), false}}, {"mapGreyLine", {N_("Grey line"), false}},  {"mapDayNight", {N_("Day and night"), false}},
         {"mapSolar", {N_("Space weather"), false}},               {"mapAurora", {N_("Aurora"), false}},      {"mapContacts", {N_("QSO markers"), false}},
@@ -5857,7 +6098,7 @@ void showStyleInfo() {
     auto cell = [&](const std::string &text, bool head) {
         NSTextField *f = [NSTextField labelWithString:ADIFString(text)];
         f.font = [NSFont systemFontOfSize:small weight:head ? NSFontWeightSemibold : NSFontWeightRegular];
-        if (head) f.textColor = NSColor.secondaryLabelColor;
+        if (head) f.textColor = theme::faint();
         return f;
     };
     // A table of settings (its heading row first), scrolling when long.
@@ -5895,12 +6136,12 @@ void showStyleInfo() {
     [parts addObject:label(now ? T(ADIFString(styles::title(*now))) : T(@"No style"), NSFont.systemFontSize + 1, NSFontWeightSemibold,
                            now ? styleColour(*now) : NSColor.labelColor)];
     if (now) {
-        [parts addObject:label(T(kStyleTips[(int)*now]), small, NSFontWeightRegular, NSColor.secondaryLabelColor)];
+        [parts addObject:label(T(kStyleTips[(int)*now]), small, NSFontWeightRegular, theme::faint())];
         bool mine = styles::hasMine(*now, styleGet);
         [parts addObject:label(mine ? T(@"Its defaults: yours, saved with Save") : T(@"Its defaults: the recommended ones"), small, NSFontWeightMedium,
                                NSColor.labelColor)];
         NSTextField *panels = label(TF(@"Its panels: {layout}", @{@"layout" : ADIFString(workspace::styleLayoutName(std::string(styles::id(*now))))}), small,
-                                    NSFontWeightRegular, NSColor.secondaryLabelColor);
+                                    NSFontWeightRegular, theme::faint());
         panels.identifier = @"map.operatingStyle.layout";
         [parts addObject:panels];
         // What differs from them now.
@@ -5917,14 +6158,14 @@ void showStyleInfo() {
         if (rows.count > 1) {
             [parts addObject:label(TP(@"{n} setting differs from its defaults (Save keeps them, Reset undoes them):",
                                       @"{n} settings differ from its defaults (Save keeps them, Reset undoes them):", (long long)rows.count - 1),
-                                   small, NSFontWeightRegular, NSColor.secondaryLabelColor)];
+                                   small, NSFontWeightRegular, theme::faint())];
             [parts addObject:table(rows, @"map.operatingStyle.differs")];
         } else {
-            [parts addObject:label(T(@"Nothing differs from its defaults."), small, NSFontWeightRegular, NSColor.secondaryLabelColor)];
+            [parts addObject:label(T(@"Nothing differs from its defaults."), small, NSFontWeightRegular, theme::faint())];
         }
     } else {
         [parts addObject:label(T(@"The map as you set it. Choose a style to set it up for Social, Chasing, Contest or Portable operating."), small,
-                               NSFontWeightRegular, NSColor.secondaryLabelColor)];
+                               NSFontWeightRegular, theme::faint())];
     }
     // The last change of style.
     if (lastStyleChange) {
@@ -5944,7 +6185,7 @@ void showStyleInfo() {
         NSTextField *h = label(ADIFString(heading), small, NSFontWeightSemibold, NSColor.labelColor);
         [parts addObject:h];
         [parts addObject:label(rows.count > 1 ? TP(@"{n} setting changed", @"{n} settings changed", (long long)rows.count - 1) : T(@"Nothing on the map changed"),
-                               small, NSFontWeightRegular, NSColor.secondaryLabelColor)];
+                               small, NSFontWeightRegular, theme::faint())];
         if (rows.count > 1) [parts addObject:table(rows, @"map.operatingStyle.changes")];
     }
     // Its buttons.
@@ -6106,7 +6347,7 @@ void showWatchButton(const ADIFMapHit &h) {
     bool on = onWatchList(token);
     mw.watchButton.title = on ? T(@"Watching") : T(@"Watch");
     mw.watchButton.image = [NSImage imageWithSystemSymbolName:on ? @"star.fill" : @"star" accessibilityDescription:nil];
-    mw.watchButton.contentTintColor = on ? NSColor.systemYellowColor : nil;
+    mw.watchButton.contentTintColor = on ? theme::markColour(@"star.fill") : nil;  // the watch list's yellow
     mw.actions.needsLayout = YES;  // its title's width too
     mw.watchButton.toolTip = [ADIFString(on ? trf("{what} is on your watch list; click to stop watching it", {{"what", token}})
                                             : trf("Watch {what}: when it is spotted, it shows in My watch list, first among the spots, and under the bell",
@@ -6166,7 +6407,7 @@ void showWatchList(NSView *anchor) {
                                       @"shows in My watch list (Live's Quick Views), first among the spots with a star, and under the bell at "
                                       @"the top. Watch in the selected panel adds what you chose.")];
         help.font = theme::small();
-        help.textColor = NSColor.secondaryLabelColor;
+        help.textColor = theme::faint();
         help.translatesAutoresizingMaskIntoConstraints = NO;
         NSView *content = [[NSView alloc] initWithFrame:NSZeroRect];
         content.identifier = @"map.watch";
@@ -6222,7 +6463,7 @@ void fillBell() {
     mw.bell.image = [NSImage imageWithSystemSymbolName:unseen ? @"bell.badge.fill" : n ? @"bell.fill" : @"bell" accessibilityDescription:nil];
     mw.bell.title = n ? ADIFString(grouped(n)) : @"";
     mw.bell.imagePosition = n ? NSImageLeading : NSImageOnly;
-    mw.bell.contentTintColor = unseen || stale ? NSColor.systemOrangeColor : nil;
+    mw.bell.contentTintColor = unseen || stale ? theme::warning() : nil;
     std::string tip = n ? trp("{n} station on your watch list is spotted now", "{n} stations on your watch list are spotted now", (long long)n)
                         : tr("None of your watch list is spotted now");
     if (stale) tip += "\n" + tr("No new spots for 15 minutes or more: the feeds may have stopped");
@@ -6585,8 +6826,10 @@ bool stepList(int by) {
 
 bool mapShortcut(NSEvent *e) {
     NSEventModifierFlags mods = e.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask & ~(NSEventModifierFlagNumericPad | NSEventModifierFlagFunction);
-    if (mods != NSEventModifierFlagCommand) return false;
     NSString *k = e.charactersIgnoringModifiers.lowercaseString;
+    if ([k isEqualToString:@"g"] && (mods == NSEventModifierFlagCommand || mods == (NSEventModifierFlagCommand | NSEventModifierFlagShift)))
+        return stepOpportunity(mods & NSEventModifierFlagShift ? -1 : 1);  // as Find Next and Find Previous
+    if (mods != NSEventModifierFlagCommand) return false;
     ADIFMapHit h = mw.view.selectedHit;
     if ([k isEqualToString:@"]"] || [k isEqualToString:@"["]) return stepList([k isEqualToString:@"]"] ? 1 : -1);
     if ([k isEqualToString:@"\r"]) {
@@ -6733,7 +6976,7 @@ void cmdMap() {
         auto heading = [](NSString *text, NSFontWeight weight) {  // a column's or a section's title
             NSTextField *t = ADIFLabel(text);
             t.font = theme::small(weight);
-            t.textColor = NSColor.secondaryLabelColor;
+            t.textColor = theme::faint();
             return t;
         };
         // A sub-card of the Layers section: an outlined card in the card, its header opening and closing it (remembered).
@@ -7036,14 +7279,14 @@ void cmdMap() {
         mw.watchEdit.image = [NSImage imageWithSystemSymbolName:@"star" accessibilityDescription:nil];
         mw.watchEdit.imagePosition = NSImageLeading;
         mw.watchEdit.identifier = @"map.watch.edit";
-        // Spots: their filters, Refresh, and one station's spots only (who heard it, as on PSKReporter's map).
-        mw.spotsOnly = ADIFCheckbox(@"Only spots of", flag("mapSpotsOnly", false));
-        mw.spotsOnly.toolTip = T(@"Show only this station's spots, each with every station that heard it: who is hearing you, as on PSKReporter's "
-                                 @"map. PSKReporter is asked about this callsign while it is ticked");
+        // Who hears a station (More Filters' Spots): its spots turned around, as on PSKReporter's map.
+        mw.spotsOnly = ADIFCheckbox(@"Show who hears", flag("mapSpotsOnly", false));
+        mw.spotsOnly.toolTip = T(@"Turn the spots around: the stations that heard this one (you, when the callsign is empty), each where it is with "
+                                 @"a line to it, as on PSKReporter's map. PSKReporter is asked about this callsign while it is on");
         mw.spotsOnly.identifier = @"map.spots.only";
         mw.spotsOnlyCall = [NSTextField textFieldWithString:ADIFString(setting("mapSpotsOnlyCall"))];
         mw.spotsOnlyCall.placeholderString = setting("stationCall").empty() ? T(@"callsign") : ADIFString(setting("stationCall"));
-        mw.spotsOnlyCall.toolTip = T(@"The station whose spots to show; empty: your callsign (Your Station)");
+        mw.spotsOnlyCall.toolTip = T(@"The station whose listeners to show; empty: your callsign (Your Station)");
         mw.spotsOnlyCall.identifier = @"map.spots.onlyCall";
         ((NSTextFieldCell *)mw.spotsOnlyCall.cell).sendsActionOnEndEditing = YES;
         [mw.spotsOnlyCall.widthAnchor constraintEqualToConstant:110].active = YES;
@@ -7071,9 +7314,14 @@ void cmdMap() {
         mw.moreFilters.identifier = @"map.filter.more";
         mw.clearFilters = smallButton(@"Clear", @"Show every QSO again: all bands, modes, dates and places (and in Live, every spot)", ^{
             for (NSPopUpButton *p in @[ mw.band, mw.mode, mw.dates, mw.confirmed ]) [p selectItemAtIndex:0];
-            if (live()) {  // every spot again: any program (POTA's own in POTA) and source too
+            if (live()) {  // every spot again: any program (POTA's own in POTA), source and country too
                 setSetting("mapSpotsProgram", workflow() == 3 ? "POTA" : "");
                 setSetting("mapSpotsHidden", "");
+                setSetting("mapSpotsDxOnly", "0");
+                setSetting("mapSpotsStations", "");
+                setSetting("mapSpotsSpotters", "");
+                saveFlag("mapSpotsOnly", false);
+                if (mw.filterPopover) fillPlaceControls();
                 fillSpotsPopover();
                 if (mw.spotLens > 0) chooseQuickView(0);
                 else refreshSpots();
@@ -7195,7 +7443,7 @@ void cmdMap() {
         listScroll.borderType = NSBezelBorder;
         mw.listHint = [NSTextField labelWithString:@""];  // one line in the list's footer; all of it as its tooltip
         mw.listHint.font = theme::small();
-        mw.listHint.textColor = NSColor.secondaryLabelColor;
+        mw.listHint.textColor = theme::faint();
         mw.listHint.lineBreakMode = NSLineBreakByTruncatingTail;
         [mw.listHint setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow - 1 forOrientation:NSLayoutConstraintOrientationHorizontal];
         mw.listHint.identifier = @"map.list.hint";
@@ -7469,7 +7717,7 @@ void cmdMap() {
         [mw.workflow setImage:[NSImage imageWithSystemSymbolName:@"scope" accessibilityDescription:nil] forSegment:2];
         [mw.workflow setImage:[NSImage imageWithSystemSymbolName:@"leaf" accessibilityDescription:nil] forSegment:3];
         [mw.workflow setToolTip:T(@"DX Chase: Live for the DXCC entities and bands you need: their spots first (Needed on its band), plain DX "
-                                  @"spots, the grey line. It keeps its own settings")
+                                  @"spots, none from your own country, the grey line. It keeps its own settings")
                      forSegment:2];
         [mw.workflow setToolTip:T(@"POTA: Live for the parks: the POTA activators spotted, every park with those you worked, no DXCC shading. "
                                   @"It keeps its own settings")
@@ -7586,7 +7834,7 @@ void cmdMap() {
         mw.synced = [NSButton buttonWithTitle:@"" target:nil action:nil];
         mw.synced.bordered = NO;
         mw.synced.font = theme::small();
-        mw.synced.contentTintColor = NSColor.secondaryLabelColor;
+        mw.synced.contentTintColor = theme::faint();
         mw.synced.image = [NSImage imageWithSystemSymbolName:@"arrow.triangle.2.circlepath" accessibilityDescription:nil];
         mw.synced.imagePosition = NSImageLeading;
         mw.synced.identifier = @"map.synced";
@@ -7765,8 +8013,6 @@ void cmdMap() {
         // Spots (Live's): the layer's boxes, their sources and filters, one station's spots.
         NSStackView *spotsLine = line(@[ mw.spotsButton, mw.refreshSpotsButton ]);
         [spotsLine setCustomSpacing:4 afterView:mw.spotsButton];
-        NSStackView *onlyLine = line(@[ mw.spotsOnly, mw.spotsOnlyCall ]);
-        [onlyLine setCustomSpacing:4 afterView:mw.spotsOnly];
         // Map: palette, quick views, colours and projection.
         NSMutableArray *swatches = [NSMutableArray array];
         NSArray<NSString *> *paletteTips = @[
@@ -7909,7 +8155,7 @@ void cmdMap() {
             if (mw.layerGroupCards[ADIFString(n)]) setLayerGroupOpen(ADIFString(n), false);
         NSArray<NSView *> *sectionViews = @[
             section(@"views", N(@"Quick Views"), @"bookmark", viewsBody),
-            mw.spotsSection = section(@"spots", N(@"Spots"), @"antenna.radiowaves.left.and.right", rows(@[ mw.heatBox, mw.overlay[kLayerSpots], spotsLine, onlyLine, mw.watchEdit ], 8)),
+            mw.spotsSection = section(@"spots", N(@"Spots"), @"antenna.radiowaves.left.and.right", rows(@[ mw.heatBox, mw.overlay[kLayerSpots], spotsLine, mw.watchEdit ], 8)),
             section(@"layers", N(@"Layers"), @"square.3.stack.3d", layerSection), section(@"map", N(@"Map"), @"map", mapRows)
         ];
         mw.spotsSection.hidden = !live();
@@ -8029,7 +8275,13 @@ void cmdMap() {
         actions.plain = YES;
         actions.centred = YES;
         actions.identifier = @"map.actions";
-        for (NSView *v in @[ mw.centerButton, mw.viewQso, mw.watchButton ]) [actions addSubview:v];
+        mw.nextButton = smallButton(@"Next Opportunity", @"The next spot in Chasing's order: what each brings your log, weighed (\u2318G; \u21E7\u2318G the one before)",
+                                    ^{ stepOpportunity(1); });
+        mw.nextButton.image = [NSImage imageWithSystemSymbolName:@"arrow.forward.circle" accessibilityDescription:nil];
+        mw.nextButton.imagePosition = NSImageLeading;
+        mw.nextButton.identifier = @"map.next";
+        mw.nextButton.hidden = YES;
+        for (NSView *v in @[ mw.centerButton, mw.viewQso, mw.watchButton, mw.nextButton ]) [actions addSubview:v];
         mw.actions = actions;
         mw.useSpot.controlSize = NSControlSizeLarge;  // the panel's one main action: a system push button, tinted green
         mw.useSpot.bezelStyle = NSBezelStyleRounded;
@@ -8046,7 +8298,7 @@ void cmdMap() {
         titleRow.detachesHiddenViews = YES;
         mw.chosenSubtitle = [NSTextField labelWithString:@""];
         mw.chosenSubtitle.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize + 1];
-        mw.chosenSubtitle.textColor = NSColor.secondaryLabelColor;
+        mw.chosenSubtitle.textColor = theme::faint();
         mw.chosenSubtitle.lineBreakMode = NSLineBreakByTruncatingTail;
         mw.chosenSubtitle.identifier = @"map.chosen.subtitle";
         mw.chosenFacts = [NSGridView gridViewWithNumberOfColumns:2 rows:0];
@@ -8081,7 +8333,7 @@ void cmdMap() {
         detailsSection.open = flag("mapDetailsOpen", false);
         detailsSection.onToggle = ^(BOOL open) { saveFlag("mapDetailsOpen", open); };
         mw.detailsSection = detailsSection;
-        mw.status.textColor = NSColor.secondaryLabelColor;  // the description, under the facts
+        mw.status.textColor = theme::faint();  // the description, under the facts
         NSButton *closeChosen = smallButton(@"Hide", @"Hide this panel (the button at the right of the header shows it again)", ^{ showPane(2, false); });
         iconOnly(closeChosen, @"xmark");
         closeChosen.bordered = NO;
@@ -8200,7 +8452,7 @@ void cmdMap() {
         mapButton(home, @"house", N(@"Home"));
         mw.zoomLabel.font = theme::digits(10, NSFontWeightMedium);
         mw.zoomLabel.alignment = NSTextAlignmentCenter;
-        mw.zoomLabel.textColor = NSColor.secondaryLabelColor;
+        mw.zoomLabel.textColor = theme::faint();
         NSBox *navRule = [[NSBox alloc] initWithFrame:NSZeroRect];
         navRule.boxType = NSBoxSeparator;
         [navRule.widthAnchor constraintEqualToConstant:24].active = YES;
@@ -8233,7 +8485,7 @@ void cmdMap() {
         // The status bar: what the map shows (the feeds' health in Live), then what is under the pointer.
         mw.hover = [NSTextField labelWithString:@""];
         mw.hover.font = theme::small();
-        mw.hover.textColor = NSColor.secondaryLabelColor;
+        mw.hover.textColor = theme::faint();
         mw.hover.lineBreakMode = NSLineBreakByTruncatingTail;
         [mw.hover setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
         mw.hover.identifier = @"map.hover";
@@ -8412,7 +8664,7 @@ void cmdLiveMap() {
 
 // Start Logging's Map: Live, All spots of the last five minutes, plain DX (no POTA parks, no
 // activators at them: the toolbar's program menu brings them back), at 2.5× about the Home View
-// you set, or about where the map is.
+// you set, or about where the map is (your station when that can't be told yet).
 void showForLogging() {
     if (!mw.window) return;
     if (workflow() != 1) switchWorkflow(1);
@@ -8428,7 +8680,11 @@ void showForLogging() {
         double lon = 0, lat = 0, zoom = 0;
         std::vector<std::string> home = splitSetting("mapHomeView", ',');
         if (home.size() == 3) lon = std::atof(home[0].c_str()), lat = std::atof(home[1].c_str());
-        else if (![mw.view viewLon:&lon lat:&lat zoom:&zoom]) return;
+        else if (![mw.view viewLon:&lon lat:&lat zoom:&zoom]) {
+            [mw.view.window.contentView layoutSubtreeIfNeeded];  // docked, its frame just resized: laid out with the console first
+            // Still no room to tell where it is (a frame just made): about your station instead.
+            if (![mw.view viewLon:&lon lat:&lat zoom:&zoom] && (mw.home.empty() || !adif::gridToLatLon(mw.home, &lat, &lon))) return;
+        }
         [mw.view showLon:lon lat:lat zoom:2.5];
         updateZoomLabel();
     });
@@ -8512,6 +8768,41 @@ void detailChanged() {
 
 void documentChanged() {
     if (mw.window && mw.window.visible) refresh();
+}
+
+bool nextOpportunity(int step) { return stepOpportunity(step); }
+
+void qsoLogged(const std::string &call) { advanceAfterLog(call); }
+
+std::vector<ChaseLine> chaseLines(const std::string &call, const std::string &freqMHz, const std::string &mode) {
+    return chaseLinesFor(call, freqMHz, mode);
+}
+
+std::string stationHome() { return mw.home; }
+
+bool spotPlaceFor(const std::string &call, double *lat, double *lon, std::string *grid) {
+    if (call.empty()) return false;
+    for (const ADIFMapSpot &m : mw.view.spots)  // newest first
+        if (!m.spot.heardMe && adif::sameStation(m.spot.activator, call)) {
+            *lat = m.lat, *lon = m.lon, *grid = m.spot.grid;
+            return true;
+        }
+    return false;
+}
+
+std::vector<std::pair<std::string, std::string>> spotInfoFor(const std::string &call, size_t most) {
+    std::vector<std::pair<std::string, std::string>> out;
+    if (call.empty()) return out;
+    const std::vector<ADIFMapSpot> &spots = mw.view.spots;  // newest first
+    for (size_t i = 0; i < spots.size(); ++i) {
+        if (spots[i].spot.heardMe || !adif::sameStation(spots[i].spot.activator, call)) continue;
+        ADIFMapHit h;
+        h.kind = ADIFMapHit::Spot, h.index = i;
+        for (const ADIFInfoRow &r : spotInfo(h))
+            if (!r.heading && !r.label.empty() && out.size() < most) out.push_back({r.label, r.value});
+        break;
+    }
+    return out;
 }
 
 }  // namespace worldmap

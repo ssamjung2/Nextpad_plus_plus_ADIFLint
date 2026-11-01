@@ -59,4 +59,12 @@ upload-qrz upload-qrz
 import-qrz import-qrz
 bulk-edit bulk-edit
 compare compare
+docs-operating-console operating-console
+clocks clocks
+qso-details qso-details
+contact-map-spot contact-map
+aids-social operating-aids
+map-filters-spots more-filters-spots
+map-spots map-spots
+map-style-chasing map-chasing
 EOF
