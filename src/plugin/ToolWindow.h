@@ -70,7 +70,7 @@ void ADIFBlockMenuItem(NSMenuItem *item, void (^block)(void));
 
 @interface ADIFToolWindow : NSObject <NSTableViewDataSource, NSTableViewDelegate, NSWindowDelegate, NSTextFieldDelegate, NSMenuDelegate>
 
-@property(nonatomic, readonly) NSPanel *window;
+@property(nonatomic, readonly) NSWindow *window;  // a floating panel, or a normal window (initWithTitle:...normal:)
 @property(nonatomic, copy) void (^onActivateRow)(NSInteger row);  // double-click
 @property(nonatomic, copy) void (^onSelectionChanged)(void);  // the user changed the selection (never for restores)
 @property(nonatomic, copy) void (^onTicksChanged)(void);
@@ -83,8 +83,12 @@ void ADIFBlockMenuItem(NSMenuItem *item, void (^block)(void));
 // last either way. Unset: ADIFNaturalCompare.
 @property(nonatomic, copy) int (^compareCells)(size_t column, const std::string &a, const std::string &b);
 
-// `headline`: reserve a line of large text above the status.
+// `headline`: reserve a line of large text above the status. A floating panel (a tool beside the
+// log); `normal`: a normal window instead, for what you type into and keep open while operating
+// (HIG: no typing in floating panels): it stays in sight when you switch apps and minimizes to
+// the Dock.
 - (instancetype)initWithTitle:(NSString *)title size:(NSSize)size headline:(BOOL)headline;
+- (instancetype)initWithTitle:(NSString *)title size:(NSSize)size headline:(BOOL)headline normal:(BOOL)normal;
 
 - (void)setTarget:(NSString *)text;  // e.g. "Log: US-7929.adi"
 - (NSView *)addOptionRow:(NSArray<NSView *> *)views;  // hide the returned row to remove it from the layout

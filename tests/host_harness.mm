@@ -955,6 +955,7 @@ int main(int argc, char **argv) {
             [panelsMenu performActionForItemAtIndex:[panelsMenu indexOfItem:panelItem(@"logtable")]];
             pump(0.3);
             NSWindow *table = windowTitled(@"Log Table");
+            bool tableNormal = table && ![table isKindOfClass:NSPanel.class] && (table.styleMask & NSWindowStyleMaskMiniaturizable);
             NSString *openTitle = panelItem(@"logtable").title;
             [panelsMenu performActionForItemAtIndex:[panelsMenu indexOfItem:panelItem(@"logtable")]];
             pump(0.3);
@@ -964,6 +965,7 @@ int main(int argc, char **argv) {
                       [panelItem(@"map").title isEqualToString:windowIdentified(@"map.window").visible ? @"Hide Map" : @"Show Map"],  // the welcome's Settings is the Map's
                   "the Panels menu in Logging & Operating: seven panels, Show or Hide as each is (%s, then %s), the Log Table opened and closed",
                   closedTitle.UTF8String, openTitle.UTF8String);
+            CHECK(tableNormal, "the Log Table: a normal window (its cells are typed in), which minimizes to the Dock");
             {  // Map Style: a panel, from the Panels menu; Settings: a window of its own (the welcome's). Both were cards in the Map.
                 bool mapWas = windowIdentified(@"map.window").visible;
                 [panelsMenu performActionForItemAtIndex:[panelsMenu indexOfItem:panelItem(@"mapstyle")]];
@@ -8191,6 +8193,12 @@ int main(int argc, char **argv) {
                     NSWindow *console = windowTitled(@"Operating Console");
                     NSWindow *spotsW = windowTitled(@"Activations & Spots"), *qsoW = qsoWindow();
                     std::string chasingPanels = infoPanels();
+                    NSWindow *bulkLike = nil;
+                    for (NSWindow *w in NSApp.windows)
+                        if ([w isKindOfClass:NSPanel.class] && [w respondsToSelector:NSSelectorFromString(@"dockItem")] && [[w valueForKey:@"dockItem"] intValue] == 0) bulkLike = w;
+                    CHECK(spotsW && ![spotsW isKindOfClass:NSPanel.class] && (spotsW.styleMask & NSWindowStyleMaskMiniaturizable) &&
+                              (!bulkLike || ((NSPanel *)bulkLike).floatingPanel),
+                          "Activations & Spots: a normal window (its filters are typed in); the task windows stay floating panels");
                     CHECK(console.visible && dockedIn(mapw) == console && dockedIn(spotsW) == console && dockedIn(qsoW) == console &&
                               chasingPanels == "Its panels: Chasing: the Map over the spots, New QSO beside them",
                           "Arrange Panels: Chasing opens the console with the Map over the spots and New QSO beside them (%s)", chasingPanels.c_str());

@@ -307,6 +307,9 @@ alone doesn't express); panes inside a panel may use `NSSplitViewItem` where it 
   `interestSymbol` and `markColour`, so the Map and QSO Details agree. Colours that name a kind
   of thing rather than a state (the map's markers, its badges, the Contact Map's drawing) keep
   their own.
+- **After Phase F** (2026-11-01): the Log Table and Activations & Spots are normal windows
+  (`ADIFToolWindow initWithTitle:size:headline:normal:`), as section 1's rule for typing-heavy
+  panels has it; the task windows stay floating panels.
 - **Phase F** (2026-11-01): Settings is a window of its own (`settings.window`, "ADIF Lint
   Settings"), no longer a card in the Map; Settings... no longer opens the Map. **Map Style** (the
   Style Options card) is an operating panel: registry id `mapstyle`, dock item `kDockMapStyle`,

@@ -406,7 +406,7 @@ static NSSize sizeOf(NSView *v, CGFloat width) {
 @end
 
 @implementation ADIFToolWindow {
-    NSPanel *_window;
+    NSWindow *_window;
     NSTextField *_target, *_headline, *_status;
     NSLayoutConstraint *_targetTop, *_targetGap, *_targetHeight;
     NSStackView *_options;
@@ -436,16 +436,30 @@ static NSSize sizeOf(NSView *v, CGFloat width) {
 }
 
 - (instancetype)initWithTitle:(NSString *)title size:(NSSize)size headline:(BOOL)headline {
+    return [self initWithTitle:title size:size headline:headline normal:NO];
+}
+
+- (instancetype)initWithTitle:(NSString *)title size:(NSSize)size headline:(BOOL)headline normal:(BOOL)normal {
     if (!(self = [super init])) return nil;
     _actions = [NSMutableArray array];
-    _window = [[ADIFDockPanel alloc] initWithContentRect:NSMakeRect(0, 0, size.width, size.height)
-                                         styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
-                                                   NSWindowStyleMaskResizable
-                                           backing:NSBackingStoreBuffered
-                                             defer:YES];
+    NSRect rect = NSMakeRect(0, 0, size.width, size.height);
+    if (normal) {
+        _window = [[ADIFDockWindow alloc] initWithContentRect:rect
+                                                    styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable |
+                                                              NSWindowStyleMaskMiniaturizable
+                                                      backing:NSBackingStoreBuffered
+                                                        defer:YES];
+        _window.tabbingMode = NSWindowTabbingModeDisallowed;
+    } else {
+        NSPanel *panel = [[ADIFDockPanel alloc] initWithContentRect:rect
+                                                          styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable
+                                                            backing:NSBackingStoreBuffered
+                                                              defer:YES];
+        panel.floatingPanel = YES;
+        panel.hidesOnDeactivate = YES;
+        _window = panel;
+    }
     _window.title = T(title);
-    _window.floatingPanel = YES;
-    _window.hidesOnDeactivate = YES;
     _window.releasedWhenClosed = NO;
     _window.delegate = self;
     _window.contentMinSize = NSMakeSize(MIN(size.width, 520), MIN(size.height, 320));
@@ -534,7 +548,7 @@ static NSSize sizeOf(NSView *v, CGFloat width) {
     return self;
 }
 
-- (NSPanel *)window {
+- (NSWindow *)window {
     return _window;
 }
 

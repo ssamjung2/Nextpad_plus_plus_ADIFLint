@@ -2724,9 +2724,9 @@ namespace logtools {
 
 void cmdPotaSpots() {
     if (!spots.w) {
-        ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"Spots" size:NSMakeSize(1060, 520) headline:NO];
+        ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"Spots" size:NSMakeSize(1060, 520) headline:NO normal:YES];  // its filters are typed in
         spots.w = w;
-        ((ADIFDockPanel *)w.window).dockItem = kDockSpots;
+        ((NSWindow<ADIFDockable> *)w.window).dockItem = kDockSpots;
         w.window.title = T(@"Activations & Spots");
         [[NSNotificationCenter defaultCenter] addObserverForName:NSWindowWillCloseNotification  // closed (or its frame): the Map's button follows
                                                           object:w.window
@@ -2816,9 +2816,9 @@ void showRecordInTable(size_t start) {
 
 void cmdLogTable() {
     if (!table.w) {
-        ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"Log Table" size:NSMakeSize(980, 560) headline:NO];
+        ADIFToolWindow *w = [[ADIFToolWindow alloc] initWithTitle:@"Log Table" size:NSMakeSize(980, 560) headline:NO normal:YES];  // its cells are edited
         table.w = w;
-        ((ADIFDockPanel *)w.window).dockItem = kDockLog;
+        ((NSWindow<ADIFDockable> *)w.window).dockItem = kDockLog;
         [[NSNotificationCenter defaultCenter] addObserverForName:NSWindowWillCloseNotification  // closed (or its frame): the Map's button follows
                                                           object:w.window
                                                            queue:nil
