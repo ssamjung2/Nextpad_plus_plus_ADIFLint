@@ -316,7 +316,7 @@ NSDictionary *textAttrs(CGFloat size, NSFontWeight weight, NSColor *colour) {
                     size_t n = _s.hourWeekday[d][h];
                     NSRect cell = NSMakeRect(margin + axis + h * cellW, y + d * cellH, cellW, cellH);
                     if (draw) {  // a 2-point gap between cells; an empty one a faint neutral that recedes, never the scale's first step
-                        (n ? rampColour((double)n / (double)most, dark) : [NSColor.labelColor colorWithAlphaComponent:dark ? 0.06 : 0.05]).set;
+                        [(n ? rampColour((double)n / (double)most, dark) : [NSColor.labelColor colorWithAlphaComponent:dark ? 0.06 : 0.05]) set];
                         [[NSBezierPath bezierPathWithRoundedRect:NSInsetRect(cell, 1, 1) xRadius:2 yRadius:2] fill];
                     }
                     char hours[32];

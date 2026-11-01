@@ -93,7 +93,7 @@
 
 
 #ifndef ADIFLINT_VERSION
-#define ADIFLINT_VERSION "1.9.0"
+#define ADIFLINT_VERSION "1.10.0"
 #endif
 
 static const char kPluginName[] = "ADIF Lint";

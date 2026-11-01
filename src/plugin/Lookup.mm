@@ -952,7 +952,11 @@ void ADIFHamqthSendQso(NSString *agent, NSString *json, BOOL replace, void (^don
                 if (!err && status == 401 && !retried) {  // the token ran out: sign in again, once
                     retried = YES;
                     hamqthToken = nil;
+                    // The block holds itself to try again; every way it ends sets attempt to nil, which lets it go.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-retain-cycles"
                     attempt();
+#pragma clang diagnostic pop
                     return;
                 }
                 attempt = nil;

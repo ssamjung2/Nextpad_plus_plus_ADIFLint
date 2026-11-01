@@ -9,6 +9,8 @@ Versions before 0.8.0 were development builds and were not published.
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-11-01
+
 ### Added
 
 - **Chasing's ranked opportunities** (operating styles, Stage 4): every spot that brings your log something is weighed by what it brings (a new DXCC entity, the watch list, a new band, an IOTA group, a new mode, a POTA park, an unconfirmed entity whose station uses LoTW), explained in words with how fresh it is, and ranked in a fixed order; duplicates and your own signal never are. The spots list and Situation's Wanted now use the order. **Next Opportunity** (the selected panel, ⌘G, ⇧⌘G back) steps through it on the map, and in the Chasing style logging a spotted station moves on to the next. Chasing has its own Operating Aids: the opportunity of the call in New QSO, a duplicate warning, a frequency and mode check against the spot, and the next one with Next.
@@ -1003,7 +1005,8 @@ First public release.
 - **Fix Lengths**, as one undo step, and **Count Lengths in Characters**.
 - The `adiflint` command-line tool.
 
-[Unreleased]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.9.0...HEAD
+[Unreleased]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.10.0...HEAD
+[1.10.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.6.0...v1.7.0
