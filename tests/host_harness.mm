@@ -7164,6 +7164,75 @@ int main(int argc, char **argv) {
                             chooseLayout(0);
                             pump(0.3);
                         }
+                        {  // Save Layout As...: the console as it is, the Map's panes too, as a layout of your own; chosen again; deleted
+                            NSMenu *options = layouts.firstObject.menu;
+                            auto item = [&](NSString *ident) -> NSMenuItem * {
+                                [options.delegate menuNeedsUpdate:options];  // as when it opens
+                                for (NSMenuItem *mi in options.itemArray)
+                                    if ([mi.identifier isEqualToString:ident]) return mi;
+                                return nil;
+                            };
+                            auto ini = [&]() {
+                                return [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint.ini"] encoding:NSUTF8StringEncoding error:nil] ?: @"";
+                            };
+                            chooseLayout(8);  // Map over the log, QSO on the right
+                            pump(0.3);
+                            NSButton *sideToggle = (NSButton *)viewWithIdentifier(mapw0.contentView, @"map.sidebar.toggle");
+                            NSView *sidebar = viewWithIdentifier(mapw0.contentView, @"map.sidebar");
+                            if (sideToggle.state == NSControlStateValueOn) [sideToggle performClick:nil];
+                            pump(0.2);
+                            bool sideHidden = sidebar.hidden;
+                            NSMenuItem *saveAs = item(@"org.nextpad.adiflint.layouts.save");
+                            bool canSave = saveAs.enabled;
+                            if (saveAs) [options performActionForItemAtIndex:[options indexOfItem:saveAs]];
+                            pump(0.3);
+                            NSWindow *sheet = host.attachedSheet;
+                            NSTextField *name = sheet ? (NSTextField *)viewWithIdentifier(sheet.contentView, @"layouts.name") : nil;
+                            NSButton *ok = sheet ? (NSButton *)viewWithIdentifier(sheet.contentView, @"layouts.save") : nil;
+                            name.stringValue = @"  Test Evening  ";
+                            [[NSNotificationCenter defaultCenter] postNotificationName:NSControlTextDidChangeNotification object:name];
+                            NSString *okTitle = ok.title;
+                            [ok performClick:nil];
+                            pump(0.3);
+                            NSMenuItem *mine = item(@"org.nextpad.adiflint.layouts.mine.Test Evening");
+                            NSString *saved = ini();
+                            CHECK(sideHidden && canSave && sheet && name && [okTitle isEqualToString:@"Save"] && !host.attachedSheet && mine &&
+                                      mine.state == NSControlStateValueOn && [saved containsString:@"consoleLayouts={\"v\":1,\"layouts\":[{\"name\":\"Test Evening\""] &&
+                                      [saved containsString:@"\"selected\":true,\"sidebar\":false}}}}]}"],
+                                  "Save Layout As...: a sheet for its name; the console and the Map's hidden sidebar kept as \"Test Evening\", listed and ticked");
+                            chooseLayout(0);
+                            pump(0.3);
+                            [sideToggle performClick:nil];  // the sidebar shown again outside your layout
+                            pump(0.2);
+                            mine = item(@"org.nextpad.adiflint.layouts.mine.Test Evening");
+                            bool unticked = mine.state == NSControlStateValueOff && !mapw0.visible;
+                            if (mine) [options performActionForItemAtIndex:[options indexOfItem:mine]];
+                            pump(0.5);
+                            CHECK(unticked && mapw0.visible && frameShowing(mapw0) && frameShowing(tw) && frameShowing(qwL) && sidebar.hidden &&
+                                      item(@"org.nextpad.adiflint.layouts.mine.Test Evening").state == NSControlStateValueOn,
+                                  "Your layout chosen: the Map, the log and New QSO back in their frames, the Map's sidebar hidden as it was saved");
+                            if (saveAs) [options performActionForItemAtIndex:[options indexOfItem:saveAs]];
+                            pump(0.3);
+                            sheet = host.attachedSheet;
+                            name = sheet ? (NSTextField *)viewWithIdentifier(sheet.contentView, @"layouts.name") : nil;
+                            ok = sheet ? (NSButton *)viewWithIdentifier(sheet.contentView, @"layouts.save") : nil;
+                            NSString *offered = name.stringValue, *again = ok.title;
+                            [(NSButton *)viewWithIdentifier(sheet.contentView, @"layouts.cancel") performClick:nil];
+                            pump(0.2);
+                            CHECK([offered isEqualToString:@"Test Evening"] && [again isEqualToString:@"Replace"] && !host.attachedSheet,
+                                  "Save Layout As... again: your layout's name offered, Replace; Cancel keeps it as it was (%s, %s)", offered.UTF8String, again.UTF8String);
+                            [sideToggle performClick:nil];
+                            pump(0.2);
+                            NSMenuItem *remove = item(@"org.nextpad.adiflint.layouts.delete");
+                            NSMenuItem *gone = remove.submenu.itemArray.firstObject;
+                            if (gone) [remove.submenu performActionForItemAtIndex:0];
+                            pump(0.2);
+                            CHECK(remove.enabled && [gone.title isEqualToString:@"Test Evening"] && !item(@"org.nextpad.adiflint.layouts.mine.Test Evening") &&
+                                      !item(@"org.nextpad.adiflint.layouts.delete").enabled && ![ini() containsString:@"Test Evening"] && !sidebar.hidden,
+                                  "Delete Layout: your layout gone from the menu and the settings; the console stays as it is");
+                            chooseLayout(0);
+                            pump(0.3);
+                        }
                     }
                     [host performClose:nil];
                     pump(0.2);

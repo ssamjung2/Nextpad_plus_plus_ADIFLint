@@ -29,6 +29,10 @@ bool openLogging();  // restore the focused New QSO, interactive Map and Log Tab
 void abandon();
 void close();
 NSMenuItem *optionsMenuItem();
+// A panel's panes (the Map's "sidebar", "list", "selected") as the console's arrangement keeps
+// them, saved with your layouts: shown unless hidden.
+bool paneShown(const char *panel, const char *pane);
+void setPane(const char *panel, const char *pane, bool shown);
 void retitleMenu();
 // Told when the layout opens or closes.
 void setOnChange(std::function<void(bool active)> onChange);

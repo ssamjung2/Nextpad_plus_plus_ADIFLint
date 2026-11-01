@@ -100,6 +100,25 @@ struct Preset {
 const std::vector<Preset> &presets();  // the console's built-in layouts
 const Preset *preset(std::string_view id);
 
+// Your own layouts (Save Layout As...), each named, in the order saved; kept as one JSON value.
+struct Named {
+    std::string name;
+    Arrangement arrangement;
+};
+// A name as kept: on one line, trimmed, at most 60 characters (whole UTF-8 characters); empty: none.
+std::string cleanName(std::string_view name);
+// The same name, with letter case ignored (ASCII): "Evening" is "evening".
+bool sameName(std::string_view a, std::string_view b);
+std::string writeNamed(const std::vector<Named> &list);
+// What can be read: an entry that isn't sound is left out, not the rest; nothing when it isn't
+// JSON of this version.
+std::vector<Named> readNamed(std::string_view json);
+const Named *findNamed(const std::vector<Named> &list, std::string_view name);
+// The list with `name` kept as `a`: in place of one of that name, else at the end (a name that
+// cleans to nothing changes nothing).
+std::vector<Named> saveNamed(std::vector<Named> list, std::string_view name, const Arrangement &a);
+std::vector<Named> removeNamed(std::vector<Named> list, std::string_view name);
+
 // The settings before arrangements: the console's preset (`layoutPreset`, its index) and what
 // each of its five places showed (`layoutItemsV3`, the dock items 0 none, 1 Map, 2 Log Table,
 // 3 New QSO, 4 Spots, 5 Contact Map, 6 QSO Details); the Map's panes (`mapSidebar`, `mapList`,

@@ -3166,6 +3166,11 @@
   "Add Tab": "Als Tab hinzufügen",
   "Frame actions": "Rahmenaktionen",
   "Frame actions: a panel as a tab here, the tab in front to a frame of its own, close": "Rahmenaktionen: einen Bereich hier als Tab hinzufügen, den vorderen Tab in einen eigenen Rahmen verschieben, schließen",
-  "Move {panel} to Its Own Frame": "{panel} in eigenen Rahmen verschieben"
+  "Move {panel} to Its Own Frame": "{panel} in eigenen Rahmen verschieben",
+  "A layout of your own: the console's panels, tabs and frame sizes as they are now, and the Map's panes. Console Layout Options lists it with the others.": "Eine eigene Anordnung: die Bereiche, Tabs und Rahmengrößen der Konsole, wie sie jetzt sind, und die Seitenbereiche der Karte. Die Optionen der Konsolenanordnung führen sie mit den anderen auf.",
+  "Delete Layout": "Anordnung löschen",
+  "Replace": "Ersetzen",
+  "Save Layout As": "Anordnung sichern unter",
+  "Save Layout As...": "Anordnung sichern unter..."
  }
 }

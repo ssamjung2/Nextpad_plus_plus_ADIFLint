@@ -280,8 +280,13 @@ alone doesn't express); panes inside a panel may use `NSSplitViewItem` where it 
   Frame, Close), so every drag has a command for the keyboard and VoiceOver; the console's
   frame menus, panel names and openers come from the registry (`setOpener` and the console's
   own names retired), and QSO Details is worked out as it opens however it is opened.
-  Next (Phase C): the Layouts menu (Save Layout As…, your own layouts) and the Map's panes in
-  the arrangement.
+- **Phase C** (2026-10-31): your own layouts (`adif::layout::Named`; kept as `consoleLayouts`,
+  read entry by entry so one broken entry loses only itself): Save Layout As... (a sheet on the
+  console; the frame sizes recorded as shares; a name you have used is replaced) and Delete
+  Layout, in Console Layout Options after the built-in layouts. The Map's panes are kept in the
+  arrangement (`workspace::paneShown`/`setPane`); `mapSidebar`, `mapList` and `mapSelected` are
+  moved in once and cleared. A built-in layout keeps the panes as they are; yours brings its own.
+  Next (Phase D): styles as profiles that arrange the panels.
 
 ## Plan
 

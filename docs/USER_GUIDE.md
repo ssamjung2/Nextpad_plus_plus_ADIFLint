@@ -267,7 +267,10 @@ button closes the one in front. The **⋯** button in a frame's header does the 
 keyboard and with VoiceOver: **Add Tab** puts another panel in the frame as a tab (from its own
 frame, or opened into this one), **Move to Its Own Frame** gives the tab in front a frame of its
 own again, and **Close** closes it. Choosing a layout in Console Layout Options, the one ticked
-too, puts every panel back where that layout has it. When every frame is in use, a window you
+too, puts every panel back where that layout has it. **Save Layout As...** keeps the console as
+it is now (its panels, tabs and frame sizes, and whether the Map's sidebar, list and selected
+panel show) as a layout of your own; it is listed after the built-in ones, and **Delete Layout**
+removes it. Saving under a name you have used replaces that layout. When every frame is in use, a window you
 open (the Map, say) opens on its own instead of replacing a frame. The console keeps how you
 arranged it, its tabs and frame sizes, for the next time.
 

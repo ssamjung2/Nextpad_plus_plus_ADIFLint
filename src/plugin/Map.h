@@ -44,6 +44,8 @@ void setSettingsProvider(NSView * (^provider)(void));
 void revealSettings();
 // The Map's own list hidden (true) while the Log Table shows the same records beside it, shown again after.
 void setListSuppressed(bool on);
+// The panes as the console's arrangement has them now (one of your layouts chosen).
+void applyPanes();
 #ifdef __OBJC__
 NSWindow *mapWindow();  // nil before the Map opens
 #endif

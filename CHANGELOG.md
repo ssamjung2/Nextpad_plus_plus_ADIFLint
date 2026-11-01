@@ -12,10 +12,12 @@ Versions before 0.8.0 were development builds and were not published.
 ### Added
 
 - Operating Console: an actions menu (**⋯**) in each frame's header: **Add Tab** puts any panel in the frame as a tab (from another frame, or opened into it), **Move to Its Own Frame** gives the tab in front a frame of its own again (a drag couldn't), and **Close** closes it. Everything a drag does can now be done from the keyboard and with VoiceOver.
+- Operating Console: **your own layouts**. **Save Layout As...** in Console Layout Options keeps the console as it is (its panels, tabs and frame sizes) and the Map's panes under a name; your layouts are listed after the built-in ones, ticked when chosen, and **Delete Layout** removes one. Saving under a name you have used replaces that layout.
 
 ### Changed
 
 - Operating Console: a frame's menu lists the panels in the Panels menu's order, and the console opens each panel as the Panels menu does.
+- Map: whether its sidebar, list and selected panel show is kept with the console's arrangement (and so with your layouts), no longer as settings of their own; how they were is carried over once.
 
 ### Fixed
 

@@ -19,6 +19,7 @@
 #import "Uploads.h"
 #import "ToolWindow.h"
 #import "Workspace.h"
+#include "adif_layout.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include "adif_detail.h"
 #include "adif_beacons.h"
@@ -5061,7 +5062,11 @@ void openRow(const ADIFViewRow &r) {
 
 // ── The panes: the sidebar, the list under the map, the selected panel ──
 
-const char *const kPaneKeys[3] = {"mapSidebar", "mapList", "mapSelected"};
+// The panes by their names in the console's arrangement (adif_layout.h), where they are kept:
+// with your layouts, and for the Map on its own.
+const char *const kPaneNames[3] = {"sidebar", "list", "selected"};
+bool paneWanted(int pane) { return workspace::paneShown(adif::layout::kMap, kPaneNames[pane]); }
+bool gListSuppressed = false;  // the list hidden while the Log Table shows the same records beside the Map
 
 // A pane at the size it was left, else its first size; the sidebar's and the selected panel's
 // together, so that neither squeezes the other. Not saved again as it moves.
@@ -5101,7 +5106,7 @@ void syncPanelButtons() {
 }
 
 void showPane(int pane, bool on) {
-    saveFlag(kPaneKeys[pane], on);
+    workspace::setPane(adif::layout::kMap, kPaneNames[pane], on);
     mw.paneToggle[pane].state = on ? NSControlStateValueOn : NSControlStateValueOff;
     NSView *v = pane == 0 ? mw.sidebar : pane == 1 ? mw.listPanel : mw.selectedPanel;
     bool restored = mw.splitsRestored;
@@ -8271,7 +8276,7 @@ void cmdMap() {
             [mw.sidebar.widthAnchor constraintGreaterThanOrEqualToConstant:mw.splitKeeper.leastSidebar],
             [mw.selectedPanel.widthAnchor constraintGreaterThanOrEqualToConstant:240],
         ]];
-        for (int i = 0; i < 3; ++i) showPane(i, flag(kPaneKeys[i], true));
+        for (int i = 0; i < 3; ++i) showPane(i, paneWanted(i));
         mw.spotLens = live() ? lensOfView(quickView()) : 0;
         [mw.window center];
         // New spots redraw the layer; closing the window stops the feeds.
@@ -8330,7 +8335,7 @@ void cmdMap() {
     if (!mw.splitsRestored) {  // the dividers where they were left: the sidebar's and the selected panel's widths, the list's height
         [mw.window layoutIfNeeded];
         for (int i = 0; i < 3; ++i)
-            if (flag(kPaneKeys[i], true)) restorePane(i);
+            if (paneWanted(i)) restorePane(i);
         mw.splitsRestored = true;
     }
     [mw.window makeFirstResponder:mw.view];
@@ -8388,17 +8393,27 @@ NSWindow *mapWindow() { return mw.window; }
 // The list is out of the way while the Log Table is docked with the Map, and back after (the saved
 // choice of showing it stays as it was).
 void setListSuppressed(bool on) {
-    static bool suppressed = false, wasShown = false;
-    if (!mw.window || !mw.listPanel || on == suppressed) return;
-    suppressed = on;
+    static bool wasShown = false;
+    if (!mw.window || !mw.listPanel || on == gListSuppressed) return;
+    gListSuppressed = on;
     if (on) {
         wasShown = !mw.listPanel.hidden;
         if (wasShown) {
             showPane(1, false);
-            saveFlag(kPaneKeys[1], true);
+            workspace::setPane(adif::layout::kMap, kPaneNames[1], true);  // hidden for now, still wanted
         }
     } else if (wasShown && mw.listPanel.hidden) {
         showPane(1, true);
+    }
+}
+
+void applyPanes() {
+    if (!mw.window) return;
+    for (int i = 0; i < 3; ++i) {
+        NSView *v = i == 0 ? mw.sidebar : i == 1 ? mw.listPanel : mw.selectedPanel;
+        bool want = paneWanted(i);
+        if (i == 1 && gListSuppressed) continue;  // shown again, or not, when the Log Table leaves
+        if (want == v.hidden) showPane(i, want);
     }
 }
 

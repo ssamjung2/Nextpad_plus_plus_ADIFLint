@@ -3166,6 +3166,11 @@
   "Add Tab": "Añadir pestaña",
   "Frame actions": "Acciones del marco",
   "Frame actions: a panel as a tab here, the tab in front to a frame of its own, close": "Acciones del marco: añadir aquí un panel como pestaña, mover la pestaña del frente a un marco propio, cerrar",
-  "Move {panel} to Its Own Frame": "Mover {panel} a un marco propio"
+  "Move {panel} to Its Own Frame": "Mover {panel} a un marco propio",
+  "A layout of your own: the console's panels, tabs and frame sizes as they are now, and the Map's panes. Console Layout Options lists it with the others.": "Una disposición propia: los paneles, pestañas y tamaños de marcos de la consola tal como están ahora, y los paneles laterales del mapa. Opciones de disposición de la consola la muestra con las demás.",
+  "Delete Layout": "Eliminar disposición",
+  "Replace": "Reemplazar",
+  "Save Layout As": "Guardar disposición como",
+  "Save Layout As...": "Guardar disposición como..."
  }
 }

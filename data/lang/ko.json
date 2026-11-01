@@ -3069,6 +3069,11 @@
   "Add Tab": "탭으로 추가",
   "Frame actions": "프레임 동작",
   "Frame actions: a panel as a tab here, the tab in front to a frame of its own, close": "프레임 동작: 여기에 패널을 탭으로 추가, 앞의 탭을 별도 프레임으로 이동, 닫기",
-  "Move {panel} to Its Own Frame": "{panel}을(를) 별도 프레임으로 이동"
+  "Move {panel} to Its Own Frame": "{panel}을(를) 별도 프레임으로 이동",
+  "A layout of your own: the console's panels, tabs and frame sizes as they are now, and the Map's panes. Console Layout Options lists it with the others.": "나만의 레이아웃: 지금 콘솔의 패널, 탭, 프레임 크기와 지도의 창. 콘솔 레이아웃 옵션에 다른 레이아웃과 함께 표시됩니다.",
+  "Delete Layout": "레이아웃 삭제",
+  "Replace": "바꾸기",
+  "Save Layout As": "레이아웃을 다른 이름으로 저장",
+  "Save Layout As...": "레이아웃을 다른 이름으로 저장..."
  }
 }

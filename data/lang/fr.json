@@ -3166,6 +3166,11 @@
   "Add Tab": "Ajouter un onglet",
   "Frame actions": "Actions du cadre",
   "Frame actions: a panel as a tab here, the tab in front to a frame of its own, close": "Actions du cadre : ajouter ici un panneau en onglet, placer l’onglet au premier plan dans son propre cadre, fermer",
-  "Move {panel} to Its Own Frame": "Placer {panel} dans son propre cadre"
+  "Move {panel} to Its Own Frame": "Placer {panel} dans son propre cadre",
+  "A layout of your own: the console's panels, tabs and frame sizes as they are now, and the Map's panes. Console Layout Options lists it with the others.": "Une disposition à vous : les panneaux, onglets et tailles des cadres de la console tels qu’ils sont, et les volets de la carte. Options de disposition de la console la propose avec les autres.",
+  "Delete Layout": "Supprimer la disposition",
+  "Replace": "Remplacer",
+  "Save Layout As": "Enregistrer la disposition sous",
+  "Save Layout As...": "Enregistrer la disposition sous..."
  }
 }

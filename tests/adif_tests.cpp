@@ -4718,6 +4718,27 @@ static void testLayouts() {
     ini["mapSidebar"] = "0", ini["mapList"] = "1";
     Arrangement m = migrate(get);
     CHECK(!paneShown(m, kMap, "sidebar") && paneShown(m, kMap, "list") && paneShown(m, kMap, "selected"), "the Map's panes as they were left");
+
+    // Your own layouts: names cleaned, kept in order, one per name (letter case ignored), written and read back.
+    CHECK(cleanName("  Evening\non 40m  ") == "Evening on 40m" && cleanName("   ").empty() && cleanName(std::string(70, 'x')).size() == 60 &&
+              cleanName(std::string(59, 'x') + "\xC3\xA9\xC3\xA9") == std::string(59, 'x') + "\xC3\xA9",
+          "layout names: one line, trimmed, at most 60 whole characters");
+    std::vector<Named> mine = saveNamed({}, "Evening", act->arrangement);
+    mine = saveNamed(mine, "Contest weekend", preset("qso-log")->arrangement);
+    mine = saveNamed(mine, "evening", setPane(preset("logging")->arrangement, kMap, "list", false));
+    mine = saveNamed(mine, "  ", act->arrangement);
+    CHECK(mine.size() == 2 && mine[0].name == "evening" && mine[0].arrangement == setPane(preset("logging")->arrangement, kMap, "list", false) &&
+              mine[1].name == "Contest weekend" && findNamed(mine, "CONTEST WEEKEND") == &mine[1] && !findNamed(mine, "Morning"),
+          "your layouts: saved again under the same name in its place, a blank name ignored");
+    std::vector<Named> again = readNamed(writeNamed(mine));
+    CHECK(again.size() == 2 && again[0].name == mine[0].name && again[0].arrangement == mine[0].arrangement && again[1].arrangement == mine[1].arrangement,
+          "your layouts written and read back: the same (%s)", writeNamed(mine).c_str());
+    std::vector<Named> partly = readNamed("{\"v\":1,\"layouts\":[{\"name\":\"Bad\",\"layout\":{\"v\":9}},{\"name\":\"Good\",\"layout\":" +
+                                          write(preset("qso-log")->arrangement) + "},{\"layout\":{}},{\"name\":\"good\",\"layout\":" + write(act->arrangement) + "}]}");
+    CHECK(partly.size() == 1 && partly[0].name == "Good" && partly[0].arrangement == preset("qso-log")->arrangement && readNamed("[1]").empty() &&
+              readNamed("{\"v\":2,\"layouts\":[]}").empty(),
+          "your layouts read: an entry not sound left out, a name twice kept once; another version is none");
+    CHECK(removeNamed(mine, "EVENING").size() == 1 && removeNamed(mine, "nope").size() == 2, "your layouts: one removed by name");
 }
 
 static void testOperatingAids() {

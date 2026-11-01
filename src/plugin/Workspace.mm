@@ -893,7 +893,8 @@ void openAuxWindow(int item) {
     NSTextField *_statusText, *_statusClock;
     NSTimer *_clock;
     layout::Arrangement _layout;
-    std::string _presetId;  // the built-in layout it started from (Console Layout Options ticks it)
+    std::string _presetId;  // the layout it started from, built in or yours ("mine:" and its name); Console Layout Options ticks it
+    std::vector<layout::Named> _mine;  // your own layouts (Save Layout As...), kept as `consoleLayouts`
     BOOL _loaded;
     BOOL _active, _batching, _closing, _sizing, _saveQueued;
     std::string _builtShape;  // the tree the frames were built for
@@ -954,12 +955,33 @@ void openAuxWindow(int item) {
     std::string saved = adifhost::setting("consoleLayout");
     std::optional<layout::Arrangement> a = saved.empty() ? std::nullopt : layout::read(saved);
     _layout = a ? *a : layout::migrate([](const std::string &key) { return adifhost::setting(key); });
+    _mine = layout::readNamed(adifhost::setting("consoleLayouts"));
     _presetId = adifhost::setting("consoleLayoutPreset");
-    if (!layout::preset(_presetId)) {
+    if (!saved.empty() && ![self arrangementFor:_presetId]) _presetId.clear();  // yours, since deleted: none ticked
+    if (saved.empty() && !layout::preset(_presetId)) {
         std::string index = adifhost::setting("layoutPreset");
         int i = index.empty() ? 0 : std::clamp(atoi(index.c_str()), 0, (int)layout::presets().size() - 1);
         _presetId = layout::presets()[(size_t)i].id;
     }
+    // The Map's panes, kept on their own before they were part of the arrangement: moved in, once.
+    static const std::pair<const char *, const char *> kOldPanes[] = {{"mapSidebar", "sidebar"}, {"mapList", "list"}, {"mapSelected", "selected"}};
+    bool moved = false;
+    for (const auto &[key, pane] : kOldPanes) {
+        std::string v = adifhost::setting(key);
+        if (v != "0" && v != "1") continue;
+        _layout = layout::setPane(_layout, layout::kMap, pane, v == "1");
+        adifhost::setSetting(key, "");
+        moved = true;
+    }
+    if (moved) [self saveSettings];
+}
+
+// A layout by its id: built in, or yours ("mine:" and its name).
+- (const layout::Arrangement *)arrangementFor:(const std::string &)id {
+    if (const layout::Preset *p = layout::preset(id)) return &p->arrangement;
+    if (id.rfind("mine:", 0) != 0) return nullptr;
+    const layout::Named *n = layout::findNamed(_mine, id.substr(5));
+    return n ? &n->arrangement : nullptr;
 }
 
 - (void)saveSettings {
@@ -1073,21 +1095,24 @@ void openAuxWindow(int item) {
     return [self openPreset:"logging" allowEmptyQso:NO];
 }
 
-// A built-in layout's arrangement, the panes kept as they are.
+// A layout's arrangement: a built-in one keeps the panes as they are; yours brings its own.
 - (void)takePreset:(const std::string &)id {
-    const layout::Preset *p = layout::preset(id);
-    if (!p) return;
+    const layout::Arrangement *a = [self arrangementFor:id];
+    if (!a) return;
+    bool mine = !layout::preset(id);
     auto panes = _layout.panes;
-    _layout = p->arrangement;
-    _layout.panes = panes;
+    _layout = *a;
+    if (!mine) _layout.panes = panes;
     _presetId = id;
+    if (mine) worldmap::applyPanes();
 }
 
 - (BOOL)openPreset:(const std::string &)presetId allowEmptyQso:(BOOL)allowEmptyQso {
     _closing = NO;
     [self loadSettings];
     if (!presetId.empty()) [self takePreset:presetId];
-    if (!layout::inConsole(_layout, layout::kNewQso) && layout::shown(_layout).empty()) [self takePreset:_presetId];  // nothing left: its layout again
+    if (!layout::inConsole(_layout, layout::kNewQso) && layout::shown(_layout).empty())  // nothing left: its layout again
+        [self takePreset:[self arrangementFor:_presetId] ? _presetId : layout::presets()[0].id];
     [self saveSettings];
     [self makeHost];
     _active = YES;
@@ -1325,7 +1350,8 @@ void openAuxWindow(int item) {
 
 // A built-in layout: the panels it doesn't hold closed, those it does opened into their places.
 - (void)applyPreset:(const std::string &)id {
-    if (!layout::preset(id)) return;
+    [self loadSettings];
+    if (![self arrangementFor:id]) return;
     [self loadSettings];
     bool was[kDockCount] = {};
     for (int item = 1; item < kDockCount; ++item) was[item] = [self shows:item];
@@ -1380,11 +1406,11 @@ void openAuxWindow(int item) {
 // shape, else by what each needs.
 - (void)resetSizes:(id)sender {
     [self loadSettings];
-    const layout::Preset *p = layout::preset(_presetId);
-    if (p && shapeOf(p->arrangement.console) == shapeOf(_layout.console)) {
+    const layout::Arrangement *p = [self arrangementFor:_presetId];
+    if (p && shapeOf(p->console) == shapeOf(_layout.console)) {
         auto panes = _layout.panes;
         auto fronts = _layout;
-        _layout = p->arrangement;
+        _layout = *p;
         _layout.panes = panes;
         for (const std::string &id : layout::shown(fronts))  // which tab is in front, as it was
             if (layout::inConsole(fronts, id)) {
@@ -1407,14 +1433,152 @@ void openAuxWindow(int item) {
 
 - (void)menuNeedsUpdate:(NSMenu *)menu {
     [self loadSettings];
+    if (menu == _optionsMenu) [self fillMine];
     for (NSMenuItem *mi in menu.itemArray) {
         if (mi.action == @selector(presetChosen:)) {
             const layout::Preset *p = [self presetOf:mi.tag];
             mi.state = p && p->id == _presetId ? NSControlStateValueOn : NSControlStateValueOff;
         } else if (mi.action == @selector(frameToggled:)) {
             mi.state = layout::inConsole(_layout, panelOf((int)mi.tag)) ? NSControlStateValueOn : NSControlStateValueOff;
+        } else if (mi.action == @selector(mineChosen:)) {
+            mi.state = _presetId == "mine:" + std::string([mi.representedObject UTF8String]) ? NSControlStateValueOn : NSControlStateValueOff;
+        } else if (mi.action == @selector(saveLayoutAs:)) {
+            mi.enabled = _active;  // the console as it is
+        } else if ([mi.identifier isEqualToString:@"org.nextpad.adiflint.layouts.delete"]) {
+            mi.enabled = !_mine.empty();
         }
     }
+}
+
+// Your layouts in the menu: after the built-in ones, and in Delete Layout.
+- (void)fillMine {
+    for (NSMenuItem *mi in [_optionsMenu.itemArray copy])
+        if ([mi.identifier hasPrefix:@"org.nextpad.adiflint.layouts.mine"]) [_optionsMenu removeItem:mi];
+    NSInteger at = (NSInteger)layout::presets().size();
+    if (!_mine.empty()) {
+        NSMenuItem *rule = NSMenuItem.separatorItem;
+        rule.identifier = @"org.nextpad.adiflint.layouts.mine.rule";
+        [_optionsMenu insertItem:rule atIndex:at++];
+    }
+    NSMenu *remove = [[NSMenu alloc] initWithTitle:T(@"Delete Layout")];
+    for (const layout::Named &n : _mine) {
+        NSMenuItem *mi = [[NSMenuItem alloc] initWithTitle:ADIFString(n.name) action:@selector(mineChosen:) keyEquivalent:@""];
+        mi.target = self;
+        mi.representedObject = ADIFString(n.name);
+        mi.identifier = [@"org.nextpad.adiflint.layouts.mine." stringByAppendingString:ADIFString(n.name)];
+        [_optionsMenu insertItem:mi atIndex:at++];
+        NSMenuItem *gone = [remove addItemWithTitle:ADIFString(n.name) action:@selector(deleteChosen:) keyEquivalent:@""];
+        gone.target = self;
+        gone.representedObject = ADIFString(n.name);
+    }
+    for (NSMenuItem *mi in _optionsMenu.itemArray)
+        if ([mi.identifier isEqualToString:@"org.nextpad.adiflint.layouts.delete"]) mi.submenu = remove;
+}
+
+- (void)mineChosen:(NSMenuItem *)sender {
+    if (sender.representedObject) [self applyPreset:"mine:" + std::string([sender.representedObject UTF8String])];
+}
+
+- (void)deleteChosen:(NSMenuItem *)sender {
+    std::string name = [sender.representedObject UTF8String] ?: "";
+    _mine = layout::removeNamed(_mine, name);
+    adifhost::setSetting("consoleLayouts", layout::writeNamed(_mine));
+    if (layout::sameName(_presetId, "mine:" + name)) _presetId.clear();  // none ticked: the console stays as it is
+    [self saveSettings];
+}
+
+// The frames' sizes now, as shares of their splits (saved with a layout; a divider dragged records its own).
+- (void)recordShares:(NSView *)v {
+    if (![v isKindOfClass:NSSplitView.class]) return;
+    NSSplitView *s = (NSSplitView *)v;
+    layout::Node *n = nodeAt(_layout.console, s.identifier ?: @"");
+    double total = 0;
+    for (NSView *k in s.subviews) total += s.isVertical ? NSWidth(k.frame) : NSHeight(k.frame);
+    if (n && n->children.size() == s.subviews.count && total > 0)
+        for (NSUInteger i = 0; i < s.subviews.count; ++i)
+            n->children[i].share = (s.isVertical ? NSWidth(s.subviews[i].frame) : NSHeight(s.subviews[i].frame)) / total;
+    for (NSView *k in s.subviews) [self recordShares:k];
+}
+
+// Save Layout As...: a name for the console as it is, on a sheet; a name you have used replaces that layout.
+- (void)saveLayoutAs:(id)sender {
+    if (!_active || _host.attachedSheet) return;
+    NSWindow *sheet = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 420, 160) styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
+    NSTextField *title = [NSTextField labelWithString:T(@"Save Layout As")];
+    title.font = [NSFont boldSystemFontOfSize:NSFont.systemFontSize];
+    NSTextField *help = [NSTextField wrappingLabelWithString:T(@"A layout of your own: the console's panels, tabs and frame sizes as they are "
+                                                               @"now, and the Map's panes. Console Layout Options lists it with the others.")];
+    help.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    help.textColor = NSColor.secondaryLabelColor;
+    NSTextField *name = ADIFTextField(@"Name, e.g. Evening on 40m", 300);
+    name.identifier = @"layouts.name";
+    if (_presetId.rfind("mine:", 0) == 0) name.stringValue = ADIFString(_presetId.substr(5));  // yours, to save again
+    NSButton *cancel = [NSButton buttonWithTitle:T(@"Cancel") target:nil action:nil];
+    cancel.keyEquivalent = @"\033";
+    cancel.identifier = @"layouts.cancel";
+    NSButton *save = [NSButton buttonWithTitle:T(@"Save") target:nil action:nil];
+    save.keyEquivalent = @"\r";
+    save.identifier = @"layouts.save";
+    __weak ADIFWorkspace *me = self;
+    __weak NSWindow *weakSheet = sheet;
+    auto retitle = [=] {  // Replace when the name is one of yours
+        ADIFWorkspace *ws = me;
+        save.title = ws && layout::findNamed(ws->_mine, layout::cleanName(name.stringValue.UTF8String ?: "")) ? T(@"Replace") : T(@"Save");
+    };
+    retitle();
+    id observer = [NSNotificationCenter.defaultCenter addObserverForName:NSControlTextDidChangeNotification
+                                                                  object:name
+                                                                   queue:nil
+                                                              usingBlock:^(NSNotification *) { retitle(); }];
+    ADIFOnAction(cancel, ^{ [weakSheet.sheetParent endSheet:weakSheet returnCode:NSModalResponseCancel]; });
+    ADIFOnAction(save, ^{
+        ADIFWorkspace *ws = me;
+        std::string clean = layout::cleanName(name.stringValue.UTF8String ?: "");
+        if (!ws || clean.empty()) return NSBeep();
+        [ws keepLayoutAs:clean];
+        [weakSheet.sheetParent endSheet:weakSheet returnCode:NSModalResponseOK];
+    });
+    NSStackView *buttons = [NSStackView stackViewWithViews:@[ cancel, save ]];
+    buttons.spacing = kADIFSpacing;
+    NSStackView *stack = [NSStackView stackViewWithViews:@[ title, help, name, buttons ]];
+    stack.orientation = NSUserInterfaceLayoutOrientationVertical;
+    stack.alignment = NSLayoutAttributeLeading;
+    stack.spacing = 10;
+    stack.edgeInsets = NSEdgeInsetsMake(16, 18, 16, 18);
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    [sheet.contentView addSubview:stack];
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.topAnchor constraintEqualToAnchor:sheet.contentView.topAnchor], [stack.leadingAnchor constraintEqualToAnchor:sheet.contentView.leadingAnchor],
+        [stack.trailingAnchor constraintEqualToAnchor:sheet.contentView.trailingAnchor], [stack.bottomAnchor constraintEqualToAnchor:sheet.contentView.bottomAnchor],
+        [help.widthAnchor constraintEqualToConstant:384], [name.widthAnchor constraintEqualToAnchor:help.widthAnchor],
+    ]];
+    [stack setCustomSpacing:14 afterView:name];
+    [buttons.trailingAnchor constraintEqualToAnchor:help.trailingAnchor].active = YES;
+    sheet.initialFirstResponder = name;
+    ADIFNightTrack(sheet);
+    [_host beginSheet:sheet completionHandler:^(NSModalResponse) { [NSNotificationCenter.defaultCenter removeObserver:observer]; }];
+}
+
+// The console as it is, sizes included, kept as your layout of that name (and ticked).
+- (void)keepLayoutAs:(const std::string &)name {
+    if (_root && layout::shown([self shownLayout]) == layout::shown(_layout)) [self recordShares:_root];
+    _mine = layout::saveNamed(_mine, name, _layout);
+    adifhost::setSetting("consoleLayouts", layout::writeNamed(_mine));
+    _presetId = "mine:" + layout::findNamed(_mine, name)->name;
+    [self saveSettings];
+}
+
+// The panes of a panel (the Map's sidebar, list and selected panel), as the arrangement has them.
+- (BOOL)paneShown:(const char *)panel pane:(const char *)pane {
+    [self loadSettings];
+    return layout::paneShown(_layout, panel, pane);
+}
+
+- (void)setPane:(const char *)panel pane:(const char *)pane shown:(BOOL)on {
+    [self loadSettings];
+    if (layout::paneShown(_layout, panel, pane) == (bool)on && _layout.panes.count(panel) && _layout.panes[panel].count(pane)) return;
+    _layout = layout::setPane(_layout, panel, pane, on);
+    [self saveSettings];
 }
 
 - (NSMenuItem *)optionsMenuItem {
@@ -1427,6 +1591,14 @@ void openAuxWindow(int item) {
         mi.target = self;
         mi.tag = (NSInteger)i;
     }
+    [_optionsMenu addItem:NSMenuItem.separatorItem];
+    NSMenuItem *saveAs = [_optionsMenu addItemWithTitle:T(@"Save Layout As...") action:@selector(saveLayoutAs:) keyEquivalent:@""];
+    saveAs.target = self;
+    saveAs.identifier = @"org.nextpad.adiflint.layouts.save";
+    NSMenuItem *remove = [_optionsMenu addItemWithTitle:T(@"Delete Layout") action:nil keyEquivalent:@""];
+    remove.identifier = @"org.nextpad.adiflint.layouts.delete";
+    remove.submenu = [[NSMenu alloc] initWithTitle:T(@"Delete Layout")];
+    _optionsMenu.autoenablesItems = NO;  // Save Layout As... and Delete Layout as menuNeedsUpdate sets them
     [_optionsMenu addItem:NSMenuItem.separatorItem];
     for (int item : {kDockNewQso, kDockLog, kDockSpots, kDockContactMap, kDockQsoInfo, kDockMap}) {
         NSMenuItem *mi = [_optionsMenu addItemWithTitle:itemName(item) action:@selector(frameToggled:) keyEquivalent:@""];
@@ -1455,6 +1627,10 @@ void openAuxWindow(int item) {
             mi.title = itemName((int)mi.tag);
         else if (mi.action == @selector(resetSizes:))
             mi.title = T(@"Reset Frame Sizes");
+        else if (mi.action == @selector(saveLayoutAs:))
+            mi.title = T(@"Save Layout As...");
+        else if ([mi.identifier isEqualToString:@"org.nextpad.adiflint.layouts.delete"])
+            mi.title = T(@"Delete Layout");
     }
 }
 
@@ -1699,6 +1875,10 @@ void setOnChange(std::function<void(bool)> onChange) { gOnChange = std::move(onC
 bool show(NSWindow<ADIFDockable> *window) { return [ADIFWorkspace.shared dock:window]; }
 
 bool hide(NSWindow<ADIFDockable> *window, bool closing) { return [ADIFWorkspace.shared hide:window closing:closing]; }
+
+bool paneShown(const char *panel, const char *pane) { return [ADIFWorkspace.shared paneShown:panel pane:pane]; }
+
+void setPane(const char *panel, const char *pane, bool shown) { [ADIFWorkspace.shared setPane:panel pane:pane shown:shown]; }
 
 bool visible(NSWindow<ADIFDockable> *window) {
     ADIFWorkspace *ws = ADIFWorkspace.shared;

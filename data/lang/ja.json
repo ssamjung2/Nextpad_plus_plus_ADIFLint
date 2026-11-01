@@ -3069,6 +3069,11 @@
   "Add Tab": "タブとして追加",
   "Frame actions": "フレームの操作",
   "Frame actions: a panel as a tab here, the tab in front to a frame of its own, close": "フレームの操作: ここにパネルをタブとして追加、前面のタブを専用のフレームへ移動、閉じる",
-  "Move {panel} to Its Own Frame": "{panel} を専用のフレームへ移動"
+  "Move {panel} to Its Own Frame": "{panel} を専用のフレームへ移動",
+  "A layout of your own: the console's panels, tabs and frame sizes as they are now, and the Map's panes. Console Layout Options lists it with the others.": "自分用のレイアウト: 今のコンソールのパネル・タブ・フレームサイズと、マップのペイン。コンソールのレイアウトオプションにほかのレイアウトと並んで表示されます。",
+  "Delete Layout": "レイアウトを削除",
+  "Replace": "置き換える",
+  "Save Layout As": "レイアウトに名前を付けて保存",
+  "Save Layout As...": "レイアウトに名前を付けて保存..."
  }
 }
