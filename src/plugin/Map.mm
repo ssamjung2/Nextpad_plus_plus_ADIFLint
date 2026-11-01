@@ -471,7 +471,8 @@ struct {
     NSButton *show[kLayerCount] = {}, *overlay[kLayerCount] = {}, *labels[kLayerCount] = {};  // the layers' boxes (no Show for cities)
     NSButton *contacts = nil, *lines = nil, *mine = nil;
     NSPopUpButton *programs = nil, *projection = nil, *colorBy = nil, *mapPreset = nil, *region = nil;
-    NSView *styleBody = nil;  // Style Options, a card in the selected panel
+    NSView *styleBody = nil;  // Map Style's options
+    NSPanel *styleWindow = nil;  // Map Style: a panel of its own, beside the Map or a tab in the console
     NSTimer *sunTimer = nil;     // day and night, while it shows now
     NSPopUpButton *band = nil, *mode = nil, *dates = nil, *confirmed = nil;
     NSTextField *status = nil, *zoomLabel = nil;
@@ -608,7 +609,6 @@ struct {
     NSButton *parkHome = nil;
     ADIFTokenCompleter *countyCompleter = nil;
     void (^spotHandler)(const std::vector<std::pair<std::string, std::string>> &) = nil;
-    NSView * (^settingsProvider)(void) = nil;  // the Settings card's groups (ADIFLint.mm)
     adif::MapData data;
     std::vector<ADIFMapEntity> dxcc;
     std::vector<size_t> listed;   // the QSOs chosen (the list's Selected): indexes into data.qsos
@@ -2301,10 +2301,8 @@ NSView *buildStyleOptions() {
     return all;
 }
 
-// The Style Options button and menu: the card open and in sight.
-void showStyleOptions() {
-    revealSection(@"style");
-}
+// The Map Style button: its panel shown (Panels.h, as the Panels menu does it).
+void showStyleOptions() { panels::setShown(adif::layout::kMapStyle, true); }
 
 // Home: Settings → Your Station's grid, else the log's most used MY_GRIDSQUARE (`myGrids`: the
 // whole log's, so that the filters, the distance from home among them, can't move it).
@@ -6845,10 +6843,10 @@ void cmdMap() {
         mw.contacts = ADIFCheckbox(@"QSO markers", flag("mapContacts", false));
         mw.contacts.identifier = @"map.contacts";
         mw.contacts.toolTip = T(@"A marker at each contact's own place: its LAT and LON, else a GRIDSQUARE of 6 or 8 characters (a 4-character "
-                              @"square is 100 km or more across: Show grid squares shows those). Style Options chooses pins, dots or crosshairs");
+                              @"square is 100 km or more across: Show grid squares shows those). Map Style chooses pins, dots or crosshairs");
         mw.lines = ADIFCheckbox(@"Contact paths", flag("mapPaths", false));
         mw.lines.identifier = @"map.lines";
-        mw.lines.toolTip = T(@"A great-circle line from your station to each contact, in its marker's colour; Style Options chooses their look");
+        mw.lines.toolTip = T(@"A great-circle line from your station to each contact, in its marker's colour; Map Style chooses their look");
         mw.mine = ADIFCheckbox(@"Home station", flag("mapMine", true));
         mw.mine.identifier = @"map.mine";
         mw.mine.toolTip = T(@"A star at each MY_GRIDSQUARE in the log");
@@ -6932,8 +6930,8 @@ void cmdMap() {
         mw.projection.toolTip = T(@"Equirectangular: the grid as rectangles. Mercator: familiar shapes. Equal Earth: true sizes. Globe: the Earth "
                                 @"as seen from space, centred on your grid; drag (or the arrow keys) to turn it any way, zoom in for detail, "
                                 @"World to come home. Bearings from the centre are true (beam headings)");
-        NSButton *styleButton = smallButton(@"Style Options...", @"Colours, markers, how worked areas are shaded, lines to contacts, the legend, "
-                                                                 @"distance rings, day and night, the grey line",
+        NSButton *styleButton = smallButton(@"Map Style...", @"Map Style: colours, markers, how worked areas are shaded, lines to contacts, the legend, "
+                                                             @"distance rings, day and night, the grey line",
                                             ^{ showStyleOptions(); });
         styleButton.identifier = @"map.style.open";
         mw.mapPreset = pullDown(@"Map Presets", @"Quickly switch to a world, globe or regional view. World and regional presets use Equal Earth; Home returns to your saved view. Map colours and filters are unchanged.");
@@ -7846,9 +7844,9 @@ void cmdMap() {
             });
             return b;
         };
-        mw.greyLineBox = sunBox(@"Grey line", "mapGreyLine", N(@"The band of dawn and dusk round the Earth, where low-band paths open (Style Options: when)"));
+        mw.greyLineBox = sunBox(@"Grey line", "mapGreyLine", N(@"The band of dawn and dusk round the Earth, where low-band paths open (Map Style: when)"));
         mw.greyLineBox.identifier = @"map.greyline";
-        mw.dayNightBox = sunBox(@"Day and night", "mapDayNight", N(@"Night shaded on the map (Style Options: now or at the QSO chosen)"));
+        mw.dayNightBox = sunBox(@"Day and night", "mapDayNight", N(@"Night shaded on the map (Map Style: now or at the QSO chosen)"));
         mw.dayNightBox.identifier = @"map.daynight";
         auto layerBox = [](NSString *title, const char *setting, NSString *tip, NSString *ident) {
             NSButton *b = ADIFCheckbox(title, flag(setting, false));
@@ -8157,15 +8155,33 @@ void cmdMap() {
         awardsCard.open = !flag("mapAwardsClosed", false);
         awardsCard.onToggle = ^(BOOL open) { saveFlag("mapAwardsClosed", !open); };
         mw.awardsSection = awardsCard;
-        NSView *styleCard = section(@"style", N(@"Style Options"), @"paintpalette", buildStyleOptions());
-        ((ADIFAccordion *)styleCard).cardTint = NSColor.blackColor;  // a darker shade of the grey theme
-        NSMutableArray<NSView *> *cards = [NSMutableArray arrayWithArray:@[ chosenCard, situationCard, awardsCard, styleCard ]];
-        if (NSView *settings = mw.settingsProvider ? mw.settingsProvider() : nil)
+        // Map Style: how the map looks, a panel of its own (docs/WINDOWING_ARCHITECTURE.md, decision 4;
+        // it was the Style Options card here): an inspector beside the Map, or a tab in the console.
         {
-            ADIFAccordion *settingsCard = (ADIFAccordion *)section(@"settings", N(@"Settings"), @"gearshape", settings);
-            settingsCard.cardTint = NSColor.blackColor;
-            [cards addObject:settingsCard];
+            NSView *options = buildStyleOptions();
+            NSStackView *page = [NSStackView stackViewWithViews:@[ options ]];
+            page.orientation = NSUserInterfaceLayoutOrientationVertical;
+            page.edgeInsets = NSEdgeInsetsMake(12, 12, 12, 12);
+            [options.widthAnchor constraintEqualToAnchor:page.widthAnchor constant:-24].active = YES;
+            ADIFDockPanel *w = [[ADIFDockPanel alloc] initWithContentRect:NSMakeRect(0, 0, 340, 640)
+                                                                styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable
+                                                                  backing:NSBackingStoreBuffered
+                                                                    defer:YES];
+            w.dockItem = kDockMapStyle;
+            w.title = T(@"Map Style");
+            w.identifier = @"map.style.window";
+            w.releasedWhenClosed = NO;
+            w.floatingPanel = YES;
+            w.hidesOnDeactivate = YES;
+            w.contentMinSize = NSMakeSize(300, 240);
+            w.contentView = scrolling(page, @"map.style.pane", NO);
+            [[NSNotificationCenter defaultCenter] addObserverForName:NSWindowWillCloseNotification  // closed (or its frame): its button follows
+                                                              object:w
+                                                               queue:nil
+                                                          usingBlock:^(NSNotification *) { ADIFPanelShownChanged(); }];
+            mw.styleWindow = w;
         }
+        NSMutableArray<NSView *> *cards = [NSMutableArray arrayWithArray:@[ chosenCard, situationCard, awardsCard ]];
         NSStackView *selectedColumn = cardColumn(cards, "mapPanelOrder");
         mw.selectedPanel = scrolling(selectedColumn, @"map.selected", NO);
 
@@ -8367,6 +8383,23 @@ void cmdMap() {
 
 bool mapShown() { return mw.window && mw.window.visible; }
 
+bool mapStyleShown() { return mw.styleWindow && mw.styleWindow.visible; }
+
+void openMapStyle() {
+    if (!mw.styleWindow) cmdMap();  // made with the Map, whose look it sets
+    ADIFDockPanel *w = (ADIFDockPanel *)mw.styleWindow;
+    if (!w.visible && !w.dockHost) {  // at the Map's top right, as an inspector
+        NSWindow *anchor = ((ADIFMapWindow *)mw.window).dockHost ?: mw.window;
+        NSRect a = anchor.frame;
+        [w setFrameTopLeftPoint:NSMakePoint(std::max(NSMinX(a), NSMaxX(a) - NSWidth(w.frame) - 24), NSMaxY(a) - 70)];
+    }
+    [w makeKeyAndOrderFront:nil];
+}
+
+void closeMapStyle() {
+    if (mapStyleShown()) [mw.styleWindow performClose:nil];  // docked: its frame closes
+}
+
 void closeMap() {
     if (mapShown()) [mw.window performClose:nil];  // docked: its frame closes
 }
@@ -8403,12 +8436,6 @@ void showForLogging() {
 
 void setSpotHandler(void (^handler)(const std::vector<std::pair<std::string, std::string>> &fields)) { mw.spotHandler = handler; }
 
-void setSettingsProvider(NSView * (^provider)(void)) { mw.settingsProvider = provider; }
-
-void revealSettings() {
-    cmdMap();
-    revealSection(@"settings");
-}
 
 NSWindow *mapWindow() { return mw.window; }
 

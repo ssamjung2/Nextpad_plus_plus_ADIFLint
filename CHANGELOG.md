@@ -17,6 +17,8 @@ Versions before 0.8.0 were development builds and were not published.
 
 ### Changed
 
+- **Settings** is a window of its own, **ADIF Lint Settings**, as Apple's guidelines have app-wide settings (it was a card in the Map's selected panel): Settings… in the menu, the Map's gear and every "add one in Settings" open it at the section that needs you, and no longer open the Map.
+- **Map Style** (it was Style Options, a card in the Map's selected panel) is a panel of its own: the Map's palette button and **Panels → Show Map Style** open it beside the Map, and in the Operating Console it can be a tab beside the Map. Tooltips that pointed to Style Options name Map Style.
 - Operating Console: a frame's menu lists the panels in the Panels menu's order, and the console opens each panel as the Panels menu does.
 - Start Contest opens the Operating Console in the Contest layout (New QSO over the log, the Map beside them) instead of the logging one.
 - Operating Console: the Map's own list is hidden while the spots' table is beside it too (as with the Log Table); where its list shows, the Map's frame is at least tall enough for it.

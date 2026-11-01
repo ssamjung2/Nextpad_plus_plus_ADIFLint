@@ -1,7 +1,7 @@
 # Windowing and UI Architecture
 
-Status: **accepted direction** (2026-10-31), every decision made (see the end).
-Nothing here is built yet beyond what "Where we are" describes.
+Status: **accepted direction** (2026-10-31), every decision made (see the end); phases A to F
+built (2026-11-01, see Progress). "Where we are" describes the starting point.
 
 ## Purpose
 
@@ -304,7 +304,12 @@ alone doesn't express); panes inside a panel may use `NSSplitViewItem` where it 
   on every docked panel. Popovers are hosted through `theme::hostPopover` (two were missed
   before). Not yet: the semantic colours at the older call sites, which keep the system colours
   they name.
-  Next (Phase F): content moves (Map Settings to Settings, the Map Style panel).
+- **Phase F** (2026-11-01): Settings is a window of its own (`settings.window`, "ADIF Lint
+  Settings"), no longer a card in the Map; Settings... no longer opens the Map. **Map Style** (the
+  Style Options card) is an operating panel: registry id `mapstyle`, dock item `kDockMapStyle`,
+  an `ADIFDockPanel` made with the Map, opened by the Map's palette button and the Panels menu,
+  dockable as a tab beside the Map. Not yet: Settings' sections as panels of their own, and
+  Operating Aids as a panel (section 8), for when they are wanted.
 
 ## Plan
 

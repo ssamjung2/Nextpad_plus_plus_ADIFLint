@@ -161,7 +161,7 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
   **grey line**.
 - **Map Detail**: OpenStreetMap's streets, buildings and place names for a state, a country
   or the area in view, downloaded once from Protomaps' build and drawn offline.
-- **Style Options**: **Colour by** confirmation, band (PSKReporter's colours), mode, QSO
+- **Map Style**: **Colour by** confirmation, band (PSKReporter's colours), mode, QSO
   count or year, with a legend; palettes include **Colour-blind safe** (tested under
   simulated colour blindness), **Light** for printing and **Night (red)**; **terrain**,
   **country flags**, large map text and hatching for what isn't confirmed. **Export PNG**

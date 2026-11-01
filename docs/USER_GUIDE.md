@@ -44,7 +44,7 @@ makes to your log is one undo step, and nothing is saved to disk until you save 
   [moving around](#moving-around), [the list](#the-list-the-qsos-chosen-and-whats-in-view),
   [the selected panel](#the-selected-panel-and-the-situation),
   [space weather and propagation](#space-weather-and-propagation), [the watch list](#the-watch-list),
-  [Map Detail](#map-detail-streets-and-buildings), [Style Options and export](#style-options-and-export)
+  [Map Detail](#map-detail-streets-and-buildings), [Map Style and export](#map-style-and-export)
 - [Activations: POTA, WWFF and SOTA](#activations-pota-wwff-and-sota)
 - [Editing the whole log](#editing-the-whole-log): [Sort and Organize](#sort-and-organize)
 - [Importing and exporting](#importing-and-exporting)
@@ -790,9 +790,9 @@ goes full screen with the green button):
   click opens QSL Sync), **Find** (a call, a grid
   square, a DXCC entity or a POTA park: Return chooses it on the map, or offers a menu when
   several match; a call chooses your QSOs with it, or its spot), the **bell** (see
-  [The watch list](#the-watch-list)), **Style Options** (the palette: its card in the selected
-  panel), **Export PNG** (the arrow out of a box), **Settings** (the gear: its card in the
-  selected panel) and **Help** (this guide, in your browser). The window's title names the
+  [The watch list](#the-watch-list)), **Map Style** (the palette: its panel), **Export PNG**
+  (the arrow out of a box), **Settings** (the gear: the Settings window) and **Help** (this
+  guide, in your browser). The window's title names the
   log too.
 - **The toolbar**, in the order Apple's guidelines give: at the far left the **sidebar** button
   (beside the sidebar it shows or hides), then the operating style (see
@@ -839,7 +839,7 @@ goes full screen with the green button):
     [Layers](#layers-worked-all-and-labels)), then
     **Contacts** (QSO markers, contact paths, your home station), **Sun and propagation**
     (the grey line, day and night, the aurora and the NCDXF beacons) and **Base map**
-    (**Terrain**, subtle or strong; see [Style Options and export](#style-options-and-export)).
+    (**Terrain**, subtle or strong; see [Map Style and export](#map-style-and-export)).
     Each group (**Worked areas**, **Programs**, **Places**, **Contacts**, **Sun and
     propagation**, **Base map**) is a card of its own inside the card, closing on its own
     with its heading.
@@ -849,15 +849,15 @@ goes full screen with the green button):
     descriptions. **Colour by** and the projection pop-up also explain their choices on hover.
 - **The map**, with the zoom buttons at its top left: **+**, the zoom, **−**, then
   **Home**, **Fit Log** and **World** (see [Moving around](#moving-around)). The legend is
-  at its top right (Style Options can put it at the bottom left), a distance scale at its
+  at its top right (Map Style can put it at the bottom left), a distance scale at its
   bottom left; a map lower than its room sits at the top.
 - **Under the map**, [the list](#the-list-the-qsos-chosen-and-whats-in-view), its tabs
   saying how many each has.
 - **On the right**, the selected panel, in cards as the sidebar is: **Selected** and
   **Situation** (see [the selected panel and the situation](#the-selected-panel-and-the-situation)),
-  **Awards** (in History; see the same section), then **Style Options** (see [Style Options
-  and export](#style-options-and-export)) and **Settings** (see [Settings](#settings)), both
-  closed until you open them.
+  **Awards** (in History; see the same section). Map Style and Settings, cards here before,
+  are a panel and a window of their own (see [Map Style and export](#map-style-and-export) and
+  [Settings](#settings)).
 - **The status bar**, under the map: what the map shows, then what is under the pointer (or a
   hint for the workflow you're in). In History, the QSOs and the dates they span; in Live, the
   stations spotted and when a feed last brought spots. While the filters keep fewer, it says
@@ -931,7 +931,7 @@ Where a QSO counts on each layer:
 - **CQ zones** and **ITU zones**: the QSO's CQZ or ITUZ, else where the QSO was, else the
   zone the country data gives its call.
 
-**Style Options → Other areas** sets how strongly they are shaded.
+**Map Style → Other areas** sets how strongly they are shaded.
 
 ### Contacts
 
@@ -940,7 +940,7 @@ The **Contacts** group, under the layers:
 - **QSO markers**: a marker at each contact's own place (see
   [contacts and their places](#contacts-and-their-places)).
 - **Contact paths**: a great-circle line from your station to each contact, in the
-  colour of the contact's marker (see [Style Options](#style-options-and-export)).
+  colour of the contact's marker (see [Map Style](#map-style-and-export)).
 - **Home station**: a star at each MY_GRIDSQUARE.
 
 **Other programs** (**Others**, in the Programs group of the layers): its name is a list with a colour and
@@ -1106,7 +1106,7 @@ PSKReporter's reports of your own station come from the programs you run that up
 of 6 or 8 characters. A 4-character square is 100 km or more across, so **Grid squares**
 shows those instead. QSOs at the same place share one marker. Point at one for the calls,
 where the place came from and how far it is from home, or click it to list its QSOs.
-**Style Options** chooses pins, dots or crosshairs.
+**Map Style** chooses pins, dots or crosshairs.
 
 ![Europe in the Mercator projection, with country outlines and names and a pin at each contact](images/map-europe.png)
 
@@ -1164,7 +1164,7 @@ its layer shows):
   outline came from. An outline matched by name (PAD-US's, for US parks) is dashed and says
   which PAD-US unit it is ("Outline: PAD-US, matched by name: Rock Cave State Natural Area"),
   so a doubtful one is easy to spot. The sources are credited at the bottom right of the map.
-  To see the outlines without the badges on them, choose **Style Options → POTA parks →
+  To see the outlines without the badges on them, choose **Map Style → POTA parks →
   Parks with an outline: Outline only**: a park whose outline is big enough to see is then
   just its outline and its label; zoomed further out, where the outline would be too small,
   it gets its badge back.
@@ -1206,11 +1206,11 @@ Spots follow it too:
 - **By band** and **by mode**, their own band and mode.
 - **By QSO count** and **by year**, your QSOs with that call (grey: none).
 
-The spotters' lines take their spot's colour (Style Options can make them faint or grey),
+The spotters' lines take their spot's colour (Map Style can make them faint or grey),
 and the spot's information box says what it means for the log ("For this log: new band for
 Sov Mil Order of Malta (40m)").
 
-**Style Options** has five palettes: **Standard**, **Colour-blind safe**, **High contrast**,
+**Map Style** has five palettes: **Standard**, **Colour-blind safe**, **High contrast**,
 **Light** for printing, and **Night (red)**. The sidebar's Map section has them too, a
 swatch each (its sea, land, confirmed and worked colours): one click changes the map.
 
@@ -1380,7 +1380,7 @@ The panel on the right shows what you clicked (pointing only describes it, in th
 - **Its name and kind**: a call and frequency, a park, a square, a DXCC entity, an area, a
   beacon, with a badge (**Live spot**, **QSO**, **DXCC entity**, **POTA park**, **NCDXF
   beacon**…) and a line under it (its entity, grid and distance, or its DXCC number and QSOs).
-  A station's call or an entity's name has its country's flag before it (Style Options →
+  A station's call or an entity's name has its country's flag before it (Map Style →
   Country flags).
 - **Its facts**, each with its symbol. For a spot: the frequency in MHz with its band, the
   mode, the operator's **Name**, the signal (in dB, and who measured it: an RBN skimmer or PSKReporter), the spotter
@@ -1548,10 +1548,12 @@ once downloaded, the detail works offline. The data is © OpenStreetMap contribu
 the [Open Database License](https://www.openstreetmap.org/copyright): keep the files for
 your own use; if you pass them on, the licence goes with them.
 
-### Style Options and export
+### Map Style and export
 
-**Style Options** is a card in the selected panel (the header's palette button opens it, and
-shows the panel if it is hidden). In it, each group is a card of its own, closed at first,
+**Map Style** is a panel of its own (it was the Style Options card in the selected panel):
+the header's palette button opens it beside the Map, **Panels → Show Map Style** does too, and
+in the Operating Console it can sit as a tab beside the Map (the frame's **⋯ → Add Tab**). In
+it, each group is a card of its own, closed at first,
 its heading saying what is chosen in it (such as "Dashed · Thick · Medium" for the lines), so
 you can find the setting you want without opening them all. Each choice applies at once and
 is kept; **Reset to Defaults** puts them all back (the layers stay as they are).
@@ -1956,8 +1958,9 @@ Rules for every source:
 
 ## Settings
 
-Settings is a card in the Map's selected panel: **Settings…** in the ADIF Lint menu, the gear
-in the Map's header, and every "add one in Settings" open the Map with it. Each section is a
+Settings is a window of its own, **ADIF Lint Settings** (it was a card in the Map's selected
+panel): **Settings…** in the ADIF Lint menu, the gear in the Map's header, and every "add one in
+Settings" open it, at the section that needs you. Each section is a
 card of its own, closed until you open it, its heading saying what is set in it (your call
 and grid, "3 of 4 on", **Saved** or **not set** for an account), so the one you want is quick
 to find. The first time ADIF Lint runs, it opens with a welcome and Your Station open.
@@ -2107,7 +2110,7 @@ only listens to the programs on your Mac. The setting is kept until you turn it 
 
 **Night Mode** (ticked in the ADIF Lint menu) keeps your night vision: every ADIF Lint
 window and popover goes dark and red (the Map, New QSO, Settings, the Log Table, the Spots
-window and the rest), and the Map takes its **Night (red)** palette; Style Options' palette
+window and the rest), and the Map takes its **Night (red)** palette; Map Style's palette
 choice comes back when you turn it off. The setting is kept.
 
 A plugin can't recolour Nextpad++'s own windows, its menus or the menu bar. For the whole

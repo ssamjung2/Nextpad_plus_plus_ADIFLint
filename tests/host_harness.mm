@@ -488,22 +488,14 @@ static NSView *viewWithIdentifier(NSView *v, NSString *ident) {
         if (NSView *f = viewWithIdentifier(s, ident)) return f;
     return nil;
 }
-// Settings: the Map's Settings card (the Map's window), and done with it (the card closed again).
+// Settings: its own window (it was a card in the Map), and done with it (the window closed).
 static NSWindow *settingsWindow() {
     for (NSWindow *w in NSApp.windows)
-        if ([w.identifier isEqualToString:@"map.window"] && viewWithIdentifier(w.contentView, @"settings")) return w;
+        if ([w.identifier isEqualToString:@"settings.window"] && viewWithIdentifier(w.contentView, @"settings")) return w;
     return nil;
 }
-static void doneWithSettings() {
-    NSWindow *w = settingsWindow();
-    NSControl *h = w ? (NSControl *)viewWithIdentifier(w.contentView, @"map.section.settings") : nil;
-    if ([[h valueForKey:@"open"] boolValue]) [h performClick:nil];
-}
-// Done with Settings outside the Map's own tests: the Map closed, as a user would close it.
-static void closeSettings() {
-    doneWithSettings();
-    [settingsWindow() orderOut:nil];
-}
+static void doneWithSettings() { [settingsWindow() orderOut:nil]; }
+static void closeSettings() { doneWithSettings(); }
 // A Settings group open ("settings.station", "settings.source.7"...), laid out.
 static void openSettingsGroup(NSWindow *w, NSString *ident) {
     NSControl *h = w ? (NSControl *)viewWithIdentifier(w.contentView, [ident stringByAppendingString:@".header"]) : nil;
@@ -966,12 +958,28 @@ int main(int argc, char **argv) {
             NSString *openTitle = panelItem(@"logtable").title;
             [panelsMenu performActionForItemAtIndex:[panelsMenu indexOfItem:panelItem(@"logtable")]];
             pump(0.3);
-            CHECK(panelsAt > menuIndexWithIdentifier(operating) && panelsAt < menuIndexWithIdentifier(map) && panelsMenu.numberOfItems == 6 &&
+            CHECK(panelsAt > menuIndexWithIdentifier(operating) && panelsAt < menuIndexWithIdentifier(map) && panelsMenu.numberOfItems == 7 &&
                       [closedTitle isEqualToString:@"Show Log Table"] && table.visible == NO && [openTitle isEqualToString:@"Hide Log Table"] &&
                       [panelItem(@"logtable").title isEqualToString:@"Show Log Table"] &&
                       [panelItem(@"map").title isEqualToString:windowIdentified(@"map.window").visible ? @"Hide Map" : @"Show Map"],  // the welcome's Settings is the Map's
-                  "the Panels menu in Logging & Operating: six panels, Show or Hide as each is (%s, then %s), the Log Table opened and closed",
+                  "the Panels menu in Logging & Operating: seven panels, Show or Hide as each is (%s, then %s), the Log Table opened and closed",
                   closedTitle.UTF8String, openTitle.UTF8String);
+            {  // Map Style: a panel, from the Panels menu; Settings: a window of its own (the welcome's). Both were cards in the Map.
+                bool mapWas = windowIdentified(@"map.window").visible;
+                [panelsMenu performActionForItemAtIndex:[panelsMenu indexOfItem:panelItem(@"mapstyle")]];
+                pump(0.3);
+                NSWindow *styleW = windowIdentified(@"map.style.window");
+                bool shown = styleW.visible && viewWithIdentifier(styleW.contentView, @"map.style") && [panelItem(@"mapstyle").title isEqualToString:@"Hide Map Style"];
+                [panelsMenu performActionForItemAtIndex:[panelsMenu indexOfItem:panelItem(@"mapstyle")]];
+                pump(0.3);
+                NSWindow *setW = windowIdentified(@"settings.window"), *mapW = windowIdentified(@"map.window");
+                CHECK(shown && !styleW.visible && [panelItem(@"mapstyle").title isEqualToString:@"Show Map Style"] && setW &&
+                          [setW.title isEqualToString:@"ADIF Lint Settings"] && viewWithIdentifier(setW.contentView, @"settings") &&
+                          !viewWithIdentifier(mapW.contentView, @"map.group.settings") && !viewWithIdentifier(mapW.contentView, @"map.group.style"),
+                      "Map Style: a panel, shown and hidden from the Panels menu; Settings: a window of its own; no card of either in the Map");
+                if (!mapWas) [mapW performClose:nil];  // as it was
+                pump(0.2);
+            }
         }
         NSMenuItem *preferencesMenu = menuIndexWithIdentifier(@"org.nextpad.adiflint.section.preferences") >= 0
                                           ? [pluginMenu itemAtIndex:menuIndexWithIdentifier(@"org.nextpad.adiflint.section.preferences")]
@@ -4347,7 +4355,7 @@ int main(int argc, char **argv) {
                     return nil;
                 };
                 NSString *awards = card(@"awards").hidden ? @"(awards)" : @"awards";  // not showing without a log, or in Live
-                NSString *sideFirst = @"views,(spots),layers,map", *panelFirst = [NSString stringWithFormat:@"selected,situation,%@,style,settings", awards];
+                NSString *sideFirst = @"views,(spots),layers,map", *panelFirst = [NSString stringWithFormat:@"selected,situation,%@", awards];
 
                 CHECK(side && panel && [NSStringFromClass(side.class) isEqualToString:@"ADIFCardColumn"] && [NSStringFromClass(panel.class) isEqualToString:@"ADIFCardColumn"] &&
                           [order(side) isEqualToString:sideFirst] && [order(panel) isEqualToString:panelFirst] && saved(@"mapSidebarOrder").length == 0 &&
@@ -4529,7 +4537,7 @@ int main(int argc, char **argv) {
                           now.UTF8String, scrollLine, viaScroll, order(side).UTF8String, saved(@"mapSidebarOrder").UTF8String);
                 }
                 {  // A card of the other column, or anything else, is not taken: no drop, no line; the panel takes its own.
-                    pickUp(@"style");
+                    pickUp(@"situation");
                     NSDragOperation other = over(side, where(@"layers", 0.75));
                     bool noLine = !lineOf(side);
                     bool refused = ![(id<NSDraggingDestination>)side prepareForDragOperation:info] && !drop(side);
@@ -4538,34 +4546,33 @@ int main(int argc, char **argv) {
                     NSDragOperation nothing = over(side, where(@"layers", 0.75));
                     [fake.draggingPasteboard clearContents];
                     NSDragOperation empty = over(side, where(@"layers", 0.75));
-                    pickUp(@"settings");
-                    NSDragOperation own = over(panel, where(@"situation", 0.25));
-                    bool line = inGap(lineOf(panel), @"selected", @"situation");
+                    pickUp(@"situation");
+                    NSDragOperation own = over(panel, where(@"selected", 0.25));
+                    bool line = lineOf(panel) != nil;
                     bool ok = drop(panel);
                     pump(0.4);
                     NSString *now = order(panel), *keep = saved(@"mapPanelOrder");
-                    NSString *expected = [NSString stringWithFormat:@"selected,settings,situation,%@,style", awards];
+                    NSString *expected = [NSString stringWithFormat:@"situation,selected,%@", awards];
                     CHECK(other == NSDragOperationNone && noLine && refused && nothing == NSDragOperationNone && empty == NSDragOperationNone && own == NSDragOperationMove &&
-                              line && ok && [now isEqualToString:expected] && [keep isEqualToString:@"selected,settings,situation,awards,style"] &&
+                              line && ok && [now isEqualToString:expected] && [keep isEqualToString:@"situation,selected,awards"] &&
                               [order(side) isEqualToString:sideFirst] && saved(@"mapSidebarOrder").length == 0 && stacked(panel),
-                          "The sidebar takes only its own cards (%ld, %d, %d, %ld, %ld); Settings dragged above Situation: line (%d), dropped (%d): %s (kept %s)",
+                          "The sidebar takes only its own cards (%ld, %d, %d, %ld, %ld); Situation dragged above Selected: line (%d), dropped (%d): %s (kept %s)",
                           (long)other, noLine, refused, (long)nothing, (long)empty, line, ok, now.UTF8String, keep.UTF8String);
-                    choose(@"settings", @"Reset Card Order");
-                    bool top = choose(@"style", @"Move to Top");
+                    choose(@"situation", @"Reset Card Order");
+                    bool top = choose(@"situation", @"Move to Top");
                     NSString *topNow = order(panel), *topKeep = saved(@"mapPanelOrder");
-                    NSString *topFirst = [NSString stringWithFormat:@"style,selected,situation,%@,settings", awards];
-                    bool reset = choose(@"style", @"Reset Card Order");
+                    NSString *topFirst = [NSString stringWithFormat:@"situation,selected,%@", awards];
+                    bool reset = choose(@"situation", @"Reset Card Order");
                     CHECK(top && [topNow isEqualToString:topFirst] &&
-                              [topKeep isEqualToString:@"style,selected,situation,awards,settings"] && reset && [order(panel) isEqualToString:panelFirst] &&
+                              [topKeep isEqualToString:@"situation,selected,awards"] && reset && [order(panel) isEqualToString:panelFirst] &&
                               saved(@"mapPanelOrder").length == 0 && stacked(panel),
-                          "The panel: Style moved to the top (%s, kept %s), and Reset Card Order (%s)", topNow.UTF8String, topKeep.UTF8String, order(panel).UTF8String);
+                          "The panel: Situation moved to the top (%s, kept %s), and Reset Card Order (%s)", topNow.UTF8String, topKeep.UTF8String, order(panel).UTF8String);
                     [fake.draggingPasteboard releaseGlobally];
                 }
                 {  // A drag held near the bottom of what shows scrolls the panel down, near the top up; neither once it has moved away or ended.
                     NSClipView *clip = panelScroll.contentView;
-                    NSControl *styleHeader = header(@"style");
-                    bool wasOpen = [[styleHeader valueForKey:@"open"] boolValue];
-                    if (!wasOpen) [styleHeader performClick:nil];
+                    NSRect wasFrame = mapw.frame;
+                    [mapw setContentSize:mapw.contentMinSize];  // short enough for the panel's cards to scroll
                     pump(0.3);
                     [clip scrollToPoint:NSZeroPoint];
                     [panelScroll reflectScrolledClipView:clip];
@@ -4591,7 +4598,7 @@ int main(int argc, char **argv) {
                           down, room, stopped, up);
                     [clip scrollToPoint:NSZeroPoint];
                     [panelScroll reflectScrolledClipView:clip];
-                    if (!wasOpen) [styleHeader performClick:nil];
+                    [mapw setFrame:wasFrame display:YES];
                     pump(0.2);
                     [fake.draggingPasteboard releaseGlobally];
                 }
@@ -4745,7 +4752,7 @@ int main(int argc, char **argv) {
             NSButton *styleOpen = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.style.open");
             NSPopUpButton *programsMenu = findPopupWith(mapw.contentView, @"Show All");
             NSPopUpButton *regionMenu = (NSPopUpButton *)viewWithIdentifier(mapw.contentView, @"map.region");
-            CHECK(proj && colour && [styleOpen.title isEqualToString:@"Style Options..."] && !findPopupWith(mapw.contentView, @"Legend") &&
+            CHECK(proj && colour && [styleOpen.title isEqualToString:@"Map Style..."] && !findPopupWith(mapw.contentView, @"Legend") &&
                       programsMenu && regionMenu && (NSButton *)viewWithIdentifier(mapw.contentView, @"map.lines") &&
                       [proj itemAtIndex:3].enabled &&
                       [[proj itemAtIndex:3].title isEqualToString:@"Globe from EN52WA"],
@@ -4765,16 +4772,14 @@ int main(int argc, char **argv) {
                     if ([i.title hasPrefix:prefix]) return i.state == NSControlStateValueOn;
                 return false;
             };
-            // Style Options: a card in the selected panel, opened by its button; its controls by identifier (map.style.<name>).
+            // Map Style: a panel of its own (it was the Style Options card), opened by its button; its controls by identifier (map.style.<name>).
+            auto styleWindow = [&]() { return windowIdentified(@"map.style.window"); };
             auto stylePanel = [&]() -> NSView * {
                 [styleOpen performClick:nil];
-                NSView *card = viewWithIdentifier(mapw.contentView, @"map.group.style");
-                return card && !card.hidden ? viewWithIdentifier(card, @"map.style") : nil;
+                NSWindow *w = styleWindow();
+                return w.visible ? viewWithIdentifier(w.contentView, @"map.style") : nil;
             };
-            auto closeStyle = [&]() {  // the card closed again
-                NSControl *h = (NSControl *)viewWithIdentifier(mapw.contentView, @"map.section.style");
-                if ([[h valueForKey:@"open"] boolValue]) [h performClick:nil];
-            };
+            auto closeStyle = [&]() { [styleWindow() orderOut:nil]; };  // the panel closed again
             auto style = [&](NSString *name) {
                 NSView *v = stylePanel();
                 return v ? (NSControl *)viewWithIdentifier(v, [@"map.style." stringByAppendingString:name]) : nil;
@@ -4855,7 +4860,7 @@ int main(int argc, char **argv) {
                 CHECK(overlaps(sp) == 0 && style(@"palette") && style(@"dayNight") && style(@"reset") &&
                           NSMaxX([sp convertRect:sp.bounds toView:nil]) <= NSMaxX([panel convertRect:panel.bounds toView:nil]),
                       "Style Options: a card in the selected panel, its groups within it, with no overlaps (%d)", overlaps(sp));
-                snapshotView(viewWithIdentifier(mapw.contentView, @"map.group.style"), "map-style-options");
+                snapshotView(viewWithIdentifier(windowIdentified(@"map.style.window").contentView, @"map.style.pane"), "map-style-options");
             } else {
                 CHECK(false, "Style Options opens");
             }
@@ -6139,7 +6144,7 @@ int main(int argc, char **argv) {
                     setBox(mapBox(@"show", @"states"), false), setBox(mapBox(@"overlay", @"states"), false);
                     setBox(mapBox(@"overlay", @"grid"), true);
                 }
-                snapshotView(viewWithIdentifier(mapw.contentView, @"map.group.style"), "map-style");
+                snapshotView(viewWithIdentifier(windowIdentified(@"map.style.window").contentView, @"map.style.pane"), "map-style");
                 closeStyle();
             }
             {  // At its smallest the header and the panes fit, the map keeps its room; nothing overlaps or runs off the window.
@@ -6688,7 +6693,7 @@ int main(int argc, char **argv) {
                 if (mapw) snapshot(mapw, "map-spotters");
                 if (NSView *sp = stylePanel()) {
                     CHECK(overlaps(sp) == 0, "Style Options with Spots: no overlaps (%d)", overlaps(sp));
-                    snapshotView(viewWithIdentifier(mapw.contentView, @"map.group.style"), "map-style-spots");
+                    snapshotView(viewWithIdentifier(windowIdentified(@"map.style.window").contentView, @"map.style.pane"), "map-style-spots");
                 }
                 {
                     NSString *ini = [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint.ini"]
@@ -6702,6 +6707,7 @@ int main(int argc, char **argv) {
                     styleSet(@"spotFade", true);
                 // Settings → Spots: PSKReporter around the grid square; switching doesn't ask again within five minutes.
                 run("Settings...");
+                openSettingsGroup(setw, @"settings.spots");  // its status line, in Settings' own window
                 NSPopUpButton *pskQuery = (NSPopUpButton *)viewWithIdentifier(setw.contentView, @"settings.spots.pskQuery");
                 CHECK(pskQuery.numberOfItems == 4, "Settings offers PSKReporter by callsign, around the grid square, the ARRL section's region or the state");
                 [pskQuery selectItemAtIndex:1];
@@ -6735,8 +6741,8 @@ int main(int argc, char **argv) {
                 };
                 NSView *stylew = stylePanel();
                 NSControl *palettePick = style(@"palette");
-                CHECK(nightOn(mapw) && nightOn(setw) && [stylew isDescendantOf:mapw.contentView] && palettePick && !palettePick.enabled,
-                      "Night Mode: the Map, Settings and Style Options red on black; the palette set by it");
+                CHECK(nightOn(mapw) && nightOn(setw) && stylew && nightOn(styleWindow()) && palettePick && !palettePick.enabled,
+                      "Night Mode: the Map, Settings and Map Style red on black; the palette set by it");
                 [(NSButton *)viewWithIdentifier(mapw.contentView, @"map.spots.open") performClick:nil];
                 pump(0.2);
                 NSView *spotsContent = popoverView(@"map.spots");
@@ -7202,6 +7208,31 @@ int main(int argc, char **argv) {
                                   qsoOn, mapOn, alone, filtersAbove(call), filtersAbove(workflow));
                             [mapw0 performClose:nil];
                             pump(0.2);
+                        }
+                        {  // Map Style as a tab beside the Map in the console (the frame's Add Tab), then closed
+                            chooseLayout(8);
+                            pump(0.3);
+                            NSView *mapFrame = frameShowing(mapw0);
+                            NSPopUpButton *more = mapFrame ? (NSPopUpButton *)viewWithIdentifier(mapFrame, @"frame.actions") : nil;
+                            [more.menu.delegate menuNeedsUpdate:more.menu];
+                            NSMenuItem *addTab = nil;
+                            for (NSMenuItem *mi in more.menu.itemArray)
+                                if ([mi.identifier isEqualToString:@"frame.actions.addTab"]) addTab = mi;
+                            NSInteger styleAt = [addTab.submenu indexOfItemWithTitle:@"Map Style"];
+                            if (styleAt >= 0) [addTab.submenu performActionForItemAtIndex:styleAt];
+                            pump(0.4);
+                            NSWindow *styleW = windowIdentified(@"map.style.window");
+                            NSView *tabbed = frameShowing(styleW);
+                            NSArray *items = [tabbed valueForKey:@"items"];
+                            CHECK(styleAt >= 0 && [styleW valueForKey:@"dockHost"] == host && tabbed && items.count == 2 && !frameShowing(mapw0) &&
+                                      viewWithIdentifier(tabbed, @"map.style"),
+                                  "Map Style as a tab in the Map's frame: in front, the Map behind its tab");
+                            [styleW performClose:nil];  // its frame's tab closes
+                            pump(0.3);
+                            CHECK(!styleW.visible && frameShowing(mapw0) && [[frameShowing(mapw0) valueForKey:@"items"] count] == 1,
+                                  "Map Style closed: the Map alone in its frame again");
+                            chooseLayout(0);
+                            pump(0.3);
                         }
                         {  // Save Layout As...: the console as it is, the Map's panes too, as a layout of your own; chosen again; deleted
                             NSMenu *options = layouts.firstObject.menu;

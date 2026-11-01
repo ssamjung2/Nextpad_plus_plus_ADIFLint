@@ -2902,9 +2902,58 @@ static void ensureSettings() {
 }
 
 // Settings: the Map's Settings card, with that source's group open (-1 none in particular).
-static void openSettings(NSInteger source) {
+// Settings: app-wide preferences in a window of their own (HIG Settings; they were a card in the
+// Map's selected panel), the groups scrolling in it. The menu's Settings..., the Map's gear and
+// every "add it in Settings" open it.
+@interface ADIFSettingsPage : NSView  // the Settings window's page: its groups from the top
+@end
+@implementation ADIFSettingsPage
+- (BOOL)isFlipped { return YES; }
+@end
+
+static NSWindow *settingsWindow() {
+    static NSWindow *w;
+    if (w) return w;
     ensureSettings();
-    worldmap::revealSettings();
+    w = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 560, 700)
+                                    styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable
+                                      backing:NSBackingStoreBuffered
+                                        defer:NO];
+    w.title = T(@"ADIF Lint Settings");
+    w.identifier = @"settings.window";
+    w.releasedWhenClosed = NO;
+    w.contentMinSize = NSMakeSize(480, 320);
+    w.tabbingMode = NSWindowTabbingModeDisallowed;
+    NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:w.contentView.bounds];
+    scroll.hasVerticalScroller = YES;
+    scroll.autohidesScrollers = YES;
+    scroll.drawsBackground = NO;
+    scroll.borderType = NSNoBorder;
+    ADIFSettingsPage *page = [[ADIFSettingsPage alloc] initWithFrame:NSZeroRect];
+    page.translatesAutoresizingMaskIntoConstraints = NO;
+    scroll.documentView = page;
+    NSView *groups = g.settings.view;
+    [groups removeFromSuperview];
+    groups.translatesAutoresizingMaskIntoConstraints = NO;
+    [page addSubview:groups];
+    NSClipView *clip = scroll.contentView;
+    [NSLayoutConstraint activateConstraints:@[
+        [page.leadingAnchor constraintEqualToAnchor:clip.leadingAnchor], [page.topAnchor constraintEqualToAnchor:clip.topAnchor],
+        [page.widthAnchor constraintEqualToAnchor:clip.widthAnchor],
+        [groups.topAnchor constraintEqualToAnchor:page.topAnchor constant:kADIFMargin],
+        [groups.leadingAnchor constraintEqualToAnchor:page.leadingAnchor constant:kADIFMargin],
+        [groups.trailingAnchor constraintEqualToAnchor:page.trailingAnchor constant:-kADIFMargin],
+        [page.bottomAnchor constraintEqualToAnchor:groups.bottomAnchor constant:kADIFMargin],
+    ]];
+    w.contentView = scroll;
+    [w center];
+    theme::host(w);
+    return w;
+}
+
+static void openSettings(NSInteger source) {
+    NSWindow *w = settingsWindow();
+    [w makeKeyAndOrderFront:nil];
     [g.settings showSource:source];
 }
 
@@ -3653,10 +3702,6 @@ extern "C" NPP_EXPORT void beNotified(SCNotification *n) {
                 });
                 logtools::setSpotHandler(^(const std::vector<std::pair<std::string, std::string>> &fields) { useSpot(fields); });
                 worldmap::setSpotHandler(^(const std::vector<std::pair<std::string, std::string>> &fields) { useSpot(fields); });
-                worldmap::setSettingsProvider(^NSView * {
-                    ensureSettings();
-                    return g.settings.view;
-                });
                 if (g.panelWanted) showPanel(true);
                 schedule(0.1);
                 dispatch_async(dispatch_get_main_queue(), ^{ monitor::startIfWanted(); });

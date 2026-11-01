@@ -38,6 +38,7 @@ const char *panelOf(int item) {
         case kDockSpots: return layout::kSpots;
         case kDockContactMap: return layout::kContactMap;
         case kDockQsoInfo: return layout::kQsoDetails;
+        case kDockMapStyle: return layout::kMapStyle;
         default: return "";
     }
 }
@@ -111,6 +112,7 @@ NSSize itemMinimum(int item) {
         case kDockSpots: return NSMakeSize(400, 220);
         case kDockContactMap: return NSMakeSize(240, 200);
         case kDockQsoInfo: return NSMakeSize(320, 200);
+        case kDockMapStyle: return NSMakeSize(300, 260);
         default: return NSMakeSize(420, 300);
     }
 }
@@ -1704,7 +1706,7 @@ void openAuxWindow(int item) {
     remove.submenu = [[NSMenu alloc] initWithTitle:T(@"Delete Layout")];
     _optionsMenu.autoenablesItems = NO;  // Save Layout As... and Delete Layout as menuNeedsUpdate sets them
     [_optionsMenu addItem:NSMenuItem.separatorItem];
-    for (int item : {kDockNewQso, kDockLog, kDockSpots, kDockContactMap, kDockQsoInfo, kDockMap}) {
+    for (int item : {kDockNewQso, kDockLog, kDockSpots, kDockContactMap, kDockQsoInfo, kDockMap, kDockMapStyle}) {
         NSMenuItem *mi = [_optionsMenu addItemWithTitle:itemName(item) action:@selector(frameToggled:) keyEquivalent:@""];
         mi.target = self;
         mi.tag = item;

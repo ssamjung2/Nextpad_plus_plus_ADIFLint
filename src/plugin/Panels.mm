@@ -42,6 +42,7 @@ const Calls *callsFor(const std::string &id) {
         {adif::layout::kSpots, {logtools::spotsShown, logtools::cmdPotaSpots, closeSpots}},
         {adif::layout::kContactMap, {workspace::contactMapShown, workspace::openContactMap, closeContactMap}},
         {adif::layout::kQsoDetails, {workspace::qsoDetailsShown, adifhost::openQsoDetails, closeQsoDetails}},
+        {adif::layout::kMapStyle, {worldmap::mapStyleShown, worldmap::openMapStyle, worldmap::closeMapStyle}},
     };
     for (const auto &[pid, calls] : kCalls)
         if (id == pid) return &calls;
@@ -83,6 +84,7 @@ const std::vector<Spec> &all() {
         {adif::layout::kQsoDetails, N(@"QSO Details"), @"person.text.rectangle",
          N(@"QSO Details: who New QSO's contact is, why it's worth having, and your QSOs with the call (on while it shows; click again to close it)"),
          @"map.qsodetails", true},
+        {adif::layout::kMapStyle, N(@"Map Style"), @"paintpalette", nil, nil, false},  // the Map's own button opens it
     };
     return specs;
 }
