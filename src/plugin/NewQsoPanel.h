@@ -28,6 +28,7 @@ struct ADIFAidRow {
     int severity = 0;         // a fact's: 0 fine, 1 note, 2 warning
     bool suggestion = false;  // a suggestion (Note, Skip, Dismiss beside it), not a fact
     bool note = false;        // it has words Note puts in NOTES for you to finish
+    bool next = false;        // Chasing's next opportunity: Next beside it chooses it on the map
 };
 
 // The Operating Aids strip: a title (its options menu, Hide or Show) over the facts and the

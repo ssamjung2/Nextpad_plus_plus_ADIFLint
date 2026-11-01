@@ -36,6 +36,7 @@ struct WorkedIndex {
     std::map<std::string, Call> calls;  // by lookupCall()
     std::set<std::string> parks;        // POTA parks hunted, as POTA's list writes them
     std::set<std::string> grids;        // 4-character squares, upper case
+    std::set<std::string> iota;         // IOTA groups worked ("EU-005")
 };
 WorkedIndex workedIndex(const std::vector<MapQso> &qsos, const CountryTable *countries);
 

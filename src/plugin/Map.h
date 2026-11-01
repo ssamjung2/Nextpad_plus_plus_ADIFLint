@@ -15,6 +15,7 @@
 #ifdef __OBJC__
 // Posted when the Map's operating style changes (or a change is undone): New QSO's Operating Aids follow.
 extern NSString *const ADIFOperatingStyleChangedNotification;
+extern NSString *const ADIFOpportunitiesChangedNotification;  // Chasing's opportunities ranked afresh (the spots, or Next)
 #endif
 
 namespace worldmap {
@@ -26,7 +27,22 @@ void closeMap();
 // Map Style (it was the Style Options card): a panel of its own, made with the Map.
 bool mapStyleShown();
 void openMapStyle();
-void closeMapStyle();  // the Map showing the spots: Live, or DX Chase or POTA when it is in one
+void closeMapStyle();
+// Chasing (OPERATING_STYLES_PLAN.md, Stage 4): the spots ranked as opportunities (adif_chase.h).
+// Next Opportunity: the one after the spot chosen (the best when none is; step -1 the one before),
+// chosen on the map; false when there is none. A QSO logged in New QSO with a station spotted: in
+// the Chasing style, the next opportunity (the logged one no longer is).
+bool nextOpportunity(int step);
+void qsoLogged(const std::string &call);
+// What Operating Aids say in the Chasing style for New QSO's call (empty: the next opportunity).
+struct ChaseLine {
+    std::string text;
+    int severity = 0;    // 0 a fact, 1 a note, 2 a warning
+    std::string symbol;  // an SF Symbol's name
+    bool next = false;   // the next opportunity: its Next chooses it
+};
+std::vector<ChaseLine> chaseLines(const std::string &call, const std::string &freqMHz, const std::string &mode);
+  // the Map showing the spots: Live, or DX Chase or POTA when it is in one
 // Start Logging: the Map, once it is open, as an operating map: Live's spots of the last five
 // minutes, plain DX (no POTA parks or activators), at 2.5×.
 void showForLogging();

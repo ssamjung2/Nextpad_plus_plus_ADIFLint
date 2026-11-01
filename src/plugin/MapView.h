@@ -123,6 +123,12 @@ struct ADIFMapSpot {
     std::vector<ADIFSpotHeard> heard;  // newest first, one per spotter, at most 12, each where it is
     adif::SpotStatus status;           // what it means for the log (set by the view)
     std::string watched;               // what on your watch list it is for (adif::watchedFor), "" when nothing
+    // Chasing's (adif_chase.h, set by the Map): how much it offers you, why in words, and its place
+    // in the order (1 the best; 0 no opportunity).
+    int score = 0;
+    std::string why;
+    size_t rank = 0;
+    int reason = -1;  // its most valuable reason (adif::chase::Reason); -1 none
 };
 
 // A line of the information box (what is known about a clicked spot or spotter): a heading, or

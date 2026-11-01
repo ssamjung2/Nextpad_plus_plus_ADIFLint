@@ -1757,6 +1757,7 @@ static void showLookupInfo();
 static void updateQsoDetails();
 static void updateAids(bool pause, bool logged);
 static void aidPressed(NSString *action, NSInteger row);
+static std::optional<adif::styles::OperatingStyle> aidsStyle();
 // The last check of New QSO's values, for Operating Aids: whether it is a duplicate, what is missing.
 static struct {
     bool duplicate = false;
@@ -1880,6 +1881,8 @@ static void logQso() {
         workspace::setStatus(done + "  ·  " + g.qsoTargetLine);
         [g.qso focusField:"CALL"];
         updateAids(true, true);
+        for (const auto &f : c.fields)  // Chasing: on to the next opportunity
+            if (f.first == "CALL") worldmap::qsoLogged(f.second);
         if (workspace::active()) {  // the new QSO chosen on the Map and in the Log Table
             worldmap::showRecord((int)adif::recordCount(after.model));
             logtools::showRecordInTable(start);
@@ -2000,6 +2003,12 @@ static void showQsoRows(NppHandle h, const adif::LintResult &r) {
                                                           object:nil
                                                            queue:nil
                                                       usingBlock:^(NSNotification *) { updateAids(true, false); }];
+        [[NSNotificationCenter defaultCenter] addObserverForName:ADIFOpportunitiesChangedNotification  // Chasing's aids follow the spots
+                                                          object:nil
+                                                           queue:nil
+                                                      usingBlock:^(NSNotification *) {
+                                                          if (aidsStyle() == adif::styles::OperatingStyle::Chasing) updateAids(false, false);
+                                                      }];
         [[NSNotificationCenter defaultCenter] addObserverForName:ADIFOfflineChangedNotification  // Portable says so
                                                           object:nil
                                                            queue:nil
@@ -2383,7 +2392,7 @@ static std::vector<std::string> aidsList(const std::string &v) {
 
 static std::optional<adif::styles::OperatingStyle> aidsStyle() {
     std::optional<adif::styles::OperatingStyle> s = adif::styles::parse(adifhost::setting("mapOperatingStyle"));
-    if (s == adif::styles::OperatingStyle::Social || s == adif::styles::OperatingStyle::Portable) return s;
+    if (s == adif::styles::OperatingStyle::Social || s == adif::styles::OperatingStyle::Portable || s == adif::styles::OperatingStyle::Chasing) return s;
     return std::nullopt;
 }
 // Each style's own choices: "aidsLevelSocial", "aidsTimingPortable", "aidsTopicsOffSocial".
@@ -2569,7 +2578,19 @@ static void updateAids(bool pause, bool logged) {
         for (char &c : call) c = (char)std::toupper((unsigned char)c);
         aidsEarlier(h, call);
         if (level != aids::Level::Off) {
-            if (*style == adif::styles::OperatingStyle::Portable) {
+            if (*style == adif::styles::OperatingStyle::Chasing) {  // the opportunities (adif_chase.h, ranked on the Map)
+                for (const worldmap::ChaseLine &l : worldmap::chaseLines(call, qsoValue("FREQ"), qsoValue("MODE"))) {
+                    ADIFAidRow r;
+                    r.text = l.text, r.severity = l.severity, r.symbol = ADIFString(l.symbol), r.next = l.next;
+                    rows.push_back(r);
+                }
+                if (gQsoState.duplicate && !call.empty()) {
+                    ADIFAidRow d;
+                    d.text = trf("A duplicate: {call} is in the log today on this band and mode", {{"call", call}});
+                    d.severity = 2, d.symbol = @"exclamationmark.triangle";
+                    rows.insert(rows.begin(), d);
+                }
+            } else if (*style == adif::styles::OperatingStyle::Portable) {
                 aidsSync(h);
                 aids::PortableState ps;
                 ps.activation = station::activationProgress(docText(h), freshLint(h).model);
@@ -2608,7 +2629,9 @@ static void updateAids(bool pause, bool logged) {
         // The suggestions: afresh at the moments the timing allows, else as they were.
         bool callChanged = call != gAids.call;
         if (callChanged) gAids.call = call, gAids.skip = 0;
-        bool afresh = !gAids.chosen || (timing == aids::Timing::Pauses && (callChanged || pause)) || (timing != aids::Timing::Manual && logged);
+        bool afresh = *style != adif::styles::OperatingStyle::Chasing &&  // Chasing's are its opportunities, not topics
+                      (!gAids.chosen || (timing == aids::Timing::Pauses && (callChanged || pause)) || (timing != aids::Timing::Manual && logged));
+        if (*style == adif::styles::OperatingStyle::Chasing) gAids.shown.clear();
         if (afresh) {
             aids::Context c;
             c.style = *style;
@@ -2655,6 +2678,10 @@ static void aidPressed(NSString *action, NSInteger row) {
         gAids.hidden = [action isEqualToString:@"hide"];
         return aidsAfresh();
     }
+    if ([action isEqualToString:@"next"]) {  // Chasing: the next opportunity, chosen on the map
+        worldmap::nextOpportunity(1);
+        return updateAids(false, false);
+    }
     if (!style || row < (NSInteger)gAids.facts || (size_t)row - gAids.facts >= gAids.shown.size()) return;
     const aids::Prompt &p = *gAids.shown[(size_t)row - gAids.facts].prompt;
     if ([action isEqualToString:@"skip"]) {
@@ -2690,6 +2717,19 @@ static NSMenu *aidsMenu(adif::styles::OperatingStyle style) {
         return i;
     };
     aids::Level level = aids::parseLevel(adifhost::setting(aidsKey("Level", style)));
+    if (style == adif::styles::OperatingStyle::Chasing) {  // its opportunities shown or not; no suggestions to tune
+        NSMenuItem *shown = [menu addItemWithTitle:T(@"Show the Opportunities") action:nil keyEquivalent:@""];
+        shown.state = level == aids::Level::Off ? NSControlStateValueOff : NSControlStateValueOn;
+        ADIFBlockMenuItem(shown, ^{
+            adifhost::setSetting(aidsKey("Level", style), std::string(aids::levelId(level == aids::Level::Off ? aids::Level::Standard : aids::Level::Off)));
+            aidsAfresh();
+        });
+        [menu addItem:NSMenuItem.separatorItem];
+        NSMenuItem *own = [menu addItemWithTitle:T(@"In Its Own Panel") action:nil keyEquivalent:@""];
+        own.state = adifhost::aidsPanelShown() ? NSControlStateValueOn : NSControlStateValueOff;
+        ADIFBlockMenuItem(own, ^{ panels::toggle(adif::layout::kAids); });
+        return menu;
+    }
     heading(T(@"Suggestions at once"));
     static NSString *const kLevels[] = {N(@"Off##aids"), N(@"Minimal (one)"), N(@"Standard (two)"), N(@"More (three)")};
     for (int i = 0; i < 4; ++i) {

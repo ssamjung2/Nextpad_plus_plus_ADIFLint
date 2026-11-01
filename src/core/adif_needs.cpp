@@ -57,6 +57,7 @@ WorkedIndex workedIndex(const std::vector<MapQso> &qsos, const CountryTable *cou
             if (year > 0 && (c.firstYear == 0 || year < c.firstYear)) c.firstYear = year;
         }
         for (const std::string &p : q.potaHunted) w.parks.insert(p);
+        if (!q.iota.empty()) w.iota.insert(q.iota);
         if (q.grid.size() >= 4) {
             std::string g = q.grid.substr(0, 4);
             for (char &ch : g) ch = (char)toupper((unsigned char)ch);

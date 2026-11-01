@@ -42,6 +42,7 @@
 #include "adif_stats.h"
 #include "adif_aids.h"
 #include "adif_layout.h"
+#include "adif_chase.h"
 #include "adif_styles.h"
 
 #include <algorithm>
@@ -3861,6 +3862,52 @@ static void testSpotsCore() {
                   spotPriority(spotStatus(w, dlPark, &ct)) == 3 &&
                   spotPriority(spotStatus(w, spot("DL1ABC", "20m", "CW"), &ct)) == 4,
               "the most wanted first: a new DXCC, a new band, a new park, then the rest");
+        {  // Chasing's opportunities: every need counted, weighed, explained, in a fixed order
+            using namespace adif::chase;
+            auto at = [&](Spot s, long long epoch, const char *khz = "14025") {
+                s.epoch = epoch, s.khz = khz;
+                return s;
+            };
+            Spot iota = spot("DL9AAA", "40m", "FT8");  // worked there: only the island counts
+            iota.program = "IOTA", iota.refs = {"EU-005"};
+            Spot mine = spot("K1ME", "20m", "CW");
+            mine.heardMe = true;
+            std::vector<Spot> spots = {at(spot("DL1ABC", "20m", "CW"), 900),       // confirmed: nothing
+                                       at(spot("DL9AAA", "17m", "CW"), 950),       // a new band
+                                       at(spot("JA1XYZ", "20m", "CW"), 800),       // a new DXCC
+                                       at(spot("JA2AAA", "20m", "CW"), 990),       // a new DXCC, newer
+                                       at(iota, 990), at(newPark, 990),            // a new IOTA group; a new park (US: a new DXCC too)
+                                       at(spot("DL2XYZ", "40m", "FT4"), 995),      // worked today in that mode group: a duplicate
+                                       at(spot("DL9AAA", "40m", "FT8"), 980),      // worked, not confirmed: LoTW makes it one
+                                       at(mine, 999)};
+            Inputs in;
+            in.worked = &w, in.countries = &ct, in.now = 1000, in.watch = {"JA1XYZ"};
+            in.workedToday = {todayKey("DL2XYZ", "40M", "FT8")};
+            in.usesLotw = [](const std::string &call) { return call == "DL9AAA"; };
+            std::vector<Opportunity> o = rank(spots, in);
+            std::string order;
+            for (const Opportunity &x : o) order += std::to_string(x.spot) + ":" + std::to_string(x.score) + " ";
+            CHECK(order == "2:160 5:120 3:100 4:40 1:40 7:10 ",
+                  "ranked: the watched new DXCC, the new park in a new entity, a new DXCC, the island (unconfirmed too) before the older new band "
+                  "of the same score, an unconfirmed entity; the confirmed, the duplicate and my own signal not (%s)", order.c_str());
+            CHECK(o.size() == 6 && o[0].reasons == std::vector<Reason>({Reason::NewDxcc, Reason::Watched}) &&
+                      o[0].why == "New DXCC entity (Japan); On your watch list (JA1XYZ). Spotted 3 min ago." &&
+                      o[1].reasons == std::vector<Reason>({Reason::NewDxcc, Reason::NewPark}) &&
+                      o[5].why == "Fed. Rep. of Germany worked on 40m, not confirmed; they use LoTW. Spotted 20 s ago.",
+                  "explained, the most valuable reason first, with how fresh: %s | %s", o.empty() ? "" : o[0].why.c_str(), o.size() > 5 ? o[5].why.c_str() : "");
+            in.usesLotw = nullptr;
+            in.weights.newBand = 200;
+            std::vector<Opportunity> again = rank(spots, in);
+            CHECK(again.size() == 5 && again[0].spot == 1 && rank(spots, in).front().spot == again[0].spot && again[4].spot == 4,
+                  "the weights set the order; unknown LoTW: no unconfirmed opportunity; the same spots, the same order");
+            spots[2].epoch = spots[3].epoch = 990;
+            spots[3].activator = "JA0AAA";
+            in.weights = Weights();
+            in.watch.clear();
+            std::vector<Opportunity> tie = rank(spots, in);
+            CHECK(tie.size() >= 2 && tie[1].spot == 3 && tie[2].spot == 2, "an equal score and time: by the call");
+            CHECK(age(42) == "42 s" && age(125) == "2 min" && age(3600) == "1 h" && age(3900) == "1 h 5 min" && age(-1).empty(), "ages");
+        }
         std::vector<std::pair<std::string, SlotState>> slots = bandSlots(w, 230);
         auto slot = [&](const char *b) {
             for (const auto &s : slots)

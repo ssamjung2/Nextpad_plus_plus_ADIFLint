@@ -392,6 +392,11 @@ Beside each suggestion:
   **Panels → Show Operating Aids**), beside the Map or as a tab in the Operating Console; close
   it and they are back in New QSO.
 
+In **Chasing**, Operating Aids show the opportunities instead of topics: where the call in New
+QSO stands ("Opportunity 2 of 7: New DXCC entity (Japan). Spotted 3 min ago."), a duplicate
+warning, a reminder when New QSO's frequency or mode differs from the spot's, and the next
+opportunity with **Next**, which chooses it on the map. Options turns them on or off.
+
 Your notes appear only on your screen. VoiceOver reads each suggestion as "Suggestion: …", so
 it isn't mistaken for a fact.
 
@@ -764,6 +769,16 @@ layers, the sun's shading, the palette, the text size and the distance rings; no
   the last Reset): every setting it changed, and which style was chosen. After a Save, **Use
   Recommended Defaults** forgets yours and resets the style to the recommended ones.
 - **No Style** changes nothing: the Map stays as it is, and is yours to set as before.
+- **Chasing's opportunities**: every spot that brings your log something is an opportunity,
+  weighed by what it brings: a new DXCC entity (100), on your watch list (60), a new band for
+  the entity (40), an IOTA group you haven't worked (30), a new mode on the band (25), a POTA
+  park you haven't hunted (20), and an entity worked on the band but not confirmed there when
+  the station uploads to LoTW (10). A spot's score is the sum; equal scores go to the newest
+  spot. A station you worked today on that band and mode (a duplicate), and your own signal,
+  are never opportunities. The spots list's **Why it matters** sorts in this order, and
+  Situation's **Wanted now** lists the best. **Next Opportunity** in the selected panel
+  (**⌘G** in the Map; **⇧⌘G** the one before) chooses the next one on the map, and in the
+  Chasing style logging a spotted station moves on to the next by itself.
 - **Arrange Panels** (on at first): choosing a style, or its Reset, also puts the panels in
   the style's layout in the Operating Console, opening it if it is closed. Social: the Map, with
   New QSO and QSO Details beside it. Chasing: the Map over the spots, New QSO beside them.

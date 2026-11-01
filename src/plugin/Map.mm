@@ -20,6 +20,7 @@
 #import "ToolWindow.h"
 #import "Workspace.h"
 #include "adif_layout.h"
+#include "adif_chase.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include "adif_detail.h"
 #include "adif_beacons.h"
@@ -443,6 +444,7 @@ struct ADIFQuickRow {
 @end
 
 NSString *const ADIFOperatingStyleChangedNotification = @"ADIFOperatingStyleChangedNotification";
+NSString *const ADIFOpportunitiesChangedNotification = @"ADIFOpportunitiesChangedNotification";
 
 namespace worldmap {
 namespace {
@@ -553,6 +555,8 @@ struct {
     // The watch list: the selected panel's Watch, its editor (the Spots section), and the header's
     // bell, with the watched stations spotted (those not seen since it was last opened tint it).
     NSButton *watchButton = nil, *watchEdit = nil, *bell = nil;
+    NSButton *nextButton = nil;  // the selected panel's Next Opportunity
+    size_t opportunities = 0;    // the spots ranked as opportunities (Chasing)
     NSMenu *bellMenu = nil;
     NSMenu *homeMenu = nil;  // the Home button's own: set or forget the Home view
     NSSearchField *findField = nil;  // the header's search: a call, grid square, DXCC entity or park, found on the map
@@ -656,6 +660,9 @@ void fillLayerMenu(NSMenu *menu);
 bool mapShortcut(NSEvent *e);
 bool stepList(int by);
 void useSelectedSpot();
+void rankOpportunities(std::vector<ADIFMapSpot> &marks, long long now);
+void centerChosen();
+std::optional<adif::styles::OperatingStyle> operatingStyle();
 void layerChanged(MapLayerId id, int which);
 int lensOfView(int view);
 void showList(const std::vector<size_t> &qsos, ADIFMapHit::Kind kind);
@@ -3400,7 +3407,10 @@ void refreshSpots() {
         updateFilterButton();  // Clear and the tags, as the spots' filters are
     }
     mw.view.legendSpotBands = spotBands;
+    rankOpportunities(marks, now);
     [mw.view setSpots:marks now:now maxAge:f.maxAge];
+    mw.nextButton.hidden = mw.opportunities == 0;
+    [[NSNotificationCenter defaultCenter] postNotificationName:ADIFOpportunitiesChangedNotification object:nil];
     fillRecentSpots();
     fillBandConditions();
     queueViewList();
@@ -3986,15 +3996,128 @@ void showParkPlaces() {
     [mw.parkPlacesPopover showRelativeToRect:mw.parkPlacesButton.bounds ofView:mw.parkPlacesButton preferredEdge:NSRectEdgeMaxX];
 }
 
-// How good a chance a spot is, by the workflow's goal (the lower the better): your watch list
-// first; in POTA the parks you haven't hunted, then the other activators, then the rest as
-// elsewhere: a new DXCC, a new band, a new mode, a new park; your own signal last.
+// How good a chance a spot is, by the workflow's goal (the lower the better): Chasing's order
+// (adif_chase.h: every need a spot meets, weighed); in POTA your watch list, the parks you haven't
+// hunted, then the other activators, then the rest. Your own signal last.
 int opportunity(const ADIFMapSpot &ms) {
     if (ms.spot.heardMe) return 99;
-    if (!ms.watched.empty()) return -1;
-    int need = adif::spotPriority(ms.status);
-    if (workflow() != 3) return need;
-    return ms.status.newPark ? 0 : mapkit::potaSpot(ms.spot) ? 1 : 2 + need;
+    if (workflow() == 3) return !ms.watched.empty() ? -1 : ms.status.newPark ? 0 : mapkit::potaSpot(ms.spot) ? 1 : 2 + adif::spotPriority(ms.status);
+    return ms.rank ? (int)ms.rank - 100000 : 0;
+}
+
+// Chasing's opportunities among the spots: each one's score, reasons and place in the order.
+void rankOpportunities(std::vector<ADIFMapSpot> &marks, long long now) {
+    std::vector<adif::Spot> spots;
+    for (const ADIFMapSpot &m : marks) spots.push_back(m.spot);
+    adif::chase::Inputs in;
+    in.worked = &mw.view.worked;
+    in.countries = &ADIFCountries();
+    in.watch = watchList();
+    in.now = now;
+    char today[16];
+    time_t t = (time_t)now;
+    strftime(today, sizeof today, "%Y%m%d", gmtime(&t));
+    for (const adif::MapQso &q : mw.data.qsos)
+        if (q.date8 == today) in.workedToday.insert(adif::chase::todayKey(q.call, q.band, q.mode));
+    in.usesLotw = [](const std::string &call) { return !ADIFLotwLastUpload(call).empty(); };
+    std::vector<adif::chase::Opportunity> ranked = adif::chase::rank(spots, in);
+    for (ADIFMapSpot &m : marks) m.score = 0, m.why.clear(), m.rank = 0, m.reason = -1;
+    for (size_t r = 0; r < ranked.size(); ++r) {
+        ADIFMapSpot &m = marks[ranked[r].spot];
+        m.score = ranked[r].score, m.why = ranked[r].why, m.rank = r + 1, m.reason = (int)ranked[r].reasons.front();
+    }
+    mw.opportunities = ranked.size();
+}
+
+// The spots ranked, by place: the index of each (the best first).
+std::vector<size_t> rankedSpots() {
+    std::vector<size_t> out(mw.opportunities, SIZE_MAX);
+    for (size_t k = 0; k < mw.view.spots.size(); ++k)
+        if (size_t r = mw.view.spots[k].rank; r > 0 && r <= out.size()) out[r - 1] = k;
+    out.erase(std::remove(out.begin(), out.end(), SIZE_MAX), out.end());
+    return out;
+}
+
+// The place in Chasing's order that Next Opportunity goes to: the one after the spot chosen (before
+// it, step -1), the best when none is chosen; ranked.size() when there are none.
+size_t opportunityAfterChosen(const std::vector<size_t> &ranked, int step) {
+    if (ranked.empty()) return 0;
+    ADIFMapHit now = mw.view.selectedHit;
+    size_t at = ranked.size();
+    if (now.kind == ADIFMapHit::Spot)
+        for (size_t r = 0; r < ranked.size(); ++r)
+            if (ranked[r] == now.index) at = r;
+    if (at == ranked.size()) return step >= 0 ? 0 : ranked.size() - 1;
+    return (at + (step >= 0 ? 1 : ranked.size() - 1)) % ranked.size();
+}
+
+bool stepOpportunity(int step) {
+    std::vector<size_t> ranked = rankedSpots();
+    if (!mw.window || ranked.empty()) {
+        NSBeep();
+        return false;
+    }
+    size_t next = opportunityAfterChosen(ranked, step);
+    size_t k = ranked[next];
+    const ADIFMapSpot &ms = mw.view.spots[k];
+    ADIFMapHit h;
+    h.kind = ADIFMapHit::Spot, h.index = k, h.square = adif::squareAt(ms.lon, ms.lat);
+    [mw.view selectHit:h];
+    centerChosen();
+    NSString *said = TF(@"Opportunity {n} of {count}: {call}, {band} {mode}. {why}",
+                        @{@"n" : @(next + 1), @"count" : @(ranked.size()), @"call" : ADIFString(ms.spot.activator), @"band" : ADIFString(ms.spot.band),
+                          @"mode" : ADIFString(ms.spot.mode), @"why" : ADIFString(ms.why)});
+    NSAccessibilityPostNotificationWithUserInfo(mw.window, NSAccessibilityAnnouncementRequestedNotification,
+                                                @{NSAccessibilityAnnouncementKey : said, NSAccessibilityPriorityKey : @(NSAccessibilityPriorityHigh)});
+    [[NSNotificationCenter defaultCenter] postNotificationName:ADIFOpportunitiesChangedNotification object:nil];
+    return true;
+}
+
+void advanceAfterLog(const std::string &call) {
+    if (!mw.window || operatingStyle() != adif::styles::OperatingStyle::Chasing || call.empty()) return;
+    bool spotted = false;  // a station on the map (the log's change may have cleared what was chosen)
+    for (const ADIFMapSpot &ms : mw.view.spots) spotted |= adif::lookupCall(ms.spot.activator) == adif::lookupCall(call);
+    if (!spotted) return;
+    // Once the log has it (and the spot is no longer an opportunity), the next one.
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ stepOpportunity(1); });
+}
+
+std::vector<ChaseLine> chaseLinesFor(const std::string &call, const std::string &freqMHz, const std::string &mode) {
+    std::vector<ChaseLine> out;
+    std::vector<size_t> ranked = rankedSpots();
+    std::string key = adif::lookupCall(call);
+    const ADIFMapSpot *theirs = nullptr;
+    for (const ADIFMapSpot &ms : mw.view.spots)
+        if (!key.empty() && adif::lookupCall(ms.spot.activator) == key && (!theirs || ms.rank > 0)) theirs = &ms;
+    if (theirs && theirs->rank > 0) {
+        out.push_back({trf("Opportunity {n} of {count}: {why}", {{"n", std::to_string(theirs->rank)}, {"count", std::to_string(ranked.size())}, {"why", theirs->why}}),
+                       0, "scope", false});
+    } else if (theirs) {
+        out.push_back({trf("{call} is spotted, but brings nothing new: {need} on {band}", {{"call", theirs->spot.activator},
+                                                                                           {"need", adif::spotNeedText(theirs->status.need)},
+                                                                                           {"band", theirs->spot.band}}),
+                       1, "info.circle", false});
+    }
+    if (theirs) {  // ready to log: the spot's frequency and mode as New QSO has them
+        double spotKhz = std::atof(theirs->spot.khz.c_str()), qsoKhz = std::atof(freqMHz.c_str()) * 1000;
+        bool freqOff = spotKhz > 0 && qsoKhz > 0 && std::fabs(spotKhz - qsoKhz) > 1;
+        bool modeOff = !mode.empty() && !theirs->spot.mode.empty() && adif::modeGroup(mode) != adif::modeGroup(theirs->spot.mode);
+        if (freqOff || modeOff)
+            out.push_back({trf("The spot says {khz} kHz {mode}: check the frequency and mode before logging",
+                               {{"khz", theirs->spot.khz}, {"mode", theirs->spot.mode}}),
+                           1, "exclamationmark.circle", false});
+    }
+    if (!ranked.empty()) {  // what Next chooses: the one after the spot chosen on the map (the best when none is)
+        const ADIFMapSpot &ms = mw.view.spots[ranked[opportunityAfterChosen(ranked, 1)]];
+        if (&ms != theirs || ranked.size() > 1)
+            out.push_back({trf("Next: {call} on {khz} kHz {mode}. {why}", {{"call", ms.spot.activator}, {"khz", ms.spot.khz}, {"mode", ms.spot.mode}, {"why", ms.why}}),
+                           0, "arrow.forward.circle", true});
+    }
+    if (ranked.empty())
+        out.push_back({live() && mw.view.style[kLayerSpots].show ? tr("No opportunities among the spots now: none brings anything new to your log")
+                                                                   : tr("No opportunities: Live shows the spots, with the Spots layer on"),
+                       0, "binoculars", false});
+    return out;
 }
 
 // ── The list beside the map: the QSOs chosen; the contacts, parks or spots in view ──
@@ -4844,17 +4967,14 @@ void showSituation() {
     }
     if (g.states) line += " " + trp("{n} US state worked.", "{n} US states worked.", (long long)g.states);
     mw.today.stringValue = ADIFString(line);
-    // The spots most wanted: a new DXCC first, then a new band, mode or park; the newest first.
+    // The spots most wanted, in Chasing's order (adif_chase.h).
     for (NSView *v in [mw.wanted.arrangedSubviews copy])
         if (v != mw.wantedLabel) [mw.wanted removeView:v];
     const std::vector<ADIFMapSpot> &spots = mw.view.spots;
     std::vector<size_t> wanted;
     for (size_t k = 0; k < spots.size(); ++k)
-        if (!spots[k].spot.heardMe && adif::spotWanted(spots[k].status)) wanted.push_back(k);
-    std::stable_sort(wanted.begin(), wanted.end(), [&](size_t a, size_t b) {
-        int pa = opportunity(spots[a]), pb = opportunity(spots[b]);
-        return pa != pb ? pa < pb : spots[a].spot.epoch > spots[b].spot.epoch;
-    });
+        if (spots[k].rank > 0) wanted.push_back(k);
+    std::stable_sort(wanted.begin(), wanted.end(), [&](size_t a, size_t b) { return spots[a].rank < spots[b].rank; });
     if (!mw.view.style[kLayerSpots].show)
         mw.wantedLabel.stringValue = !live() ? T(@"Spots: Live shows who is on the air now, and which of them you need.")
                                                      : T(@"Spots: tick the Spots layer's Show for who is on the air, and which you need.");
@@ -4863,9 +4983,12 @@ void showSituation() {
     else mw.wantedLabel.stringValue = T(@"Wanted now:");
     for (size_t i = 0; i < wanted.size() && i < 6; ++i) {
         const ADIFMapSpot &ms = spots[wanted[i]];
-        std::string need = ms.status.need == adif::SpotNeed::NewDxcc || ms.status.need == adif::SpotNeed::NewBand || ms.status.need == adif::SpotNeed::NewMode
-                               ? adif::spotNeedText(ms.status.need)
-                               : tr("new park");
+        using R = adif::chase::Reason;
+        std::string need = ms.reason == (int)R::NewDxcc || ms.reason == (int)R::NewBand || ms.reason == (int)R::NewMode ? adif::spotNeedText(ms.status.need)
+                           : ms.reason == (int)R::Watched                                                              ? tr("watched")
+                           : ms.reason == (int)R::NewIota                                                              ? tr("new IOTA")
+                           : ms.reason == (int)R::Unconfirmed                                                          ? tr("to confirm")
+                                                                                                                       : tr("new park");
         std::string activator = ms.spot.activator, band = ms.spot.band;
         NSButton *b = [NSButton buttonWithTitle:@"" target:nil action:nil];
         b.bordered = NO;
@@ -6582,8 +6705,10 @@ bool stepList(int by) {
 
 bool mapShortcut(NSEvent *e) {
     NSEventModifierFlags mods = e.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask & ~(NSEventModifierFlagNumericPad | NSEventModifierFlagFunction);
-    if (mods != NSEventModifierFlagCommand) return false;
     NSString *k = e.charactersIgnoringModifiers.lowercaseString;
+    if ([k isEqualToString:@"g"] && (mods == NSEventModifierFlagCommand || mods == (NSEventModifierFlagCommand | NSEventModifierFlagShift)))
+        return stepOpportunity(mods & NSEventModifierFlagShift ? -1 : 1);  // as Find Next and Find Previous
+    if (mods != NSEventModifierFlagCommand) return false;
     ADIFMapHit h = mw.view.selectedHit;
     if ([k isEqualToString:@"]"] || [k isEqualToString:@"["]) return stepList([k isEqualToString:@"]"] ? 1 : -1);
     if ([k isEqualToString:@"\r"]) {
@@ -8026,7 +8151,13 @@ void cmdMap() {
         actions.plain = YES;
         actions.centred = YES;
         actions.identifier = @"map.actions";
-        for (NSView *v in @[ mw.centerButton, mw.viewQso, mw.watchButton ]) [actions addSubview:v];
+        mw.nextButton = smallButton(@"Next Opportunity", @"The next spot in Chasing's order: what each brings your log, weighed (\u2318G; \u21E7\u2318G the one before)",
+                                    ^{ stepOpportunity(1); });
+        mw.nextButton.image = [NSImage imageWithSystemSymbolName:@"arrow.forward.circle" accessibilityDescription:nil];
+        mw.nextButton.imagePosition = NSImageLeading;
+        mw.nextButton.identifier = @"map.next";
+        mw.nextButton.hidden = YES;
+        for (NSView *v in @[ mw.centerButton, mw.viewQso, mw.watchButton, mw.nextButton ]) [actions addSubview:v];
         mw.actions = actions;
         mw.useSpot.controlSize = NSControlSizeLarge;  // the panel's one main action: a system push button, tinted green
         mw.useSpot.bezelStyle = NSBezelStyleRounded;
@@ -8509,6 +8640,14 @@ void detailChanged() {
 
 void documentChanged() {
     if (mw.window && mw.window.visible) refresh();
+}
+
+bool nextOpportunity(int step) { return stepOpportunity(step); }
+
+void qsoLogged(const std::string &call) { advanceAfterLog(call); }
+
+std::vector<ChaseLine> chaseLines(const std::string &call, const std::string &freqMHz, const std::string &mode) {
+    return chaseLinesFor(call, freqMHz, mode);
 }
 
 }  // namespace worldmap

@@ -11,6 +11,7 @@ Versions before 0.8.0 were development builds and were not published.
 
 ### Added
 
+- **Chasing's ranked opportunities** (operating styles, Stage 4): every spot that brings your log something is weighed by what it brings (a new DXCC entity, the watch list, a new band, an IOTA group, a new mode, a POTA park, an unconfirmed entity whose station uses LoTW), explained in words with how fresh it is, and ranked in a fixed order; duplicates and your own signal never are. The spots list and Situation's Wanted now use the order. **Next Opportunity** (the selected panel, ⌘G, ⇧⌘G back) steps through it on the map, and in the Chasing style logging a spotted station moves on to the next. Chasing has its own Operating Aids: the opportunity of the call in New QSO, a duplicate warning, a frequency and mode check against the spot, and the next one with Next.
 - **Settings sections as panels**: **Spot Sources** (Settings' Spots section: the cluster, Spothole, PSKReporter and how they are doing) and **Your Station** can each be a window of their own while you operate, a tab in the Operating Console too, from the button on the section's heading or the Panels menu. Settings says where they are, with Show It; closed, they are back in Settings.
 - **Operating Aids as a panel**: Options → **In Its Own Panel** (or Panels → Show Operating Aids) puts the aids in a panel of their own, beside the Map or as a tab in the Operating Console, with Note, Skip and Dismiss as in New QSO. Closed, they are back in New QSO.
 

@@ -8191,7 +8191,72 @@ int main(int argc, char **argv) {
                     run("Offline Mode");
                     H.modified = false;
                     styleMenu(@"chasing");
-                    CHECK(text(@"newqso.aids.title").empty(), "Chasing: no Operating Aids (its own come with its stage)");
+                    {  // Chasing (Stage 4): the spots ranked as opportunities, each explained; Next in the aids, the Map's button and keys; on after a QSO
+                        wfBar.selectedSegment = 1;  // Live, all spots: several opportunities to step through (DX Chase keeps one here)
+                        [wfBar sendAction:wfBar.action to:wfBar.target];
+                        pump(0.3);
+                        NSButton *liveSpots = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.show.spots");
+                        bool spotsWere = liveSpots.state == NSControlStateValueOn;
+                        if (!spotsWere) {
+                            liveSpots.state = NSControlStateValueOn;
+                            [liveSpots sendAction:liveSpots.action to:liveSpots.target];
+                            pump(0.6);
+                        }
+                        if (NSTableView *quickViews = (NSTableView *)viewWithIdentifier(mapw.contentView, @"map.views"))
+                            [quickViews selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
+                        pump(0.5);
+                        auto chosenCall = [&]() -> std::string {  // the spot chosen on the map, as the selected panel names it
+                            NSTextField *t = (NSTextField *)viewWithIdentifier(mapw.contentView, @"map.contact.title");
+                            return t ? std::string(t.stringValue.UTF8String) : std::string();
+                        };
+                        auto nextLine = [&]() -> std::pair<NSInteger, std::string> {
+                            for (int k = 0; k < 6; ++k)
+                                if (viewWithIdentifier(aw.contentView, [NSString stringWithFormat:@"newqso.aids.next.%d", k]))
+                                    return {k, text([NSString stringWithFormat:@"newqso.aids.row.%d", k])};
+                            return {-1, ""};
+                        };
+                        auto callIn = [](const std::string &line) {  // "Next: K1ABC on 14025 kHz CW. ..."
+                            size_t on = line.find(" on ");
+                            return line.size() > 6 && on != std::string::npos ? line.substr(6, on - 6) : std::string();
+                        };
+                        auto [row, line] = nextLine();
+                        std::string named = callIn(line);
+                        CHECK(text(@"newqso.aids.title") == "Operating Aids (Chasing)" && row >= 0 && line.find("Next: ") == 0 &&
+                                  line.find("Spotted ") != std::string::npos && !named.empty(),
+                              "Chasing's aids: the next opportunity, why it matters and how fresh, with Next (%s)", rowsSaid().c_str());
+                        press([NSString stringWithFormat:@"newqso.aids.next.%ld", (long)row]);
+                        pump(0.3);
+                        std::string first = chosenCall();
+                        auto [row2, line2] = nextLine();
+                        NSButton *nextButton = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.next");
+                        CHECK(!named.empty() && first.find(named) == 0 && nextButton && !nextButton.hidden && callIn(line2) != named,
+                              "Next chooses on the map the opportunity the aids named (%s: %s), and they name the one after it (%s)", named.c_str(), first.c_str(),
+                              line2.c_str());
+                        [nextButton performClick:nil];
+                        pump(0.3);
+                        std::string second = chosenCall();
+                        NSEvent *back = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint
+                                                    modifierFlags:NSEventModifierFlagCommand | NSEventModifierFlagShift timestamp:0 windowNumber:mapw.windowNumber
+                                                          context:nil characters:@"G" charactersIgnoringModifiers:@"g" isARepeat:NO keyCode:5];
+                        bool took = [mapw performKeyEquivalent:back];
+                        pump(0.3);
+                        CHECK(!second.empty() && second != first && took && chosenCall() == first,
+                              "Next Opportunity: the one after it (%s); Shift-Command-G the one before again (%s)", second.c_str(), chosenCall().c_str());
+                        // Use it in New QSO and log it: on to the next opportunity.
+                        if (NSButton *use = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.spots.use")) [use performClick:nil];
+                        pump(0.3);
+                        std::string usedCall = qsoControl(aw, @"CALL").stringValue.UTF8String;
+                        H.modified = true;
+                        [findButton(aw.contentView, @"Log QSO") performClick:nil];
+                        pump(1.0);
+                        H.modified = false;
+                        CHECK(!usedCall.empty() && first.find(usedCall) == 0 && !chosenCall().empty() && chosenCall().find(usedCall) != 0,
+                              "Logged %s from the spot: on to the next opportunity (%s)", usedCall.c_str(), chosenCall().c_str());
+                        if (!spotsWere) {
+                            liveSpots.state = NSControlStateValueOff;
+                            [liveSpots sendAction:liveSpots.action to:liveSpots.target];
+                        }
+                    }
                     styleMenu(@"No Style");
                     [aw orderOut:nil];
                     H.doc = wasDoc, H.path = wasPath;

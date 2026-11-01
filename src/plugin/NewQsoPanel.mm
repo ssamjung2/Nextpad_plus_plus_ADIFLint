@@ -335,6 +335,9 @@ static NSColor *rgb(int hex) {
             [parts addObject:link(T(@"Skip"), [NSString stringWithFormat:@"%@.skip.%ld", _prefix, (long)i], T(@"Another suggestion in its place"), i)];
             [parts addObject:link(T(@"Dismiss"), [NSString stringWithFormat:@"%@.dismiss.%ld", _prefix, (long)i],
                                   T(@"Don't suggest this again (Options brings dismissed suggestions back)"), i)];
+        } else if (r.next) {
+            [parts addObject:link(T(@"Next"), [NSString stringWithFormat:@"%@.next.%ld", _prefix, (long)i],
+                                  T(@"Choose it on the map: the next opportunity (\u2318G in the Map)"), i)];
         }
         NSStackView *line = [NSStackView stackViewWithViews:parts];
         line.spacing = 6;
