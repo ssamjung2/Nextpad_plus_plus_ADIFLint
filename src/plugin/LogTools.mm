@@ -1091,7 +1091,7 @@ void bulkZoneInfo() {
     NSTimeZone *z = zoneNamed(bulk.zone.stringValue);
     if (!z) {
         bulk.zoneInfo.stringValue = T(@"Unknown zone: type a name like America/Chicago");
-        bulk.zoneInfo.textColor = NSColor.systemRedColor;
+        bulk.zoneInfo.textColor = theme::error();
         return;
     }
     NSInteger off = z.secondsFromGMT;
@@ -1099,7 +1099,7 @@ void bulkZoneInfo() {
     bulk.zoneInfo.stringValue = [NSString stringWithFormat:T(@"UTC%c%ld:%02ld now%@; each QSO uses the offset on its own date"),
                                                            off < 0 ? '-' : '+', (long)labs(off) / 3600, (long)labs(off) % 3600 / 60,
                                                            abbr.length ? [NSString stringWithFormat:@" (%@)", abbr] : @""];
-    bulk.zoneInfo.textColor = NSColor.secondaryLabelColor;
+    bulk.zoneInfo.textColor = theme::faint();
     bulk.zoneInfo.toolTip = bulk.zoneInfo.stringValue;  // in full, when a long language cuts it short
 }
 
@@ -2828,7 +2828,7 @@ void cmdLogTable() {
         table.search.sendsSearchStringImmediately = YES;
         [table.search.widthAnchor constraintEqualToConstant:260].active = YES;
         table.count = ADIFLabel(@"");
-        table.count.textColor = NSColor.secondaryLabelColor;
+        table.count.textColor = theme::faint();
         [w addOptionRow:@[ table.search, table.count ]];
         ADIFOnAction(table.search, ^{
             [table.w setFilter:table.search.stringValue];

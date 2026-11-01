@@ -1,4 +1,5 @@
 #import "Charts.h"
+#import "Theme.h"
 
 #import "L10n.h"
 #import "ToolWindow.h"
@@ -117,7 +118,7 @@ NSDictionary *textAttrs(CGFloat size, NSFontWeight weight, NSColor *colour) {
 - (CGFloat)paint:(BOOL)draw {
     const CGFloat margin = 20, width = _laidOutWidth > 0 ? _laidOutWidth : NSWidth(self.bounds), plotW = width - 2 * margin;
     bool dark = [self dark];
-    NSColor *ink = NSColor.labelColor, *quiet = NSColor.secondaryLabelColor, *grid = NSColor.separatorColor, *blue = seriesColour(dark);
+    NSColor *ink = NSColor.labelColor, *quiet = theme::faint(), *grid = NSColor.separatorColor, *blue = seriesColour(dark);
     CGFloat y = margin;
     auto text = [&](const std::string &s, NSPoint at, CGFloat size, NSFontWeight weight, NSColor *colour, int align) {  // align -1 left, 0 centre, 1 right
         NSString *str = ADIFString(s);

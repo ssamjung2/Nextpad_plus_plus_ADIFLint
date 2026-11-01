@@ -302,8 +302,11 @@ alone doesn't express); panes inside a panel may use `NSSplitViewItem` where it 
   (`orderWindow:relativeTo:` in `ADIF_DOCKABLE_WINDOW`), with no call of its own; docked, it takes
   the console's look (`theme::rehost` on dock and undock). That fixed a double Night Mode tint
   on every docked panel. Popovers are hosted through `theme::hostPopover` (two were missed
-  before). Not yet: the semantic colours at the older call sites, which keep the system colours
-  they name.
+  before). The older call sites followed (2026-11-01): statuses use `fine`, `warning`, `error`
+  and `severity`; secondary text `faint` and `fainter` (160 places); a reason's mark and colour
+  `interestSymbol` and `markColour`, so the Map and QSO Details agree. Colours that name a kind
+  of thing rather than a state (the map's markers, its badges, the Contact Map's drawing) keep
+  their own.
 - **Phase F** (2026-11-01): Settings is a window of its own (`settings.window`, "ADIF Lint
   Settings"), no longer a card in the Map; Settings... no longer opens the Map. **Map Style** (the
   Style Options card) is an operating panel: registry id `mapstyle`, dock item `kDockMapStyle`,

@@ -9,7 +9,7 @@
 #include <ctime>
 
 // Problems in their colour; plain text dimmed.
-static NSColor *severityColor(int severity) { return severity < 0 ? NSColor.secondaryLabelColor : ADIFSeverityColor(severity); }
+static NSColor *severityColor(int severity) { return severity < 0 ? theme::faint() : ADIFSeverityColor(severity); }
 
 // A scroll view's document view must be flipped for content to start at the top.
 @interface ADIFFlippedView : NSView
@@ -289,7 +289,7 @@ static NSColor *rgb(int hex) {
     NSView *root = _window.contentView;
 
     _target = [NSTextField labelWithString:@""];
-    _target.textColor = NSColor.secondaryLabelColor;
+    _target.textColor = theme::faint();
     _target.lineBreakMode = NSLineBreakByTruncatingMiddle;
     _target.translatesAutoresizingMaskIntoConstraints = NO;
     [_target setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
@@ -311,7 +311,7 @@ static NSColor *rgb(int hex) {
 
     _note = ADIFWrappingLabel();
     _note.font = theme::small();
-    _note.textColor = NSColor.secondaryLabelColor;
+    _note.textColor = theme::faint();
     _note.maximumNumberOfLines = 3;
     _note.identifier = @"newqso.note";
     _note.translatesAutoresizingMaskIntoConstraints = NO;
@@ -355,7 +355,7 @@ static NSColor *rgb(int hex) {
     [self setStations:@[] selected:0];
     // The station first: its profile, and what it writes (your call, grid, power, rig, park).
     _stationSummary = [NSTextField labelWithString:@""];
-    _stationSummary.textColor = NSColor.secondaryLabelColor;
+    _stationSummary.textColor = theme::faint();
     _stationSummary.lineBreakMode = NSLineBreakByTruncatingTail;
     _stationSummary.identifier = @"qso.station.summary";
     // Cut short (its tooltip has it all) before it widens the panel: below a docked frame's fit (Workspace.mm).
@@ -384,7 +384,7 @@ static NSColor *rgb(int hex) {
     _spotGrid.translatesAutoresizingMaskIntoConstraints = NO;
     _spotStatus = ADIFWrappingLabel();
     _spotStatus.font = theme::small();
-    _spotStatus.textColor = NSColor.secondaryLabelColor;
+    _spotStatus.textColor = theme::faint();
     _spotStatus.maximumNumberOfLines = 2;
     _spotStatus.cell.truncatesLastVisibleLine = YES;
     _spotStatus.identifier = @"qso.spot.status";
@@ -687,7 +687,7 @@ static NSColor *rgb(int hex) {
     };
     NSUInteger i = 0;
     for (NSArray<NSString *> *f in facts) {
-        NSTextField *name = label(f[0], NSColor.secondaryLabelColor), *value = label(f.count > 1 ? f[1] : @"", NSColor.labelColor);
+        NSTextField *name = label(f[0], theme::faint()), *value = label(f.count > 1 ? f[1] : @"", NSColor.labelColor);
         value.selectable = YES;
         [value setContentCompressionResistancePriority:1 forOrientation:NSLayoutConstraintOrientationHorizontal];  // cut short, not wider
         value.toolTip = f.count > 2 && f[2].length ? [NSString stringWithFormat:@"%@\n%@", value.stringValue, f[2]] : value.stringValue;
@@ -738,11 +738,11 @@ static NSColor *rgb(int hex) {
     // The title: what it is and for which style, its menu, Hide or Show.
     NSTextField *head = [NSTextField labelWithString:title];
     head.font = theme::small(NSFontWeightSemibold);
-    head.textColor = NSColor.secondaryLabelColor;
+    head.textColor = theme::faint();
     head.lineBreakMode = NSLineBreakByTruncatingTail;
     head.identifier = @"newqso.aids.title";
     [head setContentCompressionResistancePriority:1 forOrientation:NSLayoutConstraintOrientationHorizontal];
-    NSMutableArray<NSView *> *top = [NSMutableArray arrayWithObjects:symbolView(@"text.bubble", NSColor.secondaryLabelColor), head, nil];
+    NSMutableArray<NSView *> *top = [NSMutableArray arrayWithObjects:symbolView(@"text.bubble", theme::faint()), head, nil];
     if (menu && !hidden) {
         NSPopUpButton *m = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:YES];
         m.bordered = NO;
@@ -770,15 +770,15 @@ static NSColor *rgb(int hex) {
         NSTextField *t = ADIFWrappingLabel();
         t.stringValue = ADIFString(r.text);
         t.font = r.suggestion ? [[NSFontManager sharedFontManager] convertFont:small toHaveTrait:NSItalicFontMask] : small;
-        t.textColor = r.suggestion ? NSColor.secondaryLabelColor : r.severity == 2 ? NSColor.systemRedColor : r.severity == 1 ? NSColor.systemOrangeColor : NSColor.labelColor;
+        t.textColor = r.suggestion ? theme::faint() : r.severity == 1 || r.severity == 2 ? theme::severity(r.severity) : NSColor.labelColor;
         t.maximumNumberOfLines = 3;
         t.toolTip = r.why.empty() ? nil : ADIFString(r.why);
         t.identifier = [NSString stringWithFormat:@"newqso.aids.row.%ld", (long)i];
         t.accessibilityLabel = r.suggestion ? TF(@"Suggestion: {text}", @{@"text" : t.stringValue}) : nil;
         [t setContentCompressionResistancePriority:1 forOrientation:NSLayoutConstraintOrientationHorizontal];
         [t setContentHuggingPriority:1 forOrientation:NSLayoutConstraintOrientationHorizontal];
-        NSColor *tint = r.suggestion ? NSColor.secondaryLabelColor
-                                     : r.severity == 2 ? NSColor.systemRedColor : r.severity == 1 ? NSColor.systemOrangeColor : NSColor.systemGreenColor;
+        NSColor *tint = r.suggestion ? theme::faint()
+                                     : theme::severity(r.severity == 1 || r.severity == 2 ? r.severity : 3);
         NSMutableArray<NSView *> *parts = [NSMutableArray arrayWithObjects:symbolView(r.symbol ?: (r.suggestion ? @"bubble.left" : @"circle.fill"), tint), t, nil];
         if (r.suggestion) {
             if (r.note)

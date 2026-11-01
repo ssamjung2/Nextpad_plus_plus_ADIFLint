@@ -97,7 +97,7 @@ static NSScrollView *scrolling(NSTableView *t) {
     NSScrollView *rightScroll = scrolling(_available);
     _add = [NSButton buttonWithTitle:T(@"Add to New QSO") target:self action:@selector(addSelected:)];
     _count = [NSTextField labelWithString:@""];
-    _count.textColor = NSColor.secondaryLabelColor;
+    _count.textColor = theme::faint();
     _count.font = theme::small();
     NSStackView *rightButtons = [NSStackView stackViewWithViews:@[ _add, _count ]];
 
@@ -259,13 +259,13 @@ static NSScrollView *scrolling(NSTableView *t) {
         if (info.hasValues && type != "Enumeration" && type != "Boolean") type += ", list";
         f.stringValue = ADIFString(type);
         f.font = theme::small();
-        f.textColor = NSColor.secondaryLabelColor;
+        f.textColor = theme::faint();
     } else {
         std::string text = info.brief;
         if (tableView == _table && required(name)) text = tr("Required.") + " " + text;
         f.stringValue = ADIFString(text);
         f.font = theme::small();
-        f.textColor = NSColor.secondaryLabelColor;
+        f.textColor = theme::faint();
     }
     NSString *tip = ADIFString(info.details.empty() ? info.brief : info.details);
     if (!info.type.empty()) tip = [NSString stringWithFormat:T(@"%@\n\nType: %@%@"), tip, ADIFString(info.type),

@@ -17,15 +17,7 @@ static char kSuggestKey;  // a combo box's ADIFSuggestSource
 #include <map>
 #include <set>
 
-NSColor *ADIFSeverityColor(int severity) {
-    switch (severity) {
-        case 3: return NSColor.systemGreenColor;
-        case 2: return NSColor.systemRedColor;
-        case 1: return NSColor.systemOrangeColor;
-        case 0: return NSColor.systemBlueColor;
-        default: return NSColor.labelColor;
-    }
-}
+NSColor *ADIFSeverityColor(int severity) { return theme::severity(severity); }
 
 NSString *ADIFString(const std::string &s) {
     NSString *r = [[NSString alloc] initWithBytes:s.data() length:s.size() encoding:NSUTF8StringEncoding];
@@ -461,7 +453,7 @@ static NSSize sizeOf(NSView *v, CGFloat width) {
     NSView *root = _window.contentView;
 
     _target = [NSTextField labelWithString:@""];
-    _target.textColor = NSColor.secondaryLabelColor;
+    _target.textColor = theme::faint();
     _target.lineBreakMode = NSLineBreakByTruncatingMiddle;
     [_target setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
                                       forOrientation:NSLayoutConstraintOrientationHorizontal];
@@ -593,7 +585,7 @@ static NSSize sizeOf(NSView *v, CGFloat width) {
 
 - (void)setStatus:(NSString *)text severity:(int)severity {
     _status.stringValue = T(text);
-    _status.textColor = severity < 0 ? NSColor.secondaryLabelColor : ADIFSeverityColor(severity);
+    _status.textColor = severity < 0 ? theme::faint() : ADIFSeverityColor(severity);
 }
 
 // ── Table ───────────────────────────────────────────────────────────────────

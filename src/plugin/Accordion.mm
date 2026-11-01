@@ -38,18 +38,18 @@ static bool reduceMotion() {
     _accessories = [NSMutableArray array];
     _chevron = [[NSImageView alloc] initWithFrame:NSZeroRect];
     _chevron.symbolConfiguration = [NSImageSymbolConfiguration configurationWithPointSize:level == 1 ? 9 : 10 weight:NSFontWeightBold];
-    _chevron.contentTintColor = NSColor.secondaryLabelColor;
+    _chevron.contentTintColor = theme::faint();
     [_chevron.widthAnchor constraintEqualToConstant:12].active = YES;  // as wide either way: the title stays put
     _titleField = [NSTextField labelWithString:_spoken];
     _titleField.font = level == 2 ? [NSFont systemFontOfSize:NSFont.systemFontSize weight:NSFontWeightSemibold]
                        : level    ? theme::small(NSFontWeightSemibold)
                                   : theme::small(NSFontWeightBold);
-    _titleField.textColor = level ? NSColor.labelColor : NSColor.secondaryLabelColor;
+    _titleField.textColor = level ? NSColor.labelColor : theme::faint();
     _titleField.lineBreakMode = NSLineBreakByTruncatingTail;
     [_titleField setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
     _summaryField = [NSTextField labelWithString:@""];
     _summaryField.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize - (level ? 0 : 1)];
-    _summaryField.textColor = NSColor.secondaryLabelColor;  // tertiary is too faint to read (HIG Accessibility: 4.5:1)
+    _summaryField.textColor = theme::faint();  // tertiary is too faint to read (HIG Accessibility: 4.5:1)
     _summaryField.lineBreakMode = NSLineBreakByTruncatingTail;
     _summaryField.hidden = YES;
     [_summaryField setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow - 1 forOrientation:NSLayoutConstraintOrientationHorizontal];
@@ -61,7 +61,7 @@ static bool reduceMotion() {
     if (symbol.length) {
         _icon = [NSImageView imageViewWithImage:[NSImage imageWithSystemSymbolName:symbol accessibilityDescription:nil] ?: [NSImage new]];
         _icon.symbolConfiguration = [NSImageSymbolConfiguration configurationWithPointSize:level == 1 ? 11 : 12 weight:NSFontWeightRegular];
-        _icon.contentTintColor = level == 2 ? NSColor.controlAccentColor : NSColor.secondaryLabelColor;
+        _icon.contentTintColor = level == 2 ? NSColor.controlAccentColor : theme::faint();
         [_icon.widthAnchor constraintEqualToConstant:18].active = YES;  // the titles line up whatever the symbol's width
         [_row addView:_icon inGravity:NSStackViewGravityLeading];
     }
@@ -263,7 +263,7 @@ static bool reduceMotion() {
     if (reorderable && !_grip) {  // at the far end, whatever else is there; seen only while the pointer is over the header
         _grip = [NSImageView imageViewWithImage:[NSImage imageWithSystemSymbolName:@"line.3.horizontal" accessibilityDescription:nil] ?: [NSImage new]];
         _grip.symbolConfiguration = [NSImageSymbolConfiguration configurationWithPointSize:10 weight:NSFontWeightRegular];
-        _grip.contentTintColor = NSColor.secondaryLabelColor;
+        _grip.contentTintColor = theme::faint();
         _grip.accessibilityElement = NO;
         _grip.toolTip = T(@"Drag to move this card");
         _grip.alphaValue = 0;

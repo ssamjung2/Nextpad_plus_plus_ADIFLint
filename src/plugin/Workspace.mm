@@ -210,7 +210,7 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
     [self registerForDraggedTypes:@[ kFramePasteboardType ]];
     _title = [NSTextField labelWithString:@""];
     _title.font = theme::small(NSFontWeightSemibold);
-    _title.textColor = NSColor.secondaryLabelColor;
+    _title.textColor = theme::faint();
     _title.lineBreakMode = NSLineBreakByTruncatingTail;
     _title.translatesAutoresizingMaskIntoConstraints = NO;
     [_title setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
@@ -246,7 +246,7 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
     _close.bordered = NO;
     _close.imagePosition = NSImageOnly;
     _close.imageScaling = NSImageScaleProportionallyDown;
-    _close.contentTintColor = NSColor.secondaryLabelColor;
+    _close.contentTintColor = theme::faint();
     _close.toolTip = T(@"Close this frame");
     _close.accessibilityLabel = T(@"Close this frame");
     _close.translatesAutoresizingMaskIntoConstraints = NO;
@@ -260,7 +260,7 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
         imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:12 weight:NSFontWeightRegular]];
     [_more.menu addItem:face];
     _more.menu.delegate = self;
-    _more.contentTintColor = NSColor.secondaryLabelColor;
+    _more.contentTintColor = theme::faint();
     _more.toolTip = T(@"Frame actions: a panel as a tab here, the tab in front to a frame of its own, close");
     _more.accessibilityLabel = T(@"Frame actions");
     _more.identifier = @"frame.actions";
@@ -592,7 +592,7 @@ bool countryBounds(const std::string &call, double *west, double *south, double 
         return NSMakePoint(NSMinX(map) + (x - west) / std::max(1.0, east - west) * NSWidth(map),
                             NSMinY(map) + (north - y) / std::max(1.0, north - south) * NSHeight(map));
     };
-    [[NSColor.tertiaryLabelColor colorWithAlphaComponent:0.25] setStroke];
+    [[theme::fainter() colorWithAlphaComponent:0.25] setStroke];
     for (int i = 1; i < 6; ++i) {
         CGFloat x = NSMinX(map) + NSWidth(map) * i / 6.0;
         CGFloat y = NSMinY(map) + NSHeight(map) * i / 6.0;
@@ -675,7 +675,7 @@ bool countryBounds(const std::string &call, double *west, double *south, double 
     cut.lineBreakMode = NSLineBreakByTruncatingTail;  // one line, ended with "..." in a narrow frame (its tooltip has it all)
     [caption drawInRect:NSMakeRect(kADIFMargin, 4, NSWidth(bounds) - 2 * kADIFMargin, 18)
          withAttributes:@{NSFontAttributeName : theme::small(),
-                          NSForegroundColorAttributeName : NSColor.secondaryLabelColor,
+                          NSForegroundColorAttributeName : theme::faint(),
                           NSParagraphStyleAttributeName : cut}];
     self.toolTip = caption;
 }
@@ -731,31 +731,17 @@ bool countryBounds(const std::string &call, double *west, double *south, double 
 - (void)heading:(NSString *)title {
     NSTextField *h = [NSTextField labelWithString:[T(title) uppercaseString]];
     h.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize - 1 weight:NSFontWeightSemibold];
-    h.textColor = NSColor.secondaryLabelColor;
+    h.textColor = theme::faint();
     [_stack addArrangedSubview:h];
     [_stack setCustomSpacing:3 afterView:h];
     if (_stack.arrangedSubviews.count > 1) [_stack setCustomSpacing:12 afterView:_stack.arrangedSubviews[_stack.arrangedSubviews.count - 2]];
 }
 
-// Each reason's mark and colour: what the Map's selected panel uses for the same reason.
+// Each reason's mark and colour: Theme.h's, as the Map's selected panel uses for the same reason.
 static NSString *reasonSymbol(int kind, NSColor **colour) {
-    using K = adif::InterestKind;
-    switch ((K)kind) {
-        case K::Watched: *colour = NSColor.systemYellowColor; return @"star.fill";
-        case K::Duplicate: *colour = NSColor.systemRedColor; return @"exclamationmark.triangle.fill";
-        case K::NewForActivation: *colour = NSColor.systemGreenColor; return @"checkmark.circle.fill";
-        case K::NewDxcc: *colour = NSColor.systemOrangeColor; return @"star.circle.fill";
-        case K::NewBand: *colour = NSColor.systemBlueColor; return @"plus.circle.fill";
-        case K::NewMode: *colour = NSColor.systemBlueColor; return @"plus.circle";
-        case K::Worked: *colour = NSColor.secondaryLabelColor; return @"checkmark.circle";
-        case K::Confirmed: *colour = NSColor.systemGreenColor; return @"checkmark.circle.fill";
-        case K::ParkToPark: *colour = NSColor.systemGreenColor; return @"leaf.fill";
-        case K::NewPark: *colour = NSColor.systemGreenColor; return @"leaf";
-        case K::Before: *colour = NSColor.secondaryLabelColor; return @"person.crop.circle";
-        case K::FirstQso: *colour = NSColor.secondaryLabelColor; return @"person.crop.circle.badge.plus";
-    }
-    *colour = NSColor.secondaryLabelColor;
-    return @"circle";
+    NSString *symbol = theme::interestSymbol(kind);
+    *colour = theme::markColour(symbol);
+    return symbol;
 }
 
 - (void)show:(const workspace::QsoDetails &)d {
@@ -765,7 +751,7 @@ static NSString *reasonSymbol(int kind, NSColor **colour) {
         NSTextField *hint = [self text:tr("Type a call in New QSO: who it is, where, and why the contact is worth having show here, "
                                           "with your QSOs with it.")
                                   font:small
-                                colour:NSColor.secondaryLabelColor];
+                                colour:theme::faint()];
         hint.identifier = @"qsodetails.hint";
         [self addFull:hint];
         return;
@@ -780,7 +766,7 @@ static NSString *reasonSymbol(int kind, NSColor **colour) {
     top.alignment = NSLayoutAttributeFirstBaseline;
     top.spacing = 10;
     [self addFull:top];
-    if (!d.where.empty()) [self addFull:[self text:d.where font:small colour:NSColor.secondaryLabelColor]];
+    if (!d.where.empty()) [self addFull:[self text:d.where font:small colour:theme::faint()]];
 
     if (!d.why.empty()) {
         [self heading:N(@"Why this contact")];
@@ -809,7 +795,7 @@ static NSString *reasonSymbol(int kind, NSColor **colour) {
         for (const auto &[label, value] : d.facts) {
             NSTextField *l = [NSTextField labelWithString:ADIFString(label)];
             l.font = small;
-            l.textColor = NSColor.secondaryLabelColor;
+            l.textColor = theme::faint();
             [grid addRowWithViews:@[ l, [self text:value font:small colour:NSColor.labelColor] ]];
         }
         [grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
@@ -1056,14 +1042,14 @@ void openAuxWindow(int item) {
     statusRule.translatesAutoresizingMaskIntoConstraints = NO;
     _statusText = [NSTextField labelWithString:gStatus.empty() ? @"" : ADIFString(gStatus)];
     _statusText.font = theme::small();
-    _statusText.textColor = NSColor.secondaryLabelColor;
+    _statusText.textColor = theme::faint();
     _statusText.lineBreakMode = NSLineBreakByTruncatingTail;
     _statusText.identifier = @"loggingLayout.status";
     _statusText.translatesAutoresizingMaskIntoConstraints = NO;
     [_statusText setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
     _statusClock = [NSTextField labelWithString:@""];
     _statusClock.font = theme::digits(NSFont.smallSystemFontSize, NSFontWeightRegular);
-    _statusClock.textColor = NSColor.secondaryLabelColor;
+    _statusClock.textColor = theme::faint();
     _statusClock.identifier = @"loggingLayout.clock";
     _statusClock.translatesAutoresizingMaskIntoConstraints = NO;
     [_statusClock setContentHuggingPriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
@@ -1554,7 +1540,7 @@ void openAuxWindow(int item) {
     NSTextField *help = [NSTextField wrappingLabelWithString:T(@"A layout of your own: the console's panels, tabs and frame sizes as they are "
                                                                @"now, and the Map's panes. Console Layout Options lists it with the others.")];
     help.font = theme::small();
-    help.textColor = NSColor.secondaryLabelColor;
+    help.textColor = theme::faint();
     NSTextField *name = ADIFTextField(@"Name, e.g. Evening on 40m", 300);
     name.identifier = @"layouts.name";
     if (_presetId.rfind("mine:", 0) == 0) name.stringValue = ADIFString(_presetId.substr(5));  // yours, to save again

@@ -205,7 +205,7 @@ void cmdContest() {
         cw.idRow = [w addOptionRow:@[ ADIFLabel(@"CONTEST_ID:"), cw.contestId ]];
         cw.rules = [NSTextField wrappingLabelWithString:@""];
         cw.rules.font = theme::small();
-        cw.rules.textColor = NSColor.secondaryLabelColor;
+        cw.rules.textColor = theme::faint();
         cw.rules.preferredMaxLayoutWidth = 580;
         [cw.rules.widthAnchor constraintEqualToConstant:580].active = YES;
         cw.rules.identifier = @"contest.rules";

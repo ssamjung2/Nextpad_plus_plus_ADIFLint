@@ -117,10 +117,10 @@ static NSAttributedString *treeMark(NSColor *color) {
     if (row < 0 || (size_t)row >= _rows.size()) return f;
     const ADIFViewRow &r = _rows[(size_t)row];
     if (mark && r.tree) {
-        f.attributedStringValue = treeMark(r.color ?: NSColor.secondaryLabelColor);
+        f.attributedStringValue = treeMark(r.color ?: theme::faint());
     } else if (mark) {
         f.stringValue = r.color ? @"●" : @"";
-        f.textColor = r.color ?: NSColor.secondaryLabelColor;
+        f.textColor = r.color ?: theme::faint();
     } else {
         f.stringValue = self.text ? self.text(r, column) : @"";
     }
@@ -331,7 +331,7 @@ struct ADIFQuickRow {
         count.identifier = @"count";
         count.alignment = NSTextAlignmentRight;
         count.font = theme::digits(NSFont.smallSystemFontSize, NSFontWeightRegular);
-        count.textColor = NSColor.secondaryLabelColor;
+        count.textColor = theme::faint();
         [count setContentHuggingPriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
         for (NSView *v in @[ icon, title, count ]) {
             v.translatesAutoresizingMaskIntoConstraints = NO;
@@ -360,7 +360,7 @@ struct ADIFQuickRow {
                                                                      green:((r.colour >> 8) & 255) / 255.0
                                                                       blue:(r.colour & 255) / 255.0
                                                                      alpha:1]
-                                               : NSColor.secondaryLabelColor;
+                                               : theme::faint();
     cell.textField.stringValue = ADIFString(r.title);
     count.stringValue = ADIFString(r.count);
     cell.toolTip = ADIFString(r.tip);
@@ -671,7 +671,7 @@ void goHomeView();
 
 // Faint text, as faint as the system's Increase contrast (Accessibility) allows: secondary then.
 bool moreContrast() { return NSWorkspace.sharedWorkspace.accessibilityDisplayShouldIncreaseContrast; }
-NSColor *faintInk() { return moreContrast() ? NSColor.secondaryLabelColor : NSColor.tertiaryLabelColor; }
+NSColor *faintInk() { return moreContrast() ? theme::faint() : theme::fainter(); }
 
 bool flag(const char *key, bool fallback) {
     std::string v = setting(key);
@@ -889,7 +889,7 @@ void showSlots(int dxcc, const std::string &entity, const std::string &call) {
     auto colourOf = [&](adif::SlotState st) {
         return st == adif::SlotState::Confirmed ? rgb(pal.confirmed) : st == adif::SlotState::Worked ? rgb(pal.worked) : faintInk();
     };
-    add(entity + ":  ", NSColor.secondaryLabelColor, theme::small(NSFontWeightSemibold));
+    add(entity + ":  ", theme::faint(), theme::small(NSFontWeightSemibold));
     for (const auto &[band, st] : adif::bandSlots(w, dxcc)) {
         std::string b = band.size() > 1 && band.back() == 'm' && isdigit((unsigned char)band[band.size() - 2]) ? band.substr(0, band.size() - 1) : band;
         add(b + " ", colourOf(st), st == adif::SlotState::None ? font : bold);
@@ -909,7 +909,7 @@ void showSlots(int dxcc, const std::string &entity, const std::string &call) {
         std::string worked = c == w.calls.end() ? trf("{call} not in this log", {{"call", call}})
                                                 : trp("{call}: {n} QSO", "{call}: {n} QSOs", (long long)c->second.qsos, {{"call", call}}) +
                                                       (c->second.confirmed ? ", " + tr("confirmed") : "");
-        add("  \u00B7  " + worked, NSColor.secondaryLabelColor, theme::small());
+        add("  \u00B7  " + worked, theme::faint(), theme::small());
     }
     mw.slots.attributedStringValue = out;
 }
@@ -1259,12 +1259,12 @@ void showChosenFacts(const ADIFMapHit &h) {
     while (mw.chosenFacts.numberOfRows > 0) [mw.chosenFacts removeRowAtIndex:0];
     for (const Fact &f : facts) {
         NSImageView *icon = [NSImageView imageViewWithImage:[NSImage imageWithSystemSymbolName:f.symbol accessibilityDescription:nil] ?: [[NSImage alloc] init]];
-        icon.contentTintColor = NSColor.secondaryLabelColor;
+        icon.contentTintColor = theme::faint();
         icon.symbolConfiguration = [NSImageSymbolConfiguration configurationWithPointSize:NSFont.smallSystemFontSize weight:NSFontWeightRegular];
         [icon.widthAnchor constraintEqualToConstant:16].active = YES;
         NSTextField *l = [NSTextField labelWithString:ADIFString(f.label)];
         l.font = theme::small();
-        l.textColor = NSColor.secondaryLabelColor;
+        l.textColor = theme::faint();
         NSStackView *name = [NSStackView stackViewWithViews:@[ icon, l ]];
         name.spacing = 5;
         // A fact the source doesn't give says so, rather than being left out.
@@ -1286,8 +1286,7 @@ void showChosenFacts(const ADIFMapHit &h) {
         NSString *symbol = reason.symbol;
         const std::string &text = reason.text;
         NSImageView *icon = [NSImageView imageViewWithImage:[NSImage imageWithSystemSymbolName:symbol accessibilityDescription:nil] ?: [[NSImage alloc] init]];
-        icon.contentTintColor = [symbol isEqualToString:@"star.fill"] ? NSColor.systemYellowColor : [symbol hasPrefix:@"star"] ? NSColor.systemPinkColor : [symbol hasPrefix:@"plus"] ? NSColor.systemTealColor
-                                : [symbol hasPrefix:@"leaf"] ? NSColor.systemGreenColor : NSColor.secondaryLabelColor;
+        icon.contentTintColor = theme::markColour(symbol);  // as QSO Details colours the same reason
         [icon.widthAnchor constraintEqualToConstant:16].active = YES;
         NSTextField *t = [NSTextField wrappingLabelWithString:ADIFString(text)];
         t.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize + 1];
@@ -1327,7 +1326,7 @@ void showChosenFacts(const ADIFMapHit &h) {
             [out appendAttributedString:[[NSAttributedString alloc]
                                             initWithString:ADIFString(heading ? line.substr(2) : line)
                                                 attributes:@{NSFontAttributeName : heading ? head : plain,
-                                                             NSForegroundColorAttributeName : heading ? NSColor.secondaryLabelColor : NSColor.labelColor}]];
+                                                             NSForegroundColorAttributeName : heading ? theme::faint() : NSColor.labelColor}]];
         }
         mw.detailsText.attributedStringValue = out;
     }
@@ -1799,9 +1798,9 @@ void fillSolarTile() {
     std::string sum = solarSummary();
     const adif::SpaceWeather &w = solar::weather();
     mw.solarTile.title = on && !sum.empty() ? ADIFString(sum) : T(@"Space weather");
-    mw.solarTile.contentTintColor = !on || sum.empty() ? NSColor.secondaryLabelColor
-                                    : w.g >= 3 ? NSColor.systemRedColor
-                                    : w.g >= 1 ? NSColor.systemOrangeColor
+    mw.solarTile.contentTintColor = !on || sum.empty() ? theme::faint()
+                                    : w.g >= 3 ? theme::error()
+                                    : w.g >= 1 ? theme::warning()
                                                : NSColor.labelColor;
     mw.solarTile.toolTip = ADIFString(on ? solar::status() + (w.g >= 0 ? "; " + trf("geomagnetic storms G{g} ({text})", {{"g", std::to_string(w.g)}, {"text", w.gText}}) : "") +
                                                ". " + tr("Click for more")
@@ -1863,7 +1862,7 @@ NSView *solarPopoverView() {
         grid.identifier = @"map.solar.facts";
         for (const auto &[label, value] : rows) {
             NSTextField *l = [NSTextField labelWithString:ADIFString(label)], *v = [NSTextField labelWithString:ADIFString(value.empty() ? tr("Unavailable") : value)];
-            l.textColor = NSColor.secondaryLabelColor;
+            l.textColor = theme::faint();
             v.font = theme::digits(NSFont.systemFontSize, NSFontWeightRegular);
             [grid addRowWithViews:@[ l, v ]];
         }
@@ -1871,7 +1870,7 @@ NSView *solarPopoverView() {
         [parts addObject:grid];
         NSTextField *status = [NSTextField wrappingLabelWithString:ADIFString(solar::status())];
         status.font = theme::small();
-        status.textColor = NSColor.secondaryLabelColor;
+        status.textColor = theme::faint();
         status.identifier = @"map.solar.status";
         [status.widthAnchor constraintLessThanOrEqualToConstant:340].active = YES;
         [parts addObject:status];
@@ -2136,7 +2135,7 @@ NSView *buildStyleOptions() {
     auto note = [&](NSString *text) {  // a label over the boxes after it
         NSTextField *t = ADIFLabel(text);
         t.font = theme::small();
-        t.textColor = NSColor.secondaryLabelColor;
+        t.textColor = theme::faint();
         [groups.back().views addObject:t];
     };
     auto add = [&](const StyleChoice &c) {
@@ -2525,7 +2524,7 @@ void refresh() {
                                              initWithString:ADIFString("   " + (call.empty() ? "" : call + "  \u00B7  ") + documentName() + "  \u00B7  " +
                                                                        plural(mw.data.qsos.size(), "QSO"))
                                                  attributes:@{NSFontAttributeName : [NSFont systemFontOfSize:NSFont.systemFontSize weight:NSFontWeightMedium],
-                                                              NSForegroundColorAttributeName : NSColor.secondaryLabelColor}]];
+                                                              NSForegroundColorAttributeName : theme::faint()}]];
             mw.summaryLabel.attributedStringValue = line;
             mw.summaryLabel.toolTip = line.string;
         }
@@ -3046,7 +3045,7 @@ void showMoreFilters() {
         auto group = [](NSString *title) {
             NSTextField *t = ADIFLabel(title);
             t.font = theme::small(NSFontWeightSemibold);
-            t.textColor = NSColor.secondaryLabelColor;
+            t.textColor = theme::faint();
             return t;
         };
         NSArray *rowsOfGrid = @[
@@ -3074,7 +3073,7 @@ void showMoreFilters() {
                                                                  @"values. Changes apply as you make them. Band, mode, dates and "
                                                                  @"confirmation are in the toolbar (in Live, the spots' age and source too).")];
         help.font = theme::small();
-        help.textColor = NSColor.secondaryLabelColor;
+        help.textColor = theme::faint();
         help.translatesAutoresizingMaskIntoConstraints = NO;
         NSView *content = [[NSView alloc] initWithFrame:NSZeroRect];
         content.identifier = @"map.filters";
@@ -3143,7 +3142,7 @@ void showDateRange() {
         row.spacing = 8;
         NSTextField *help = [NSTextField wrappingLabelWithString:T(@"The QSOs from the first day to the last, both included (UTC, as QSO_DATE has them).")];
         help.font = theme::small();
-        help.textColor = NSColor.secondaryLabelColor;
+        help.textColor = theme::faint();
         NSStackView *stack = [NSStackView stackViewWithViews:@[ help, row ]];
         stack.orientation = NSUserInterfaceLayoutOrientationVertical;
         stack.alignment = NSLayoutAttributeLeading;
@@ -3370,9 +3369,7 @@ void refreshSpots() {
         // The feeds' health as a dot: green with a spot in the last 15 minutes and every source turned
         // on answering; orange when the spots are older or a source is failing (named after it); grey off.
         std::vector<std::string> trouble = show ? spotfeeds::troubled() : std::vector<std::string>{};
-        NSColor *dot = !show ? NSColor.tertiaryLabelColor
-                       : newest > 0 && now - newest < 900 && trouble.empty() ? NSColor.systemGreenColor
-                                                                             : NSColor.systemOrangeColor;
+        NSColor *dot = !show ? theme::fainter() : newest > 0 && now - newest < 900 && trouble.empty() ? theme::fine() : theme::warning();
         if (ADIFOffline() && !trouble.empty()) live += "  \u00B7  " + tr("Offline Mode: nothing is fetched");
         else if (!trouble.empty()) {
             std::string names;
@@ -3595,7 +3592,7 @@ void fillBandConditions() {
         NSTextField *f = [NSTextField labelWithString:ADIFString(text)];
         f.font = head ? [NSFont systemFontOfSize:NSFont.smallSystemFontSize - 1 weight:NSFontWeightMedium]
                       : [NSFont monospacedDigitSystemFontOfSize:NSFont.smallSystemFontSize weight:bold ? NSFontWeightSemibold : NSFontWeightRegular];
-        f.textColor = head ? NSColor.secondaryLabelColor : NSColor.labelColor;
+        f.textColor = head ? theme::faint() : NSColor.labelColor;
         f.alignment = NSTextAlignmentRight;
         return f;
     };
@@ -3706,7 +3703,7 @@ void showSpotsPopover() {
         NSTextField *help = [NSTextField wrappingLabelWithString:T(@"The spots the Spots layer shows. Where they come from is set in Settings (Spots); "
                                                                  @"the Map's band, mode and place filters apply to them too.")];
         help.font = theme::small();
-        help.textColor = NSColor.secondaryLabelColor;
+        help.textColor = theme::faint();
         NSMutableArray *ageTitles = [NSMutableArray array];
         for (const char *t : kSpotAgeTitles) [ageTitles addObject:@(t)];
         mw.spotAge = ADIFPopup(ageTitles);
@@ -3740,7 +3737,7 @@ void showSpotsPopover() {
         });
         mw.spotStatus = [NSTextField wrappingLabelWithString:@""];
         mw.spotStatus.font = theme::small();
-        mw.spotStatus.textColor = NSColor.secondaryLabelColor;
+        mw.spotStatus.textColor = theme::faint();
         mw.spotStatus.identifier = @"map.spots.status";
         NSButton *settings = [NSButton buttonWithTitle:T(@"Settings...") target:nil action:nil];
         ADIFOnAction(settings, ^{ openSettings(-4); });
@@ -3962,7 +3959,7 @@ void showParkPlaces() {
                                       @"locations (US states, Canadian provinces, other countries' regions, as POTA names them) and, in a US "
                                       @"state, these counties. It starts at your station's location; the parks you worked always show.")];
         help.font = theme::small();
-        help.textColor = NSColor.secondaryLabelColor;
+        help.textColor = theme::faint();
         help.translatesAutoresizingMaskIntoConstraints = NO;
         NSView *content = [[NSView alloc] initWithFrame:NSZeroRect];
         content.identifier = @"map.parkplaces";
@@ -4348,7 +4345,7 @@ std::vector<ADIFViewRow> issueRows(double lat, double lon) {
         auto at = byQso.find(mw.issues[i].qso);
         ADIFViewRow r = at != byQso.end() ? at->second : ADIFViewRow();
         r.item = i;
-        r.color = mw.issues[i].error ? NSColor.systemRedColor : NSColor.systemOrangeColor;
+        r.color = mw.issues[i].error ? theme::error() : theme::warning();
         rows.push_back(r);
     }
     return rows;
@@ -4786,7 +4783,7 @@ void showSituation() {
         NSTextField *f = [NSTextField labelWithString:ADIFString(text)];
         f.font = head ? [NSFont systemFontOfSize:NSFont.smallSystemFontSize - 1 weight:NSFontWeightMedium]
                       : theme::digits(NSFont.smallSystemFontSize + 1, NSFontWeightMedium);
-        f.textColor = head ? NSColor.secondaryLabelColor : NSColor.labelColor;
+        f.textColor = head ? theme::faint() : NSColor.labelColor;
         f.alignment = NSTextAlignmentRight;
         return f;
     };
@@ -4796,7 +4793,7 @@ void showSituation() {
         b.bordered = NO;
         b.alignment = NSTextAlignmentLeft;
         b.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize + 1];
-        b.contentTintColor = view >= 0 ? NSColor.linkColor : NSColor.secondaryLabelColor;
+        b.contentTintColor = view >= 0 ? NSColor.linkColor : theme::faint();
         b.identifier = [NSString stringWithFormat:@"map.stat.%ld", (long)stats.numberOfRows - 1];
         b.toolTip = view >= 0 ? T(@"Show this layer in History") : mw.situation.stringValue;
         if (view >= 0) ADIFOnAction(b, ^{
@@ -4817,7 +4814,7 @@ void showSituation() {
     auto spanning = [&](const std::string &text) {  // across both columns
         NSTextField *f = number(text, false);
         f.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize + 1];
-        f.textColor = NSColor.secondaryLabelColor;
+        f.textColor = theme::faint();
         return f;
     };
     statRow(tr("Today"), spanning(g.today ? plural(g.today, "QSO") : tr("no QSOs yet")), nil, -1);
@@ -4899,7 +4896,7 @@ void showSituation() {
     if (wanted.size() > 6) {
         NSTextField *more = [NSTextField labelWithString:TF(@"and {n} more", @{@"n" : @(wanted.size() - 6)})];
         more.font = theme::small();
-        more.textColor = NSColor.secondaryLabelColor;
+        more.textColor = theme::faint();
         [mw.wanted addArrangedSubview:more];
     }
     // The busiest bands (stations spotted on each), and the sun where you are.
@@ -5471,7 +5468,7 @@ void showSaveView(NSView *anchor) {
         NSTextField *help = [NSTextField wrappingLabelWithString:T(@"A Quick View of your own, in this workflow: the layers, colours and filters as "
                                                                    @"they are now, and in Live which spots show.")];
         help.font = theme::small();
-        help.textColor = NSColor.secondaryLabelColor;
+        help.textColor = theme::faint();
         NSStackView *line = [NSStackView stackViewWithViews:@[ mw.saveViewName, save ]];
         line.spacing = 8;
         NSStackView *stack = [NSStackView stackViewWithViews:@[ help, line ]];
@@ -5857,7 +5854,7 @@ void showStyleInfo() {
     auto cell = [&](const std::string &text, bool head) {
         NSTextField *f = [NSTextField labelWithString:ADIFString(text)];
         f.font = [NSFont systemFontOfSize:small weight:head ? NSFontWeightSemibold : NSFontWeightRegular];
-        if (head) f.textColor = NSColor.secondaryLabelColor;
+        if (head) f.textColor = theme::faint();
         return f;
     };
     // A table of settings (its heading row first), scrolling when long.
@@ -5895,12 +5892,12 @@ void showStyleInfo() {
     [parts addObject:label(now ? T(ADIFString(styles::title(*now))) : T(@"No style"), NSFont.systemFontSize + 1, NSFontWeightSemibold,
                            now ? styleColour(*now) : NSColor.labelColor)];
     if (now) {
-        [parts addObject:label(T(kStyleTips[(int)*now]), small, NSFontWeightRegular, NSColor.secondaryLabelColor)];
+        [parts addObject:label(T(kStyleTips[(int)*now]), small, NSFontWeightRegular, theme::faint())];
         bool mine = styles::hasMine(*now, styleGet);
         [parts addObject:label(mine ? T(@"Its defaults: yours, saved with Save") : T(@"Its defaults: the recommended ones"), small, NSFontWeightMedium,
                                NSColor.labelColor)];
         NSTextField *panels = label(TF(@"Its panels: {layout}", @{@"layout" : ADIFString(workspace::styleLayoutName(std::string(styles::id(*now))))}), small,
-                                    NSFontWeightRegular, NSColor.secondaryLabelColor);
+                                    NSFontWeightRegular, theme::faint());
         panels.identifier = @"map.operatingStyle.layout";
         [parts addObject:panels];
         // What differs from them now.
@@ -5917,14 +5914,14 @@ void showStyleInfo() {
         if (rows.count > 1) {
             [parts addObject:label(TP(@"{n} setting differs from its defaults (Save keeps them, Reset undoes them):",
                                       @"{n} settings differ from its defaults (Save keeps them, Reset undoes them):", (long long)rows.count - 1),
-                                   small, NSFontWeightRegular, NSColor.secondaryLabelColor)];
+                                   small, NSFontWeightRegular, theme::faint())];
             [parts addObject:table(rows, @"map.operatingStyle.differs")];
         } else {
-            [parts addObject:label(T(@"Nothing differs from its defaults."), small, NSFontWeightRegular, NSColor.secondaryLabelColor)];
+            [parts addObject:label(T(@"Nothing differs from its defaults."), small, NSFontWeightRegular, theme::faint())];
         }
     } else {
         [parts addObject:label(T(@"The map as you set it. Choose a style to set it up for Social, Chasing, Contest or Portable operating."), small,
-                               NSFontWeightRegular, NSColor.secondaryLabelColor)];
+                               NSFontWeightRegular, theme::faint())];
     }
     // The last change of style.
     if (lastStyleChange) {
@@ -5944,7 +5941,7 @@ void showStyleInfo() {
         NSTextField *h = label(ADIFString(heading), small, NSFontWeightSemibold, NSColor.labelColor);
         [parts addObject:h];
         [parts addObject:label(rows.count > 1 ? TP(@"{n} setting changed", @"{n} settings changed", (long long)rows.count - 1) : T(@"Nothing on the map changed"),
-                               small, NSFontWeightRegular, NSColor.secondaryLabelColor)];
+                               small, NSFontWeightRegular, theme::faint())];
         if (rows.count > 1) [parts addObject:table(rows, @"map.operatingStyle.changes")];
     }
     // Its buttons.
@@ -6106,7 +6103,7 @@ void showWatchButton(const ADIFMapHit &h) {
     bool on = onWatchList(token);
     mw.watchButton.title = on ? T(@"Watching") : T(@"Watch");
     mw.watchButton.image = [NSImage imageWithSystemSymbolName:on ? @"star.fill" : @"star" accessibilityDescription:nil];
-    mw.watchButton.contentTintColor = on ? NSColor.systemYellowColor : nil;
+    mw.watchButton.contentTintColor = on ? theme::markColour(@"star.fill") : nil;  // the watch list's yellow
     mw.actions.needsLayout = YES;  // its title's width too
     mw.watchButton.toolTip = [ADIFString(on ? trf("{what} is on your watch list; click to stop watching it", {{"what", token}})
                                             : trf("Watch {what}: when it is spotted, it shows in My watch list, first among the spots, and under the bell",
@@ -6166,7 +6163,7 @@ void showWatchList(NSView *anchor) {
                                       @"shows in My watch list (Live's Quick Views), first among the spots with a star, and under the bell at "
                                       @"the top. Watch in the selected panel adds what you chose.")];
         help.font = theme::small();
-        help.textColor = NSColor.secondaryLabelColor;
+        help.textColor = theme::faint();
         help.translatesAutoresizingMaskIntoConstraints = NO;
         NSView *content = [[NSView alloc] initWithFrame:NSZeroRect];
         content.identifier = @"map.watch";
@@ -6222,7 +6219,7 @@ void fillBell() {
     mw.bell.image = [NSImage imageWithSystemSymbolName:unseen ? @"bell.badge.fill" : n ? @"bell.fill" : @"bell" accessibilityDescription:nil];
     mw.bell.title = n ? ADIFString(grouped(n)) : @"";
     mw.bell.imagePosition = n ? NSImageLeading : NSImageOnly;
-    mw.bell.contentTintColor = unseen || stale ? NSColor.systemOrangeColor : nil;
+    mw.bell.contentTintColor = unseen || stale ? theme::warning() : nil;
     std::string tip = n ? trp("{n} station on your watch list is spotted now", "{n} stations on your watch list are spotted now", (long long)n)
                         : tr("None of your watch list is spotted now");
     if (stale) tip += "\n" + tr("No new spots for 15 minutes or more: the feeds may have stopped");
@@ -6733,7 +6730,7 @@ void cmdMap() {
         auto heading = [](NSString *text, NSFontWeight weight) {  // a column's or a section's title
             NSTextField *t = ADIFLabel(text);
             t.font = theme::small(weight);
-            t.textColor = NSColor.secondaryLabelColor;
+            t.textColor = theme::faint();
             return t;
         };
         // A sub-card of the Layers section: an outlined card in the card, its header opening and closing it (remembered).
@@ -7195,7 +7192,7 @@ void cmdMap() {
         listScroll.borderType = NSBezelBorder;
         mw.listHint = [NSTextField labelWithString:@""];  // one line in the list's footer; all of it as its tooltip
         mw.listHint.font = theme::small();
-        mw.listHint.textColor = NSColor.secondaryLabelColor;
+        mw.listHint.textColor = theme::faint();
         mw.listHint.lineBreakMode = NSLineBreakByTruncatingTail;
         [mw.listHint setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow - 1 forOrientation:NSLayoutConstraintOrientationHorizontal];
         mw.listHint.identifier = @"map.list.hint";
@@ -7586,7 +7583,7 @@ void cmdMap() {
         mw.synced = [NSButton buttonWithTitle:@"" target:nil action:nil];
         mw.synced.bordered = NO;
         mw.synced.font = theme::small();
-        mw.synced.contentTintColor = NSColor.secondaryLabelColor;
+        mw.synced.contentTintColor = theme::faint();
         mw.synced.image = [NSImage imageWithSystemSymbolName:@"arrow.triangle.2.circlepath" accessibilityDescription:nil];
         mw.synced.imagePosition = NSImageLeading;
         mw.synced.identifier = @"map.synced";
@@ -8046,7 +8043,7 @@ void cmdMap() {
         titleRow.detachesHiddenViews = YES;
         mw.chosenSubtitle = [NSTextField labelWithString:@""];
         mw.chosenSubtitle.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize + 1];
-        mw.chosenSubtitle.textColor = NSColor.secondaryLabelColor;
+        mw.chosenSubtitle.textColor = theme::faint();
         mw.chosenSubtitle.lineBreakMode = NSLineBreakByTruncatingTail;
         mw.chosenSubtitle.identifier = @"map.chosen.subtitle";
         mw.chosenFacts = [NSGridView gridViewWithNumberOfColumns:2 rows:0];
@@ -8081,7 +8078,7 @@ void cmdMap() {
         detailsSection.open = flag("mapDetailsOpen", false);
         detailsSection.onToggle = ^(BOOL open) { saveFlag("mapDetailsOpen", open); };
         mw.detailsSection = detailsSection;
-        mw.status.textColor = NSColor.secondaryLabelColor;  // the description, under the facts
+        mw.status.textColor = theme::faint();  // the description, under the facts
         NSButton *closeChosen = smallButton(@"Hide", @"Hide this panel (the button at the right of the header shows it again)", ^{ showPane(2, false); });
         iconOnly(closeChosen, @"xmark");
         closeChosen.bordered = NO;
@@ -8200,7 +8197,7 @@ void cmdMap() {
         mapButton(home, @"house", N(@"Home"));
         mw.zoomLabel.font = theme::digits(10, NSFontWeightMedium);
         mw.zoomLabel.alignment = NSTextAlignmentCenter;
-        mw.zoomLabel.textColor = NSColor.secondaryLabelColor;
+        mw.zoomLabel.textColor = theme::faint();
         NSBox *navRule = [[NSBox alloc] initWithFrame:NSZeroRect];
         navRule.boxType = NSBoxSeparator;
         [navRule.widthAnchor constraintEqualToConstant:24].active = YES;
@@ -8233,7 +8230,7 @@ void cmdMap() {
         // The status bar: what the map shows (the feeds' health in Live), then what is under the pointer.
         mw.hover = [NSTextField labelWithString:@""];
         mw.hover.font = theme::small();
-        mw.hover.textColor = NSColor.secondaryLabelColor;
+        mw.hover.textColor = theme::faint();
         mw.hover.lineBreakMode = NSLineBreakByTruncatingTail;
         [mw.hover setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
         mw.hover.identifier = @"map.hover";

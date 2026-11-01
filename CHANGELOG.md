@@ -9,6 +9,10 @@ Versions before 0.8.0 were development builds and were not published.
 
 ## [Unreleased]
 
+### Changed
+
+- QSO Details marks each reason in the colour the Map's selected panel uses for it (a new DXCC entity pink, a new band or mode teal; they were orange and blue), from one definition the two share.
+
 ## [1.9.0] - 2026-11-01
 
 ### Added
