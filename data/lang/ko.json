@@ -3049,6 +3049,9 @@
   "Activations & Spots: the activators and stations spotted now, as a table (on while it shows; click again to close it)": "액티베이션과 스팟: 지금 스팟된 액티베이터와 국을 표로 (보이는 동안 켜짐, 다시 클릭하면 닫힘)",
   "Contact Map: where New QSO's contact is, from your station (on while it shows; click again to close it)": "교신 상대 지도: 새 QSO 상대가 내 국에서 어디에 있는지 (보이는 동안 켜짐, 다시 클릭하면 닫힘)",
   "New QSO: log a contact (on while it shows; click again to close it)": "새 QSO: 교신 기록 (보이는 동안 켜짐, 다시 클릭하면 닫힘)",
-  "QSO Details: who New QSO's contact is, why it's worth having, and your QSOs with the call (on while it shows; click again to close it)": "QSO 상세: 새 QSO 상대가 누구인지, 왜 교신할 만한지, 그 호출 부호와의 QSO (보이는 동안 켜짐, 다시 클릭하면 닫힘)"
+  "QSO Details: who New QSO's contact is, why it's worth having, and your QSOs with the call (on while it shows; click again to close it)": "QSO 상세: 새 QSO 상대가 누구인지, 왜 교신할 만한지, 그 호출 부호와의 QSO (보이는 동안 켜짐, 다시 클릭하면 닫힘)",
+  "Panels": "패널",
+  "Show {panel}": "{panel} 보기",
+  "Hide {panel}": "{panel} 숨기기"
  }
 }

@@ -20,7 +20,9 @@ extern NSString *const ADIFOperatingStyleChangedNotification;
 namespace worldmap {
 
 void cmdMap();
-void cmdLiveMap();  // the Map showing the spots: Live, or DX Chase or POTA when it is in one
+void cmdLiveMap();
+bool mapShown();  // open: its window, or its frame in the Operating Console
+void closeMap();  // the Map showing the spots: Live, or DX Chase or POTA when it is in one
 // Start Logging: the Map, once it is open, as an operating map: Live's spots of the last five
 // minutes, plain DX (no POTA parks or activators), at 2.5×.
 void showForLogging();

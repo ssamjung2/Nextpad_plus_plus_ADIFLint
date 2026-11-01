@@ -32,7 +32,7 @@ struct ADIFAidRow {
 
 @interface ADIFNewQsoPanel : NSObject <NSWindowDelegate, NSTextFieldDelegate, NSComboBoxDelegate>
 
-@property(nonatomic, readonly) NSPanel *window;
+@property(nonatomic, readonly) NSWindow *window;  // a normal window (docks in the Operating Console)
 @property(nonatomic, copy) void (^onChange)(void);  // any value edited
 @property(nonatomic, copy) void (^onLog)(void);     // Log QSO pressed
 @property(nonatomic, copy) void (^onCustomize)(void);  // Fields... pressed

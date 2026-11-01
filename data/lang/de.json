@@ -3146,6 +3146,9 @@
   "Activations & Spots: the activators and stations spotted now, as a table (on while it shows; click again to close it)": "Aktivierungen & Spots: die jetzt gespotteten Aktivierer und Stationen als Tabelle (an, solange es angezeigt wird; erneut klicken zum Schließen)",
   "Contact Map: where New QSO's contact is, from your station (on while it shows; click again to close it)": "Kontaktkarte: wo die Gegenstation aus Neues QSO ist, von Ihrer Station aus (an, solange es angezeigt wird; erneut klicken zum Schließen)",
   "New QSO: log a contact (on while it shows; click again to close it)": "Neues QSO: einen Kontakt loggen (an, solange es angezeigt wird; erneut klicken zum Schließen)",
-  "QSO Details: who New QSO's contact is, why it's worth having, and your QSOs with the call (on while it shows; click again to close it)": "QSO-Details: wer die Gegenstation aus Neues QSO ist, warum sie lohnt, und Ihre QSOs mit dem Rufzeichen (an, solange es angezeigt wird; erneut klicken zum Schließen)"
+  "QSO Details: who New QSO's contact is, why it's worth having, and your QSOs with the call (on while it shows; click again to close it)": "QSO-Details: wer die Gegenstation aus Neues QSO ist, warum sie lohnt, und Ihre QSOs mit dem Rufzeichen (an, solange es angezeigt wird; erneut klicken zum Schließen)",
+  "Panels": "Bereiche",
+  "Show {panel}": "{panel} einblenden",
+  "Hide {panel}": "{panel} ausblenden"
  }
 }

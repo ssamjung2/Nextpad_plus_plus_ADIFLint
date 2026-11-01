@@ -242,7 +242,7 @@ static NSColor *rgb(int hex) {
 @end
 
 @implementation ADIFNewQsoPanel {
-    NSPanel *_window;
+    NSWindow *_window;
     NSTextField *_target, *_summary, *_note;
     NSStackView *_clocks;
     NSScrollView *_scroll;
@@ -271,17 +271,18 @@ static NSColor *rgb(int hex) {
     _controls = [NSMutableArray array];
     _status = [NSMutableArray array];
 
-    _window = [[ADIFDockPanel alloc] initWithContentRect:NSMakeRect(0, 0, 560, 480)
-                                         styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
-                                                   NSWindowStyleMaskResizable
-                                           backing:NSBackingStoreBuffered
-                                             defer:YES];
-    ((ADIFDockPanel *)_window).dockItem = kDockNewQso;
+    // A normal window, not a floating panel: Apple's guidelines keep typing out of panels, and a
+    // window stays in sight when you switch to another app to look something up.
+    _window = [[ADIFDockWindow alloc] initWithContentRect:NSMakeRect(0, 0, 560, 480)
+                                          styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable |
+                                                    NSWindowStyleMaskMiniaturizable
+                                            backing:NSBackingStoreBuffered
+                                              defer:YES];
+    ((ADIFDockWindow *)_window).dockItem = kDockNewQso;
     _window.title = T(@"New QSO");
     ADIFNightTrack(_window);
-    _window.floatingPanel = YES;
-    _window.hidesOnDeactivate = YES;
     _window.releasedWhenClosed = NO;
+    _window.tabbingMode = NSWindowTabbingModeDisallowed;
     _window.delegate = self;
     _window.autorecalculatesKeyViewLoop = YES;
     _window.contentMinSize = NSMakeSize(420, 260);
@@ -473,7 +474,7 @@ static NSColor *rgb(int hex) {
     return self;
 }
 
-- (NSPanel *)window {
+- (NSWindow *)window {
     return _window;
 }
 

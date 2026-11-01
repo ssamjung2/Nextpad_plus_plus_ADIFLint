@@ -351,6 +351,10 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
 ADIF_DOCKABLE_WINDOW
 @end
 
+@implementation ADIFDockWindow
+ADIF_DOCKABLE_WINDOW
+@end
+
 namespace {
 std::vector<std::pair<std::string, std::string>> gQsoFields;
 ADIFDockPanel *gContactMapWindow;

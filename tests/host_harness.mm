@@ -950,6 +950,28 @@ int main(int argc, char **argv) {
                       between(@"Spots & Hunting...", map, validate) &&
                       [pluginMenu indexOfItemWithTitle:@"Start Logging"] < [pluginMenu indexOfItemWithTitle:@"New QSO..."],
                   "Logging & Operating starts each way of logging; Map & Spots opens the Map, Live and the spots");
+            // The Panels menu: Show or Hide each panel, its title saying what it will do (HIG), through one controller.
+            NSInteger panelsAt = menuIndexWithIdentifier(@"org.nextpad.adiflint.menu.panels");
+            NSMenu *panelsMenu = panelsAt >= 0 ? [pluginMenu itemAtIndex:panelsAt].submenu : nil;
+            auto panelItem = [&](NSString *id) -> NSMenuItem * {
+                [panelsMenu.delegate menuNeedsUpdate:panelsMenu];  // as when it opens
+                for (NSMenuItem *mi in panelsMenu.itemArray)
+                    if ([mi.identifier isEqualToString:[@"org.nextpad.adiflint.panels." stringByAppendingString:id]]) return mi;
+                return nil;
+            };
+            NSString *closedTitle = panelItem(@"logtable").title;
+            [panelsMenu performActionForItemAtIndex:[panelsMenu indexOfItem:panelItem(@"logtable")]];
+            pump(0.3);
+            NSWindow *table = windowTitled(@"Log Table");
+            NSString *openTitle = panelItem(@"logtable").title;
+            [panelsMenu performActionForItemAtIndex:[panelsMenu indexOfItem:panelItem(@"logtable")]];
+            pump(0.3);
+            CHECK(panelsAt > menuIndexWithIdentifier(operating) && panelsAt < menuIndexWithIdentifier(map) && panelsMenu.numberOfItems == 6 &&
+                      [closedTitle isEqualToString:@"Show Log Table"] && table.visible == NO && [openTitle isEqualToString:@"Hide Log Table"] &&
+                      [panelItem(@"logtable").title isEqualToString:@"Show Log Table"] &&
+                      [panelItem(@"map").title isEqualToString:windowIdentified(@"map.window").visible ? @"Hide Map" : @"Show Map"],  // the welcome's Settings is the Map's
+                  "the Panels menu in Logging & Operating: six panels, Show or Hide as each is (%s, then %s), the Log Table opened and closed",
+                  closedTitle.UTF8String, openTitle.UTF8String);
         }
         NSMenuItem *preferencesMenu = menuIndexWithIdentifier(@"org.nextpad.adiflint.section.preferences") >= 0
                                           ? [pluginMenu itemAtIndex:menuIndexWithIdentifier(@"org.nextpad.adiflint.section.preferences")]
@@ -4126,11 +4148,13 @@ int main(int argc, char **argv) {
             pump(0.2);
             run("New QSO...");
             NSWindow *qwl = qsoWindow();
+            std::string previous;
             auto lookupLine = [&](NSString *call) {
                 qsoControl(qwl, @"CALL").stringValue = call;
                 [[NSNotificationCenter defaultCenter] postNotificationName:NSControlTextDidChangeNotification object:qsoControl(qwl, @"CALL")];
-                pump(0.9);  // the lookup runs 0.6 s after typing
-                return lookupInfo(qwl);
+                pump(0.9);  // the lookup runs 0.6 s after typing; under load, a little later
+                for (int k = 0; k < 20 && lookupInfo(qwl) == previous; ++k) pump(0.1);
+                return previous = lookupInfo(qwl);
             };
             std::string recent = lookupLine(@"K1AB"), old = lookupLine(@"K1PRK"), none = lookupLine(@"W9ZZZ");
             CHECK(recent.find("QSL: LoTW user (last upload 2026-09-30)") != std::string::npos &&

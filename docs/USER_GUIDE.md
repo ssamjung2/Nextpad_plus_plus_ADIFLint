@@ -224,7 +224,8 @@ is selected.
 
 ## Logging with New QSO
 
-**New QSO…** opens a window for logging contacts one after another.
+**New QSO…** opens a window for logging contacts one after another. It is an ordinary window:
+it stays where you left it when you switch to another app, and it minimizes to the Dock.
 
 ![New QSO with a call looked up in the country data: DXCC, zones and continent filled in, and the distance and bearing from your grid](images/new-qso-lookup.png)
 
@@ -251,7 +252,10 @@ is selected.
 
 **Start Logging** (in the ADIF Lint menu) opens the **Operating Console**: New QSO, the Map and
 the Log Table in one resizable window. **Console Layout Options** chooses an arrangement, shows or
-hides frames, and resets their sizes. At the top of New QSO two clocks show the time in LED
+hides frames, and resets their sizes. **Panels** (beside it) shows or hides each panel, New QSO,
+the Log Table, the Map, Activations & Spots, the Contact Map and QSO Details, whether it is in
+the console or a window of its own; each item says what it will do (**Show Map**, **Hide Map**),
+as the Map's toolbar buttons show it. At the top of New QSO two clocks show the time in LED
 digits: **UTC** (green, the time QSOs are logged in) and **local** time (amber, with your time
 zone), each with its date.
 Each frame's header menu chooses what it shows; choosing a view already in another frame swaps

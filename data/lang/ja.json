@@ -3049,6 +3049,9 @@
   "Activations & Spots: the activators and stations spotted now, as a table (on while it shows; click again to close it)": "アクティベーションとスポット: 今スポットされているアクティベーターと局の表 (表示中はオン。もう一度クリックで閉じる)",
   "Contact Map: where New QSO's contact is, from your station (on while it shows; click again to close it)": "コンタクトマップ: 新規 QSO の相手の位置 (自局から) (表示中はオン。もう一度クリックで閉じる)",
   "New QSO: log a contact (on while it shows; click again to close it)": "新規 QSO: 交信を記録 (表示中はオン。もう一度クリックで閉じる)",
-  "QSO Details: who New QSO's contact is, why it's worth having, and your QSOs with the call (on while it shows; click again to close it)": "QSO の詳細: 新規 QSO の相手、交信する価値、そのコールサインとの QSO (表示中はオン。もう一度クリックで閉じる)"
+  "QSO Details: who New QSO's contact is, why it's worth having, and your QSOs with the call (on while it shows; click again to close it)": "QSO の詳細: 新規 QSO の相手、交信する価値、そのコールサインとの QSO (表示中はオン。もう一度クリックで閉じる)",
+  "Panels": "パネル",
+  "Show {panel}": "{panel} を表示",
+  "Hide {panel}": "{panel} を隠す"
  }
 }

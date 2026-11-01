@@ -264,6 +264,14 @@ alone doesn't express); panes inside a panel may use `NSSplitViewItem` where it 
 - **Theming**: each panel snapshotted in light, dark, Night Mode and Increase Contrast; the
   language layout check, as now.
 
+## Progress
+
+- **Phase A** (2026-10-31): `src/core/adif_layout` with `testLayouts`.
+- **Phase B, first part** (2026-10-31): the registry and controller (`src/plugin/Panels`), the
+  Panels menu with Show/Hide titles, the Map's panel buttons through it, New QSO a normal window.
+  Next: the console built from an arrangement, with tabs; the Frames menu, frame headers and
+  layouts through the controller; the Map's panes in the arrangement.
+
 ## Plan
 
 Each phase leaves the plugin working and tested.

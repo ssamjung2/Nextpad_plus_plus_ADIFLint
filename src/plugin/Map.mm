@@ -14,6 +14,7 @@
 #import "PotaParks.h"
 #import "PluginHost.h"
 #import "Solar.h"
+#import "Panels.h"
 #import "Spots.h"
 #import "Uploads.h"
 #import "ToolWindow.h"
@@ -5084,31 +5085,19 @@ void restorePane(int pane) {
 }
 
 // A pane shown or hidden (its button at the right of the header): hidden, the map takes its room.
-// The panels the toolbar opens and closes, each a window or a frame of the Operating Console.
-struct PanelButton {
-    NSString *title, *symbol, *ident, *tip;
-    bool (*shown)();
-    void (*toggle)();
-};
-const PanelButton kPanels[] = {
-    {N(@"New QSO"), @"square.and.pencil", @"map.newqso", N(@"New QSO: log a contact (on while it shows; click again to close it)"),
-     adifhost::newQsoShown, adifhost::toggleNewQso},
-    {N(@"Log Table"), @"tablecells", @"map.logtable", N(@"The log as a table: sort, search and edit its QSOs (on while it shows; click again to close it)"),
-     logtools::logTableShown, logtools::toggleLogTable},
-    {N(@"Activations & Spots"), @"antenna.radiowaves.left.and.right", @"map.spotstable",
-     N(@"Activations & Spots: the activators and stations spotted now, as a table (on while it shows; click again to close it)"), logtools::spotsShown,
-     logtools::toggleSpots},
-    {N(@"Contact Map"), @"map", @"map.contactmap", N(@"Contact Map: where New QSO's contact is, from your station (on while it shows; click again to close it)"),
-     workspace::contactMapShown, workspace::toggleContactMap},
-    {N(@"QSO Details"), @"person.text.rectangle", @"map.qsodetails",
-     N(@"QSO Details: who New QSO's contact is, why it's worth having, and your QSOs with the call (on while it shows; click again to close it)"),
-     workspace::qsoDetailsShown, workspace::toggleQsoDetails},
-};
+// The panels' buttons (Panels.h's, but the Map's own): one each, in the registry's order.
+std::vector<const panels::Spec *> toolbarPanels() {
+    std::vector<const panels::Spec *> out;
+    for (const panels::Spec &p : panels::all())
+        if (p.mapToolbar) out.push_back(&p);
+    return out;
+}
 
 // Each panel's button on while it shows.
 void syncPanelButtons() {
-    for (NSUInteger i = 0; i < mw.panelButtons.count && i < std::size(kPanels); ++i)
-        mw.panelButtons[i].state = kPanels[i].shown() ? NSControlStateValueOn : NSControlStateValueOff;
+    std::vector<const panels::Spec *> list = toolbarPanels();
+    for (NSUInteger i = 0; i < mw.panelButtons.count && i < list.size(); ++i)
+        mw.panelButtons[i].state = panels::shown(list[i]->id) ? NSControlStateValueOn : NSControlStateValueOff;
 }
 
 void showPane(int pane, bool on) {
@@ -7520,18 +7509,18 @@ void cmdMap() {
         // The panels, beside the panes in the toolbar: on (blue) while each shows, as a window or a frame of
         // the Operating Console; a click opens or closes it.
         mw.panelButtons = [NSMutableArray array];
-        for (size_t i = 0; i < std::size(kPanels); ++i) {
-            const PanelButton &p = kPanels[i];
+        for (const panels::Spec *p : toolbarPanels()) {
+            std::string id = p->id;
             __block NSButton *me = nil;
-            NSButton *b = smallButton(p.title, p.tip, ^{
-                bool want = me.state == NSControlStateValueOn;  // what the click asks for: on opens it, off closes it
-                if (want != p.shown()) p.toggle();
+            NSButton *b = smallButton(p->title, p->tip, ^{
+                bool want = me.state == NSControlStateValueOn;  // what the click asks for: on shows it, off closes it
+                if (want != panels::shown(id)) panels::setShown(id, want);
                 syncPanelButtons();
             });
             me = b;
             [b setButtonType:NSButtonTypePushOnPushOff];
-            toolbarIcon(b, p.symbol);
-            b.identifier = p.ident;
+            toolbarIcon(b, p->symbol);
+            b.identifier = p->identifier;
             [mw.panelButtons addObject:b];
         }
         // Any window closed, shown or hidden, or made key: one of them, perhaps (a window hidden doesn't close).
@@ -8339,6 +8328,12 @@ void cmdMap() {
     [mw.window makeFirstResponder:mw.view];
     refreshSpots();  // the feeds start once the window shows
     updatePropagation();
+}
+
+bool mapShown() { return mw.window && mw.window.visible; }
+
+void closeMap() {
+    if (mapShown()) [mw.window performClose:nil];  // docked: its frame closes
 }
 
 // Live Map...: the Map showing who is on the air now. DX Chase and POTA are Live already.

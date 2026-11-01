@@ -66,8 +66,12 @@ NSView *content(NSWindow<ADIFDockable> *window);
 
 }  // namespace workspace
 
-// The panel the New QSO and tool windows are.
+// The panel the tool windows are.
 @interface ADIFDockPanel : NSPanel <ADIFDockable>
+@end
+
+// A normal window that docks: New QSO (HIG: no typing in floating panels).
+@interface ADIFDockWindow : NSWindow <ADIFDockable>
 @end
 
 // For an NSWindow or NSPanel subclass that docks: declare <ADIFDockable> and put this in its

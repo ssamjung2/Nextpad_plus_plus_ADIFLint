@@ -50,6 +50,7 @@
 #import "IotaGroups.h"
 #import "PotaParks.h"
 #import "Map.h"
+#import "Panels.h"
 #import "Lookup.h"
 #import "NewQsoPanel.h"
 #import "PluginHost.h"
@@ -3354,6 +3355,7 @@ static void installPluginMenuStructure() {
     add(kCmdStartContest);
     add(kCmdNewQso);
     [pluginMenu addItem:workspace::optionsMenuItem()];
+    [pluginMenu addItem:panels::menuItem()];  // Show or Hide each panel
 
     // Seeing what is out there: the log on the Map, who is on the air now, and the spots to hunt.
     addSection(@"org.nextpad.adiflint.section.map");
