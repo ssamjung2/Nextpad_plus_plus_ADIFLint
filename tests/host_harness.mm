@@ -959,11 +959,11 @@ int main(int argc, char **argv) {
             NSString *openTitle = panelItem(@"logtable").title;
             [panelsMenu performActionForItemAtIndex:[panelsMenu indexOfItem:panelItem(@"logtable")]];
             pump(0.3);
-            CHECK(panelsAt > menuIndexWithIdentifier(operating) && panelsAt < menuIndexWithIdentifier(map) && panelsMenu.numberOfItems == 8 &&
+            CHECK(panelsAt > menuIndexWithIdentifier(operating) && panelsAt < menuIndexWithIdentifier(map) && panelsMenu.numberOfItems == 10 &&
                       [closedTitle isEqualToString:@"Show Log Table"] && table.visible == NO && [openTitle isEqualToString:@"Hide Log Table"] &&
                       [panelItem(@"logtable").title isEqualToString:@"Show Log Table"] &&
                       [panelItem(@"map").title isEqualToString:windowIdentified(@"map.window").visible ? @"Hide Map" : @"Show Map"],  // the welcome's Settings is the Map's
-                  "the Panels menu in Logging & Operating: eight panels, Show or Hide as each is (%s, then %s), the Log Table opened and closed",
+                  "the Panels menu in Logging & Operating: ten panels, Show or Hide as each is (%s, then %s), the Log Table opened and closed",
                   closedTitle.UTF8String, openTitle.UTF8String);
             CHECK(tableNormal, "the Log Table: a normal window (its cells are typed in), which minimizes to the Dock");
             {  // Map Style: a panel, from the Panels menu; Settings: a window of its own (the welcome's). Both were cards in the Map.
@@ -981,6 +981,19 @@ int main(int argc, char **argv) {
                       "Map Style: a panel, shown and hidden from the Panels menu; Settings: a window of its own; no card of either in the Map");
                 if (!mapWas) [mapW performClose:nil];  // as it was
                 pump(0.2);
+            }
+            {  // Spot Sources: Settings' Spots section in a panel of its own, its place in Settings saying so; back when it closes
+                [panelsMenu performActionForItemAtIndex:[panelsMenu indexOfItem:panelItem(@"spotsources")]];
+                pump(0.3);
+                NSWindow *sourcesW = windowIdentified(@"settings.panel.spotsources"), *setW = windowIdentified(@"settings.window");
+                bool out = sourcesW.visible && viewWithIdentifier(sourcesW.contentView, @"settings.spots.spothole") &&
+                           !viewWithIdentifier(setW.contentView, @"settings.spots.spothole") && viewWithIdentifier(setW.contentView, @"settings.spots.away") &&
+                           [panelItem(@"spotsources").title isEqualToString:@"Hide Spot Sources"] && ![sourcesW isKindOfClass:NSPanel.class];
+                [sourcesW performClose:nil];
+                pump(0.3);
+                CHECK(out && !sourcesW.visible && viewWithIdentifier(setW.contentView, @"settings.spots.spothole") &&
+                          !viewWithIdentifier(setW.contentView, @"settings.spots.away") && viewWithIdentifier(setW.contentView, @"settings.spots.openPanel"),
+                      "Spot Sources: Settings' Spots section in a window of its own, Settings saying where; closed, back in Settings");
             }
         }
         NSMenuItem *preferencesMenu = menuIndexWithIdentifier(@"org.nextpad.adiflint.section.preferences") >= 0

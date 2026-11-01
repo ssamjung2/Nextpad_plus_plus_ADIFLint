@@ -1968,6 +1968,12 @@ card of its own, closed until you open it, its heading saying what is set in it 
 and grid, "3 of 4 on", **Saved** or **not set** for an account), so the one you want is quick
 to find. The first time ADIF Lint runs, it opens with a welcome and Your Station open.
 
+**Spots** and **Your Station** can each be a panel of their own while you operate: the button at
+the right of the section's heading (or **Panels → Show Spot Sources**, **Show Your Station**)
+moves the section into its own window, which can sit as a tab in the Operating Console (beside
+the spots, say). Settings then says where it is, with **Show It**; close the panel and the
+section is back in Settings.
+
 - **Your Station:** your callsign and grid, used where a log doesn't say: New QSO fills
   STATION_CALLSIGN and MY_GRIDSQUARE from them in a new log, distances are measured from the
   grid, and the activation and Cabrillo exports offer the callsign. Also the logs folder

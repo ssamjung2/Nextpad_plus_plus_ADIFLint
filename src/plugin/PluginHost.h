@@ -62,6 +62,13 @@ void openQsoDetails();  // QSO Details, worked out for New QSO's contact as it o
 bool aidsPanelShown();
 void openAidsPanel();
 void closeAidsPanel();
+// Settings sections as panels of their own: Spot Sources (its Spots section) and Your Station.
+bool spotSourcesShown();
+void openSpotSources();
+void closeSpotSources();
+bool stationShown();
+void openStation();
+void closeStation();
 bool newQsoShown();     // New QSO is open (its window, or its frame in the Operating Console)
 void toggleNewQso();    // open it, or close it when it shows (the Map's toolbar button)
 void stationChanged();  // the station profile or activation changed: New QSO follows

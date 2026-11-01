@@ -210,7 +210,7 @@ Arrangement fill(const Node &tree, const std::array<int, 5> &items) {
 }  // namespace
 
 const std::vector<std::string> &knownPanels() {
-    static const std::vector<std::string> all = {kMap, kLogTable, kNewQso, kSpots, kContactMap, kQsoDetails, kMapStyle, kAids};
+    static const std::vector<std::string> all = {kMap, kLogTable, kNewQso, kSpots, kContactMap, kQsoDetails, kMapStyle, kAids, kSpotSources, kStation};
     return all;
 }
 

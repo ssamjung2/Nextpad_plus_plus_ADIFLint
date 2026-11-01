@@ -31,6 +31,8 @@ inline constexpr const char *kContactMap = "contactmap";
 inline constexpr const char *kQsoDetails = "qsodetails";
 inline constexpr const char *kMapStyle = "mapstyle";
 inline constexpr const char *kAids = "aids";
+inline constexpr const char *kSpotSources = "spotsources";  // Settings' Spots section as a panel
+inline constexpr const char *kStation = "station";          // Settings' Your Station section as a panel
 const std::vector<std::string> &knownPanels();
 
 struct Node {

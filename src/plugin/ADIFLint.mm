@@ -2936,6 +2936,13 @@ static void ensureSettings() {
                             logsFolder:ADIFString(dir)];
         };
         g.settings.onStationProfiles = ^{ station::cmdStationProfiles(); };
+        // Spot Sources and Your Station as panels of their own (through the Panels menu's calls).
+        g.settings.onShowSection = ^(NSString *ident) {
+            if ([ident isEqualToString:@"settings.spots"]) panels::setShown(adif::layout::kSpotSources, true);
+            else if ([ident isEqualToString:@"settings.station"]) panels::setShown(adif::layout::kStation, true);
+        };
+        [g.settings offerPanel:@"settings.spots" tip:T(@"Spot Sources in a panel of its own, beside the spots or as a tab in the Operating Console")];
+        [g.settings offerPanel:@"settings.station" tip:T(@"Your Station in a panel of its own, beside New QSO or as a tab in the Operating Console")];
         g.settings.onOfflineToggled = ^(BOOL on) { ADIFSetOffline(on); };
         g.settings.onLanguageChosen = ^(NSString *code) {
             adifhost::setSetting("uiLanguage", ADIFStd(code));
@@ -3048,7 +3055,90 @@ static NSWindow *settingsWindow() {
     return w;
 }
 
+// ── Settings sections as panels of their own ──
+
+// Spot Sources (Settings' Spots section) and Your Station: normal windows (they have fields to
+// type in) that dock, so they can be tabs in the Operating Console. Opened, the section's
+// controls move into the panel; closed, they go back to Settings.
+struct SectionPanel {
+    NSString *section, *name;  // Settings' group; its panel's in the registry
+    int item;
+    NSString *title;  // English, for T()
+    ADIFDockWindow *window;
+};
+static SectionPanel gSectionPanels[] = {
+    {@"settings.spots", @"spotsources", kDockSpotSources, N(@"Spot Sources"), nil},
+    {@"settings.station", @"station", kDockStation, N(@"Your Station"), nil},
+};
+
+static void openSectionPanel(SectionPanel &p) {
+    ensureSettings();
+    if (!p.window) {
+        ADIFDockWindow *w = [[ADIFDockWindow alloc] initWithContentRect:NSMakeRect(0, 0, 400, 460)
+                                                              styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
+                                                                        NSWindowStyleMaskResizable | NSWindowStyleMaskMiniaturizable
+                                                                backing:NSBackingStoreBuffered
+                                                                  defer:YES];
+        w.dockItem = p.item;
+        w.title = T(p.title);
+        w.identifier = [@"settings.panel." stringByAppendingString:p.name];
+        w.releasedWhenClosed = NO;
+        w.tabbingMode = NSWindowTabbingModeDisallowed;
+        w.contentMinSize = NSMakeSize(320, 200);
+        NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
+        scroll.hasVerticalScroller = YES;
+        scroll.autohidesScrollers = YES;
+        scroll.drawsBackground = NO;
+        scroll.documentView = [[ADIFSettingsPage alloc] initWithFrame:NSZeroRect];
+        scroll.documentView.translatesAutoresizingMaskIntoConstraints = NO;
+        NSClipView *clip = scroll.contentView;
+        [NSLayoutConstraint activateConstraints:@[
+            [scroll.documentView.leadingAnchor constraintEqualToAnchor:clip.leadingAnchor],
+            [scroll.documentView.topAnchor constraintEqualToAnchor:clip.topAnchor],
+            [scroll.documentView.widthAnchor constraintEqualToAnchor:clip.widthAnchor],
+        ]];
+        w.contentView = scroll;
+        [w center];
+        NSString *section = p.section;
+        [[NSNotificationCenter defaultCenter] addObserverForName:NSWindowWillCloseNotification  // closed (or its frame): the controls back in Settings
+                                                          object:w
+                                                           queue:nil
+                                                      usingBlock:^(NSNotification *) {
+                                                          [g.settings returnSection:section];
+                                                          ADIFPanelShownChanged();
+                                                      }];
+        p.window = w;
+    }
+    NSView *page = ((NSScrollView *)p.window.contentView).documentView;  // docked too: the window answers with its frame's content
+    if (NSView *controls = [g.settings takeSection:p.section]; controls && controls.superview != page) {
+        controls.translatesAutoresizingMaskIntoConstraints = NO;
+        [page addSubview:controls];
+        [NSLayoutConstraint activateConstraints:@[
+            [controls.topAnchor constraintEqualToAnchor:page.topAnchor constant:kADIFMargin],
+            [controls.leadingAnchor constraintEqualToAnchor:page.leadingAnchor constant:kADIFMargin],
+            [controls.trailingAnchor constraintEqualToAnchor:page.trailingAnchor constant:-kADIFMargin],
+            [page.bottomAnchor constraintEqualToAnchor:controls.bottomAnchor constant:kADIFMargin],
+        ]];
+    }
+    [g.settings showSource:-1];  // its values as they are now
+    [p.window makeKeyAndOrderFront:nil];
+}
+
+namespace adifhost {
+bool spotSourcesShown() { return gSectionPanels[0].window && gSectionPanels[0].window.visible; }
+void openSpotSources() { openSectionPanel(gSectionPanels[0]); }
+void closeSpotSources() {
+    if (spotSourcesShown()) [gSectionPanels[0].window performClose:nil];
+}
+bool stationShown() { return gSectionPanels[1].window && gSectionPanels[1].window.visible; }
+void openStation() { openSectionPanel(gSectionPanels[1]); }
+void closeStation() {
+    if (stationShown()) [gSectionPanels[1].window performClose:nil];
+}
+}  // namespace adifhost
+
 static void openSettings(NSInteger source) {
+    if (source == -4 && adifhost::spotSourcesShown()) return adifhost::openSpotSources();  // the Spots section is in its own panel
     NSWindow *w = settingsWindow();
     [w makeKeyAndOrderFront:nil];
     [g.settings showSource:source];

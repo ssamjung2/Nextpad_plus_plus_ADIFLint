@@ -39,6 +39,8 @@
 
 @implementation ADIFSettingsPanel {
     NSMutableDictionary<NSString *, ADIFAccordion *> *_groups;
+    NSMutableDictionary<NSString *, NSStackView *> *_taken;  // a section's controls, in their panel
+    NSMutableDictionary<NSString *, NSView *> *_away;        // in its place here: where they are
     NSMutableArray<NSTextField *> *_user;    // per source; hidden for API-key sources
     NSMutableArray<NSSecureTextField *> *_secret;
     NSMutableArray<NSTextField *> *_status;
@@ -876,6 +878,74 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     say(@"settings.spots", sources.count ? [sources componentsJoinedByString:@", "] : T(@"none"));
     for (NSInteger s = 0; s < ADIFSourceCount; ++s)
         say([NSString stringWithFormat:@"settings.source.%ld", (long)s], ADIFHasSecret((ADIFSource)s) ? T(@"Saved##summary") : T(@"not set"));
+}
+
+// ── Sections as panels of their own ──
+
+- (NSView *)takeSection:(NSString *)ident {
+    if (!_taken) _taken = [NSMutableDictionary dictionary], _away = [NSMutableDictionary dictionary];
+    if (_taken[ident]) return _taken[ident];
+    ADIFAccordion *group = _groups[ident];
+    NSStackView *body = [group.body isKindOfClass:NSStackView.class] ? (NSStackView *)group.body : nil;
+    if (!body) return nil;
+    NSStackView *out = [NSStackView stackViewWithViews:@[]];
+    out.orientation = NSUserInterfaceLayoutOrientationVertical;
+    out.alignment = NSLayoutAttributeLeading;
+    out.spacing = body.spacing;
+    out.identifier = [ident stringByAppendingString:@".panel"];
+    for (NSView *v in [body.arrangedSubviews copy]) {
+        [body removeArrangedSubview:v];
+        [v removeFromSuperview];
+        [out addArrangedSubview:v];
+        [v.widthAnchor constraintEqualToAnchor:out.widthAnchor].active = YES;
+    }
+    NSTextField *where = wrapping(@"Shown in a panel of its own.", NSFont.smallSystemFontSize, theme::faint());
+    NSButton *show = [NSButton buttonWithTitle:T(@"Show It") target:nil action:nil];
+    show.identifier = [ident stringByAppendingString:@".showPanel"];
+    __weak ADIFSettingsPanel *me = self;
+    NSString *name = [ident copy];
+    ADIFOnAction(show, ^{
+        ADIFSettingsPanel *panel = me;
+        if (panel.onShowSection) panel.onShowSection(name);
+    });
+    NSStackView *note = [NSStackView stackViewWithViews:@[ where, show ]];
+    note.spacing = kADIFSpacing;
+    note.identifier = [ident stringByAppendingString:@".away"];
+    [body addArrangedSubview:note];
+    [note.widthAnchor constraintEqualToAnchor:body.widthAnchor].active = YES;
+    _taken[ident] = out, _away[ident] = note;
+    return out;
+}
+
+- (void)returnSection:(NSString *)ident {
+    NSStackView *out = _taken[ident];
+    NSStackView *body = (NSStackView *)_groups[ident].body;
+    if (!out || !body) return;
+    [body removeArrangedSubview:_away[ident]];
+    [_away[ident] removeFromSuperview];
+    for (NSView *v in [out.arrangedSubviews copy]) {
+        [out removeArrangedSubview:v];
+        [v removeFromSuperview];
+        [body addArrangedSubview:v];
+        [v.widthAnchor constraintEqualToAnchor:body.widthAnchor].active = YES;
+    }
+    [_taken removeObjectForKey:ident];
+    [_away removeObjectForKey:ident];
+}
+
+- (void)offerPanel:(NSString *)ident tip:(NSString *)tip {
+    NSButton *b = [NSButton buttonWithImage:[NSImage imageWithSystemSymbolName:@"macwindow.on.rectangle" accessibilityDescription:tip] target:nil action:nil];
+    b.bordered = NO;
+    b.contentTintColor = theme::faint();
+    b.toolTip = tip;
+    b.identifier = [ident stringByAppendingString:@".openPanel"];
+    __weak ADIFSettingsPanel *me = self;
+    NSString *name = [ident copy];
+    ADIFOnAction(b, ^{
+        ADIFSettingsPanel *panel = me;
+        if (panel.onShowSection) panel.onShowSection(name);
+    });
+    [_groups[ident].header addAccessory:b];
 }
 
 - (void)refresh {

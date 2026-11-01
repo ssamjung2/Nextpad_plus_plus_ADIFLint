@@ -44,6 +44,8 @@ const Calls *callsFor(const std::string &id) {
         {adif::layout::kQsoDetails, {workspace::qsoDetailsShown, adifhost::openQsoDetails, closeQsoDetails}},
         {adif::layout::kMapStyle, {worldmap::mapStyleShown, worldmap::openMapStyle, worldmap::closeMapStyle}},
         {adif::layout::kAids, {adifhost::aidsPanelShown, adifhost::openAidsPanel, adifhost::closeAidsPanel}},
+        {adif::layout::kSpotSources, {adifhost::spotSourcesShown, adifhost::openSpotSources, adifhost::closeSpotSources}},
+        {adif::layout::kStation, {adifhost::stationShown, adifhost::openStation, adifhost::closeStation}},
     };
     for (const auto &[pid, calls] : kCalls)
         if (id == pid) return &calls;
@@ -87,6 +89,8 @@ const std::vector<Spec> &all() {
          @"map.qsodetails", true},
         {adif::layout::kMapStyle, N(@"Map Style"), @"paintpalette", nil, nil, false},  // the Map's own button opens it
         {adif::layout::kAids, N(@"Operating Aids"), @"text.bubble", nil, nil, false},  // and its own menu in New QSO's strip
+        {adif::layout::kSpotSources, N(@"Spot Sources"), @"dot.radiowaves.left.and.right", nil, nil, false},  // Settings' sections
+        {adif::layout::kStation, N(@"Your Station"), @"house", nil, nil, false},
     };
     return specs;
 }

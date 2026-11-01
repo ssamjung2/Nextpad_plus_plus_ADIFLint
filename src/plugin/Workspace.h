@@ -13,7 +13,8 @@
 #include <utility>
 #include <vector>
 
-enum ADIFDockItem { kDockNone = 0, kDockMap, kDockLog, kDockNewQso, kDockSpots, kDockContactMap, kDockQsoInfo, kDockMapStyle, kDockAids, kDockCount };
+enum ADIFDockItem { kDockNone = 0, kDockMap, kDockLog, kDockNewQso, kDockSpots, kDockContactMap, kDockQsoInfo, kDockMapStyle, kDockAids, kDockSpotSources, kDockStation,
+                    kDockCount };
 
 @protocol ADIFDockable <NSObject>
 @property(nonatomic) int dockItem;                   // an ADIFDockItem; kDockNone: never docks

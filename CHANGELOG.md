@@ -11,6 +11,7 @@ Versions before 0.8.0 were development builds and were not published.
 
 ### Added
 
+- **Settings sections as panels**: **Spot Sources** (Settings' Spots section: the cluster, Spothole, PSKReporter and how they are doing) and **Your Station** can each be a window of their own while you operate, a tab in the Operating Console too, from the button on the section's heading or the Panels menu. Settings says where they are, with Show It; closed, they are back in Settings.
 - **Operating Aids as a panel**: Options → **In Its Own Panel** (or Panels → Show Operating Aids) puts the aids in a panel of their own, beside the Map or as a tab in the Operating Console, with Note, Skip and Dismiss as in New QSO. Closed, they are back in New QSO.
 
 ### Changed
