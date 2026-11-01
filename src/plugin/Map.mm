@@ -5111,6 +5111,14 @@ void showPane(int pane, bool on) {
     [pane == 1 ? mw.middleSplit : mw.bodySplit adjustSubviews];
     mw.splitsRestored = restored;
     if (on && restored) restorePane(pane);
+    // Shown while its window or frame is changing (the Operating Console giving the Map back),
+    // the list can come back with no height: once the layout is done, its size again.
+    if (pane == 1 && on)
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (mw.listPanel.hidden || NSHeight(mw.listPanel.frame) >= 110) return;
+            [mw.middleSplit.window.contentView layoutSubtreeIfNeeded];
+            restorePane(1);
+        });
     if (pane == 1 && on) queueViewList();
     if (mw.focusButton) {  // on while the map is alone
         bool alone = true;

@@ -12,7 +12,6 @@
 #include <vector>
 
 enum ADIFDockItem { kDockNone = 0, kDockMap, kDockLog, kDockNewQso, kDockSpots, kDockContactMap, kDockQsoInfo, kDockCount };
-constexpr int kWorkspaceFrameCount = 5;
 
 @protocol ADIFDockable <NSObject>
 @property(nonatomic) int dockItem;                   // an ADIFDockItem; kDockNone: never docks

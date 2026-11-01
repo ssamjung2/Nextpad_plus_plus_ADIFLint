@@ -2845,7 +2845,6 @@
   "Contact Map": "교신 지도",
   "QSO Details": "QSO 세부 정보",
   "Activation: QSO on the left, details, log and spots on the right": "액티베이션: 왼쪽에 QSO, 오른쪽에 세부 정보·로그·스팟",
-  "Drag a frame by its header onto another to swap them": "프레임 머리글을 다른 프레임으로 끌어 놓으면 서로 바뀝니다",
   "Why this contact": "이 교신의 의미",
   "Lookup": "조회",
   "This QSO": "이 QSO",
@@ -3052,6 +3051,20 @@
   "QSO Details: who New QSO's contact is, why it's worth having, and your QSOs with the call (on while it shows; click again to close it)": "QSO 상세: 새 QSO 상대가 누구인지, 왜 교신할 만한지, 그 호출 부호와의 QSO (보이는 동안 켜짐, 다시 클릭하면 닫힘)",
   "Panels": "패널",
   "Show {panel}": "{panel} 보기",
-  "Hide {panel}": "{panel} 숨기기"
+  "Hide {panel}": "{panel} 숨기기",
+  "QSO, log and spots with map and details below": "QSO·로그·스팟, 아래에 지도와 세부 정보",
+  "QSO on the left, operating panels on the right": "왼쪽에 QSO, 오른쪽에 운용 패널",
+  "Log and QSO across the top, operating panels below": "위에 로그와 QSO, 아래에 운용 패널",
+  "Map and details on the right": "오른쪽에 지도와 세부 정보",
+  "Spots on the left, QSO and log on the right": "왼쪽에 스팟, 오른쪽에 QSO와 로그",
+  "QSO and log only": "QSO와 로그만",
+  "QSO, spots and details": "QSO·스팟·세부 정보",
+  "Close this frame": "이 프레임 닫기",
+  "Close {panel}": "{panel} 닫기",
+  "Tabs": "탭",
+  "Frame contents": "프레임 내용",
+  "Empty": "비어 있음",
+  "What this frame shows: choosing one that is in another frame swaps them": "이 프레임에 표시할 항목: 다른 프레임에 있는 항목을 고르면 서로 바뀝니다",
+  "Drag a frame by its header onto another frame to swap them, or onto its header to make it a tab there": "프레임 머리글을 다른 프레임으로 끌어 놓으면 서로 바뀌고, 그 머리글에 놓으면 그곳의 탭이 됩니다"
  }
 }

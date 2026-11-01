@@ -2936,7 +2936,6 @@
   "Contact Map": "Kontaktkarte",
   "QSO Details": "QSO-Details",
   "Activation: QSO on the left, details, log and spots on the right": "Aktivierung: QSO links, Details, Log und Spots rechts",
-  "Drag a frame by its header onto another to swap them": "Ziehen Sie einen Rahmen an seiner Kopfzeile auf einen anderen, um sie zu tauschen",
   "Why this contact": "Warum dieser Kontakt",
   "Lookup": "Abfrage",
   "This QSO": "Dieses QSO",
@@ -3149,6 +3148,20 @@
   "QSO Details: who New QSO's contact is, why it's worth having, and your QSOs with the call (on while it shows; click again to close it)": "QSO-Details: wer die Gegenstation aus Neues QSO ist, warum sie lohnt, und Ihre QSOs mit dem Rufzeichen (an, solange es angezeigt wird; erneut klicken zum Schließen)",
   "Panels": "Bereiche",
   "Show {panel}": "{panel} einblenden",
-  "Hide {panel}": "{panel} ausblenden"
+  "Hide {panel}": "{panel} ausblenden",
+  "QSO, log and spots with map and details below": "QSO, Log und Spots, darunter Karte und Details",
+  "QSO on the left, operating panels on the right": "QSO links, Betriebsbereiche rechts",
+  "Log and QSO across the top, operating panels below": "Log und QSO oben, Betriebsbereiche darunter",
+  "Map and details on the right": "Karte und Details rechts",
+  "Spots on the left, QSO and log on the right": "Spots links, QSO und Log rechts",
+  "QSO and log only": "Nur QSO und Log",
+  "QSO, spots and details": "QSO, Spots und Details",
+  "Close this frame": "Diesen Rahmen schließen",
+  "Close {panel}": "{panel} schließen",
+  "Tabs": "Tabs",
+  "Frame contents": "Rahmeninhalt",
+  "Empty": "Leer",
+  "What this frame shows: choosing one that is in another frame swaps them": "Was dieser Rahmen zeigt: Wählen Sie einen, der in einem anderen Rahmen steht, tauschen die beiden die Plätze",
+  "Drag a frame by its header onto another frame to swap them, or onto its header to make it a tab there": "Ziehen Sie einen Rahmen an seiner Kopfzeile auf einen anderen Rahmen, um sie zu tauschen, oder auf dessen Kopfzeile, um ihn dort als Tab einzufügen"
  }
 }

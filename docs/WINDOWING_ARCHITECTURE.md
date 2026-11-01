@@ -269,8 +269,17 @@ alone doesn't express); panes inside a panel may use `NSSplitViewItem` where it 
 - **Phase A** (2026-10-31): `src/core/adif_layout` with `testLayouts`.
 - **Phase B, first part** (2026-10-31): the registry and controller (`src/plugin/Panels`), the
   Panels menu with Show/Hide titles, the Map's panel buttons through it, New QSO a normal window.
-  Next: the console built from an arrangement, with tabs; the Frames menu, frame headers and
-  layouts through the controller; the Map's panes in the arrangement.
+- **Phase B, second part** (2026-10-31): the Operating Console is built from the arrangement
+  (`consoleLayout`, with `consoleLayoutPreset`; the settings before it migrated once): a split
+  view per row or column, a frame per stack, tabs in the header when a stack holds more than
+  one panel. Dropping a frame on another's header makes it a tab there (`moveToTab`); on its
+  body the two swap. Divider drags are saved as shares; the old per-split autosaved sizes are
+  no longer read, so sizes start afresh once. The tree is rebuilt only when its shape changes.
+  Choosing a layout always applies it, the ticked one too. Not yet: a keyboard and VoiceOver
+  way to make a tab (the header's menu only swaps); the Panels menu and the frames' menus
+  through one command table.
+  Next (Phase C): the Layouts menu (Save Layout As…, your own layouts) and the Map's panes in
+  the arrangement.
 
 ## Plan
 

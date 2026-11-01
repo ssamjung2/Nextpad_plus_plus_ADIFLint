@@ -6891,7 +6891,8 @@ int main(int argc, char **argv) {
                         // problems' column 150 wide) the clocks and notes ran past a narrow frame's edge.
                         CHECK(qc.fittingSize.width <= 420, "New QSO needs no more than its least frame: %.0f wide", qc.fittingSize.width);
                         CHECK(clip && NSWidth(qc.frame) <= seen + 0.5 && NSMaxX(lc) <= seen - 10 && NSMinX(uc) >= 10 &&
-                                  std::fabs(NSWidth(lc) - NSWidth(uc)) < 1 && note && NSMaxX(nr) <= seen && NSHeight(nr) > 20,
+                                  std::fabs(NSWidth(lc) - NSWidth(uc)) < 1 && note && NSMaxX(nr) <= seen &&
+                                  (NSHeight(nr) > 20 || note.attributedStringValue.size.width <= NSWidth(nr) + 1),  // wrapped, or it fits on one line
                               "New QSO with a long note: as wide as its frame (%.0f of %.0f), the clocks the same width within it (%.0f to %.0f), "
                               "the note wrapped (to %.0f, %.0f high)",
                               NSWidth(qc.frame), seen, NSMinX(uc), NSMaxX(lc), NSMaxX(nr), NSHeight(nr));
@@ -6962,6 +6963,7 @@ int main(int argc, char **argv) {
                             pump(0.3);
                             std::string o;
                             for (NSWindow *w : {mapw0, tw, qwL}) {
+                                if (!w.visible) continue;  // not in this layout: its content back in its own (hidden) window
                                 std::string one;
                                 cut(w.contentView, one);
                                 if (!one.empty()) o += std::string(" | ") + w.title.UTF8String + ":" + one;
@@ -7003,6 +7005,109 @@ int main(int argc, char **argv) {
                         if ([c.title isEqualToString:@"CALL"]) callColumn = c.identifier;
                     if (tt.selectedRow >= 0) chosenCall = cell(tt, tt.selectedRow, callColumn);
                     CHECK([chosenCall isEqualToString:@"W1LAY"], "the QSO logged is chosen in the Log Table (%s)", chosenCall.UTF8String);
+                    {  // A frame dragged onto another's header becomes a tab there; a tab brings its panel forward; both are kept
+                        auto framesOf = [&]() {
+                            std::vector<NSView *> out;
+                            std::function<void(NSView *)> seek = [&](NSView *v) {
+                                if ([NSStringFromClass(v.class) isEqualToString:@"ADIFDockFrame"]) out.push_back(v);
+                                for (NSView *k in v.subviews) seek(k);
+                            };
+                            seek(host.contentView);
+                            return out;
+                        };
+                        auto headerOf = [&](NSView *f) -> NSView * {
+                            for (NSView *k in f.subviews)
+                                if ([NSStringFromClass(k.class) isEqualToString:@"ADIFDockHeader"]) return k;
+                            return nil;
+                        };
+                        auto frameShowing = [&](NSWindow *w) -> NSView * {  // the frame whose front panel is that window's
+                            for (NSView *f : framesOf())
+                                if ([w.contentView isDescendantOf:f]) return f;
+                            return nil;
+                        };
+                        auto ini = [&]() {
+                            return [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint.ini"] encoding:NSUTF8StringEncoding error:nil] ?: @"";
+                        };
+                        NSView *qf = frameShowing(qwL), *lf = frameShowing(tw);
+                        size_t before = framesOf().size();
+                        FakeDrag *fake = [[FakeDrag alloc] init];
+                        fake.draggingPasteboard = [NSPasteboard pasteboardWithUniqueName];
+                        [fake.draggingPasteboard clearContents];
+                        [fake.draggingPasteboard setString:[[lf valueForKey:@"index"] stringValue] forType:@"org.nextpad.adiflint.frame"];
+                        id<NSDraggingInfo> info = (id<NSDraggingInfo>)(id)fake;
+                        NSView *qh = headerOf(qf);
+                        NSRect qhr = qh ? [qh convertRect:qh.bounds toView:nil] : NSZeroRect;
+                        NSRect qbr = qf ? [qf convertRect:qf.bounds toView:nil] : NSZeroRect;
+                        fake.draggingLocation = NSMakePoint(NSMidX(qbr), NSMidY(qbr) - NSHeight(qbr) / 4);  // its body: they would swap
+                        NSDragOperation overBody = qf ? [(id<NSDraggingDestination>)qf draggingUpdated:info] : NSDragOperationNone;
+                        bool bodyMarked = qf.layer.borderWidth > 0;
+                        fake.draggingLocation = NSMakePoint(NSMidX(qhr), NSMidY(qhr));  // its header: a tab there
+                        NSDragOperation overHeader = qf ? [(id<NSDraggingDestination>)qf draggingUpdated:info] : NSDragOperationNone;
+                        bool headerMarked = qf.layer.borderWidth == 0;
+                        NSDragOperation overItself = lf ? [(id<NSDraggingDestination>)lf draggingUpdated:info] : NSDragOperationMove;
+                        bool dropped = qf && [(id<NSDraggingDestination>)qf performDragOperation:info];
+                        pump(0.3);
+                        [host.contentView layoutSubtreeIfNeeded];
+                        NSView *both = frameShowing(tw);
+                        NSSegmentedControl *tabs = both ? (NSSegmentedControl *)viewWithIdentifier(both, @"frame.tabs") : nil;
+                        NSArray *items = [both valueForKey:@"items"];
+                        NSString *saved = ini();
+                        CHECK(qf && lf && qf != lf && overBody == NSDragOperationMove && bodyMarked && overHeader == NSDragOperationMove && headerMarked &&
+                                  overItself == NSDragOperationNone && dropped && framesOf().size() == before - 1 && tabs && !tabs.hidden &&
+                                  tabs.segmentCount == 2 && items.count == 2 && [[tabs labelForSegment:tabs.selectedSegment] isEqualToString:@"Log Table"] &&
+                                  tw.visible && qwL.visible && !frameShowing(qwL) &&
+                                  [saved containsString:@"{\"stack\":[\"newqso\",\"logtable\"],\"front\":1}"],
+                              "The Log Table's frame dropped on New QSO's header: one frame, two tabs, the Log Table in front, New QSO behind "
+                              "its tab, the layout saved (%zu to %zu frames; %ld tabs)",
+                              before, framesOf().size(), (long)tabs.segmentCount);
+                        if (tabs) {
+                            NSInteger qsoTab = -1;
+                            for (NSInteger k = 0; k < tabs.segmentCount; ++k)
+                                if ([[tabs labelForSegment:k] isEqualToString:@"New QSO"]) qsoTab = k;
+                            tabs.selectedSegment = qsoTab;
+                            [tabs sendAction:tabs.action to:tabs.target];
+                            pump(0.3);
+                            NSView *front = frameShowing(qwL);
+                            NSSegmentedControl *after = front ? (NSSegmentedControl *)viewWithIdentifier(front, @"frame.tabs") : nil;
+                            CHECK(qsoTab >= 0 && front && !frameShowing(tw) && after && [[after labelForSegment:after.selectedSegment] isEqualToString:@"New QSO"] &&
+                                      [findButton(qwL.contentView, @"Log QSO") window] == host && tw.visible,
+                                  "New QSO's tab: New QSO in front, the Log Table behind its tab and still open");
+                        }
+                        chooseLayout(0);  // as it was
+                        pump(0.3);
+                        CHECK(framesOf().size() == before && frameShowing(qwL) && frameShowing(tw) && frameShowing(qwL) != frameShowing(tw),
+                              "The layout chosen again: a frame each, no tabs");
+                        // The Map's list is hidden while the Log Table shares the console; the Log Table's frame
+                        // closed, then the Map's, the Map opens on its own with its list at its size (it came back
+                        // with no height, its search field's button over the status bar).
+                        auto closeFrameOf = [&](NSWindow *w) {
+                            NSView *f = frameShowing(w);
+                            NSButton *close = nil;
+                            std::function<void(NSView *)> seek = [&](NSView *v) {
+                                if ([v isKindOfClass:NSButton.class] && [v.toolTip isEqualToString:@"Close this frame"]) close = (NSButton *)v;
+                                for (NSView *k in v.subviews) seek(k);
+                            };
+                            if (f) seek(f);
+                            [close performClick:nil];
+                            pump(0.3);
+                            return close != nil;
+                        };
+                        chooseLayout(8);  // Map over the log, QSO on the right
+                        pump(0.3);
+                        NSView *mapList = viewWithIdentifier(mapw0.contentView, @"map.list");
+                        bool hiddenWithLog = mapList.hidden;
+                        bool closedBoth = closeFrameOf(tw) && closeFrameOf(mapw0);
+                        run("Map & Explorer...");
+                        pump(0.5);
+                        mapList = viewWithIdentifier(mapw0.contentView, @"map.list");
+                        CHECK(hiddenWithLog && closedBoth && mapw0.visible && !frameShowing(mapw0) && mapList && !mapList.hidden && NSHeight(mapList.frame) >= 110 &&
+                                  overlaps(mapw0.contentView) == 0,
+                              "The Map back on its own after the Log Table's frame and its own closed: its list shown at its size (%.0f high)",
+                              NSHeight(mapList.frame));
+                        [mapw0 performClose:nil];
+                        chooseLayout(0);
+                        pump(0.3);
+                    }
                     [host performClose:nil];
                     pump(0.2);
                     CHECK(!host.visible && !qwL.visible && !mapw0.visible && !tw.visible,

@@ -2936,7 +2936,6 @@
   "Contact Map": "Carte du contact",
   "QSO Details": "Détails du QSO",
   "Activation: QSO on the left, details, log and spots on the right": "Activation : QSO à gauche ; détails, journal et spots à droite",
-  "Drag a frame by its header onto another to swap them": "Faites glisser un cadre par son en-tête sur un autre pour les échanger",
   "Why this contact": "Pourquoi ce contact",
   "Lookup": "Recherche",
   "This QSO": "Ce QSO",
@@ -3149,6 +3148,20 @@
   "QSO Details: who New QSO's contact is, why it's worth having, and your QSOs with the call (on while it shows; click again to close it)": "Détails du QSO : qui est le contact de Nouveau QSO, pourquoi il vaut la peine, et vos QSO avec l'indicatif (activé tant qu'il s'affiche ; cliquez de nouveau pour le fermer)",
   "Panels": "Panneaux",
   "Show {panel}": "Afficher {panel}",
-  "Hide {panel}": "Masquer {panel}"
+  "Hide {panel}": "Masquer {panel}",
+  "QSO, log and spots with map and details below": "QSO, journal et spots, avec carte et détails en dessous",
+  "QSO on the left, operating panels on the right": "QSO à gauche, panneaux de trafic à droite",
+  "Log and QSO across the top, operating panels below": "Journal et QSO en haut, panneaux de trafic en dessous",
+  "Map and details on the right": "Carte et détails à droite",
+  "Spots on the left, QSO and log on the right": "Spots à gauche, QSO et journal à droite",
+  "QSO and log only": "QSO et journal seulement",
+  "QSO, spots and details": "QSO, spots et détails",
+  "Close this frame": "Fermer ce cadre",
+  "Close {panel}": "Fermer {panel}",
+  "Tabs": "Onglets",
+  "Frame contents": "Contenu du cadre",
+  "Empty": "Vide",
+  "What this frame shows: choosing one that is in another frame swaps them": "Ce que montre ce cadre : en choisir un qui est dans un autre cadre les échange",
+  "Drag a frame by its header onto another frame to swap them, or onto its header to make it a tab there": "Faites glisser un cadre par son en-tête sur un autre cadre pour les échanger, ou sur son en-tête pour en faire un onglet"
  }
 }

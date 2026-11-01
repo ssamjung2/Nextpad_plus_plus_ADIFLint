@@ -2845,7 +2845,6 @@
   "Contact Map": "交信相手マップ",
   "QSO Details": "QSO の詳細",
   "Activation: QSO on the left, details, log and spots on the right": "アクティベーション: 左に QSO、右に詳細・ログ・スポット",
-  "Drag a frame by its header onto another to swap them": "枠の見出しをドラッグして別の枠に重ねると入れ替わります",
   "Why this contact": "この交信の理由",
   "Lookup": "検索結果",
   "This QSO": "この QSO",
@@ -3052,6 +3051,20 @@
   "QSO Details: who New QSO's contact is, why it's worth having, and your QSOs with the call (on while it shows; click again to close it)": "QSO の詳細: 新規 QSO の相手、交信する価値、そのコールサインとの QSO (表示中はオン。もう一度クリックで閉じる)",
   "Panels": "パネル",
   "Show {panel}": "{panel} を表示",
-  "Hide {panel}": "{panel} を隠す"
+  "Hide {panel}": "{panel} を隠す",
+  "QSO, log and spots with map and details below": "QSO・ログ・スポット、その下にマップと詳細",
+  "QSO on the left, operating panels on the right": "左に QSO、右に運用パネル",
+  "Log and QSO across the top, operating panels below": "上にログと QSO、下に運用パネル",
+  "Map and details on the right": "右にマップと詳細",
+  "Spots on the left, QSO and log on the right": "左にスポット、右に QSO とログ",
+  "QSO and log only": "QSO とログのみ",
+  "QSO, spots and details": "QSO・スポット・詳細",
+  "Close this frame": "このフレームを閉じる",
+  "Close {panel}": "{panel} を閉じる",
+  "Tabs": "タブ",
+  "Frame contents": "フレームの内容",
+  "Empty": "空",
+  "What this frame shows: choosing one that is in another frame swaps them": "このフレームに表示するもの: 別のフレームにあるものを選ぶと入れ替わります",
+  "Drag a frame by its header onto another frame to swap them, or onto its header to make it a tab there": "フレームの見出しをドラッグして別のフレームに重ねると入れ替わり、その見出しに重ねるとそこにタブとして加わります"
  }
 }

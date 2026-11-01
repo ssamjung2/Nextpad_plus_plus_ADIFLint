@@ -2936,7 +2936,6 @@
   "Contact Map": "Mapa del contacto",
   "QSO Details": "Detalles del QSO",
   "Activation: QSO on the left, details, log and spots on the right": "Activación: QSO a la izquierda; detalles, registro y spots a la derecha",
-  "Drag a frame by its header onto another to swap them": "Arrastre un marco por su cabecera sobre otro para intercambiarlos",
   "Why this contact": "Por qué este contacto",
   "Lookup": "Consulta",
   "This QSO": "Este QSO",
@@ -3149,6 +3148,20 @@
   "QSO Details: who New QSO's contact is, why it's worth having, and your QSOs with the call (on while it shows; click again to close it)": "Detalles del QSO: quién es el contacto de Nuevo QSO, por qué vale la pena y sus QSO con el indicativo (activado mientras se muestra; vuelva a hacer clic para cerrarlo)",
   "Panels": "Paneles",
   "Show {panel}": "Mostrar {panel}",
-  "Hide {panel}": "Ocultar {panel}"
+  "Hide {panel}": "Ocultar {panel}",
+  "QSO, log and spots with map and details below": "QSO, registro y spots, con mapa y detalles debajo",
+  "QSO on the left, operating panels on the right": "QSO a la izquierda, paneles de operación a la derecha",
+  "Log and QSO across the top, operating panels below": "Registro y QSO arriba, paneles de operación debajo",
+  "Map and details on the right": "Mapa y detalles a la derecha",
+  "Spots on the left, QSO and log on the right": "Spots a la izquierda, QSO y registro a la derecha",
+  "QSO and log only": "Solo QSO y registro",
+  "QSO, spots and details": "QSO, spots y detalles",
+  "Close this frame": "Cerrar este marco",
+  "Close {panel}": "Cerrar {panel}",
+  "Tabs": "Pestañas",
+  "Frame contents": "Contenido del marco",
+  "Empty": "Vacío",
+  "What this frame shows: choosing one that is in another frame swaps them": "Qué muestra este marco: si elige uno que está en otro marco, se intercambian",
+  "Drag a frame by its header onto another frame to swap them, or onto its header to make it a tab there": "Arrastre un marco por su cabecera sobre otro marco para intercambiarlos, o sobre su cabecera para convertirlo allí en una pestaña"
  }
 }

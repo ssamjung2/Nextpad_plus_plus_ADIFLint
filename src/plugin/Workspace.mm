@@ -8,6 +8,7 @@
 #import "PluginHost.h"
 #import "Country.h"
 #include "adif_geo.h"
+#include "adif_layout.h"
 #include "adif_needs.h"
 #include "adif_parks.h"
 #include "adif_world.h"
@@ -20,74 +21,62 @@
 namespace {
 
 const CGFloat kStatusHeight = 22;
-constexpr NSInteger kActivationPreset = 7;
-constexpr NSInteger kLoggingPreset = 8;
+const CGFloat kHeaderHeight = 24;
 std::string gStatus;
 
-// ── The layouts ──
+namespace layout = adif::layout;
 
-// A layout is a tree of frames: positions (0 to 4) in rows ('H', side by side) or columns ('V',
-// stacked). Each position shows an item; a position with none is left out.
-// A node's share is how much of its split it takes to begin with, beside its siblings' shares
-// (when every one of them has one); else the split goes by what each needs (itemWeight).
-struct Node {
-    char kind = 'P';
-    int position = 0;
-    std::vector<Node> kids;
-    double share = 0;
-};
-Node P(int position, double share = 0) {
-    Node n;
-    n.position = position;
-    n.share = share;
-    return n;
-}
-Node H(std::vector<Node> kids, double share = 0) {
-    Node n;
-    n.kind = 'H';
-    n.kids = std::move(kids);
-    n.share = share;
-    return n;
-}
-Node V(std::vector<Node> kids, double share = 0) {
-    Node n;
-    n.kind = 'V';
-    n.kids = std::move(kids);
-    n.share = share;
-    return n;
+// ── The panels: the console's dock items by the ids its layouts use (adif_layout.h) ──
+
+const char *panelOf(int item) {
+    switch (item) {
+        case kDockMap: return layout::kMap;
+        case kDockLog: return layout::kLogTable;
+        case kDockNewQso: return layout::kNewQso;
+        case kDockSpots: return layout::kSpots;
+        case kDockContactMap: return layout::kContactMap;
+        case kDockQsoInfo: return layout::kQsoDetails;
+        default: return "";
+    }
 }
 
-struct Preset {
-    NSString *name;
-    Node tree;
-    int items[kWorkspaceFrameCount];  // what each position shows to begin with
-};
+int itemOf(const std::string &panel) {
+    for (int item = 1; item < kDockCount; ++item)
+        if (panel == panelOf(item)) return item;
+    return kDockNone;
+}
 
-const std::vector<Preset> &presets() {
-    static const std::vector<Preset> all = {
-        {N(@"QSO, log and spots with map and details below"), H({V({P(0), P(1)}), V({P(2), H({P(3), P(4)})})}),
-         {kDockNewQso, kDockLog, kDockSpots, kDockContactMap, kDockQsoInfo}},
-        {N(@"QSO on the left, operating panels on the right"), H({P(0), V({P(1), H({P(2), P(3), P(4)})})}),
-         {kDockNewQso, kDockLog, kDockSpots, kDockContactMap, kDockQsoInfo}},
-        {N(@"Log and QSO across the top, operating panels below"), V({H({P(0), P(1)}), H({P(2), P(3), P(4)})}),
-         {kDockLog, kDockNewQso, kDockSpots, kDockContactMap, kDockQsoInfo}},
-        {N(@"Map and details on the right"), H({V({P(0), P(1)}), V({P(2), H({P(3), P(4)})})}),
-         {kDockNewQso, kDockLog, kDockSpots, kDockContactMap, kDockQsoInfo}},
-        {N(@"Spots on the left, QSO and log on the right"), H({P(0), V({P(1), H({P(2), P(3), P(4)})})}),
-         {kDockSpots, kDockNewQso, kDockLog, kDockContactMap, kDockQsoInfo}},
-        {N(@"QSO and log only"), H({P(0), P(1), P(2), P(3), P(4)}),
-         {kDockNewQso, kDockLog, kDockNone, kDockNone, kDockNone}},
-        {N(@"QSO, spots and details"), H({P(0), P(1), P(2), P(3), P(4)}),
-         {kDockNewQso, kDockSpots, kDockQsoInfo, kDockNone, kDockNone}},
-        // An activation: New QSO the whole height on the left (Log QSO always in sight); on the right, who
-        // you are working (QSO Details, the contact on its map) over this activation's log and the spots.
-        {N(@"Activation: QSO on the left, details, log and spots on the right"),
-         H({P(0, 0.34), V({H({P(1, 0.6), P(2, 0.4)}, 0.29), P(3, 0.27), P(4, 0.44)}, 0.66)}),
-         {kDockNewQso, kDockQsoInfo, kDockContactMap, kDockLog, kDockSpots}},
-        {N(@"Map over the log, QSO on the right"), H({V({P(0), P(1)}), P(2)}),
-         {kDockMap, kDockLog, kDockNewQso, kDockNone, kDockNone}},
-    };
-    return all;
+// Each stack of a tree, in order (left to right, top to bottom).
+void stacksOf(const layout::Node &n, std::vector<const layout::Node *> &out) {
+    if (n.kind == layout::Node::Kind::Stack) {
+        if (!n.panels.empty()) out.push_back(&n);
+        return;
+    }
+    for (const layout::Node &c : n.children) stacksOf(c, out);
+}
+
+// A tree's shape: its splits and stacks, without shares or which tab is in front (rebuilt only when it changes).
+std::string shapeOf(const layout::Node &n) {
+    if (n.kind == layout::Node::Kind::Stack) {
+        std::string out = "[";
+        for (const std::string &p : n.panels) out += p + ",";
+        return out + "]";
+    }
+    std::string out = n.kind == layout::Node::Kind::Row ? "R(" : "C(";
+    for (const layout::Node &c : n.children) out += shapeOf(c);
+    return out + ")";
+}
+
+// The node at a path of child indexes ("0.2.1"), or nullptr.
+layout::Node *nodeAt(layout::Node &root, NSString *path) {
+    layout::Node *n = &root;
+    for (NSString *part in [path componentsSeparatedByString:@"."]) {
+        if (!part.length) continue;
+        NSInteger i = part.integerValue;
+        if (n->kind == layout::Node::Kind::Stack || i < 0 || (size_t)i >= n->children.size()) return nullptr;
+        n = &n->children[(size_t)i];
+    }
+    return n;
 }
 
 NSString *itemName(int item) {
@@ -105,7 +94,7 @@ NSString *itemName(int item) {
 // Keep each frame large enough to use; longer content scrolls inside its frame.
 NSSize itemMinimum(int item) {
     switch (item) {
-        case kDockMap: return NSMakeSize(640, 460);  // room under its toolbar, header and footer for the zoom buttons
+        case kDockMap: return NSMakeSize(720, 460);  // room under its toolbar (its groups wrap below this width), header and footer for the zoom buttons
         case kDockLog: return NSMakeSize(380, 240);
         case kDockSpots: return NSMakeSize(400, 220);
         case kDockContactMap: return NSMakeSize(240, 200);
@@ -116,31 +105,30 @@ NSSize itemMinimum(int item) {
 
 NSSize contentMinimum(int item) { return itemMinimum(item); }
 
-// How much of a split an item takes to begin with: in proportion to what it needs along the split.
-double itemWeight(int item, bool width) {
-    NSSize m = contentMinimum(item);
-    return width ? m.width : m.height;
-}
-
 }  // namespace
 
 // ── A frame: its header (title, what it shows, close) over the item's content ──
 
 @interface ADIFDockFrame : NSView
-@property(nonatomic) int position;
-@property(nonatomic) int item;
-@property(nonatomic, copy) void (^onChoose)(int position, int item);
-@property(nonatomic, copy) void (^onSwap)(int from, int to);  // a frame dragged by its header onto this one
-@property(nonatomic, copy) void (^onClose)(int position);
-- (void)showItem:(int)item title:(NSString *)title content:(NSView *)content;
+@property(nonatomic) int index;                              // its stack's place among the console's (left to right, top to bottom)
+@property(nonatomic, readonly) int item;                     // the panel in front
+@property(nonatomic, readonly) NSArray<NSNumber *> *items;   // its panels, as tabs
+@property(nonatomic, copy) void (^onChoose)(int index, int item);  // the header's menu: what it shows
+@property(nonatomic, copy) void (^onSwap)(int from, int to);       // a frame dropped on this one's body: the two swap
+@property(nonatomic, copy) void (^onStack)(int from, int to);      // a frame dropped on this one's header: a tab here
+@property(nonatomic, copy) void (^onTab)(int index, int item);     // a tab chosen
+@property(nonatomic, copy) void (^onClose)(int index);             // its front panel closed
+- (void)showItems:(NSArray<NSNumber *> *)items front:(int)item title:(NSString *)title content:(NSView *)content;
+- (NSSize)leastSize;  // its panels' largest least size, with its header
 @end
 
-// A frame's header: its menu, title and close button, and a handle to drag the frame by onto another
-// frame, which swaps the two (the menu does the same from the keyboard and VoiceOver).
+// A frame's header: its menu (or its tabs), title and close button, and a handle to drag the frame
+// by: onto another frame's body the two swap; onto its header the frame becomes a tab there (the
+// menu does the first from the keyboard and VoiceOver).
 static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.frame";
 
 @interface ADIFDockHeader : NSView <NSDraggingSource>
-@property(nonatomic) int position;
+@property(nonatomic) int index;
 @end
 
 @implementation ADIFDockHeader {
@@ -153,7 +141,7 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
     NSPoint at = [self convertPoint:event.locationInWindow fromView:nil];
     if (std::hypot(at.x - _down.x, at.y - _down.y) < 4) return;
     NSPasteboardItem *item = [[NSPasteboardItem alloc] init];
-    [item setString:[NSString stringWithFormat:@"%d", self.position] forType:kFramePasteboardType];
+    [item setString:[NSString stringWithFormat:@"%d", self.index] forType:kFramePasteboardType];
     NSDraggingItem *drag = [[NSDraggingItem alloc] initWithPasteboardWriter:item];
     NSBitmapImageRep *rep = [self bitmapImageRepForCachingDisplayInRect:self.bounds];
     [self cacheDisplayInRect:self.bounds toBitmapImageRep:rep];
@@ -184,18 +172,23 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
 @implementation ADIFDockFrame {
     NSTextField *_title;
     NSPopUpButton *_choice;
+    NSSegmentedControl *_tabs;
     NSButton *_close;
     NSScrollView *_scroll;
     ADIFDockHeader *_header;
     NSView *_body;  // the scroll view's document: as big as the frame, or the content's least size when that is more
     NSView *_content;
+    NSLayoutConstraint *_titleAfterChoice, *_titleAfterTabs;
+    NSView *_dropMark;  // over the header while a frame dropped there would become a tab
 }
 
 - (instancetype)initWithFrame:(NSRect)frame {
     if (!(self = [super initWithFrame:frame])) return nil;
+    _item = kDockNone;
+    _items = @[];
     ADIFDockHeader *header = [[ADIFDockHeader alloc] initWithFrame:NSZeroRect];
     header.translatesAutoresizingMaskIntoConstraints = NO;
-    header.toolTip = T(@"Drag a frame by its header onto another to swap them");
+    header.toolTip = T(@"Drag a frame by its header onto another frame to swap them, or onto its header to make it a tab there");
     _header = header;
     [self registerForDraggedTypes:@[ kFramePasteboardType ]];
     _title = [NSTextField labelWithString:@""];
@@ -217,6 +210,15 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
     }
     _choice.target = self;
     _choice.action = @selector(chosen:);
+    // Tabs, when the frame holds more than one panel: a click brings that one to the front.
+    _tabs = [NSSegmentedControl segmentedControlWithLabels:@[] trackingMode:NSSegmentSwitchTrackingSelectOne target:self action:@selector(tabChosen:)];
+    _tabs.controlSize = NSControlSizeSmall;
+    _tabs.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    _tabs.segmentStyle = NSSegmentStyleSeparated;
+    _tabs.identifier = @"frame.tabs";
+    _tabs.accessibilityLabel = T(@"Tabs");
+    _tabs.translatesAutoresizingMaskIntoConstraints = NO;
+    _tabs.hidden = YES;
     // A circled x drawn at the size it shows (a 16-point target, as the header's other controls).
     NSImage *x = [[NSImage imageWithSystemSymbolName:@"xmark.circle.fill" accessibilityDescription:nil]
         imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:12 weight:NSFontWeightRegular]];
@@ -231,10 +233,12 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
     NSBox *rule = [[NSBox alloc] initWithFrame:NSZeroRect];
     rule.boxType = NSBoxSeparator;
     rule.translatesAutoresizingMaskIntoConstraints = NO;
-    [header addSubview:_title];
-    [header addSubview:_choice];
-    [header addSubview:_close];
-    [header addSubview:rule];
+    _dropMark = [[NSView alloc] initWithFrame:NSZeroRect];
+    _dropMark.wantsLayer = YES;
+    _dropMark.layer.backgroundColor = [NSColor.controlAccentColor colorWithAlphaComponent:0.25].CGColor;
+    _dropMark.translatesAutoresizingMaskIntoConstraints = NO;
+    _dropMark.hidden = YES;
+    for (NSView *v in @[ _dropMark, _title, _choice, _tabs, _close, rule ]) [header addSubview:v];
     _scroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
     _scroll.translatesAutoresizingMaskIntoConstraints = NO;
     _scroll.hasVerticalScroller = _scroll.hasHorizontalScroller = YES;
@@ -256,15 +260,19 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
     ]];
     [self addSubview:header];
     [self addSubview:_scroll];
+    _titleAfterChoice = [_title.leadingAnchor constraintEqualToAnchor:_choice.trailingAnchor constant:4];
+    _titleAfterTabs = [_title.leadingAnchor constraintEqualToAnchor:_tabs.trailingAnchor constant:6];
     [NSLayoutConstraint activateConstraints:@[
         [header.topAnchor constraintEqualToAnchor:self.topAnchor],
         [header.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
         [header.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
-        [header.heightAnchor constraintEqualToConstant:24],
+        [header.heightAnchor constraintEqualToConstant:kHeaderHeight],
         // The menu names the frame (what it shows); the title beside it, only what the window adds ("test.adi").
         [_choice.leadingAnchor constraintEqualToAnchor:header.leadingAnchor constant:4],
         [_choice.centerYAnchor constraintEqualToAnchor:header.centerYAnchor],
-        [_title.leadingAnchor constraintEqualToAnchor:_choice.trailingAnchor constant:4],
+        [_tabs.leadingAnchor constraintEqualToAnchor:header.leadingAnchor constant:4],
+        [_tabs.centerYAnchor constraintEqualToAnchor:header.centerYAnchor],
+        _titleAfterChoice,
         [_title.centerYAnchor constraintEqualToAnchor:header.centerYAnchor],
         [_close.leadingAnchor constraintGreaterThanOrEqualToAnchor:_title.trailingAnchor constant:6],
         [_close.trailingAnchor constraintEqualToAnchor:header.trailingAnchor constant:-4],
@@ -274,6 +282,10 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
         [rule.leadingAnchor constraintEqualToAnchor:header.leadingAnchor],
         [rule.trailingAnchor constraintEqualToAnchor:header.trailingAnchor],
         [rule.bottomAnchor constraintEqualToAnchor:header.bottomAnchor],
+        [_dropMark.leadingAnchor constraintEqualToAnchor:header.leadingAnchor],
+        [_dropMark.trailingAnchor constraintEqualToAnchor:header.trailingAnchor],
+        [_dropMark.topAnchor constraintEqualToAnchor:header.topAnchor],
+        [_dropMark.bottomAnchor constraintEqualToAnchor:header.bottomAnchor],
         [_scroll.topAnchor constraintEqualToAnchor:header.bottomAnchor],
         [_scroll.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
         [_scroll.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
@@ -282,18 +294,44 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
     return self;
 }
 
-- (void)setPosition:(int)position {
-    _position = position;
-    _header.position = position;
+- (void)setIndex:(int)index {
+    _index = index;
+    _header.index = index;
 }
 
-- (void)showItem:(int)item title:(NSString *)title content:(NSView *)content {
+- (NSSize)leastSize {
+    NSSize m = NSZeroSize;
+    for (NSNumber *item in _items) {
+        NSSize c = itemMinimum(item.intValue);
+        m.width = std::max(m.width, c.width), m.height = std::max(m.height, c.height);
+    }
+    if (!_items.count) m = itemMinimum(_item);
+    return NSMakeSize(m.width, m.height + kHeaderHeight);
+}
+
+- (void)showItems:(NSArray<NSNumber *> *)items front:(int)item title:(NSString *)title content:(NSView *)content {
+    _items = [items copy] ?: @[];
     _item = item;
     // The window's title less the frame's name: "Map — test.adi" shows "— test.adi" beside the menu.
     NSString *name = itemName(item), *extra = title ?: @"";
     if ([extra hasPrefix:name]) extra = [[extra substringFromIndex:name.length] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
     _title.stringValue = extra;
     [_choice selectItemWithTag:item];
+    // One panel: its menu; more: a tab each.
+    BOOL tabbed = _items.count > 1;
+    _choice.hidden = tabbed;
+    _tabs.hidden = !tabbed;
+    _titleAfterChoice.active = !tabbed;
+    _titleAfterTabs.active = tabbed;
+    if (tabbed) {
+        _tabs.segmentCount = (NSInteger)_items.count;
+        for (NSUInteger i = 0; i < _items.count; ++i) {
+            [_tabs setLabel:itemName(_items[i].intValue) forSegment:(NSInteger)i];
+            [_tabs setTag:_items[i].intValue forSegment:(NSInteger)i];
+            if (_items[i].intValue == item) _tabs.selectedSegment = (NSInteger)i;
+        }
+    }
+    _close.toolTip = tabbed ? TF(@"Close {panel}", @{@"panel" : name}) : T(@"Close this frame");
     if (content && content == _content && content.superview == _body) return;
     if (_content.superview == _body) [_content removeFromSuperview];  // not when another frame has taken it
     _content = content;
@@ -312,37 +350,56 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
 - (void)chosen:(NSPopUpButton *)sender {
     int item = (int)sender.selectedItem.tag;
     [_choice selectItemWithTag:_item];  // the layout puts it right
-    if (self.onChoose) self.onChoose(self.position, item);
+    if (self.onChoose) self.onChoose(self.index, item);
+}
+
+- (void)tabChosen:(NSSegmentedControl *)sender {
+    int item = (int)[sender tagForSegment:sender.selectedSegment];
+    if (item != _item && self.onTab) self.onTab(self.index, item);
 }
 
 - (void)closePressed:(id)sender {
-    if (self.onClose) self.onClose(self.position);
+    if (self.onClose) self.onClose(self.index);
 }
 
-// Another frame dragged here by its header: marked while it is over this one, then the two swap.
+// Another frame dragged here by its header: over this one's header it would become a tab here;
+// over its body the two would swap. Marked while it is over, then done on the drop.
 - (int)draggedFrom:(id<NSDraggingInfo>)info {
     NSString *v = [info.draggingPasteboard stringForType:kFramePasteboardType];
     return v ? v.intValue : -1;
 }
-- (void)markDrop:(BOOL)on {
-    self.wantsLayer = YES;
-    self.layer.borderWidth = on ? 2 : 0;
-    self.layer.borderColor = NSColor.controlAccentColor.CGColor;
+- (BOOL)overHeader:(id<NSDraggingInfo>)info {
+    return NSPointInRect([_header convertPoint:info.draggingLocation fromView:nil], _header.bounds);
 }
-- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)info {
+- (void)markDrop:(int)kind {  // 0 none, 1 swap (the frame), 2 a tab (the header)
+    self.wantsLayer = YES;
+    self.layer.borderWidth = kind == 1 ? 2 : 0;
+    self.layer.borderColor = NSColor.controlAccentColor.CGColor;
+    _dropMark.hidden = kind != 2;
+}
+- (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)info {
     int from = [self draggedFrom:info];
-    BOOL ok = from >= 0 && from != self.position;
-    [self markDrop:ok];
+    BOOL ok = from >= 0 && from != self.index;
+    [self markDrop:ok ? ([self overHeader:info] ? 2 : 1) : 0];
     return ok ? NSDragOperationMove : NSDragOperationNone;
 }
+- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)info {
+    return [self draggingUpdated:info];
+}
 - (void)draggingExited:(id<NSDraggingInfo>)info {
-    [self markDrop:NO];
+    [self markDrop:0];
 }
 - (BOOL)performDragOperation:(id<NSDraggingInfo>)info {
-    [self markDrop:NO];
+    [self markDrop:0];
     int from = [self draggedFrom:info];
-    if (from < 0 || from == self.position || !self.onSwap) return NO;
-    self.onSwap(from, self.position);
+    if (from < 0 || from == self.index) return NO;
+    if ([self overHeader:info]) {
+        if (!self.onStack) return NO;
+        self.onStack(from, self.index);
+    } else {
+        if (!self.onSwap) return NO;
+        self.onSwap(from, self.index);
+    }
     return YES;
 }
 @end
@@ -748,15 +805,12 @@ void openAuxWindow(int item) {
 - (BOOL)open;
 - (BOOL)openActivation;
 - (BOOL)openLogging;
-- (BOOL)openPreset:(NSInteger)preset allowEmptyQso:(BOOL)allowEmptyQso;
 - (NSMenuItem *)optionsMenuItem;
 - (void)retitleMenu;
-- (void)closePosition:(int)position;
 - (void)abandon;
 - (void)closeLayout;
 - (void)presetChosen:(NSMenuItem *)sender;
-- (int)positionOf:(int)item;
-- (void)swap:(int)from with:(int)to;
+- (BOOL)shows:(int)item;
 - (BOOL)dock:(NSWindow<ADIFDockable> *)window;
 - (NSView *)contentOf:(int)item;
 - (void)setStatus:(NSString *)text;
@@ -766,21 +820,28 @@ void openAuxWindow(int item) {
 
 static std::function<void()> gOpeners[kDockCount];
 
+// The console: its arrangement (adif::layout; saved as `consoleLayout`, and the preset it came from
+// as `consoleLayoutPreset`), shown as a tree of split views whose leaves are frames, one per stack
+// of panels. Each panel is still the window it was: docked, its content sits in its frame (the
+// front one of a stack shows; the others wait behind their tabs), and the window's own calls
+// (show, close, visible, title) are answered for it. Only what has docked is shown; a panel in the
+// arrangement that hasn't opened yet (New QSO before an activation's log exists) takes its place
+// when it docks. A panel not in the arrangement opens as a window of its own.
 @implementation ADIFWorkspace {
     ADIFWorkspaceWindow *_host;
     NSView *_treeHolder;
     NSTextField *_statusText, *_statusClock;
     NSTimer *_clock;
-    ADIFDockFrame *_frame[kWorkspaceFrameCount];
-    int _item[kWorkspaceFrameCount];  // what each position shows
-    int _preset;
-    BOOL _active, _batching, _closing;
-    int _builtPreset, _builtMask;
-    NSMutableSet<NSString *> *_unsized;  // splits just built with no saved sizes
-    NSView *_root;  // the frames' tree
+    layout::Arrangement _layout;
+    std::string _presetId;  // the built-in layout it started from (Console Layout Options ticks it)
+    BOOL _loaded;
+    BOOL _active, _batching, _closing, _sizing, _saveQueued;
+    std::string _builtShape;  // the tree the frames were built for
+    NSView *_root;            // the frames' tree
+    NSMutableArray<ADIFDockFrame *> *_frames;               // one per stack shown, in order
     NSMutableDictionary<NSNumber *, NSValue *> *_window;   // by item (not retained: each is owned by its own module)
     NSMutableDictionary<NSNumber *, NSView *> *_content;   // the docked windows' content, while docked
-    NSMapTable<NSView *, NSNumber *> *_shares;             // each frame's or split's share of its split (Node::share)
+    NSMapTable<NSView *, NSNumber *> *_shares;             // each frame's or split's share of its split
     NSMenu *_optionsMenu;
     NSMenuItem *_optionsMenuItem;
 }
@@ -796,11 +857,10 @@ static std::function<void()> gOpeners[kDockCount];
 
 - (instancetype)init {
     if (!(self = [super init])) return nil;
-    _unsized = [NSMutableSet set];
     _window = [NSMutableDictionary dictionary];
     _content = [NSMutableDictionary dictionary];
     _shares = [NSMapTable weakToStrongObjectsMapTable];
-    _builtPreset = _builtMask = -1;
+    _frames = [NSMutableArray array];
     return self;
 }
 
@@ -808,46 +868,53 @@ static std::function<void()> gOpeners[kDockCount];
     return (NSWindow<ADIFDockable> *)_window[@(item)].nonretainedObjectValue;
 }
 
-- (int)positionOf:(int)item {
-    for (int p = 0; p < kWorkspaceFrameCount; ++p)
-        if (item != kDockNone && _item[p] == item) return p;
-    return -1;
+// In the arrangement, and docked: showing (in front, or behind a tab).
+- (BOOL)shows:(int)item {
+    return item != kDockNone && _content[@(item)] && layout::inConsole(_layout, panelOf(item));
+}
+
+// What has docked, of what the arrangement holds: the tree shown.
+- (layout::Arrangement)shownLayout {
+    std::vector<std::string> docked;
+    for (int item = 1; item < kDockCount; ++item)
+        if (_content[@(item)]) docked.push_back(panelOf(item));
+    return layout::tidy(_layout, docked);
+}
+
+- (const layout::Preset *)presetOf:(NSInteger)index {
+    return index >= 0 && (size_t)index < layout::presets().size() ? &layout::presets()[(size_t)index] : nullptr;
 }
 
 // ── Settings ──
 
+// Once: the saved arrangement, else the one the console's settings before it describe.
 - (void)loadSettings {
-    int preset = 0;
-    std::string saved = adifhost::setting("layoutPreset");
-    if (!saved.empty()) preset = std::clamp(atoi(saved.c_str()), 0, (int)presets().size() - 1);
-    _preset = preset;
-    for (int p = 0; p < kWorkspaceFrameCount; ++p) _item[p] = presets()[(size_t)preset].items[p];
-    std::string items = adifhost::setting("layoutItemsV3");
-    int got[kWorkspaceFrameCount] = {}, n = 0;
-    size_t at = 0;
-    while (n < kWorkspaceFrameCount && at <= items.size() && !items.empty()) {
-        size_t comma = items.find(',', at);
-        got[n++] = atoi(items.substr(at, comma == std::string::npos ? std::string::npos : comma - at).c_str());
-        if (comma == std::string::npos) break;
-        at = comma + 1;
+    if (_loaded) return;
+    _loaded = YES;
+    std::string saved = adifhost::setting("consoleLayout");
+    std::optional<layout::Arrangement> a = saved.empty() ? std::nullopt : layout::read(saved);
+    _layout = a ? *a : layout::migrate([](const std::string &key) { return adifhost::setting(key); });
+    _presetId = adifhost::setting("consoleLayoutPreset");
+    if (!layout::preset(_presetId)) {
+        std::string index = adifhost::setting("layoutPreset");
+        int i = index.empty() ? 0 : std::clamp(atoi(index.c_str()), 0, (int)layout::presets().size() - 1);
+        _presetId = layout::presets()[(size_t)i].id;
     }
-    bool ok = n == kWorkspaceFrameCount;
-    for (int p = 0; ok && p < kWorkspaceFrameCount; ++p) {
-        ok = got[p] >= kDockNone && got[p] < kDockCount;
-        for (int q = 0; ok && q < p; ++q) ok = got[p] == kDockNone || got[p] != got[q];
-    }
-    if (ok)
-        for (int p = 0; p < kWorkspaceFrameCount; ++p) _item[p] = got[p];
 }
 
 - (void)saveSettings {
-    adifhost::setSetting("layoutPreset", std::to_string(_preset));
-    std::string items;
-    for (int p = 0; p < kWorkspaceFrameCount; ++p) {
-        if (!items.empty()) items += ',';
-        items += std::to_string(_item[p]);
-    }
-    adifhost::setSetting("layoutItemsV3", items);
+    adifhost::setSetting("consoleLayout", layout::write(_layout));
+    adifhost::setSetting("consoleLayoutPreset", _presetId);
+}
+
+// While a divider is dragged: saved once it rests.
+- (void)queueSave {
+    if (_saveQueued) return;
+    _saveQueued = YES;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        self->_saveQueued = NO;
+        [self saveSettings];
+    });
 }
 
 // ── The window ──
@@ -914,13 +981,6 @@ static std::function<void()> gOpeners[kDockCount];
         [_statusClock.trailingAnchor constraintEqualToAnchor:status.trailingAnchor constant:-kADIFMargin],
         [_statusClock.centerYAnchor constraintEqualToAnchor:status.centerYAnchor],
     ]];
-    for (int p = 0; p < kWorkspaceFrameCount; ++p) {
-        _frame[p] = [[ADIFDockFrame alloc] initWithFrame:NSMakeRect(0, 0, 300, 300)];
-        _frame[p].position = p;
-        _frame[p].onChoose = ^(int position, int item) { [me assign:item to:position]; };
-        _frame[p].onClose = ^(int position) { [me closePosition:position]; };
-        _frame[p].onSwap = ^(int from, int to) { [me swap:from with:to]; };
-    }
 }
 
 - (BOOL)keyEquivalent:(NSEvent *)event {
@@ -940,57 +1000,49 @@ static std::function<void()> gOpeners[kDockCount];
 // ── Opening and closing ──
 
 - (BOOL)open {
-    return [self openPreset:-1 allowEmptyQso:NO];
+    return [self openPreset:"" allowEmptyQso:NO];
 }
 
 - (BOOL)openActivation {
-    if (_active) {
-        NSMenuItem *activation = [[NSMenuItem alloc] init];
-        activation.tag = kActivationPreset;
-        [self presetChosen:activation];
-        return YES;
-    }
-    return [self openPreset:kActivationPreset allowEmptyQso:YES];
+    if (_active) return [self applyPreset:"activation"], YES;
+    return [self openPreset:"activation" allowEmptyQso:YES];
 }
 
 - (BOOL)openLogging {
-    if (_active) {
-        NSMenuItem *logging = [[NSMenuItem alloc] init];
-        logging.tag = kLoggingPreset;
-        [self presetChosen:logging];
-        return YES;
-    }
-    return [self openPreset:kLoggingPreset allowEmptyQso:NO];
+    if (_active) return [self applyPreset:"logging"], YES;
+    return [self openPreset:"logging" allowEmptyQso:NO];
 }
 
-- (BOOL)openPreset:(NSInteger)preset allowEmptyQso:(BOOL)allowEmptyQso {
+// A built-in layout's arrangement, the panes kept as they are.
+- (void)takePreset:(const std::string &)id {
+    const layout::Preset *p = layout::preset(id);
+    if (!p) return;
+    auto panes = _layout.panes;
+    _layout = p->arrangement;
+    _layout.panes = panes;
+    _presetId = id;
+}
+
+- (BOOL)openPreset:(const std::string &)presetId allowEmptyQso:(BOOL)allowEmptyQso {
     _closing = NO;
     [self loadSettings];
-    if (preset >= 0) {
-        _preset = (int)preset;
-        for (int p = 0; p < kWorkspaceFrameCount; ++p) _item[p] = presets()[(size_t)_preset].items[p];
-    }
+    if (!presetId.empty()) [self takePreset:presetId];
+    if (!layout::inConsole(_layout, layout::kNewQso) && layout::shown(_layout).empty()) [self takePreset:_presetId];  // nothing left: its layout again
+    [self saveSettings];
     [self makeHost];
     _active = YES;
     [self startClock];
     _batching = YES;
-    _builtPreset = _builtMask = -1;
+    _builtShape.clear();
     [_host makeKeyAndOrderFront:nil];
     BOOL ok = YES;
     for (int item = 1; item < kDockCount; ++item) {
-        int p = [self positionOf:item];
-        if (p < 0 || !gOpeners[item]) continue;
+        if (!layout::inConsole(_layout, panelOf(item)) || !gOpeners[item]) continue;
         gOpeners[item]();
-        if (![self windowOf:item].dockHost) {
-            if (item == kDockNewQso) {
-                if (allowEmptyQso) {
-                    _item[p] = kDockNone;  // Start Activation may create its ADIF log after this window opens.
-                    continue;
-                }
-                ok = NO;
-                break;
-            }
-            _item[p] = kDockNone;
+        // New QSO must open, unless an activation's log is still to be made (it takes its place when it opens).
+        if (![self windowOf:item].dockHost && item == kDockNewQso && !allowEmptyQso) {
+            ok = NO;
+            break;
         }
     }
     _batching = NO;
@@ -1046,27 +1098,36 @@ static std::function<void()> gOpeners[kDockCount];
     if (self.onChange) self.onChange(NO);
 }
 
-// Each window gets its own content back; those that were showing are told they closed.
-- (void)undockAll:(BOOL)closed {
-    _closing = YES;
-    for (int item = 1; item < kDockCount; ++item) {
-        NSWindow<ADIFDockable> *w = [self windowOf:item];
-        NSView *content = _content[@(item)];
-        if (!w || !content) continue;
-        BOOL shown = [self positionOf:item] >= 0;
+// A window's own content back in it, no longer docked.
+- (void)undock:(int)item {
+    NSWindow<ADIFDockable> *w = [self windowOf:item];
+    NSView *content = _content[@(item)];
+    if (w && content) {
         w.dockHost = nil;
         [content removeFromSuperview];
         content.translatesAutoresizingMaskIntoConstraints = YES;
         content.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
         w.contentView = content;
+    }
+    [_content removeObjectForKey:@(item)];
+    [_window removeObjectForKey:@(item)];
+}
+
+// Each window gets its own content back; those that were showing are told they closed.
+- (void)undockAll:(BOOL)closed {
+    _closing = YES;
+    for (int item = 1; item < kDockCount; ++item) {
+        NSWindow<ADIFDockable> *w = [self windowOf:item];
+        if (!w || !_content[@(item)]) continue;
+        BOOL shown = [self shows:item];
+        [self undock:item];
         if (shown && closed) [NSNotificationCenter.defaultCenter postNotificationName:NSWindowWillCloseNotification object:w];
     }
-    [_content removeAllObjects];
-    [_window removeAllObjects];
-    for (int p = 0; p < kWorkspaceFrameCount; ++p) [_frame[p] showItem:kDockNone title:@"" content:nil];
+    for (ADIFDockFrame *f in _frames) [f showItems:@[] front:kDockNone title:@"" content:nil];
+    [_frames removeAllObjects];
     [_root removeFromSuperview];
     _root = nil;
-    _builtMask = -1;
+    _builtShape.clear();
     worldmap::setListSuppressed(false);
     _closing = NO;
 }
@@ -1080,14 +1141,9 @@ static std::function<void()> gOpeners[kDockCount];
 - (BOOL)dock:(NSWindow<ADIFDockable> *)w {
     if (!_active || _closing || w.dockItem == kDockNone) return NO;
     int item = w.dockItem;
-    // Its frame: its own in this layout, else an empty one. With every frame in use it stays a window
-    // of its own, rather than put out what is in a frame (New QSO, in the middle of an activation).
-    int p = [self positionOf:item];
-    for (int q = 0; q < kWorkspaceFrameCount && p < 0; ++q)
-        if (_item[q] == kDockNone && presets()[(size_t)_preset].items[q] == item) p = q;
-    for (int q = 0; q < kWorkspaceFrameCount && p < 0; ++q)
-        if (_item[q] == kDockNone) p = q;
-    if (p < 0) return NO;
+    // Its place in the arrangement; with none it stays a window of its own, rather than put out
+    // what is in a frame (New QSO, in the middle of an activation).
+    if (!layout::inConsole(_layout, panelOf(item))) return NO;
     if (!_content[@(item)]) {
         [w orderOut:nil];
         NSView *content = w.contentView;
@@ -1096,12 +1152,13 @@ static std::function<void()> gOpeners[kDockCount];
         _window[@(item)] = [NSValue valueWithNonretainedObject:w];
         w.dockHost = _host;
     }
-    if ([self positionOf:item] < 0) {
-        _item[p] = item;
+    if (!_batching) {  // shown: its tab to the front
+        _layout = layout::bringToFront(_layout, panelOf(item));
         [self saveSettings];
     }
     [self rebuild];
     if (!_batching) [_host makeKeyAndOrderFront:nil];
+    ADIFPanelShownChanged();
     return YES;
 }
 
@@ -1115,20 +1172,16 @@ static std::function<void()> gOpeners[kDockCount];
     return YES;
 }
 
-- (void)closePosition:(int)position {
-    [self closeItem:_item[position]];
-}
-
+// A panel out of the console: told it closed, its content back in its window.
 - (void)closeItem:(int)item {
-    int p = [self positionOf:item];
-    if (p < 0) return;
-    _item[p] = kDockNone;
+    if (item == kDockNone || !layout::inConsole(_layout, panelOf(item))) return;
+    _layout = layout::hide(_layout, panelOf(item));
     [self saveSettings];
     NSWindow<ADIFDockable> *w = [self windowOf:item];
     if (w) [NSNotificationCenter.defaultCenter postNotificationName:NSWindowWillCloseNotification object:w];
-    bool any = false;
-    for (int p = 0; p < kWorkspaceFrameCount; ++p) any |= _item[p] != kDockNone;
-    if (!any) {
+    [self undock:item];
+    ADIFPanelShownChanged();
+    if (layout::shown([self shownLayout]).empty()) {
         [self closeLayout];
         return;
     }
@@ -1136,106 +1189,150 @@ static std::function<void()> gOpeners[kDockCount];
 }
 
 - (void)retitle:(NSWindow<ADIFDockable> *)w {
-    int p = [self positionOf:w.dockItem];
-    if (p >= 0 && w.dockHost) [_frame[p] showItem:w.dockItem title:w.title content:_content[@(w.dockItem)]];
+    for (ADIFDockFrame *f in _frames)
+        if (f.item == w.dockItem && w.dockHost) [f showItems:f.items front:f.item title:w.title content:_content[@(w.dockItem)]];
 }
 
-// A frame dragged onto another: the two swap what they show.
+- (int)frontOf:(int)index {
+    return index >= 0 && (NSUInteger)index < _frames.count ? _frames[(NSUInteger)index].item : kDockNone;
+}
+
+// A frame dragged onto another's body: the two swap what they show.
 - (void)swap:(int)from with:(int)to {
-    if (from < 0 || to < 0 || from >= kWorkspaceFrameCount || to >= kWorkspaceFrameCount || from == to) return;
-    std::swap(_item[from], _item[to]);
+    int a = [self frontOf:from], b = [self frontOf:to];
+    if (a == kDockNone || b == kDockNone || a == b) return;
+    _layout = layout::swap(_layout, panelOf(a), panelOf(b));
     [self saveSettings];
     [self rebuild];
 }
 
-// A frame's menu: that item here. One already in another frame swaps places with this frame's.
-- (void)assign:(int)item to:(int)position {
-    int old = _item[position];
-    if (item == old) return;
-    int other = [self positionOf:item];
-    if (item == kDockNone) {
-        [self closeItem:old];
-        return;
-    }
-    if (other >= 0) {
-        _item[other] = old;
-        _item[position] = item;
+// A frame dragged onto another's header: its front panel a tab there.
+- (void)stack:(int)from onto:(int)to {
+    int a = [self frontOf:from], b = [self frontOf:to];
+    if (a == kDockNone || b == kDockNone || a == b) return;
+    _layout = layout::moveToTab(_layout, panelOf(a), panelOf(b));
+    [self saveSettings];
+    [self rebuild];
+}
+
+- (void)tab:(int)index item:(int)item {
+    _layout = layout::bringToFront(_layout, panelOf(item));
+    [self saveSettings];
+    [self rebuild];
+}
+
+// A frame's menu: that item here. One already in the console swaps places with this frame's.
+- (void)assign:(int)item to:(int)index {
+    int old = [self frontOf:index];
+    if (item == old || old == kDockNone) return;
+    if (item == kDockNone) return [self closeItem:old];
+    if (layout::inConsole(_layout, panelOf(item))) {
+        _layout = layout::swap(_layout, panelOf(old), panelOf(item));
         [self saveSettings];
         [self rebuild];
         return;
     }
-    _item[position] = item;
-    NSWindow<ADIFDockable> *oldWindow = [self windowOf:old];
-    if (old != kDockNone && oldWindow) [NSNotificationCenter.defaultCenter postNotificationName:NSWindowWillCloseNotification object:oldWindow];
+    _layout = layout::hide(layout::showInConsole(_layout, panelOf(item), panelOf(old)), panelOf(old));  // in its place
     [self saveSettings];
+    NSWindow<ADIFDockable> *oldWindow = [self windowOf:old];
+    if (oldWindow) [NSNotificationCenter.defaultCenter postNotificationName:NSWindowWillCloseNotification object:oldWindow];
+    [self undock:old];
     if (gOpeners[item]) gOpeners[item]();
-    if (![self windowOf:item].dockHost) _item[position] = kDockNone;
     [self rebuild];
+    ADIFPanelShownChanged();
 }
 
-- (void)presetChosen:(NSMenuItem *)sender {
-    NSInteger i = sender.tag;
-    if (i < 0 || (size_t)i >= presets().size() || (int)i == _preset) return;
+// A built-in layout: the panels it doesn't hold closed, those it does opened into their places.
+- (void)applyPreset:(const std::string &)id {
+    if (!layout::preset(id)) return;
+    [self loadSettings];
     bool was[kDockCount] = {};
-    for (int item = 1; item < kDockCount; ++item) was[item] = [self positionOf:item] >= 0;
-    _preset = (int)i;
-    for (int p = 0; p < kWorkspaceFrameCount; ++p) _item[p] = presets()[(size_t)i].items[p];
+    for (int item = 1; item < kDockCount; ++item) was[item] = [self shows:item];
+    [self takePreset:id];
     [self saveSettings];
     if (!_active) return;
     _batching = YES;
     for (int item = 1; item < kDockCount; ++item) {
-        int p = [self positionOf:item];
-        if (was[item] && p < 0) {  // not in this layout
+        bool in = layout::inConsole(_layout, panelOf(item));
+        if (was[item] && !in) {
             NSWindow<ADIFDockable> *w = [self windowOf:item];
             if (w) [NSNotificationCenter.defaultCenter postNotificationName:NSWindowWillCloseNotification object:w];
-        } else if (!was[item] && p >= 0 && gOpeners[item]) {
+            [self undock:item];
+        } else if (!was[item] && in && gOpeners[item]) {
             gOpeners[item]();
-            if (![self windowOf:item].dockHost) _item[p] = kDockNone;
         }
     }
     _batching = NO;
+    _builtShape.clear();
     [self rebuild];
+    ADIFPanelShownChanged();
 }
 
+// A layout chosen, the one ticked too: its panels back where it puts them (after tabs, swaps or closes).
+- (void)presetChosen:(NSMenuItem *)sender {
+    if (const layout::Preset *p = [self presetOf:sender.tag]) [self applyPreset:p->id];
+}
+
+// Console Layout Options' frames: in the console (at the end of its top row), or out of it.
 - (void)frameToggled:(NSMenuItem *)sender {
     int item = (int)sender.tag;
-    if ([self positionOf:item] >= 0) {
-        if (!_active) {
-            _item[[self positionOf:item]] = kDockNone;
-            [self saveSettings];
-            return;
-        }
-        [self closeItem:item];
-        return;
-    }
-    if (!_active) {
-        int position = -1;
-        for (int p = 0; p < kWorkspaceFrameCount && position < 0; ++p)
-            if (_item[p] == kDockNone && presets()[(size_t)_preset].items[p] == item) position = p;
-        for (int p = 0; p < kWorkspaceFrameCount && position < 0; ++p)
-            if (_item[p] == kDockNone) position = p;
-        if (position < 0) position = 0;
-        _item[position] = item;
+    [self loadSettings];
+    if (layout::inConsole(_layout, panelOf(item))) {
+        if (_active) return [self closeItem:item];
+        _layout = layout::hide(_layout, panelOf(item));
         [self saveSettings];
         return;
     }
+    _layout = layout::showInConsole(_layout, panelOf(item));
+    [self saveSettings];
+    if (!_active) return;
+    if (_content[@(item)]) {  // already docked (behind nothing: it was out of the arrangement)
+        [self rebuild];
+        return;
+    }
+    NSWindow<ADIFDockable> *w = [self windowOf:item];
+    if (w.visible && !w.dockHost) [w orderOut:nil];  // its own window: into the console
     if (gOpeners[item]) gOpeners[item]();
 }
 
+// The frames back to their first sizes: the built-in layout's shares when the console is still its
+// shape, else by what each needs.
 - (void)resetSizes:(id)sender {
-    NSUserDefaults *d = NSUserDefaults.standardUserDefaults;
-    for (NSString *key in d.dictionaryRepresentation.allKeys)
-        if ([key hasPrefix:@"NSSplitView Subview Frames adif.layout"]) [d removeObjectForKey:key];
-    _builtMask = -1;
+    [self loadSettings];
+    const layout::Preset *p = layout::preset(_presetId);
+    if (p && shapeOf(p->arrangement.console) == shapeOf(_layout.console)) {
+        auto panes = _layout.panes;
+        auto fronts = _layout;
+        _layout = p->arrangement;
+        _layout.panes = panes;
+        for (const std::string &id : layout::shown(fronts))  // which tab is in front, as it was
+            if (layout::inConsole(fronts, id)) {
+                std::vector<const layout::Node *> stacks;
+                stacksOf(fronts.console, stacks);
+                for (const layout::Node *st : stacks)
+                    if (st->front < st->panels.size() && st->panels[st->front] == id) _layout = layout::bringToFront(_layout, id);
+            }
+    } else {
+        std::function<void(layout::Node &)> clear = [&](layout::Node &n) {
+            n.share = 0;
+            for (layout::Node &c : n.children) clear(c);
+        };
+        clear(_layout.console);
+    }
+    [self saveSettings];
+    _builtShape.clear();
     [self rebuild];
 }
 
 - (void)menuNeedsUpdate:(NSMenu *)menu {
+    [self loadSettings];
     for (NSMenuItem *mi in menu.itemArray) {
-        if (mi.action == @selector(presetChosen:))
-            mi.state = mi.tag == _preset ? NSControlStateValueOn : NSControlStateValueOff;
-        else if (mi.action == @selector(frameToggled:))
-            mi.state = [self positionOf:(int)mi.tag] >= 0 ? NSControlStateValueOn : NSControlStateValueOff;
+        if (mi.action == @selector(presetChosen:)) {
+            const layout::Preset *p = [self presetOf:mi.tag];
+            mi.state = p && p->id == _presetId ? NSControlStateValueOn : NSControlStateValueOff;
+        } else if (mi.action == @selector(frameToggled:)) {
+            mi.state = layout::inConsole(_layout, panelOf((int)mi.tag)) ? NSControlStateValueOn : NSControlStateValueOff;
+        }
     }
 }
 
@@ -1244,8 +1341,8 @@ static std::function<void()> gOpeners[kDockCount];
     [self loadSettings];
     _optionsMenu = [[NSMenu alloc] initWithTitle:T(@"Console Layout Options")];
     _optionsMenu.delegate = self;
-    for (size_t i = 0; i < presets().size(); ++i) {
-        NSMenuItem *mi = [_optionsMenu addItemWithTitle:T(presets()[i].name) action:@selector(presetChosen:) keyEquivalent:@""];
+    for (size_t i = 0; i < layout::presets().size(); ++i) {
+        NSMenuItem *mi = [_optionsMenu addItemWithTitle:T(@(layout::presets()[i].name)) action:@selector(presetChosen:) keyEquivalent:@""];
         mi.target = self;
         mi.tag = (NSInteger)i;
     }
@@ -1271,8 +1368,8 @@ static std::function<void()> gOpeners[kDockCount];
     _optionsMenuItem.title = T(@"Console Layout Options");
     _optionsMenu.title = _optionsMenuItem.title;
     for (NSMenuItem *mi in _optionsMenu.itemArray) {
-        if (mi.action == @selector(presetChosen:) && mi.tag >= 0 && (size_t)mi.tag < presets().size())
-            mi.title = T(presets()[(size_t)mi.tag].name);
+        if (mi.action == @selector(presetChosen:) && [self presetOf:mi.tag])
+            mi.title = T(@([self presetOf:mi.tag]->name));
         else if (mi.action == @selector(frameToggled:))
             mi.title = itemName((int)mi.tag);
         else if (mi.action == @selector(resetSizes:))
@@ -1282,29 +1379,8 @@ static std::function<void()> gOpeners[kDockCount];
 
 // ── The frames' tree ──
 
-static bool prune(const Node &n, const int items[kWorkspaceFrameCount], Node *out) {
-    if (n.kind == 'P') {
-        if (items[n.position] == kDockNone) return false;
-        *out = n;
-        return true;
-    }
-    Node kept;
-    kept.kind = n.kind;
-    kept.share = n.share;
-    for (const Node &k : n.kids) {
-        Node c;
-        if (prune(k, items, &c)) kept.kids.push_back(c);
-    }
-    if (kept.kids.empty()) return false;
-    *out = kept.kids.size() == 1 ? kept.kids[0] : kept;
-    return true;
-}
-
 static NSSize minimumOf(NSView *v) {
-    if ([v isKindOfClass:ADIFDockFrame.class]) {
-        NSSize m = itemMinimum(((ADIFDockFrame *)v).item);
-        return NSMakeSize(m.width, m.height + 24);
-    }
+    if ([v isKindOfClass:ADIFDockFrame.class]) return [(ADIFDockFrame *)v leastSize];
     if (![v isKindOfClass:NSSplitView.class]) return NSZeroSize;
     NSSplitView *s = (NSSplitView *)v;
     NSSize m = NSZeroSize;
@@ -1318,52 +1394,62 @@ static NSSize minimumOf(NSView *v) {
     return m;
 }
 
+// What a frame or split needs, as its share of the room: at the window's least size each gets its least.
 static double weightOf(NSView *v, bool width) {
-    if ([v isKindOfClass:ADIFDockFrame.class]) return itemWeight(((ADIFDockFrame *)v).item, width);
-    if (![v isKindOfClass:NSSplitView.class]) return 1;
-    NSSplitView *s = (NSSplitView *)v;
-    bool along = s.isVertical == width;
-    double w = 0;
-    for (NSView *k in s.subviews) w = along ? w + weightOf(k, width) : std::max(w, weightOf(k, width));
-    return w;
+    NSSize m = minimumOf(v);
+    return std::max<CGFloat>(width ? m.width : m.height, 1);
 }
 
-- (NSView *)buildNode:(const Node &)n name:(NSString *)name counter:(int *)counter {
-    if (n.kind == 'P') {
-        if (n.share > 0) [_shares setObject:@(n.share) forKey:_frame[n.position]];
-        else [_shares removeObjectForKey:_frame[n.position]];
-        return _frame[n.position];
+- (ADIFDockFrame *)newFrame:(int)index {
+    __weak ADIFWorkspace *me = self;
+    ADIFDockFrame *f = [[ADIFDockFrame alloc] initWithFrame:NSMakeRect(0, 0, 300, 300)];
+    f.index = index;
+    f.onChoose = ^(int at, int item) { [me assign:item to:at]; };
+    f.onClose = ^(int at) {
+        ADIFWorkspace *ws = me;
+        [ws closeItem:[ws frontOf:at]];
+    };
+    f.onSwap = ^(int from, int to) { [me swap:from with:to]; };
+    f.onStack = ^(int from, int to) { [me stack:from onto:to]; };
+    f.onTab = ^(int at, int item) { [me tab:at item:item]; };
+    return f;
+}
+
+// A node as views: a stack its frame; a row or column a split view (named by its path, for its shares).
+- (NSView *)buildNode:(const layout::Node &)n path:(NSString *)path {
+    if (n.kind == layout::Node::Kind::Stack) {
+        ADIFDockFrame *f = [self newFrame:(int)_frames.count];
+        [_frames addObject:f];
+        if (n.share > 0) [_shares setObject:@(n.share) forKey:f];
+        return f;
     }
     NSSplitView *s = [[NSSplitView alloc] initWithFrame:NSMakeRect(0, 0, 400, 400)];
-    s.vertical = n.kind == 'H';
+    s.vertical = n.kind == layout::Node::Kind::Row;
     s.dividerStyle = NSSplitViewDividerStyleThin;
     s.delegate = self;
     s.arrangesAllSubviews = YES;
-    for (const Node &k : n.kids) [s addSubview:[self buildNode:k name:name counter:counter]];
+    s.identifier = path;
+    for (size_t i = 0; i < n.children.size(); ++i)
+        [s addSubview:[self buildNode:n.children[i] path:[NSString stringWithFormat:@"%@%@%zu", path, path.length ? @"." : @"", i]]];
     if (n.share > 0) [_shares setObject:@(n.share) forKey:s];
-    NSString *save = [NSString stringWithFormat:@"%@.%d", name, (*counter)++];
-    if (![NSUserDefaults.standardUserDefaults objectForKey:[@"NSSplitView Subview Frames " stringByAppendingString:save]]) [_unsized addObject:save];
-    s.autosaveName = save;
     return s;
 }
 
-// Splits with no saved sizes start in proportion to what is in them.
+// Each split's first sizes: its children's shares when each has one, else what each needs.
 - (void)defaultSizes:(NSView *)v {
     if (![v isKindOfClass:NSSplitView.class]) return;
     NSSplitView *s = (NSSplitView *)v;
-    if ([_unsized containsObject:s.autosaveName]) {
-        bool width = s.isVertical;
-        bool shared = true;  // each has a share of its own: those, else what each needs
-        for (NSView *k in s.subviews) shared &= [_shares objectForKey:k] != nil;
-        auto weight = [&](NSView *k) { return shared ? [_shares objectForKey:k].doubleValue : weightOf(k, width); };
-        double total = 0;
-        for (NSView *k in s.subviews) total += weight(k);
-        CGFloat room = (width ? NSWidth(s.bounds) : NSHeight(s.bounds)) - s.dividerThickness * (s.subviews.count - 1);
-        double sofar = 0;
-        for (NSUInteger i = 0; i + 1 < s.subviews.count; ++i) {
-            sofar += weight(s.subviews[i]);
-            [s setPosition:std::round(room * sofar / total) + s.dividerThickness * i ofDividerAtIndex:(NSInteger)i];
-        }
+    bool width = s.isVertical;
+    bool shared = true;
+    for (NSView *k in s.subviews) shared &= [_shares objectForKey:k] != nil;
+    auto weight = [&](NSView *k) { return shared ? [_shares objectForKey:k].doubleValue : weightOf(k, width); };
+    double total = 0;
+    for (NSView *k in s.subviews) total += weight(k);
+    CGFloat room = (width ? NSWidth(s.bounds) : NSHeight(s.bounds)) - s.dividerThickness * (s.subviews.count - 1);
+    double sofar = 0;
+    for (NSUInteger i = 0; i + 1 < s.subviews.count && total > 0; ++i) {
+        sofar += weight(s.subviews[i]);
+        [s setPosition:std::round(room * sofar / total) + s.dividerThickness * i ofDividerAtIndex:(NSInteger)i];
     }
     [s layoutSubtreeIfNeeded];
     for (NSView *k in s.subviews) [self defaultSizes:k];
@@ -1371,25 +1457,19 @@ static double weightOf(NSView *v, bool width) {
 
 - (void)rebuild {
     if (!_active || _batching || _closing) return;
-    // Each position's item in its frame.
-    for (int p = 0; p < kWorkspaceFrameCount; ++p) {
-        int item = _item[p];
-        NSWindow<ADIFDockable> *w = [self windowOf:item];
-        [_frame[p] showItem:item title:w ? w.title : @"" content:item != kDockNone && w ? _content[@(item)] : nil];
-    }
-    int mask = 0;
-    for (int p = 0; p < kWorkspaceFrameCount; ++p) mask |= _item[p] != kDockNone ? 1 << p : 0;
-    if (_builtPreset != _preset || _builtMask != mask) {
-        _builtPreset = _preset, _builtMask = mask;
+    layout::Arrangement shown = [self shownLayout];
+    std::vector<const layout::Node *> stacks;
+    stacksOf(shown.console, stacks);
+    std::string shape = shapeOf(shown.console);
+    if (shape != _builtShape) {
+        _builtShape = shape;
+        for (ADIFDockFrame *f in _frames) [f showItems:@[] front:kDockNone title:@"" content:nil];
+        [_frames removeAllObjects];
         [_root removeFromSuperview];
         _root = nil;
-        Node tree;
-        if (prune(presets()[(size_t)_preset].tree, _item, &tree)) {
-            int counter = 0;
-            [_unsized removeAllObjects];
-            // The activation layout's sizes kept apart from those saved for its first arrangement (1.7).
-            NSString *base = _preset == kActivationPreset ? @"adif.layout3" : @"adif.layout2";
-            _root = [self buildNode:tree name:[NSString stringWithFormat:@"%@.%d.%d", base, _preset, mask] counter:&counter];
+        if (!stacks.empty()) {
+            _sizing = YES;
+            _root = [self buildNode:shown.console path:@""];
             _root.translatesAutoresizingMaskIntoConstraints = NO;
             [_treeHolder addSubview:_root];
             [NSLayoutConstraint activateConstraints:@[
@@ -1398,17 +1478,32 @@ static double weightOf(NSView *v, bool width) {
                 [_root.trailingAnchor constraintEqualToAnchor:_treeHolder.trailingAnchor],
                 [_root.bottomAnchor constraintEqualToAnchor:_treeHolder.bottomAnchor],
             ]];
+            // The window at least as big as the new tree needs before its frames are sized, so none starts below its least.
+            NSSize least = minimumOf(_root);
+            _host.contentMinSize = NSMakeSize(std::max<CGFloat>(least.width, 480), least.height + kStatusHeight + kADIFMargin);
+            NSSize now = _host.contentView.frame.size;
+            if (now.width < _host.contentMinSize.width || now.height < _host.contentMinSize.height)
+                [_host setContentSize:NSMakeSize(std::max(now.width, _host.contentMinSize.width), std::max(now.height, _host.contentMinSize.height))];
             [_host.contentView layoutSubtreeIfNeeded];
             [self defaultSizes:_root];
+            _sizing = NO;
         }
+    }
+    // Each stack's panels in its frame, the front one's content showing.
+    for (size_t i = 0; i < stacks.size() && i < _frames.count; ++i) {
+        NSMutableArray<NSNumber *> *items = [NSMutableArray array];
+        for (const std::string &id : stacks[i]->panels) [items addObject:@(itemOf(id))];
+        int front = itemOf(stacks[i]->panels[std::min(stacks[i]->front, stacks[i]->panels.size() - 1)]);
+        NSWindow<ADIFDockable> *w = [self windowOf:front];
+        [_frames[i] showItems:items front:front title:w ? w.title : @"" content:_content[@(front)]];
     }
     NSSize m = _root ? minimumOf(_root) : NSZeroSize;
     _host.contentMinSize = NSMakeSize(std::max<CGFloat>(m.width, 480), m.height + kStatusHeight + kADIFMargin);
     // Keep the standalone Map's list in its normal state; the static contact map has no log list.
-    worldmap::setListSuppressed([self positionOf:kDockMap] >= 0 && [self positionOf:kDockLog] >= 0);
+    worldmap::setListSuppressed([self shows:kDockMap] && [self shows:kDockLog]);
 }
 
-// ── Split delegate: no frame below its least size ──
+// ── Split delegate: no frame below its least size; a divider dragged keeps its shares ──
 
 - (CGFloat)splitView:(NSSplitView *)s constrainMinCoordinate:(CGFloat)proposed ofSubviewAt:(NSInteger)i {
     NSView *v = s.subviews[(NSUInteger)i];
@@ -1420,6 +1515,22 @@ static double weightOf(NSView *v, bool width) {
     NSView *next = s.subviews[(NSUInteger)i + 1];
     NSSize m = minimumOf(next);
     return (s.isVertical ? NSMaxX(next.frame) - m.width : NSMaxY(next.frame) - m.height) - s.dividerThickness;
+}
+
+- (void)splitViewDidResizeSubviews:(NSNotification *)notification {
+    NSSplitView *s = notification.object;
+    // Only a divider dragged (not the window resized, nor the frames' first sizes), and only while
+    // the tree shown is the whole arrangement (its paths then name the same nodes).
+    if (_sizing || _batching || !_active || _host.inLiveResize || NSApp.currentEvent.type != NSEventTypeLeftMouseDragged) return;
+    if (layout::shown([self shownLayout]) != layout::shown(_layout)) return;
+    layout::Node *n = nodeAt(_layout.console, s.identifier ?: @"");
+    if (!n || n->children.size() != s.subviews.count) return;
+    double total = 0;
+    for (NSView *k in s.subviews) total += s.isVertical ? NSWidth(k.frame) : NSHeight(k.frame);
+    if (total <= 0) return;
+    for (NSUInteger i = 0; i < s.subviews.count; ++i)
+        n->children[i].share = (s.isVertical ? NSWidth(s.subviews[i].frame) : NSHeight(s.subviews[i].frame)) / total;
+    [self queueSave];
 }
 
 @end
@@ -1512,7 +1623,7 @@ bool hide(NSWindow<ADIFDockable> *window, bool closing) { return [ADIFWorkspace.
 
 bool visible(NSWindow<ADIFDockable> *window) {
     ADIFWorkspace *ws = ADIFWorkspace.shared;
-    return ws.active && ws.host.isVisible && [ws positionOf:window.dockItem] >= 0;
+    return ws.active && ws.host.isVisible && [ws shows:window.dockItem];
 }
 
 NSView *content(NSWindow<ADIFDockable> *window) { return [ADIFWorkspace.shared contentOf:window.dockItem]; }
