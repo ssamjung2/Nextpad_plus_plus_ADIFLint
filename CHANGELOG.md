@@ -13,13 +13,34 @@ Versions before 0.8.0 were development builds and were not published.
 
 - **Chasing's ranked opportunities** (operating styles, Stage 4): every spot that brings your log something is weighed by what it brings (a new DXCC entity, the watch list, a new band, an IOTA group, a new mode, a POTA park, an unconfirmed entity whose station uses LoTW), explained in words with how fresh it is, and ranked in a fixed order; duplicates and your own signal never are. The spots list and Situation's Wanted now use the order. **Next Opportunity** (the selected panel, ⌘G, ⇧⌘G back) steps through it on the map, and in the Chasing style logging a spotted station moves on to the next. Chasing has its own Operating Aids: the opportunity of the call in New QSO, a duplicate warning, a frequency and mode check against the spot, and the next one with Next.
 - **Settings sections as panels**: **Spot Sources** (Settings' Spots section: the cluster, Spothole, PSKReporter and how they are doing) and **Your Station** can each be a window of their own while you operate, a tab in the Operating Console too, from the button on the section's heading or the Panels menu. Settings says where they are, with Show It; closed, they are back in Settings.
+- **Clocks** is a panel of its own (Panels, and a button in the Map's toolbar): UTC and local time at first, and **Add Clock** for any time zone (New York, Chicago, Los Angeles, London, Tokyo... or any by region), each clock's own menu moving or removing it. They were at the top of New QSO.
+- More Filters has a **Spots** group: **Stations spotted** (only these stations' spots), **Heard by** (only the spots these spotters, skimmers or receivers made), both together, and **Who hears** (PSKReporter's view: the stations that heard a call, yours when empty). Each shows as a tag while it is on. Who hears was Only spots of, in the sidebar's Spots card.
+- The Contact Map's **Spot Info** (the ⓘ button, on at first): a card of the station's spot while it is spotted (what to tune, why, its park, how fresh).
+- Operating Console: **regions**. A frame's **⋯** menu has **Split Right** and **Split Down** (the frame's region split in two, with the panel you choose in the new half), **Side by Side** and **One Above the Other** (its split's frames arranged that way), and **Move Frame** (to an edge of the console, the whole height or width). A frame dropped near another frame's edge goes beside it there; its middle still swaps the two, its header still makes a tab.
+- Operating Console: **each layout keeps your changes**: the panels added or closed (and where a closed one goes back), tabs, splits and frame sizes, so choosing another layout and coming back finds it as you left it. **Reset Layout** brings it back as it comes. Start Logging, Start Contest and the styles' layouts use your version too.
+- **Only DX** (the Map's Sources and Filters): leaves out the spotted stations in your own DXCC entity, the one your grid is in (Your Station; else your callsign's). The box names the country. DX Chase starts with it on, so it shows DX only; an **Only DX** tag under the toolbar says so, and clicking it, or Clear, shows them again.
 - **Operating Aids as a panel**: Options → **In Its Own Panel** (or Panels → Show Operating Aids) puts the aids in a panel of their own, beside the Map or as a tab in the Operating Console, with Note, Skip and Dismiss as in New QSO. Closed, they are back in New QSO.
 
 ### Changed
 
+- The user guide has a **Step by step** chapter (log a contact, arrange the console, chase DX, hunt and activate parks, see who hears you, keep time in several places, Operating Aids) and an **Operating Console** chapter of its own, with new screenshots of the console, QSO Details, the Contact Map, the Clocks, Operating Aids, More Filters' Spots and the spots on the map.
+- The lookup's facts (operator, country and zones, grid, distance and bearing, local time, LoTW, worked before) are in **QSO Details** only; New QSO keeps the lookup's notice and a **Show in QSO Details** link.
+- **Operating Aids** are always a panel of their own (In Its Own Panel is gone); the Social, Chasing and Portable layouts have it under New QSO.
+- A spot's information is in the order you work a station: frequency, mode and band; why it is worth having; its park; how fresh; distance and bearing; whether it is in the log; then the place's facts, the source and who heard it.
+- POTA activators' spots are coloured by their park: light blue a park you haven't hunted, green one you have (they were in the new-DXCC pink when their DXCC wasn't in the log); their DXCC need is in their rings' shape, as other spots'.
+- A spot under the pointer: its rings turn, in long dashes, the two opposite ways (still with Reduce Motion).
+- Operating Console: choosing the layout already ticked no longer puts it back as it comes (it keeps your changes); **Reset Layout** does that.
 - Translations: every text in German, Spanish, French, Japanese and Korean (101 more: the Map's presets, palettes, legend, PSKReporter's live feed and WSJT-X, its search, and everything new here).
 - The **Log Table** and **Activations & Spots** are ordinary windows, as New QSO is: you type into them (a cell, a filter), and Apple's guidelines keep typing out of floating panels. They stay in sight when you switch apps and minimize to the Dock. The task windows (Bulk Edit, Sort, the imports and exports) stay panels.
 - QSO Details marks each reason in the colour the Map's selected panel uses for it (a new DXCC entity pink, a new band or mode teal; they were orange and blue), from one definition the two share.
+
+### Fixed
+
+- Operating Console: a panel closed there (the Map's toolbar buttons, Panels, its frame's Close) opened again as a window of its own, not in the console; it now goes back to where it was, a tab or a frame with its size.
+- The Contact Map placed a contact with no grid in New QSO at its country's centre even when the callbook had its grid or a spot placed it, ignored MY_LAT and MY_LON, knew your station only from MY_GRIDSQUARE or Your Station, and often left your station off the map; it now uses the callbook's grid or the spot's place, your station's exact place or the log's grid, and shows both.
+- The Contact Map drew bands of land straight across the map where a country's outline crossed its far edge.
+- The Map could be left centred on no place at all (and stop drawing) when Start Logging zoomed it before its frame had any size; it now zooms about your station then.
+- Operating Console: a panel put in a frame smaller than it needs (the frame's menu, a swap) was squeezed into it and scrolled; the frames now make room for it.
 
 ## [1.9.0] - 2026-11-01
 

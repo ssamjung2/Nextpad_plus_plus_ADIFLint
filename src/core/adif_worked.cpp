@@ -59,16 +59,44 @@ int zoneNumber(const std::string &name) {
     return std::stoi(name);
 }
 
+// Inside one ring: an odd number of its edges cross the line east of the point.
+bool inRing(const std::vector<std::pair<double, double>> &r, double lon, double lat) {
+    bool in = false;
+    for (size_t k = 0, j = r.size() ? r.size() - 1 : 0; k < r.size(); j = k++)
+        if ((r[k].second > lat) != (r[j].second > lat) && lon < (r[j].first - r[k].first) * (lat - r[k].second) / (r[j].second - r[k].second) + r[k].first)
+            in = !in;
+    return in;
+}
+
 }  // namespace
 
 bool pointInRings(const std::vector<std::vector<std::pair<double, double>>> &rings, double lon, double lat) {
     bool in = false;
-    for (const auto &r : rings)
-        for (size_t k = 0, j = r.size() ? r.size() - 1 : 0; k < r.size(); j = k++)
-            if ((r[k].second > lat) != (r[j].second > lat) &&
-                lon < (r[j].first - r[k].first) * (lat - r[k].second) / (r[j].second - r[k].second) + r[k].first)
-                in = !in;
+    for (const auto &r : rings) in ^= inRing(r, lon, lat);
     return in;
+}
+
+int dxccAt(const std::map<int, std::vector<RingRef>> &land, double lat, double lon) {
+    std::map<size_t, OverlayArea> areas;  // the subunits the land is made of, each read once
+    int found = 0;
+    double least = 0;
+    for (const auto &[dxcc, refs] : land) {
+        int holding = 0;
+        double size = 0;  // the smallest of its rings holding the place, by its box
+        for (const RingRef &ref : refs) {
+            auto it = areas.find(ref.area);
+            if (it == areas.end()) it = areas.emplace(ref.area, overlayArea(Overlay::Subunits, ref.area)).first;
+            if (ref.ring >= it->second.rings.size()) continue;
+            const auto &r = it->second.rings[ref.ring];
+            double w = 999, s = 999, e = -999, n = -999;
+            for (const auto &p : r) w = std::min(w, p.first), s = std::min(s, p.second), e = std::max(e, p.first), n = std::max(n, p.second);
+            if (lon < w || lon > e || lat < s || lat > n || !inRing(r, lon, lat)) continue;
+            ++holding;
+            size = holding == 1 ? (e - w) * (n - s) : std::min(size, (e - w) * (n - s));
+        }
+        if (holding % 2 == 1 && (!found || size < least)) found = dxcc, least = size;
+    }
+    return found;
 }
 
 AreaIndex::AreaIndex(Overlay o) {

@@ -324,6 +324,28 @@ alone doesn't express); panes inside a panel may use `NSSplitViewItem` where it 
   an `ADIFDockPanel` made with the Map, opened by the Map's palette button and the Panels menu,
   dockable as a tab beside the Map. Not yet: Settings' sections as panels of their own, and
   Operating Aids as a panel (section 8), for when they are wanted.
+- **Phase G** (2026-11-01): **layouts you adjust, and regions**. A panel closed from the console
+  keeps its place in the arrangement (`Arrangement::closed`, a `layout::Place`: a tab beside a
+  panel, or a frame beside the part of the console holding its neighbours, with its share;
+  written with the arrangement), and `reopenPanel` puts it back there; `dock:` docks a closed
+  panel there rather than leaving it a window. Each layout keeps your changes
+  (`consoleLayoutsAdjusted`, `readAdjusted`/`writeAdjusted`, by the console's id for it:
+  `logging`, `mine:<name>`, `style:<style>`), recorded with every save and forgotten when the
+  console is as the layout comes; choosing a layout, Start Logging and the styles use your
+  version, and **Reset Layout** forgets it (a style's Use Recommended Defaults forgets its
+  layouts' too). Regions: `splitBeside` (Split Right, Split Down: a region in two),
+  `moveFrame` (beside another frame's edge, or along the console's), `alignSplit` (Side by
+  Side, One Above the Other) and `splitOf`; a frame dropped near another's edge (its outer
+  quarter) goes beside it there. Frames are fitted to their panels' least sizes after every
+  rebuild (`fitFrames`: those short of it grown from the others' room, the window grown first
+  if it must), not only when the tree's shape changes, so a panel chosen into a small frame
+  gets the room it needs; the fitted sizes aren't saved as shares.
+- **After Phase G** (2026-11-01): New QSO keeps to logging. Its clocks are the **Clocks** panel
+  (`src/plugin/Clocks.{h,mm}`, registry id `clocks`, dock item `kDockClocks`; the zones chosen
+  kept as `clockZones`), Operating Aids are only ever their panel (the Social, Chasing and
+  Portable layouts hold it under New QSO; In Its Own Panel is gone), and the lookup's facts are
+  QSO Details' (New QSO links to it). The Aids and Clocks panels have buttons in the Map's
+  toolbar (`mapToolbar` in the registry).
 
 ## Plan
 

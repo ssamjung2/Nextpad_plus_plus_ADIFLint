@@ -1,8 +1,11 @@
 #import "NewQsoPanel.h"
 #import "Night.h"
+#import "Panels.h"
 #import "L10n.h"
 #import "ToolWindow.h"
 #import "Workspace.h"
+
+#include "adif_layout.h"
 
 #include <algorithm>
 #include <cmath>
@@ -17,227 +20,6 @@ static NSColor *severityColor(int severity) { return severity < 0 ? theme::faint
 @implementation ADIFFlippedView
 - (BOOL)isFlipped {
     return YES;
-}
-@end
-
-// Digits as an LED display draws them: seven segments each, slanted a little, the lit ones glowing
-// and the unlit ones faintly there; ':' as two dots. Drawn, so no font has to be installed.
-@interface ADIFSegmentDisplay : NSView
-@property(nonatomic, copy) NSString *text;  // digits, ':' and '-'
-@property(nonatomic, strong) NSColor *lit;
-- (instancetype)initWithDigitHeight:(CGFloat)height;
-@end
-
-@implementation ADIFSegmentDisplay {
-    CGFloat _h;
-}
-
-- (instancetype)initWithDigitHeight:(CGFloat)height {
-    if (!(self = [super initWithFrame:NSZeroRect])) return nil;
-    _h = height;
-    _text = @"--:--:--";
-    _lit = NSColor.labelColor;
-    self.translatesAutoresizingMaskIntoConstraints = NO;
-    self.accessibilityElement = NO;  // the clock speaks for it
-    return self;
-}
-
-- (CGFloat)digitWidth { return std::round(_h * 0.56); }
-- (CGFloat)thickness { return std::max<CGFloat>(2, std::round(_h * 0.13)); }
-- (CGFloat)gap { return std::round(_h * 0.16); }
-- (CGFloat)colonWidth { return std::round(_h * 0.28); }
-- (CGFloat)slant { return 0.1; }  // x moves right by this much of y: the italic of an LED display
-
-- (NSSize)intrinsicContentSize {
-    CGFloat w = 0;
-    for (NSUInteger i = 0; i < _text.length; ++i) w += ([_text characterAtIndex:i] == ':' ? self.colonWidth : self.digitWidth) + (i ? self.gap : 0);
-    return NSMakeSize(std::ceil(w + _h * self.slant + 4), std::ceil(_h + 4));  // room for the slant and the glow
-}
-
-- (void)setText:(NSString *)text {
-    BOOL resize = text.length != _text.length;
-    _text = [text copy];
-    if (resize) [self invalidateIntrinsicContentSize];
-    self.needsDisplay = YES;
-}
-
-- (void)setLit:(NSColor *)lit {
-    _lit = lit;
-    self.needsDisplay = YES;
-}
-
-// A segment from (x0, y0) to (x1, y1), horizontal or vertical, pointed at both ends.
-static NSBezierPath *segment(CGFloat x0, CGFloat y0, CGFloat x1, CGFloat y1, CGFloat t) {
-    NSBezierPath *p = [NSBezierPath bezierPath];
-    CGFloat h = t / 2;
-    if (y0 == y1) {
-        [p moveToPoint:NSMakePoint(x0, y0)];
-        [p lineToPoint:NSMakePoint(x0 + h, y0 + h)];
-        [p lineToPoint:NSMakePoint(x1 - h, y0 + h)];
-        [p lineToPoint:NSMakePoint(x1, y0)];
-        [p lineToPoint:NSMakePoint(x1 - h, y0 - h)];
-        [p lineToPoint:NSMakePoint(x0 + h, y0 - h)];
-    } else {
-        [p moveToPoint:NSMakePoint(x0, y0)];
-        [p lineToPoint:NSMakePoint(x0 + h, y0 + h)];
-        [p lineToPoint:NSMakePoint(x0 + h, y1 - h)];
-        [p lineToPoint:NSMakePoint(x0, y1)];
-        [p lineToPoint:NSMakePoint(x0 - h, y1 - h)];
-        [p lineToPoint:NSMakePoint(x0 - h, y0 + h)];
-    }
-    [p closePath];
-    return p;
-}
-
-- (void)drawRect:(NSRect)dirty {
-    // Segments a (top) b (upper right) c (lower right) d (bottom) e (lower left) f (upper left) g (middle).
-    static const unsigned char kDigits[10] = {0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F};
-    const CGFloat w = self.digitWidth, h = _h, t = self.thickness, s = std::max<CGFloat>(0.75, t * 0.12);
-    NSColor *off = [_lit colorWithAlphaComponent:0.09];
-    NSShadow *glow = [[NSShadow alloc] init];
-    glow.shadowColor = [_lit colorWithAlphaComponent:0.7];
-    glow.shadowBlurRadius = std::max<CGFloat>(2, h * 0.12);
-    glow.shadowOffset = NSZeroSize;
-    NSAffineTransform *lean = [NSAffineTransform transform];
-    NSAffineTransformStruct m = {1, 0, self.slant, 1, 2, 2};  // x += slant * y, inside a 2 pt margin
-    lean.transformStruct = m;
-    CGFloat x = 0;
-    for (NSUInteger i = 0; i < _text.length; ++i) {
-        unichar c = [_text characterAtIndex:i];
-        if (i) x += self.gap;
-        if (c == ':') {
-            CGFloat cw = self.colonWidth, d = t;
-            [NSGraphicsContext saveGraphicsState];
-            [glow set];
-            [_lit setFill];
-            for (CGFloat cy : {h * 0.3, h * 0.7}) {
-                NSBezierPath *dot = [NSBezierPath bezierPathWithRect:NSMakeRect(x + (cw - d) / 2, cy - d / 2, d, d)];
-                [dot transformUsingAffineTransform:lean];
-                [dot fill];
-            }
-            [NSGraphicsContext restoreGraphicsState];
-            x += cw;
-            continue;
-        }
-        unsigned mask = c >= '0' && c <= '9' ? kDigits[c - '0'] : c == '-' ? 0x40 : 0;
-        const CGFloat l = x + t / 2, r = x + w - t / 2, top = h - t / 2, mid = h / 2, bottom = t / 2;
-        NSBezierPath *segs[7] = {
-            segment(l + s, top, r - s, top, t),     segment(r, mid + s, r, top - s, t),    segment(r, bottom + s, r, mid - s, t),
-            segment(l + s, bottom, r - s, bottom, t), segment(l, bottom + s, l, mid - s, t), segment(l, mid + s, l, top - s, t),
-            segment(l + s, mid, r - s, mid, t),
-        };
-        for (int k = 0; k < 7; ++k) {
-            [segs[k] transformUsingAffineTransform:lean];
-            BOOL on = (mask >> k) & 1;
-            [NSGraphicsContext saveGraphicsState];
-            if (on) [glow set];
-            [(on ? _lit : off) setFill];
-            [segs[k] fill];
-            [NSGraphicsContext restoreGraphicsState];
-        }
-        x += w;
-    }
-}
-@end
-
-// A clock at the top of New QSO, as an operating position's status display: a dark block with a
-// status light, its name, the time in large digits and the date. UTC is the log's time (green);
-// local time is the operator's own (amber). Each ticks on the second while it is in a window.
-@interface ADIFStatusClock : NSView
-- (instancetype)initUtc:(BOOL)utc;
-@end
-
-@implementation ADIFStatusClock {
-    BOOL _utc;
-    NSTextField *_name, *_date;
-    ADIFSegmentDisplay *_time;
-    NSTimer *_timer;
-}
-
-static NSColor *rgb(int hex) {
-    return [NSColor colorWithSRGBRed:((hex >> 16) & 255) / 255.0 green:((hex >> 8) & 255) / 255.0 blue:(hex & 255) / 255.0 alpha:1];
-}
-
-- (instancetype)initUtc:(BOOL)utc {
-    if (!(self = [super initWithFrame:NSZeroRect])) return nil;
-    _utc = utc;
-    // Fixed colours, light or dark: a status display looks the same either way (Night Mode tints it red).
-    NSColor *lit = rgb(utc ? 0x4BE07A : 0xFFB938), *dim = rgb(utc ? 0x2E7D46 : 0x8A6418);
-    self.wantsLayer = YES;
-    self.layer.cornerRadius = 6;
-    self.layer.borderWidth = 1;
-    self.layer.borderColor = dim.CGColor;
-    self.layer.backgroundColor = rgb(utc ? 0x0C1D12 : 0x221807).CGColor;
-    self.identifier = utc ? @"newqso.clock.utc" : @"newqso.clock.local";
-    self.toolTip = utc ? T(@"UTC: the time QSOs are logged in") : T(@"Your local time (this Mac's time zone)");
-
-    NSView *light = [[NSView alloc] initWithFrame:NSZeroRect];
-    light.wantsLayer = YES;
-    light.layer.cornerRadius = 3.5;
-    light.layer.backgroundColor = lit.CGColor;
-    light.layer.shadowColor = lit.CGColor;  // a glow, as a lamp
-    light.layer.shadowOpacity = 0.8;
-    light.layer.shadowRadius = 3;
-    light.layer.shadowOffset = CGSizeZero;
-    [light.widthAnchor constraintEqualToConstant:7].active = YES;
-    [light.heightAnchor constraintEqualToConstant:7].active = YES;
-    _name = [NSTextField labelWithString:@""];
-    _name.font = [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightSemibold];
-    _name.textColor = [dim highlightWithLevel:0.25] ?: dim;
-    _time = [[ADIFSegmentDisplay alloc] initWithDigitHeight:26];
-    _time.lit = lit;
-    _date = [NSTextField labelWithString:@""];
-    _date.font = theme::digits(11, NSFontWeightRegular);
-    _date.textColor = _name.textColor;
-    NSStackView *top = [NSStackView stackViewWithViews:@[ light, _name ]];
-    top.spacing = 6;
-    NSStackView *column = [NSStackView stackViewWithViews:@[ top, _time, _date ]];
-    column.orientation = NSUserInterfaceLayoutOrientationVertical;
-    column.alignment = NSLayoutAttributeLeading;
-    column.spacing = 1;
-    column.translatesAutoresizingMaskIntoConstraints = NO;
-    [self addSubview:column];
-    // The reading centred in the block, with the same room on every side.
-    [NSLayoutConstraint activateConstraints:@[
-        [column.centerXAnchor constraintEqualToAnchor:self.centerXAnchor],
-        [column.leadingAnchor constraintGreaterThanOrEqualToAnchor:self.leadingAnchor constant:12],
-        [column.topAnchor constraintEqualToAnchor:self.topAnchor constant:8],
-        [column.bottomAnchor constraintEqualToAnchor:self.bottomAnchor constant:-8],
-    ]];
-    self.accessibilityElement = YES;
-    self.accessibilityRole = NSAccessibilityStaticTextRole;
-    [self tick];
-    return self;
-}
-
-- (void)tick {
-    NSDate *now = [NSDate date];
-    NSTimeZone *zone = _utc ? [NSTimeZone timeZoneWithAbbreviation:@"UTC"] : NSTimeZone.localTimeZone;
-    static NSDateFormatter *time, *date;
-    if (!time) {
-        time = [[NSDateFormatter alloc] init], date = [[NSDateFormatter alloc] init];
-        time.locale = date.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
-        time.dateFormat = @"HH:mm:ss", date.dateFormat = @"yyyy-MM-dd EEE";
-    }
-    time.timeZone = date.timeZone = zone;
-    _time.text = [time stringFromDate:now];
-    _date.stringValue = [date stringFromDate:now];
-    _name.stringValue = _utc ? T(@"UTC · LOG TIME") : [T(@"LOCAL · ") stringByAppendingString:[zone abbreviationForDate:now] ?: zone.name];
-    self.accessibilityLabel = [NSString stringWithFormat:@"%@ %@", _name.stringValue, _time.text];
-}
-
-// On the second, while it is shown; and in every run loop mode, so it keeps time while a menu is open.
-- (void)viewDidMoveToWindow {
-    [super viewDidMoveToWindow];
-    [_timer invalidate];
-    _timer = nil;
-    if (!self.window) return;
-    [self tick];
-    __weak ADIFStatusClock *weakSelf = self;
-    double wait = 1 - fmod(NSDate.date.timeIntervalSince1970, 1);
-    _timer = [NSTimer timerWithTimeInterval:1 repeats:YES block:^(NSTimer *) { [weakSelf tick]; }];
-    _timer.fireDate = [NSDate dateWithTimeIntervalSinceNow:wait + 0.01];
-    [NSRunLoop.mainRunLoop addTimer:_timer forMode:NSRunLoopCommonModes];
 }
 @end
 
@@ -360,7 +142,6 @@ static NSColor *rgb(int hex) {
 @implementation ADIFNewQsoPanel {
     NSWindow *_window;
     NSTextField *_target, *_summary, *_note;
-    NSStackView *_clocks;
     NSScrollView *_scroll;
     ADIFFlippedView *_document;
     NSGridView *_grid;
@@ -370,8 +151,9 @@ static NSColor *rgb(int hex) {
     NSTextField *_spotStatus;
     NSGridView *_spotGrid;
     NSLayoutConstraint *_logAfterGrid, *_logAfterStatus;  // one is active: the status line shown or not
-    NSGridView *_facts;  // what the lookup says, a fact a row
-    ADIFAidsView *_aids;  // Operating Aids: its title, its facts and suggestions
+    NSGridView *_facts;  // what the lookup says of itself (found, failed); its facts are in QSO Details
+    NSButton *_detailsLink;  // Show in QSO Details, while the lookup has facts and QSO Details is closed
+    BOOL _hasFacts;
     NSStackView *_lookupRow, *_stationRow;
     NSTextField *_stationSummary;
     NSPopUpButton *_lookup, *_station;
@@ -481,7 +263,16 @@ static NSColor *rgb(int hex) {
     _stationRow.spacing = 8;
     _stationRow.alignment = NSLayoutAttributeCenterY;
     _stationRow.translatesAutoresizingMaskIntoConstraints = NO;
-    _lookupRow = [NSStackView stackViewWithViews:@[ [NSTextField labelWithString:T(@"Look up:")], _lookup ]];
+    // The lookup's facts (the operator, country and zones, grid, distance, local time...) are in QSO Details.
+    _detailsLink = [NSButton buttonWithTitle:T(@"Show in QSO Details") target:self action:@selector(showDetails:)];
+    _detailsLink.bezelStyle = NSBezelStyleInline;
+    _detailsLink.controlSize = NSControlSizeSmall;
+    _detailsLink.font = theme::small();
+    _detailsLink.identifier = @"qso.lookup.details";
+    _detailsLink.toolTip = T(@"What the lookup found (the operator, country and zones, grid, distance and bearing, local time, LoTW, worked "
+                             @"before) is in QSO Details");
+    _detailsLink.hidden = YES;
+    _lookupRow = [NSStackView stackViewWithViews:@[ [NSTextField labelWithString:T(@"Look up:")], _lookup, _detailsLink ]];
     _lookupRow.spacing = 8;
     _lookupRow.alignment = NSLayoutAttributeCenterY;
     _lookupRow.translatesAutoresizingMaskIntoConstraints = NO;
@@ -514,25 +305,19 @@ static NSColor *rgb(int hex) {
     for (NSView *b in @[ _fields, _spots, _contest ]) [buttons addLeading:b];
     [buttons addLeading:_close];
     [buttons addLeading:_log];
-    _clocks = [NSStackView stackViewWithViews:@[ [[ADIFStatusClock alloc] initUtc:YES], [[ADIFStatusClock alloc] initUtc:NO] ]];
-    _clocks.distribution = NSStackViewDistributionFillEqually;
-    _clocks.spacing = 10;
-    _clocks.identifier = @"newqso.clocks";
-    _clocks.translatesAutoresizingMaskIntoConstraints = NO;
-    _aids = [[ADIFAidsView alloc] initWithPrefix:@"newqso.aids"];
-    __weak ADIFNewQsoPanel *me = self;
-    _aids.onAid = ^(NSString *action, NSInteger row) {
-        ADIFNewQsoPanel *panel = me;
-        if (panel.onAid) panel.onAid(action, row);
-    };
-    for (NSView *v in @[ _clocks, _target, _stationRow, _scroll, _currentTime, _lookupRow, _facts, _aids, _note, _summary, _spotGrid, _spotStatus, buttons ])
+    for (NSView *v in @[ _target, _stationRow, _scroll, _currentTime, _lookupRow, _facts, _note, _summary, _spotGrid, _spotStatus, buttons ])
         [root addSubview:v];
+    __weak ADIFNewQsoPanel *me = self;  // the link follows QSO Details opening and closing
+    [[NSNotificationCenter defaultCenter] addObserverForName:ADIFPanelShownNotification
+                                                      object:nil
+                                                       queue:nil
+                                                  usingBlock:^(NSNotification *) { [me showDetailsLink]; }];
     const CGFloat m = kADIFMargin;
     _logAfterGrid = [buttons.topAnchor constraintEqualToAnchor:_spotGrid.bottomAnchor constant:8];
     _logAfterStatus = [buttons.topAnchor constraintEqualToAnchor:_spotStatus.bottomAnchor constant:8];
-    // The lookup's facts and the aids no taller than their rows (with none, nothing): the window's
-    // spare height goes to the message under the notes, not to an empty grid.
-    for (NSView *v in @[ _facts, _aids ]) {
+    // The lookup's line no taller than its row (with none, nothing): the window's spare height goes
+    // to the message under the notes, not to an empty grid.
+    for (NSView *v in @[ _facts ]) {
         NSLayoutConstraint *tight = [v.heightAnchor constraintEqualToConstant:0];
         tight.priority = NSLayoutPriorityDefaultLow + 1;
         tight.active = YES;
@@ -540,10 +325,7 @@ static NSColor *rgb(int hex) {
     _scrollHeight = [_scroll.heightAnchor constraintEqualToConstant:300];
     _scrollHeight.priority = NSLayoutPriorityDefaultHigh - 1;
     [NSLayoutConstraint activateConstraints:@[
-        [_clocks.topAnchor constraintEqualToAnchor:root.topAnchor constant:m],
-        [_clocks.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
-        [_clocks.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-m],
-        [_target.topAnchor constraintEqualToAnchor:_clocks.bottomAnchor constant:12],
+        [_target.topAnchor constraintEqualToAnchor:root.topAnchor constant:m],
         [_target.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
         [_target.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-m],
         [_stationRow.topAnchor constraintEqualToAnchor:_target.bottomAnchor constant:8],
@@ -565,10 +347,7 @@ static NSColor *rgb(int hex) {
         [_facts.topAnchor constraintEqualToAnchor:_lookupRow.bottomAnchor constant:6],
         [_facts.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
         [_facts.trailingAnchor constraintLessThanOrEqualToAnchor:root.trailingAnchor constant:-m],
-        [_aids.topAnchor constraintEqualToAnchor:_facts.bottomAnchor constant:6],
-        [_aids.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
-        [_aids.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-m],
-        [_note.topAnchor constraintEqualToAnchor:_aids.bottomAnchor constant:6],
+        [_note.topAnchor constraintEqualToAnchor:_facts.bottomAnchor constant:6],
         [_note.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:m],
         [_note.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-m],
         [_summary.topAnchor constraintEqualToAnchor:_note.bottomAnchor constant:6],
@@ -801,16 +580,8 @@ static NSColor *rgb(int hex) {
         t.lineBreakMode = NSLineBreakByTruncatingTail;
         return t;
     };
-    NSUInteger i = 0;
-    for (NSArray<NSString *> *f in facts) {
-        NSTextField *name = label(f[0], theme::faint()), *value = label(f.count > 1 ? f[1] : @"", NSColor.labelColor);
-        value.selectable = YES;
-        [value setContentCompressionResistancePriority:1 forOrientation:NSLayoutConstraintOrientationHorizontal];  // cut short, not wider
-        value.toolTip = f.count > 2 && f[2].length ? [NSString stringWithFormat:@"%@\n%@", value.stringValue, f[2]] : value.stringValue;
-        value.identifier = [NSString stringWithFormat:@"qso.fact.%lu", (unsigned long)i++];
-        [value setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
-        [_facts addRowWithViews:@[ name, value ]];
-    }
+    _hasFacts = facts.count > 0;
+    [self showDetailsLink];
     if (message.length) {
         NSTextField *note = label(message, severityColor(severity));
         note.toolTip = message;
@@ -820,14 +591,16 @@ static NSColor *rgb(int hex) {
     }
 }
 
-- (BOOL)hasField:(const std::string &)name {
-    return [self indexOf:name] >= 0;
+- (void)showDetailsLink {
+    _detailsLink.hidden = !_hasFacts || workspace::qsoDetailsShown();
 }
 
-// Operating Aids: suggestions in italics after a speech bubble, each with its buttons; facts plain,
-// coloured as they matter. Each line wraps at the panel's width.
-- (void)setAidsTitle:(NSString *)title rows:(const std::vector<ADIFAidRow> &)rows menu:(NSMenu *)menu hidden:(BOOL)hidden {
-    [_aids setTitle:title rows:rows menu:menu hidden:hidden];
+- (void)showDetails:(id)sender {
+    panels::setShown(adif::layout::kQsoDetails, true);
+}
+
+- (BOOL)hasField:(const std::string &)name {
+    return [self indexOf:name] >= 0;
 }
 
 - (void)appendText:(const std::string &)text toField:(const std::string &)name {

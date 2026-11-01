@@ -83,15 +83,11 @@ struct ADIFAidRow {
 - (void)setSummary:(const std::string &)text severity:(int)severity;
 - (void)setTarget:(const std::string &)documentName;
 - (void)setNote:(NSString *)note;  // e.g. station fields copied from the last record
-// What the lookup says, a fact a row ([name, fact] or [name, fact, more for its tooltip]), and a
-// message under them (a callbook's notice or error; nil none) in its severity's colour.
+// What the lookup says: its facts ([name, fact] or [name, fact, more for its tooltip]) are QSO
+// Details' (New QSO links to it while it is closed); its message (a callbook's notice or error; nil
+// none) shows here in its severity's colour.
 - (void)setLookupFacts:(NSArray<NSArray<NSString *> *> *)facts message:(NSString *)message severity:(int)severity;
 - (BOOL)hasField:(const std::string &)name;
-// Operating Aids, under the lookup's facts: a title over the facts and suggestions, its menu (how
-// many, when, which topics), and Hide; hidden: the title alone, with Show. A nil title: no strip.
-- (void)setAidsTitle:(NSString *)title rows:(const std::vector<ADIFAidRow> &)rows menu:(NSMenu *)menu hidden:(BOOL)hidden;
-// A suggestion's button pressed ("note", "skip", "dismiss", with its row), or "hide" / "show" (row -1).
-@property(nonatomic, copy) void (^onAid)(NSString *action, NSInteger row);
 // `text` after the field's value ("; " between), the field focused with its caret at the end, to finish.
 - (void)appendText:(const std::string &)text toField:(const std::string &)name;
 - (void)refreshTime;  // put the current UTC date and time in QSO_DATE/TIME_ON

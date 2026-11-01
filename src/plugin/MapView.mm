@@ -460,7 +460,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 // The view as it is (the middle of what is clear, and the zoom), and back to it: a Home view.
 - (BOOL)viewLon:(double *)lon lat:(double *)lat zoom:(double *)zoom {
     NSRect clear = [self clearRect];
-    if (![self lonLatAt:NSMakePoint(NSMidX(clear), NSMidY(clear)) lon:lon lat:lat]) return NO;
+    if (![self lonLatAt:NSMakePoint(NSMidX(clear), NSMidY(clear)) lon:lon lat:lat] || !std::isfinite(*lon) || !std::isfinite(*lat)) return NO;
     *zoom = _zoom;
     return YES;
 }
@@ -471,6 +471,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
 }
 
 - (void)centerOnLon:(double)lon lat:(double)lat {
+    if (!std::isfinite(lon) || !std::isfinite(lat)) return;
     if ([self globe]) {
         _pr = adif::Projector(adif::Projection::Globe, lat, lon);
         return [self viewChanged];
@@ -479,7 +480,8 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     if (!_pr.forward(lon, lat, &x, &y)) return;
     NSRect b = self.bounds, clear = [self clearRect];
     double ppu = [self ppu];
-    _cx = x - (NSMidX(clear) - NSMidX(b)) / ppu, _cy = y - (NSMidY(clear) - NSMidY(b)) / ppu;
+    bool sized = ppu > 0 && std::isfinite(ppu);  // no room yet (a frame just made): the middle of the view, its controls aside
+    _cx = x - (sized ? (NSMidX(clear) - NSMidX(b)) / ppu : 0), _cy = y - (sized ? (NSMidY(clear) - NSMidY(b)) / ppu : 0);
     [self viewChanged];
 }
 
@@ -939,6 +941,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
             if (!s.status.callFirstYear) return none;
             return ramp(_maxYear > _minYear ? std::clamp((double)(s.status.callFirstYear - _minYear) / (_maxYear - _minYear), 0.0, 1.0) : 1.0, p);
         default:
+            if (potaSpot(s.spot)) return rgb(s.status.newPark ? p.potaNew : p.potaHunted);  // by its park; its DXCC in its rings' shape
             switch (s.status.need) {
                 case adif::SpotNeed::NewDxcc: return rgb(p.needDxcc);
                 case adif::SpotNeed::NewBand:
@@ -1186,6 +1189,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     [self drawScaleBar];
     [self drawOsmCredit];
     CGContextRestoreGState(d.ctx);
+    [self placeHoverRings];  // where the spot is now (panned, zoomed)
 }
 
 // A distance scale at the bottom left (beside the legend): four steps of a round distance, as
@@ -1443,8 +1447,15 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
                 spotEntry(14, rgb(pal.confirmed), tr("its DXCC confirmed on the band"), "need.confirmed");
                 break;
         }
-        if (_style.legendHidden.count("spot.pota") || std::any_of(_spots.begin(), _spots.end(), [](const ADIFMapSpot &s) { return potaSpot(s.spot); }))
+        bool potaShown = std::any_of(_spots.begin(), _spots.end(), [](const ADIFMapSpot &s) { return potaSpot(s.spot); });
+        if (_style.colorBy == 0) {  // by their park: not hunted, hunted; both while either is hidden, so the legend keeps its rows
+            if (potaShown || _style.legendHidden.count("spot.pota.new") || _style.legendHidden.count("spot.pota.hunted")) {
+                spotEntry(15, rgb(pal.potaNew), tr("POTA activators: a park you haven't hunted"), "spot.pota.new");
+                spotEntry(15, rgb(pal.potaHunted), tr("POTA activators: a park you've hunted"), "spot.pota.hunted");
+            }
+        } else if (_style.legendHidden.count("spot.pota") || potaShown) {
             spotEntry(15, [NSColor colorWithCalibratedWhite:pal.dark ? 0.85 : 0.35 alpha:1], tr("POTA activators spotted (at their park)"), "spot.pota");
+        }
         if (_style.spotters != 0 && !_spotters.empty()) rows.push_back({13, nil, tr("stations that heard them")});
     }
     if ((_style[kLayerIota].show || _style[kLayerIota].overlay) && !ADIFIotaGroups().empty()) {
@@ -1538,7 +1549,7 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
         } else if (e.kind == 13 || e.kind == 14 || e.kind == 15) {
             NSPoint c = NSMakePoint(at.x + 6, y + lineH / 2);
             if (e.kind == 13) [self drawSpotterAt:c radius:5.5 lit:NO dark:pal.dark faint:_style.spotters == 1];
-            else if (e.kind == 15) [self drawPotaSpotAt:c radius:4.4 color:e.color alpha:1 lit:NO];
+            else if (e.kind == 15) [self drawPotaSpotAt:c radius:4.4 color:e.color alpha:1 lit:NO spot:ADIFMapSpot() hovered:NO];
             else {
                 NSBezierPath *dot = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(c.x - 2.5, c.y - 2.5, 5, 5)];
                 NSBezierPath *ring = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(c.x - 5, c.y - 5, 10, 10)];
@@ -1713,12 +1724,14 @@ CGPathRef projectedLayer(const adif::Projector &pr, adif::MapLayer l, int maxRan
     _hover = h;
     if (!changed) return;
     self.needsDisplay = YES;
+    [self placeHoverRings];
     if (self.onHover) self.onHover(h);
 }
 
 - (void)mouseExited:(NSEvent *)event {
     _hover = ADIFMapHit();
     self.needsDisplay = YES;
+    [self placeHoverRings];
     if (self.onHover) self.onHover(_hover);
 }
 

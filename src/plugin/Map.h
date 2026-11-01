@@ -42,6 +42,13 @@ struct ChaseLine {
     bool next = false;   // the next opportunity: its Next chooses it
 };
 std::vector<ChaseLine> chaseLines(const std::string &call, const std::string &freqMHz, const std::string &mode);
+// The newest spot of a call on the map, in short: its first rows of the spot's information (what
+// to tune, why it's worth having, its park, how fresh), as label and value; none when it isn't spotted.
+std::vector<std::pair<std::string, std::string>> spotInfoFor(const std::string &call, size_t most);
+// Where the newest spot of a call places it (and its grid, "" when the spot gives none); false when it isn't spotted.
+bool spotPlaceFor(const std::string &call, double *lat, double *lon, std::string *grid);
+// Your station's grid as the Map has it: Your Station's, else the log's most used MY_GRIDSQUARE ("" none).
+std::string stationHome();
   // the Map showing the spots: Live, or DX Chase or POTA when it is in one
 // Start Logging: the Map, once it is open, as an operating map: Live's spots of the last five
 // minutes, plain DX (no POTA parks or activators), at 2.5×.

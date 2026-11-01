@@ -1994,7 +1994,6 @@ static void showQsoRows(NppHandle h, const adif::LintResult &r) {
             g.qso.lookupSource = s == "off" ? 0 : s == "qrz" ? 2 : s == "hamqth" ? 3 : 1;  // country data by default
         }
         g.qso.onLog = ^{ logQso(); };
-        g.qso.onAid = ^(NSString *action, NSInteger row) { aidPressed(action, row); };
         [[NSNotificationCenter defaultCenter] addObserverForName:NSWindowWillCloseNotification  // closed (or its frame): the Map's button follows
                                                           object:g.qso.window
                                                            queue:nil
@@ -2205,6 +2204,7 @@ static void showLookupInfo() {
     for (const adif::LookupFact &f : facts) [rows addObject:@[ ADIFString(f.label), ADIFString(f.value), ADIFString(f.tip) ]];
     [g.qso setLookupFacts:rows message:ADIFString(g.lookup.message) severity:-1];
     gDetailsLookup = {call, s.name, s.qth, s.state, s.country.empty() && s.entity ? s.entity->name : s.country, facts};
+    workspace::setLookupGrid(call, s.gridFromCallbook ? s.grid : "");
     updateQsoDetails();
     updateAids(true, false);  // the lookup filled what it could: a natural pause
 }
@@ -2498,8 +2498,8 @@ static void makeAidsPanel() {
     w.contentMinSize = NSMakeSize(280, 140);
     gAidsPanel.view = [[ADIFAidsView alloc] initWithPrefix:@"aids"];
     gAidsPanel.view.onAid = ^(NSString *action, NSInteger row) { aidPressed(action, row); };
-    gAidsPanel.empty = [NSTextField wrappingLabelWithString:T(@"Operating Aids come with the Social and Portable styles (the Map's toolbar), "
-                                                              @"for the contact in New QSO.")];
+    gAidsPanel.empty = [NSTextField wrappingLabelWithString:T(@"Operating Aids come with the Social, Chasing and Portable styles (the Map's "
+                                                              @"toolbar), for the contact in New QSO.")];
     gAidsPanel.empty.font = theme::small();
     gAidsPanel.empty.textColor = theme::faint();
     gAidsPanel.empty.identifier = @"aids.empty";
@@ -2528,23 +2528,18 @@ static void makeAidsPanel() {
     ]];
     w.contentView = scroll;
     [w center];
-    [[NSNotificationCenter defaultCenter] addObserverForName:NSWindowWillCloseNotification  // closed (or its frame): the aids back in New QSO
+    [[NSNotificationCenter defaultCenter] addObserverForName:NSWindowWillCloseNotification  // closed (or its frame): the Map's button follows
                                                       object:w
                                                        queue:nil
-                                                  usingBlock:^(NSNotification *) {
-                                                      ADIFPanelShownChanged();
-                                                      dispatch_async(dispatch_get_main_queue(), ^{ updateAids(false, false); });
-                                                  }];
+                                                  usingBlock:^(NSNotification *) { ADIFPanelShownChanged(); }];
     gAidsPanel.window = w;
 }
 
-// The aids where they show: their panel while it is open, else New QSO's strip.
+// The aids in their panel (made when it first opens; kept up to date while it is closed).
 static void showAids(NSString *title, const std::vector<ADIFAidRow> &rows, NSMenu *menu, BOOL hidden) {
-    bool panel = adifhost::aidsPanelShown();
-    [g.qso setAidsTitle:panel ? nil : title rows:panel ? std::vector<ADIFAidRow>() : rows menu:panel ? nil : menu hidden:hidden];
     if (!gAidsPanel.view) return;
-    [gAidsPanel.view setTitle:panel ? title : nil rows:panel ? rows : std::vector<ADIFAidRow>() menu:panel ? menu : nil hidden:hidden];
-    gAidsPanel.empty.hidden = panel && title != nil;
+    [gAidsPanel.view setTitle:title rows:rows menu:menu hidden:hidden];
+    gAidsPanel.empty.hidden = title != nil;
 }
 
 namespace adifhost {
@@ -2724,10 +2719,6 @@ static NSMenu *aidsMenu(adif::styles::OperatingStyle style) {
             adifhost::setSetting(aidsKey("Level", style), std::string(aids::levelId(level == aids::Level::Off ? aids::Level::Standard : aids::Level::Off)));
             aidsAfresh();
         });
-        [menu addItem:NSMenuItem.separatorItem];
-        NSMenuItem *own = [menu addItemWithTitle:T(@"In Its Own Panel") action:nil keyEquivalent:@""];
-        own.state = adifhost::aidsPanelShown() ? NSControlStateValueOn : NSControlStateValueOff;
-        ADIFBlockMenuItem(own, ^{ panels::toggle(adif::layout::kAids); });
         return menu;
     }
     heading(T(@"Suggestions at once"));
@@ -2796,11 +2787,6 @@ static NSMenu *aidsMenu(adif::styles::OperatingStyle style) {
         adifhost::setSetting("aidsDismissed", "");
         aidsAfresh();
     });
-    [menu addItem:NSMenuItem.separatorItem];
-    NSMenuItem *own = [menu addItemWithTitle:T(@"In Its Own Panel") action:nil keyEquivalent:@""];
-    own.state = adifhost::aidsPanelShown() ? NSControlStateValueOn : NSControlStateValueOff;
-    own.toolTip = T(@"Operating Aids in a panel of their own (beside the Map, or a tab in the Operating Console) instead of in New QSO");
-    ADIFBlockMenuItem(own, ^{ panels::toggle(adif::layout::kAids); });
     return menu;
 }
 

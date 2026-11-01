@@ -11,6 +11,7 @@
 
 #include <array>
 #include <cstddef>
+#include <map>
 #include <set>
 #include <string>
 #include <string_view>
@@ -22,6 +23,11 @@ namespace adif {
 // Even-odd: inside an odd number of the rings (a ring inside another is a hole). Rings are
 // (lon, lat) and not closed.
 bool pointInRings(const std::vector<std::vector<std::pair<double, double>>> &rings, double lon, double lat);
+
+// The DXCC entity whose land (dxccRings) holds a place: inside an odd number of its rings, and
+// of two such, the one whose ring is smaller (an entity on an island inside another's); 0 when
+// none holds it (at sea, or an entity with no land at this scale).
+int dxccAt(const std::map<int, std::vector<RingRef>> &land, double lat, double lon);
 
 // An overlay's areas with their bounding boxes, for finding the area at a point.
 class AreaIndex {

@@ -167,10 +167,19 @@ std::vector<BandActivity> bandActivity(const std::vector<Spot> &spots, bool hasH
 bool spotMatches(const SpotFilter &f, const Spot &s, long long now, const CountryTable *countries, const PotaParks *parks) {
     if (f.maxAge > 0 && s.epoch > 0 && now - s.epoch > f.maxAge) return false;
     if (!f.onlyCall.empty() && !sameStation(s.activator, f.onlyCall)) return false;
+    auto anyOf = [](const std::vector<std::string> &calls, std::string_view call) {
+        return std::any_of(calls.begin(), calls.end(), [&](const std::string &c) { return sameStation(call, c); });
+    };
+    if (!f.stations.empty() && !anyOf(f.stations, s.activator)) return false;
+    if (!f.spotters.empty() && !anyOf(f.spotters, s.spotter)) return false;
     if (!f.sources.empty() && !f.sources.count(s.source)) return false;
     if (!f.programs.empty() && !f.programs.count(s.program)) return false;
     if (!f.map.band.empty() && !equalsNoCase(s.band, f.map.band)) return false;
     if (!f.map.mode.empty() && !equalsNoCase(s.mode, f.map.mode)) return false;
+    if (!f.notDxcc.empty()) {
+        CountryInfo info;
+        if (countries && countries->lookup(s.activator, &info) && f.notDxcc.count(info.dxcc)) return false;
+    }
     if (!f.map.any()) return true;
     return placeMatches(f.map, spotQso(s, countries), parks);
 }

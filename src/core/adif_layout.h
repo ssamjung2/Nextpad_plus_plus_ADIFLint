@@ -33,6 +33,7 @@ inline constexpr const char *kMapStyle = "mapstyle";
 inline constexpr const char *kAids = "aids";
 inline constexpr const char *kSpotSources = "spotsources";  // Settings' Spots section as a panel
 inline constexpr const char *kStation = "station";          // Settings' Your Station section as a panel
+inline constexpr const char *kClocks = "clocks";            // the clocks, of the time zones you choose
 const std::vector<std::string> &knownPanels();
 
 struct Node {
@@ -51,14 +52,29 @@ struct Frame {
     double x = 0, y = 0, w = 0, h = 0;  // a window's frame; all 0: where its window opens by itself
 };
 
+// Where a panel is in the console, so that it can go back there once closed: a tab in the stack of
+// `beside` (at `tabAt`); or a frame of its own beside the part of the console holding `next`
+// (before it: left of it in a row, above it in a column), with its share of that split.
+struct Place {
+    bool tab = false;
+    std::string beside;
+    size_t tabAt = 0;
+    std::vector<std::string> next;
+    Node::Kind split = Node::Kind::Row;
+    bool before = false;
+    double share = 0;
+};
+
 struct Arrangement {
     Node console;                                              // an empty stack: nothing in the console
     std::map<std::string, Frame> windows;                      // panels in windows of their own
     std::map<std::string, std::map<std::string, bool>> panes;  // panel → pane → shown ("map" → "sidebar")
+    std::map<std::string, Place> closed;                       // panels closed from the console: where they were
 };
 
 bool operator==(const Node &a, const Node &b);
 bool operator==(const Frame &a, const Frame &b);
+bool operator==(const Place &a, const Place &b);
 bool operator==(const Arrangement &a, const Arrangement &b);
 inline bool operator!=(const Arrangement &a, const Arrangement &b) { return !(a == b); }
 
@@ -75,6 +91,31 @@ bool paneShown(const Arrangement &a, std::string_view panel, std::string_view pa
 Arrangement showInConsole(Arrangement a, std::string_view panel, std::string_view beside = {});
 Arrangement showInWindow(Arrangement a, std::string_view panel, Frame frame = {});
 Arrangement hide(Arrangement a, std::string_view panel);
+// Nothing when the panel isn't in the console, or is all it holds.
+std::optional<Place> placeOf(const Arrangement &a, std::string_view panel);
+// `panel` back at its place: a tab beside `beside`; or a frame beside the smallest part of the
+// console holding the panels of `next` still there, in the split of that kind (made when that
+// part isn't in one), with its share. As showInConsole puts it when none of them is there.
+Arrangement showAt(Arrangement a, std::string_view panel, const Place &place);
+// Out of the console, where it was kept in `closed` (when it has a place there).
+Arrangement closePanel(Arrangement a, std::string_view panel);
+// Back in the console: where it was closed from, else as showInConsole puts it.
+Arrangement reopenPanel(Arrangement a, std::string_view panel);
+
+// Regions. A side of a frame, or of the whole console.
+enum class Side { Left, Right, Top, Bottom };
+// `panel` (from wherever it is, or not shown yet) in a frame of its own on `side` of the frame
+// holding `target`: that region split in two, the halves sharing what it had.
+Arrangement splitBeside(Arrangement a, std::string_view panel, std::string_view target, Side side);
+// The frame holding `panel`, all its tabs, to `side` of the frame holding `target` (that region
+// split in two, as splitBeside); with no target, to that edge of the console, the whole height or
+// width, with `share` of it (0: by what each needs).
+Arrangement moveFrame(Arrangement a, std::string_view panel, std::string_view target, Side side, double share = 0);
+// The split holding the frame of `panel`: Row (side by side), Column (one above the other), or
+// Stack when that frame is the whole console.
+Node::Kind splitOf(const Arrangement &a, std::string_view panel);
+// That split's frames side by side (Row) or one above the other (Column).
+Arrangement alignSplit(Arrangement a, std::string_view panel, Node::Kind kind);
 // `panel` to the stack holding `target`, as its front tab.
 Arrangement moveToTab(Arrangement a, std::string_view panel, std::string_view target);
 // Two shown panels trade places (console tabs or windows).
@@ -104,6 +145,11 @@ struct Preset {
 // styles' own: "social", "chasing", "contest", "portable").
 const std::vector<Preset> &presets();
 const Preset *preset(std::string_view id);
+
+// Each layout as you adjusted it, by the console's id for it ("logging", "mine:Evening",
+// "style:chasing"); kept as one JSON value. What can't be read is left out, not the rest.
+std::string writeAdjusted(const std::map<std::string, Arrangement> &layouts);
+std::map<std::string, Arrangement> readAdjusted(std::string_view json);
 
 // Your own layouts (Save Layout As...), each named, in the order saved; kept as one JSON value.
 struct Named {

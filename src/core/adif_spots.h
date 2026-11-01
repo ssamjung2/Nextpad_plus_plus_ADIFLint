@@ -85,6 +85,9 @@ struct SpotFilter {
     std::set<SpotSource> sources;    // empty: all
     std::set<std::string> programs;  // empty: all; "" stands for plain DX spots
     std::string onlyCall;            // only the spots of this station ("" all): who heard it
+    std::vector<std::string> stations;  // only the spots of these stations, the ones on the air (none: any); as sameStation
+    std::vector<std::string> spotters;  // only the spots these stations made, who heard them (none: any); as sameStation
+    std::set<int> notDxcc;           // stations in these DXCC entities left out, by the country data (DX Chase: yours)
 };
 // A spot as the map's QSOs are, so the Map's place filters apply: its call, band, mode and
 // place, and its POTA parks.

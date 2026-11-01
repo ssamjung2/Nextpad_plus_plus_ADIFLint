@@ -571,6 +571,7 @@ struct {
     NSPopover *filterPopover = nil;
     NSButton *continent[7] = {}, *parksToo = nil;
     NSTokenField *dxccTokens = nil, *stateTokens = nil, *countyTokens = nil, *potaTokens = nil;
+    NSTokenField *spottedTokens = nil, *heardByTokens = nil;  // More Filters' Spots: the stations spotted, who heard them
     NSTextField *cqField = nil, *ituField = nil;
     NSTextField *withinField = nil, *withinUnits = nil;  // within so far of your station
     NSPopUpButton *recordsPopup = nil;                   // which records: all, without a square, duplicates, with problems
@@ -584,6 +585,7 @@ struct {
     NSPopover *spotsPopover = nil;
     NSPopUpButton *spotAge = nil, *spotProgram = nil;
     NSButton *spotSource[3] = {};
+    NSButton *spotDxOnly = nil;  // Only DX: your own country's stations left out
     NSTextField *spotStatus = nil;
     id spotsObserver = nil, closeObserver = nil;
     // The list beside the map: what it lists (the QSOs chosen; the contacts, parks or spots in
@@ -1639,29 +1641,32 @@ std::vector<ADIFInfoRow> spotInfo(const ADIFMapHit &h) {
     if (h.kind == ADIFMapHit::Spot && h.index < mw.view.spots.size()) {
         const ADIFMapSpot &ms = mw.view.spots[h.index];
         const adif::Spot &sp = ms.spot;
+        // In the order you work a station: what to tune, why it's worth it, what to log (its
+        // park), how fresh the spot is, where to point; then whether you have it, the facts of
+        // the place, and who heard it.
         rows.push_back({sp.heardMe ? trf("{call}: your signal", {{"call", sp.activator}}) : sp.activator, "", true});
         row(N_("Frequency"), sp.khz.empty() ? "" : sp.khz + " kHz");
-        row(N_("Band"), sp.band);
         row(N_("Mode"), sp.mode);
-        std::string age = adif::spotAge(sp.epoch, now);
-        if (!sp.time.empty()) row(N_("Spotted"), sp.time + " UTC" + (age.empty() ? "" : " (" + age + ")"));
+        row(N_("Band"), sp.band);
+        if (!sp.heardMe) row(N_("For this log"), spotNeedLine(ms.status, sp.band));
         // Spothole keeps where it had the spot from (Cluster, RBN, POTA...) where POTA keeps the location.
         bool via = sp.source == adif::SpotSource::Spothole && !sp.location.empty();
-        row(N_("Source"), tr(adif::spotSourceName(sp.source)) + (via ? " (" + sp.location + ")" : ""));
         std::string refs;
         for (const std::string &r : sp.refs) refs += (refs.empty() ? "" : ", ") + r;
         if (refs.empty()) refs = sp.reference;
         if (!refs.empty()) row(N_("Reference"), sp.program.empty() ? refs : sp.program + " " + refs);
         row(N_("Name"), sp.park);
         if (!via && sp.location != sp.program) row(N_("Location"), sp.location);
+        std::string age = adif::spotAge(sp.epoch, now);
+        if (!sp.time.empty()) row(N_("Spotted"), sp.time + " UTC" + (age.empty() ? "" : " (" + age + ")"));
+        row(N_("Comment"), sp.comments);
         row(N_("Signal report"), adif::spotSnr(sp));
-        row(N_("Grid"), sp.grid);
-        position(ms.lat, ms.lon, adif::spotPlace(sp, countries).from);
-        country(sp.activator);
         distance(ms.lat, ms.lon, ms.rough);
         if (!sp.heardMe) row(N_("In this log"), inLog(sp));
-        if (!sp.heardMe) row(N_("For this log"), spotNeedLine(ms.status, sp.band));
-        row(N_("Comment"), sp.comments);
+        row(N_("Grid"), sp.grid);
+        country(sp.activator);
+        position(ms.lat, ms.lon, adif::spotPlace(sp, countries).from);
+        row(N_("Source"), tr(adif::spotSourceName(sp.source)) + (via ? " (" + sp.location + ")" : ""));
         std::vector<std::string> by;
         for (const ADIFSpotHeard &hd : ms.heard) by.push_back(heard(hd.call, hd.hasSnr, hd.snr, hd.epoch));
         list(N_("Heard by"), by);
@@ -2323,6 +2328,46 @@ std::string homeGrid(const std::map<std::string, size_t> &myGrids) {
     return most ? g : "";
 }
 
+// Each entity's land, worked out once from the country file's names and places.
+const std::map<int, std::vector<adif::RingRef>> &entityLand() {
+    static std::map<int, std::vector<adif::RingRef>> land;
+    static size_t landFor = 0;
+    const adif::CountryTable &countries = ADIFCountries();
+    if (landFor != countries.entities()) {
+        std::vector<adif::EntityPlace> places;
+        for (const adif::CountryInfo &c : countries.all()) places.push_back({c.dxcc, c.lat, c.lon, c.name});
+        land = adif::dxccRings(places);
+        landFor = countries.entities();
+    }
+    return land;
+}
+
+// Your DXCC entity, whose stations Only DX leaves out: the one whose land holds home (Your
+// Station's grid, else the log's MY_GRIDSQUARE), else your callsign's; 0 when neither says.
+int homeEntity() {
+    static std::string forHome, forCall;
+    static size_t forCountries = 0;
+    static int entity = 0;
+    const adif::CountryTable &countries = ADIFCountries();
+    std::string call = setting("stationCall");
+    if (mw.home == forHome && call == forCall && countries.entities() == forCountries) return entity;
+    forHome = mw.home, forCall = call, forCountries = countries.entities();
+    double lat, lon;
+    entity = !mw.home.empty() && adif::gridToLatLon(mw.home, &lat, &lon) ? adif::dxccAt(entityLand(), lat, lon) : 0;
+    if (!entity) entity = entityOf(0, call);
+    return entity;
+}
+
+// Only DX: your own country's stations left out of the spots. DX Chase's at first ("" there).
+bool dxOnly() {
+    std::string v = setting("mapSpotsDxOnly");
+    return v.empty() ? workflow() == 2 : v == "1";
+}
+
+// The entity Only DX leaves out now: yours, while it is on and you haven't named the stations
+// (Who hears, or Stations spotted: those are shown whatever their country); 0 none.
+int dxOnlyEntity() { return dxOnly() && !flag("mapSpotsOnly", false) && setting("mapSpotsStations").empty() ? homeEntity() : 0; }
+
 // The Mode filter's choices: the common modes, then the log's and the spots' (as they are heard),
 // each once. Kept by title when it is still there.
 std::set<std::string> gLogModes;
@@ -2468,15 +2513,7 @@ void refresh() {
             e.qsos.push_back(i);
             e.confirmed |= mw.data.qsos[i].confirmed;
         }
-        // Each entity's land, worked out once from the country file's names and places.
-        static std::map<int, std::vector<adif::RingRef>> land;
-        static size_t landFor = 0;
-        if (landFor != countries.entities()) {
-            std::vector<adif::EntityPlace> places;
-            for (const adif::CountryInfo &c : countries.all()) places.push_back({c.dxcc, c.lat, c.lon, c.name});
-            land = adif::dxccRings(places);
-            landFor = countries.entities();
-        }
+        const std::map<int, std::vector<adif::RingRef>> &land = entityLand();
         for (auto &kv : byDxcc)
             if (auto it = land.find(kv.first); it != land.end()) kv.second.land = it->second;
         mw.dxcc.clear();
@@ -2753,6 +2790,7 @@ void fillContinentPopup() {
 void refresh();
 void refreshSpots();
 void fillPlaceControls();
+void fillSpotsPopover();
 void chooseQuickView(NSInteger row);
 std::string entityName(int dxcc, const std::string &call);
 
@@ -2825,12 +2863,33 @@ void fillFilterChips() {
             }
         if (mw.spotLens > 0 && mw.quickRows && (size_t)mw.spotLens < mw.quickRows.rows.size())
             chip(mw.quickRows.rows[(size_t)mw.spotLens].title, ^{ chooseQuickView(0); });
+        for (auto [key, label] : {std::pair{"mapSpotsStations", N_("Spotted: {calls}")}, std::pair{"mapSpotsSpotters", N_("Heard by: {calls}")}})
+            if (std::vector<std::string> calls = splitSetting(key, ','); !calls.empty()) {
+                std::string k = key;
+                chip(trf(label, {{"calls", list(calls)}}), ^{
+                    setSetting(k.c_str(), "");
+                    if (mw.filterPopover) fillPlaceControls();
+                    refreshSpots();
+                });
+            }
+        if (flag("mapSpotsOnly", false))
+            chip(trf("Who hears {call}", {{"call", setting("mapSpotsOnlyCall").empty() ? setting("stationCall") : setting("mapSpotsOnlyCall")}}), ^{
+                saveFlag("mapSpotsOnly", false);
+                if (mw.filterPopover) fillPlaceControls();
+                refreshSpots();
+            });
+        if (dxOnlyEntity())  // short: the toolbar wraps less (Sources and Filters names the country)
+            chip(tr("Only DX"), ^{
+                setSetting("mapSpotsDxOnly", "0");
+                fillSpotsPopover();
+                refreshSpots();
+            });
     }
     mw.chips.hidden = mw.chips.arrangedSubviews.count == 0;
 }
 
 void updateFilterButton() {
-    size_t n = placeKinds(savedPlaceFilter());
+    size_t n = placeKinds(savedPlaceFilter()), spotKinds = 0;
     mw.moreFilters.title = n ? [NSString stringWithFormat:T(@"More Filters (%zu)..."), n] : T(@"More Filters...");
     // Clear says how many filters are on, and its tooltip which, in a line ("20m · FT8 · New band").
     std::vector<std::string> active;
@@ -2844,6 +2903,19 @@ void updateFilterButton() {
         std::string program = setting("mapSpotsProgram");
         if (!program.empty() && workflow() != 3) active.push_back(program == "-" ? tr("Plain DX only") : program);
         if (!setting("mapSpotsHidden").empty() && mw.spotSourceBar.indexOfSelectedItem > 0) active.push_back(ADIFStd(mw.spotSourceBar.titleOfSelectedItem));
+        if (int home = dxOnlyEntity()) active.push_back(trf("Only DX: not {country}", {{"country", entityName(home, "")}}));
+        for (auto [key, label] : {std::pair{"mapSpotsStations", N_("Spotted: {calls}")}, std::pair{"mapSpotsSpotters", N_("Heard by: {calls}")}})
+            if (std::vector<std::string> calls = splitSetting(key, ','); !calls.empty()) {
+                std::string all;
+                for (const std::string &c : calls) all += (all.empty() ? "" : ", ") + c;
+                active.push_back(trf(label, {{"calls", all}}));
+                ++spotKinds;
+            }
+        if (flag("mapSpotsOnly", false)) {
+            active.push_back(trf("Who hears {call}", {{"call", setting("mapSpotsOnlyCall").empty() ? setting("stationCall") : setting("mapSpotsOnlyCall")}}));
+            ++spotKinds;
+        }
+        if (spotKinds) mw.moreFilters.title = [NSString stringWithFormat:T(@"More Filters (%zu)..."), n + spotKinds];  // its Spots too
     }
     if (n) active.push_back(trp("{n} more filter", "{n} more filters", (long long)n));
     std::string list;
@@ -2915,6 +2987,10 @@ void fillPlaceControls() {
     set(mw.stateTokens, splitSetting("mapFilterStates", ','));
     set(mw.countyTokens, splitSetting("mapFilterCounties", ';'));
     set(mw.potaTokens, splitSetting("mapFilterPota", ','));
+    set(mw.spottedTokens, splitSetting("mapSpotsStations", ','));
+    set(mw.heardByTokens, splitSetting("mapSpotsSpotters", ','));
+    mw.spotsOnly.state = flag("mapSpotsOnly", false) ? NSControlStateValueOn : NSControlStateValueOff;
+    mw.spotsOnlyCall.stringValue = ADIFString(setting("mapSpotsOnlyCall"));
     auto join = [](const std::vector<std::string> &v) {
         std::string out;
         for (const std::string &s : v) out += (out.empty() ? "" : ", ") + s;
@@ -2999,6 +3075,28 @@ void showMoreFilters() {
         mw.stateTokens = tokenField(@"map.filter.states", N(@"US states, e.g. WI, IL"), states, @", ");
         mw.countyTokens = tokenField(@"map.filter.counties", N(@"US counties, e.g. WI,Dane; WI,Milwaukee"), counties, @";");
         mw.potaTokens = tokenField(@"map.filter.pota", N(@"POTA locations, e.g. US-WI, CA-ON"), locations, @", ");
+        // Spots (Live): the stations on the air and those that heard them, from the calls in the spots now.
+        NSMutableOrderedSet<NSString *> *onAir = [NSMutableOrderedSet orderedSet], *listening = [NSMutableOrderedSet orderedSet];
+        for (const adif::Spot &sp : spotfeeds::spots().spots()) {
+            if (!sp.activator.empty()) [onAir addObject:ADIFString(sp.activator)];
+            if (!sp.spotter.empty()) [listening addObject:ADIFString(adif::spotterCall(sp.spotter))];
+        }
+        auto callsChanged = [](NSTokenField *t, const char *key) {
+            std::string v;
+            for (const std::string &c : tokens(t)) v += (v.empty() ? "" : ",") + ADIFStd([ADIFString(c) uppercaseString]);
+            setSetting(key, v);
+            refreshSpots();
+            updateFilterButton();
+        };
+        mw.spottedTokens = tokenField(@"map.filter.spotted", N(@"calls, e.g. 1A0KM, K9ABC"), onAir.array, @", ");
+        mw.spottedTokens.toolTip = T(@"Only the spots of these stations: the stations on the air (a portable call is the same station)");
+        ADIFOnAction(mw.spottedTokens, ^{ callsChanged(mw.spottedTokens, "mapSpotsStations"); });
+        mw.heardByTokens = tokenField(@"map.filter.heardBy", N(@"spotters' calls, e.g. W3LPL, KM4IYW"), listening.array, @", ");
+        mw.heardByTokens.toolTip = T(@"Only what these stations heard: the spots they made (a DX cluster spotter, a Reverse Beacon skimmer, a "
+                                     @"PSKReporter receiver). With Stations spotted too: those stations, as these heard them");
+        ADIFOnAction(mw.heardByTokens, ^{ callsChanged(mw.heardByTokens, "mapSpotsSpotters"); });
+        NSStackView *whoHears = [NSStackView stackViewWithViews:@[ mw.spotsOnly, mw.spotsOnlyCall ]];
+        whoHears.spacing = 6;
         NSMutableArray *conts = [NSMutableArray array];
         for (int i = 0; i < 7; ++i) {
             mw.continent[i] = ADIFCheckbox(@(kContinents[i]), false);
@@ -3043,10 +3141,12 @@ void showMoreFilters() {
         NSButton *clear = [NSButton buttonWithTitle:T(@"Clear These Filters") target:nil action:nil];
         ADIFOnAction(clear, ^{
             for (const char *key : {"mapFilterContinents", "mapFilterDxcc", "mapFilterCq", "mapFilterItu", "mapFilterStates", "mapFilterCounties",
-                                    "mapFilterRegions", "mapFilterPota", "mapFilterWithinKm", "mapFilterRecords"})
+                                    "mapFilterRegions", "mapFilterPota", "mapFilterWithinKm", "mapFilterRecords", "mapSpotsStations", "mapSpotsSpotters"})
                 setSetting(key, "");
+            saveFlag("mapSpotsOnly", false);
             fillPlaceControls();
             refresh();
+            refreshSpots();
         });
         // In groups, each under its heading: where, how far, the programs, which records.
         auto group = [](NSString *title) {
@@ -3061,7 +3161,9 @@ void showMoreFilters() {
             @[ ADIFLabel(@"US regions:"), mw.regions ], @[ group(N(@"How far")), [NSGridCell emptyContentView] ], @[ ADIFLabel(@"Within:"), within ],
             @[ group(N(@"Programs")), [NSGridCell emptyContentView] ], @[ ADIFLabel(@"POTA locations:"), mw.potaTokens ],
             @[ ADIFLabel(@"POTA parks in:"), mw.parkPlacesButton ],
-            @[ [NSGridCell emptyContentView], mw.parksToo ], @[ group(N(@"Which records")), [NSGridCell emptyContentView] ],
+            @[ [NSGridCell emptyContentView], mw.parksToo ], @[ group(N(@"Spots")), [NSGridCell emptyContentView] ],
+            @[ ADIFLabel(@"Stations spotted:"), mw.spottedTokens ], @[ ADIFLabel(@"Heard by:"), mw.heardByTokens ], @[ ADIFLabel(@"Who hears:"), whoHears ],
+            @[ group(N(@"Which records")), [NSGridCell emptyContentView] ],
             @[ ADIFLabel(@"Records:"), mw.recordsPopup ], @[ [NSGridCell emptyContentView], clear ]
         ];
         NSGridView *grid = [NSGridView gridViewWithViews:rowsOfGrid];
@@ -3069,7 +3171,7 @@ void showMoreFilters() {
         grid.columnSpacing = 10;
         [grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
         grid.rowAlignment = NSGridRowAlignmentFirstBaseline;
-        for (NSInteger r : {0, 7, 9, 13}) {  // the headings, across both columns, at the left
+        for (NSInteger r : {0, 7, 9, 13, 17}) {  // the headings, across both columns, at the left
             [grid mergeCellsInHorizontalRange:NSMakeRange(0, 2) verticalRange:NSMakeRange(r, 1)];
             [grid cellAtColumnIndex:0 rowIndex:r].xPlacement = NSGridCellPlacementLeading;
             [grid rowAtIndex:r].topPadding = r ? 6 : 0;
@@ -3210,6 +3312,9 @@ adif::SpotFilter spotFilter() {
         std::string call = setting("mapSpotsOnlyCall");
         f.onlyCall = call.empty() ? setting("stationCall") : call;
     }
+    f.stations = splitSetting("mapSpotsStations", ',');  // More Filters' Spots
+    f.spotters = splitSetting("mapSpotsSpotters", ',');
+    if (int home = dxOnlyEntity()) f.notDxcc = {home};
     return f;
 }
 
@@ -3241,6 +3346,13 @@ void fillSpotsPopover() {
     if (pota) [mw.spotProgram selectItemWithTitle:@"POTA"];
     mw.spotProgram.enabled = !pota;  // POTA's own: Live has the others
     mw.spotProgram.toolTip = pota ? T(@"POTA shows POTA's activators only: Live has every program's spots") : nil;
+    int home = homeEntity();
+    mw.spotDxOnly.state = dxOnly() ? NSControlStateValueOn : NSControlStateValueOff;
+    mw.spotDxOnly.enabled = home != 0;
+    mw.spotDxOnly.title = home ? TF(@"Only DX: not {country}", @{@"country" : ADIFString(entityName(home, ""))}) : T(@"Only DX");
+    mw.spotDxOnly.toolTip = home ? T(@"Leave out the stations in your own DXCC entity: the one your grid is in (Settings, Your Station), else your "
+                                     @"callsign's. DX Chase starts with it on; Only spots of shows all of one station's spots")
+                                 : T(@"Your grid or callsign first (Settings, Your Station): Only DX leaves out the stations in your own DXCC entity");
     std::string st = spotfeeds::status();
     if (!c.spothole && !c.cluster && !c.psk) st = tr("No spot source is turned on: choose them in Settings (Spots).");
     else if (st.empty()) st = tr("Tick Show under Spots to fetch them.");
@@ -3333,6 +3445,7 @@ void refreshSpots() {
             const std::set<std::string> &off = look.legendHidden;
             if (!look.legend || off.empty()) return false;
             if (mapkit::potaSpot(sp) && off.count("spot.pota")) return true;
+            if (mapkit::potaSpot(sp) && look.colorBy == 0) return off.count(st.newPark ? "spot.pota.new" : "spot.pota.hunted") > 0;  // by its park
             if (look.colorBy == 1) return off.count("band." + sp.band) > 0;
             if (look.colorBy != 0) return false;
             switch (st.need) {
@@ -3745,6 +3858,12 @@ void showSpotsPopover() {
             setSetting("mapSpotsProgram", i <= 0 ? "" : i == 1 ? "-" : ADIFStd(mw.spotProgram.titleOfSelectedItem));
             refreshSpots();
         });
+        mw.spotDxOnly = ADIFCheckbox(@"Only DX", dxOnly());
+        mw.spotDxOnly.identifier = @"map.spots.dxOnly";
+        ADIFOnAction(mw.spotDxOnly, ^{
+            setSetting("mapSpotsDxOnly", mw.spotDxOnly.state == NSControlStateValueOn ? "1" : "0");
+            refreshSpots();
+        });
         mw.spotStatus = [NSTextField wrappingLabelWithString:@""];
         mw.spotStatus.font = theme::small();
         mw.spotStatus.textColor = theme::faint();
@@ -3753,7 +3872,7 @@ void showSpotsPopover() {
         ADIFOnAction(settings, ^{ openSettings(-4); });
         NSGridView *grid = [NSGridView gridViewWithViews:@[
             @[ ADIFLabel(@"Newer than:"), mw.spotAge ], @[ ADIFLabel(@"From:"), sourceRow ], @[ ADIFLabel(@"Program:"), mw.spotProgram ],
-            @[ [NSGridCell emptyContentView], settings ]
+            @[ [NSGridCell emptyContentView], mw.spotDxOnly ], @[ [NSGridCell emptyContentView], settings ]
         ]];
         grid.rowSpacing = 8;
         grid.columnSpacing = 10;
@@ -5314,7 +5433,7 @@ int quickView() {
 // View, and the sun's shading.
 std::vector<std::string> workflowKeys() {
     std::vector<std::string> keys = {"mapContacts", "mapPaths", "mapMine", "mapColorBy", "mapListKind", "mapQuickView", "mapGreyLine", "mapDayNight",
-                                     "mapSpotsProgram"};
+                                     "mapSpotsProgram", "mapSpotsDxOnly"};
     for (const LayerUi &l : kLayerUi) {
         if (l.showKey) keys.push_back(l.showKey);
         keys.push_back(l.overlayKey);
@@ -5337,10 +5456,11 @@ std::string liveDefault(const std::string &key) {
 }
 
 // A workflow's first time: History as the settings were; Live as above; DX Chase, Live for the
-// DXCC entities and bands you need (Needed on its band, plain DX spots, no parks, the grey line);
+// DXCC entities and bands you need (Needed on its band, plain DX spots, none of your own
+// country's stations, no parks, the grey line);
 // POTA, Live for the parks (POTA activators, every park, no DXCC shading).
 std::string workflowDefault(const std::string &key, int wf) {
-    static const std::map<std::string, std::string> kDxChase = {{"mapQuickView", "1"}, {"mapShowPota", "0"}, {"mapSpotsProgram", "-"}};
+    static const std::map<std::string, std::string> kDxChase = {{"mapQuickView", "1"}, {"mapShowPota", "0"}, {"mapSpotsProgram", "-"}, {"mapSpotsDxOnly", "1"}};
     static const std::map<std::string, std::string> kPota = {{"mapQuickView", "6"}, {"mapShowPota", "1"}, {"mapPota", "1"}, {"mapPotaLabels", "1"},
                                                              {"mapDxcc", "0"},       {"mapGreyLine", "0"}, {"mapSpotsProgram", "POTA"}};
     if (wf <= 0) return "";
@@ -5933,6 +6053,7 @@ std::pair<std::string, std::string> describeStyleSetting(const std::string &key,
         return {tr("Colour by"), pick(@[ N(@"Colour by confirmation"), N(@"Colour by band"), N(@"Colour by mode"), N(@"Colour by QSO count"), N(@"Colour by year first worked") ], 0)};
     if (key == "mapListKind") return {tr("List"), pick(@[ N(@"Selected"), N(@"Contacts"), N(@"Parks"), N(@"Spots"), N(@"Recent"), N(@"Issues"), N(@"DXCC") ], 0)};
     if (key == "mapSpotsProgram") return {tr("Program"), tr(value == "-" ? "Plain DX only" : value == "POTA" ? "POTA only" : "Any program")};
+    if (key == "mapSpotsDxOnly") return {tr("Only DX"), onOff(wf == 2)};  // DX Chase's at first
     static const std::map<std::string, std::pair<const char *, bool>> kBoxes = {
         {"mapRings", {N_("Distance rings from my grid"), false}}, {"mapGreyLine", {N_("Grey line"), false}},  {"mapDayNight", {N_("Day and night"), false}},
         {"mapSolar", {N_("Space weather"), false}},               {"mapAurora", {N_("Aurora"), false}},      {"mapContacts", {N_("QSO markers"), false}},
@@ -7158,14 +7279,14 @@ void cmdMap() {
         mw.watchEdit.image = [NSImage imageWithSystemSymbolName:@"star" accessibilityDescription:nil];
         mw.watchEdit.imagePosition = NSImageLeading;
         mw.watchEdit.identifier = @"map.watch.edit";
-        // Spots: their filters, Refresh, and one station's spots only (who heard it, as on PSKReporter's map).
-        mw.spotsOnly = ADIFCheckbox(@"Only spots of", flag("mapSpotsOnly", false));
-        mw.spotsOnly.toolTip = T(@"Show only this station's spots, each with every station that heard it: who is hearing you, as on PSKReporter's "
-                                 @"map. PSKReporter is asked about this callsign while it is ticked");
+        // Who hears a station (More Filters' Spots): its spots turned around, as on PSKReporter's map.
+        mw.spotsOnly = ADIFCheckbox(@"Show who hears", flag("mapSpotsOnly", false));
+        mw.spotsOnly.toolTip = T(@"Turn the spots around: the stations that heard this one (you, when the callsign is empty), each where it is with "
+                                 @"a line to it, as on PSKReporter's map. PSKReporter is asked about this callsign while it is on");
         mw.spotsOnly.identifier = @"map.spots.only";
         mw.spotsOnlyCall = [NSTextField textFieldWithString:ADIFString(setting("mapSpotsOnlyCall"))];
         mw.spotsOnlyCall.placeholderString = setting("stationCall").empty() ? T(@"callsign") : ADIFString(setting("stationCall"));
-        mw.spotsOnlyCall.toolTip = T(@"The station whose spots to show; empty: your callsign (Your Station)");
+        mw.spotsOnlyCall.toolTip = T(@"The station whose listeners to show; empty: your callsign (Your Station)");
         mw.spotsOnlyCall.identifier = @"map.spots.onlyCall";
         ((NSTextFieldCell *)mw.spotsOnlyCall.cell).sendsActionOnEndEditing = YES;
         [mw.spotsOnlyCall.widthAnchor constraintEqualToConstant:110].active = YES;
@@ -7193,9 +7314,14 @@ void cmdMap() {
         mw.moreFilters.identifier = @"map.filter.more";
         mw.clearFilters = smallButton(@"Clear", @"Show every QSO again: all bands, modes, dates and places (and in Live, every spot)", ^{
             for (NSPopUpButton *p in @[ mw.band, mw.mode, mw.dates, mw.confirmed ]) [p selectItemAtIndex:0];
-            if (live()) {  // every spot again: any program (POTA's own in POTA) and source too
+            if (live()) {  // every spot again: any program (POTA's own in POTA), source and country too
                 setSetting("mapSpotsProgram", workflow() == 3 ? "POTA" : "");
                 setSetting("mapSpotsHidden", "");
+                setSetting("mapSpotsDxOnly", "0");
+                setSetting("mapSpotsStations", "");
+                setSetting("mapSpotsSpotters", "");
+                saveFlag("mapSpotsOnly", false);
+                if (mw.filterPopover) fillPlaceControls();
                 fillSpotsPopover();
                 if (mw.spotLens > 0) chooseQuickView(0);
                 else refreshSpots();
@@ -7591,7 +7717,7 @@ void cmdMap() {
         [mw.workflow setImage:[NSImage imageWithSystemSymbolName:@"scope" accessibilityDescription:nil] forSegment:2];
         [mw.workflow setImage:[NSImage imageWithSystemSymbolName:@"leaf" accessibilityDescription:nil] forSegment:3];
         [mw.workflow setToolTip:T(@"DX Chase: Live for the DXCC entities and bands you need: their spots first (Needed on its band), plain DX "
-                                  @"spots, the grey line. It keeps its own settings")
+                                  @"spots, none from your own country, the grey line. It keeps its own settings")
                      forSegment:2];
         [mw.workflow setToolTip:T(@"POTA: Live for the parks: the POTA activators spotted, every park with those you worked, no DXCC shading. "
                                   @"It keeps its own settings")
@@ -7887,8 +8013,6 @@ void cmdMap() {
         // Spots (Live's): the layer's boxes, their sources and filters, one station's spots.
         NSStackView *spotsLine = line(@[ mw.spotsButton, mw.refreshSpotsButton ]);
         [spotsLine setCustomSpacing:4 afterView:mw.spotsButton];
-        NSStackView *onlyLine = line(@[ mw.spotsOnly, mw.spotsOnlyCall ]);
-        [onlyLine setCustomSpacing:4 afterView:mw.spotsOnly];
         // Map: palette, quick views, colours and projection.
         NSMutableArray *swatches = [NSMutableArray array];
         NSArray<NSString *> *paletteTips = @[
@@ -8031,7 +8155,7 @@ void cmdMap() {
             if (mw.layerGroupCards[ADIFString(n)]) setLayerGroupOpen(ADIFString(n), false);
         NSArray<NSView *> *sectionViews = @[
             section(@"views", N(@"Quick Views"), @"bookmark", viewsBody),
-            mw.spotsSection = section(@"spots", N(@"Spots"), @"antenna.radiowaves.left.and.right", rows(@[ mw.heatBox, mw.overlay[kLayerSpots], spotsLine, onlyLine, mw.watchEdit ], 8)),
+            mw.spotsSection = section(@"spots", N(@"Spots"), @"antenna.radiowaves.left.and.right", rows(@[ mw.heatBox, mw.overlay[kLayerSpots], spotsLine, mw.watchEdit ], 8)),
             section(@"layers", N(@"Layers"), @"square.3.stack.3d", layerSection), section(@"map", N(@"Map"), @"map", mapRows)
         ];
         mw.spotsSection.hidden = !live();
@@ -8540,7 +8664,7 @@ void cmdLiveMap() {
 
 // Start Logging's Map: Live, All spots of the last five minutes, plain DX (no POTA parks, no
 // activators at them: the toolbar's program menu brings them back), at 2.5× about the Home View
-// you set, or about where the map is.
+// you set, or about where the map is (your station when that can't be told yet).
 void showForLogging() {
     if (!mw.window) return;
     if (workflow() != 1) switchWorkflow(1);
@@ -8556,7 +8680,11 @@ void showForLogging() {
         double lon = 0, lat = 0, zoom = 0;
         std::vector<std::string> home = splitSetting("mapHomeView", ',');
         if (home.size() == 3) lon = std::atof(home[0].c_str()), lat = std::atof(home[1].c_str());
-        else if (![mw.view viewLon:&lon lat:&lat zoom:&zoom]) return;
+        else if (![mw.view viewLon:&lon lat:&lat zoom:&zoom]) {
+            [mw.view.window.contentView layoutSubtreeIfNeeded];  // docked, its frame just resized: laid out with the console first
+            // Still no room to tell where it is (a frame just made): about your station instead.
+            if (![mw.view viewLon:&lon lat:&lat zoom:&zoom] && (mw.home.empty() || !adif::gridToLatLon(mw.home, &lat, &lon))) return;
+        }
         [mw.view showLon:lon lat:lat zoom:2.5];
         updateZoomLabel();
     });
@@ -8648,6 +8776,33 @@ void qsoLogged(const std::string &call) { advanceAfterLog(call); }
 
 std::vector<ChaseLine> chaseLines(const std::string &call, const std::string &freqMHz, const std::string &mode) {
     return chaseLinesFor(call, freqMHz, mode);
+}
+
+std::string stationHome() { return mw.home; }
+
+bool spotPlaceFor(const std::string &call, double *lat, double *lon, std::string *grid) {
+    if (call.empty()) return false;
+    for (const ADIFMapSpot &m : mw.view.spots)  // newest first
+        if (!m.spot.heardMe && adif::sameStation(m.spot.activator, call)) {
+            *lat = m.lat, *lon = m.lon, *grid = m.spot.grid;
+            return true;
+        }
+    return false;
+}
+
+std::vector<std::pair<std::string, std::string>> spotInfoFor(const std::string &call, size_t most) {
+    std::vector<std::pair<std::string, std::string>> out;
+    if (call.empty()) return out;
+    const std::vector<ADIFMapSpot> &spots = mw.view.spots;  // newest first
+    for (size_t i = 0; i < spots.size(); ++i) {
+        if (spots[i].spot.heardMe || !adif::sameStation(spots[i].spot.activator, call)) continue;
+        ADIFMapHit h;
+        h.kind = ADIFMapHit::Spot, h.index = i;
+        for (const ADIFInfoRow &r : spotInfo(h))
+            if (!r.heading && !r.label.empty() && out.size() < most) out.push_back({r.label, r.value});
+        break;
+    }
+    return out;
 }
 
 }  // namespace worldmap
