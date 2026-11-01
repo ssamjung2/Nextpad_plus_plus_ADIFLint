@@ -1,4 +1,5 @@
 #import "Accordion.h"
+#import "Theme.h"
 
 #import "L10n.h"
 
@@ -41,8 +42,8 @@ static bool reduceMotion() {
     [_chevron.widthAnchor constraintEqualToConstant:12].active = YES;  // as wide either way: the title stays put
     _titleField = [NSTextField labelWithString:_spoken];
     _titleField.font = level == 2 ? [NSFont systemFontOfSize:NSFont.systemFontSize weight:NSFontWeightSemibold]
-                       : level    ? [NSFont systemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightSemibold]
-                                  : [NSFont systemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightBold];
+                       : level    ? theme::small(NSFontWeightSemibold)
+                                  : theme::small(NSFontWeightBold);
     _titleField.textColor = level ? NSColor.labelColor : NSColor.secondaryLabelColor;
     _titleField.lineBreakMode = NSLineBreakByTruncatingTail;
     [_titleField setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];

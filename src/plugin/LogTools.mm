@@ -1404,7 +1404,7 @@ void openBulkEdit(bool shift, bool fromTable) {
             bulk.zone = ADIFComboBox(zones, 200);
             bulk.zone.placeholderString = T(@"e.g. America/Chicago");
             bulk.zoneInfo = ADIFLabel(@"");
-            bulk.zoneInfo.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+            bulk.zoneInfo.font = theme::small();
             bulk.zoneInfo.lineBreakMode = NSLineBreakByTruncatingTail;
             [bulk.zoneInfo setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
                                                     forOrientation:NSLayoutConstraintOrientationHorizontal];

@@ -1542,7 +1542,7 @@ static void createPanel() {
         g.panelWindow.hidesOnDeactivate = YES;
         g.panelWindow.releasedWhenClosed = NO;
         g.panelWindow.contentView = g.panel.view;
-        ADIFNightTrack(g.panelWindow);
+        theme::host(g.panelWindow);
     }
 }
 

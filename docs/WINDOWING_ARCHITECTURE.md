@@ -295,7 +295,16 @@ alone doesn't express); panes inside a panel may use `NSSplitViewItem` where it 
   Start Contest are profiles (`openProfile`: a layout and their own set-up); Start Contest now
   uses the Contest layout. The Map's list is hidden beside the spots' table as beside the Log
   Table, and the Map's least height includes its list where it shows.
-  Next (Phase E): theme tokens, applied by the hosts.
+- **Phase E** (2026-11-01): `src/plugin/Theme.{h,mm}`: spacing (`kMargin`, `kSpacing`; the
+  older `kADIFMargin` and `kADIFSpacing` are these), type (`small`, `body`, `digits`: the 91
+  hand-set small and monospaced-digit fonts now use them), colours (`styleAccent`, `fine`,
+  `warning`, `error`, `faint`) and hosting. A window that docks is hosted when it shows
+  (`orderWindow:relativeTo:` in `ADIF_DOCKABLE_WINDOW`), with no call of its own; docked, it takes
+  the console's look (`theme::rehost` on dock and undock). That fixed a double Night Mode tint
+  on every docked panel. Popovers are hosted through `theme::hostPopover` (two were missed
+  before). Not yet: the semantic colours at the older call sites, which keep the system colours
+  they name.
+  Next (Phase F): content moves (Map Settings to Settings, the Map Style panel).
 
 ## Plan
 

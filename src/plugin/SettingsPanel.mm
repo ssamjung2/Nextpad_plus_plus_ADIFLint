@@ -1,4 +1,5 @@
 #import "SettingsPanel.h"
+#import "Theme.h"
 #import "Accordion.h"
 #import "Night.h"
 #import "L10n.h"
@@ -120,7 +121,7 @@ static NSString *colon(NSString *label) { return TF(@"{label}:", @{@"label" : la
 // A field with its name over it (the panel is narrow): the name small, the field the panel's width.
 static NSStackView *field(NSString *label, NSView *control) {
     NSTextField *name = [NSTextField labelWithString:label];
-    name.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    name.font = theme::small();
     name.textColor = NSColor.secondaryLabelColor;
     NSStackView *pair = [NSStackView stackViewWithViews:@[ name, control ]];
     pair.orientation = NSUserInterfaceLayoutOrientationVertical;

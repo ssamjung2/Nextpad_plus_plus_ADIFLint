@@ -1,4 +1,5 @@
 #import "Contest.h"
+#import "Theme.h"
 #import "L10n.h"
 
 #import "PluginHost.h"
@@ -203,7 +204,7 @@ void cmdContest() {
         cw.contestId.stringValue = ADIFString(setting(p == adif::ContestPreset::Defined ? "contestParty" : "contestId"));
         cw.idRow = [w addOptionRow:@[ ADIFLabel(@"CONTEST_ID:"), cw.contestId ]];
         cw.rules = [NSTextField wrappingLabelWithString:@""];
-        cw.rules.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        cw.rules.font = theme::small();
         cw.rules.textColor = NSColor.secondaryLabelColor;
         cw.rules.preferredMaxLayoutWidth = 580;
         [cw.rules.widthAnchor constraintEqualToConstant:580].active = YES;

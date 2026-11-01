@@ -111,8 +111,8 @@ static NSAttributedString *treeMark(NSColor *color) {
     auto st = _styles.find(column);
     int style = mark || st == _styles.end() ? 0 : st->second;
     f.alignment = style == 2 ? NSTextAlignmentRight : NSTextAlignmentLeft;
-    f.font = style ? [NSFont monospacedDigitSystemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightRegular]
-                   : [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    f.font = style ? theme::digits(NSFont.smallSystemFontSize, NSFontWeightRegular)
+                   : theme::small();
     f.textColor = NSColor.labelColor;
     if (row < 0 || (size_t)row >= _rows.size()) return f;
     const ADIFViewRow &r = _rows[(size_t)row];
@@ -330,7 +330,7 @@ struct ADIFQuickRow {
         count = [NSTextField labelWithString:@""];
         count.identifier = @"count";
         count.alignment = NSTextAlignmentRight;
-        count.font = [NSFont monospacedDigitSystemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightRegular];
+        count.font = theme::digits(NSFont.smallSystemFontSize, NSFontWeightRegular);
         count.textColor = NSColor.secondaryLabelColor;
         [count setContentHuggingPriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
         for (NSView *v in @[ icon, title, count ]) {
@@ -879,8 +879,8 @@ void showSlots(int dxcc, const std::string &entity, const std::string &call) {
     }
     const MapPalette &pal = adif::mapPalette(mw.view.style.palette);
     const adif::WorkedIndex &w = mw.view.worked;
-    NSFont *font = [NSFont monospacedDigitSystemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightRegular];
-    NSFont *bold = [NSFont monospacedDigitSystemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightBold];
+    NSFont *font = theme::digits(NSFont.smallSystemFontSize, NSFontWeightRegular);
+    NSFont *bold = theme::digits(NSFont.smallSystemFontSize, NSFontWeightBold);
     NSMutableAttributedString *out = [[NSMutableAttributedString alloc] init];
     auto add = [&](const std::string &text, NSColor *colour, NSFont *f) {
         [out appendAttributedString:[[NSAttributedString alloc] initWithString:ADIFString(text)
@@ -889,7 +889,7 @@ void showSlots(int dxcc, const std::string &entity, const std::string &call) {
     auto colourOf = [&](adif::SlotState st) {
         return st == adif::SlotState::Confirmed ? rgb(pal.confirmed) : st == adif::SlotState::Worked ? rgb(pal.worked) : faintInk();
     };
-    add(entity + ":  ", NSColor.secondaryLabelColor, [NSFont systemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightSemibold]);
+    add(entity + ":  ", NSColor.secondaryLabelColor, theme::small(NSFontWeightSemibold));
     for (const auto &[band, st] : adif::bandSlots(w, dxcc)) {
         std::string b = band.size() > 1 && band.back() == 'm' && isdigit((unsigned char)band[band.size() - 2]) ? band.substr(0, band.size() - 1) : band;
         add(b + " ", colourOf(st), st == adif::SlotState::None ? font : bold);
@@ -909,7 +909,7 @@ void showSlots(int dxcc, const std::string &entity, const std::string &call) {
         std::string worked = c == w.calls.end() ? trf("{call} not in this log", {{"call", call}})
                                                 : trp("{call}: {n} QSO", "{call}: {n} QSOs", (long long)c->second.qsos, {{"call", call}}) +
                                                       (c->second.confirmed ? ", " + tr("confirmed") : "");
-        add("  \u00B7  " + worked, NSColor.secondaryLabelColor, [NSFont systemFontOfSize:NSFont.smallSystemFontSize]);
+        add("  \u00B7  " + worked, NSColor.secondaryLabelColor, theme::small());
     }
     mw.slots.attributedStringValue = out;
 }
@@ -1263,7 +1263,7 @@ void showChosenFacts(const ADIFMapHit &h) {
         icon.symbolConfiguration = [NSImageSymbolConfiguration configurationWithPointSize:NSFont.smallSystemFontSize weight:NSFontWeightRegular];
         [icon.widthAnchor constraintEqualToConstant:16].active = YES;
         NSTextField *l = [NSTextField labelWithString:ADIFString(f.label)];
-        l.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        l.font = theme::small();
         l.textColor = NSColor.secondaryLabelColor;
         NSStackView *name = [NSStackView stackViewWithViews:@[ icon, l ]];
         name.spacing = 5;
@@ -1316,7 +1316,7 @@ void showChosenFacts(const ADIFMapHit &h) {
     mw.detailsSection.hidden = details.empty();
     if (!details.empty()) {
         NSMutableAttributedString *out = [[NSMutableAttributedString alloc] init];
-        NSFont *plain = [NSFont systemFontOfSize:NSFont.smallSystemFontSize], *head = [NSFont systemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightSemibold];
+        NSFont *plain = theme::small(), *head = theme::small(NSFontWeightSemibold);
         std::string rest = details;
         while (!rest.empty()) {
             size_t nl = rest.find('\n');
@@ -1864,13 +1864,13 @@ NSView *solarPopoverView() {
         for (const auto &[label, value] : rows) {
             NSTextField *l = [NSTextField labelWithString:ADIFString(label)], *v = [NSTextField labelWithString:ADIFString(value.empty() ? tr("Unavailable") : value)];
             l.textColor = NSColor.secondaryLabelColor;
-            v.font = [NSFont monospacedDigitSystemFontOfSize:NSFont.systemFontSize weight:NSFontWeightRegular];
+            v.font = theme::digits(NSFont.systemFontSize, NSFontWeightRegular);
             [grid addRowWithViews:@[ l, v ]];
         }
         [grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
         [parts addObject:grid];
         NSTextField *status = [NSTextField wrappingLabelWithString:ADIFString(solar::status())];
-        status.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        status.font = theme::small();
         status.textColor = NSColor.secondaryLabelColor;
         status.identifier = @"map.solar.status";
         [status.widthAnchor constraintLessThanOrEqualToConstant:340].active = YES;
@@ -1905,6 +1905,7 @@ void showSolarPopover() {
     }
     NSView *content = solarPopoverView();
     mw.solarPopover.contentViewController.view = content;
+    theme::hostPopover(mw.solarPopover);
     [content layoutSubtreeIfNeeded];
     NSSize fit = content.fittingSize;
     mw.solarPopover.contentSize = NSMakeSize(std::max<CGFloat>(fit.width, 320) + 16, fit.height);  // room for the checkbox's whole title
@@ -2134,7 +2135,7 @@ NSView *buildStyleOptions() {
     auto section = [&](NSString *ident, NSString *title, NSString *symbol) { groups.push_back({ident, title, symbol, [NSMutableArray array]}); };
     auto note = [&](NSString *text) {  // a label over the boxes after it
         NSTextField *t = ADIFLabel(text);
-        t.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        t.font = theme::small();
         t.textColor = NSColor.secondaryLabelColor;
         [groups.back().views addObject:t];
     };
@@ -2763,7 +2764,7 @@ void fillFilterChips() {
         NSButton *b = [NSButton buttonWithTitle:ADIFString(title + "  \u2715") target:nil action:nil];
         b.bezelStyle = NSBezelStyleInline;
         b.controlSize = NSControlSizeSmall;
-        b.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        b.font = theme::small();
         b.toolTip = T(@"Remove this filter");
         b.accessibilityLabel = TF(@"Remove the filter {name}", @{@"name" : ADIFString(title)});
         b.identifier = @"map.chip";
@@ -3046,7 +3047,7 @@ void showMoreFilters() {
         // In groups, each under its heading: where, how far, the programs, which records.
         auto group = [](NSString *title) {
             NSTextField *t = ADIFLabel(title);
-            t.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightSemibold];
+            t.font = theme::small(NSFontWeightSemibold);
             t.textColor = NSColor.secondaryLabelColor;
             return t;
         };
@@ -3074,7 +3075,7 @@ void showMoreFilters() {
                                                                  @"this kind: within a line any of its values, and every line that has "
                                                                  @"values. Changes apply as you make them. Band, mode, dates and "
                                                                  @"confirmation are in the toolbar (in Live, the spots' age and source too).")];
-        help.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        help.font = theme::small();
         help.textColor = NSColor.secondaryLabelColor;
         help.translatesAutoresizingMaskIntoConstraints = NO;
         NSView *content = [[NSView alloc] initWithFrame:NSZeroRect];
@@ -3097,7 +3098,7 @@ void showMoreFilters() {
         vc.view = content;
         mw.filterPopover = [[NSPopover alloc] init];
         mw.filterPopover.contentViewController = vc;
-        ADIFNightTrackPopover(mw.filterPopover);
+        theme::hostPopover(mw.filterPopover);
         mw.filterPopover.behavior = NSPopoverBehaviorTransient;
     }
     fillPlaceControls();
@@ -3143,7 +3144,7 @@ void showDateRange() {
         NSStackView *row = [NSStackView stackViewWithViews:@[ ADIFLabel(@"From:"), mw.dateFrom, ADIFLabel(@"To:"), mw.dateTo ]];
         row.spacing = 8;
         NSTextField *help = [NSTextField wrappingLabelWithString:T(@"The QSOs from the first day to the last, both included (UTC, as QSO_DATE has them).")];
-        help.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        help.font = theme::small();
         help.textColor = NSColor.secondaryLabelColor;
         NSStackView *stack = [NSStackView stackViewWithViews:@[ help, row ]];
         stack.orientation = NSUserInterfaceLayoutOrientationVertical;
@@ -3156,7 +3157,7 @@ void showDateRange() {
         vc.view = stack;
         mw.datesPopover = [[NSPopover alloc] init];
         mw.datesPopover.contentViewController = vc;
-        ADIFNightTrackPopover(mw.datesPopover);
+        theme::hostPopover(mw.datesPopover);
         mw.datesPopover.behavior = NSPopoverBehaviorTransient;
     }
     // As last chosen; the first time, this year so far.
@@ -3504,7 +3505,7 @@ void fillAwards() {
         }
         std::string count = grouped(a.have) + (a.goal ? " / " + grouped(a.goal) : a.total ? " " + trf("of {n}", {{"n", grouped(a.total)}}) : "");
         NSTextField *n = [NSTextField labelWithString:ADIFString(count)];
-        n.font = [NSFont monospacedDigitSystemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightMedium];
+        n.font = theme::digits(NSFont.smallSystemFontSize, NSFontWeightMedium);
         n.alignment = NSTextAlignmentRight;
         n.toolTip = name.toolTip;
         NSProgressIndicator *bar = [[NSProgressIndicator alloc] initWithFrame:NSZeroRect];
@@ -3663,7 +3664,7 @@ void fillRecentSpots() {
         call.bordered = NO;
         call.attributedTitle = [[NSAttributedString alloc]
             initWithString:ADIFString(activator)
-                attributes:@{NSFontAttributeName : [NSFont systemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightSemibold],
+                attributes:@{NSFontAttributeName : theme::small(NSFontWeightSemibold),
                              NSForegroundColorAttributeName : old ? faintInk() : NSColor.linkColor}];
         call.identifier = [NSString stringWithFormat:@"map.recent.%zu", i];
         ADIFOnAction(call, ^{  // the spot (found again: the spots may have changed), chosen on the map
@@ -3678,7 +3679,7 @@ void fillRecentSpots() {
         });
         auto cell = [&](const std::string &text, bool right) {
             NSTextField *f = [NSTextField labelWithString:ADIFString(text)];
-            f.font = [NSFont monospacedDigitSystemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightRegular];
+            f.font = theme::digits(NSFont.smallSystemFontSize, NSFontWeightRegular);
             f.textColor = ink;
             f.alignment = right ? NSTextAlignmentRight : NSTextAlignmentLeft;
             return f;
@@ -3706,7 +3707,7 @@ void showSpotsPopover() {
     if (!mw.spotsPopover) {
         NSTextField *help = [NSTextField wrappingLabelWithString:T(@"The spots the Spots layer shows. Where they come from is set in Settings (Spots); "
                                                                  @"the Map's band, mode and place filters apply to them too.")];
-        help.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        help.font = theme::small();
         help.textColor = NSColor.secondaryLabelColor;
         NSMutableArray *ageTitles = [NSMutableArray array];
         for (const char *t : kSpotAgeTitles) [ageTitles addObject:@(t)];
@@ -3740,7 +3741,7 @@ void showSpotsPopover() {
             refreshSpots();
         });
         mw.spotStatus = [NSTextField wrappingLabelWithString:@""];
-        mw.spotStatus.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        mw.spotStatus.font = theme::small();
         mw.spotStatus.textColor = NSColor.secondaryLabelColor;
         mw.spotStatus.identifier = @"map.spots.status";
         NSButton *settings = [NSButton buttonWithTitle:T(@"Settings...") target:nil action:nil];
@@ -3776,7 +3777,7 @@ void showSpotsPopover() {
         vc.view = content;
         mw.spotsPopover = [[NSPopover alloc] init];
         mw.spotsPopover.contentViewController = vc;
-        ADIFNightTrackPopover(mw.spotsPopover);
+        theme::hostPopover(mw.spotsPopover);
         mw.spotsPopover.behavior = NSPopoverBehaviorTransient;
     }
     fillSpotsPopover();
@@ -3962,7 +3963,7 @@ void showParkPlaces() {
             wrappingLabelWithString:T(@"Fewer POTA parks you haven't worked, on the map and in the list beside it: only those in these POTA "
                                       @"locations (US states, Canadian provinces, other countries' regions, as POTA names them) and, in a US "
                                       @"state, these counties. It starts at your station's location; the parks you worked always show.")];
-        help.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        help.font = theme::small();
         help.textColor = NSColor.secondaryLabelColor;
         help.translatesAutoresizingMaskIntoConstraints = NO;
         NSView *content = [[NSView alloc] initWithFrame:NSZeroRect];
@@ -3983,7 +3984,7 @@ void showParkPlaces() {
         vc.view = content;
         mw.parkPlacesPopover = [[NSPopover alloc] init];
         mw.parkPlacesPopover.contentViewController = vc;
-        ADIFNightTrackPopover(mw.parkPlacesPopover);
+        theme::hostPopover(mw.parkPlacesPopover);
         mw.parkPlacesPopover.behavior = NSPopoverBehaviorTransient;
     }
     fillParkPlaces();
@@ -4786,7 +4787,7 @@ void showSituation() {
     auto number = [](const std::string &text, bool head) {
         NSTextField *f = [NSTextField labelWithString:ADIFString(text)];
         f.font = head ? [NSFont systemFontOfSize:NSFont.smallSystemFontSize - 1 weight:NSFontWeightMedium]
-                      : [NSFont monospacedDigitSystemFontOfSize:NSFont.smallSystemFontSize + 1 weight:NSFontWeightMedium];
+                      : theme::digits(NSFont.smallSystemFontSize + 1, NSFontWeightMedium);
         f.textColor = head ? NSColor.secondaryLabelColor : NSColor.labelColor;
         f.alignment = NSTextAlignmentRight;
         return f;
@@ -4875,10 +4876,10 @@ void showSituation() {
         b.bordered = NO;
         NSMutableAttributedString *t = [[NSMutableAttributedString alloc]
             initWithString:ADIFString(activator)
-                attributes:@{NSFontAttributeName : [NSFont systemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightSemibold],
+                attributes:@{NSFontAttributeName : theme::small(NSFontWeightSemibold),
                              NSForegroundColorAttributeName : NSColor.linkColor}];
         [t appendAttributedString:[[NSAttributedString alloc] initWithString:ADIFString(" " + band + " " + need)
-                                                                  attributes:@{NSFontAttributeName : [NSFont systemFontOfSize:NSFont.smallSystemFontSize],
+                                                                  attributes:@{NSFontAttributeName : theme::small(),
                                                                                NSForegroundColorAttributeName : [mw.view spotColor:ms]}]];
         b.attributedTitle = t;
         b.identifier = [NSString stringWithFormat:@"map.wanted.%zu", i];
@@ -4899,7 +4900,7 @@ void showSituation() {
     }
     if (wanted.size() > 6) {
         NSTextField *more = [NSTextField labelWithString:TF(@"and {n} more", @{@"n" : @(wanted.size() - 6)})];
-        more.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        more.font = theme::small();
         more.textColor = NSColor.secondaryLabelColor;
         [mw.wanted addArrangedSubview:more];
     }
@@ -5471,7 +5472,7 @@ void showSaveView(NSView *anchor) {
         });
         NSTextField *help = [NSTextField wrappingLabelWithString:T(@"A Quick View of your own, in this workflow: the layers, colours and filters as "
                                                                    @"they are now, and in Live which spots show.")];
-        help.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        help.font = theme::small();
         help.textColor = NSColor.secondaryLabelColor;
         NSStackView *line = [NSStackView stackViewWithViews:@[ mw.saveViewName, save ]];
         line.spacing = 8;
@@ -5486,7 +5487,7 @@ void showSaveView(NSView *anchor) {
         vc.view = stack;
         mw.saveViewPopover = [[NSPopover alloc] init];
         mw.saveViewPopover.contentViewController = vc;
-        ADIFNightTrackPopover(mw.saveViewPopover);
+        theme::hostPopover(mw.saveViewPopover);
         mw.saveViewPopover.behavior = NSPopoverBehaviorTransient;
     }
     mw.saveViewName.stringValue = @"";
@@ -5832,15 +5833,7 @@ std::pair<std::string, std::string> describeStyleSetting(const std::string &key,
 
 // Each style's colour, on its segment when chosen: Social purple (people), Chasing orange (the hunt),
 // Contest red (competition), Portable green (outdoors). Apart from the workflows' blue.
-NSColor *styleColour(styles::OperatingStyle s) {
-    switch (s) {
-        case styles::OperatingStyle::Social: return NSColor.systemPurpleColor;
-        case styles::OperatingStyle::Chasing: return NSColor.systemOrangeColor;
-        case styles::OperatingStyle::Contest: return NSColor.systemRedColor;
-        case styles::OperatingStyle::Portable: break;
-    }
-    return NSColor.systemGreenColor;
-}
+NSColor *styleColour(styles::OperatingStyle s) { return theme::styleAccent((int)s); }  // Theme.h's accents
 
 static NSString *const kStyleTips[styles::kStyleCount] = {
     N(@"Social: a comfortable QSO with context. Your log's contacts and lines to them, with distance and bearing; spots quiet"),
@@ -5998,6 +5991,7 @@ void showStyleInfo() {
     pop = [[NSPopover alloc] init];
     pop.behavior = NSPopoverBehaviorTransient;
     pop.contentViewController = vc;
+    theme::hostPopover(pop);
     [body layoutSubtreeIfNeeded];
     CGFloat wide = 0;
     for (NSView *v in parts) wide = std::max(wide, std::min<CGFloat>(380, v.fittingSize.width));
@@ -6173,7 +6167,7 @@ void showWatchList(NSView *anchor) {
             wrappingLabelWithString:T(@"Calls, references (a POTA park, an IOTA group...) and DXCC entities to watch for. When one is spotted, it "
                                       @"shows in My watch list (Live's Quick Views), first among the spots with a star, and under the bell at "
                                       @"the top. Watch in the selected panel adds what you chose.")];
-        help.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        help.font = theme::small();
         help.textColor = NSColor.secondaryLabelColor;
         help.translatesAutoresizingMaskIntoConstraints = NO;
         NSView *content = [[NSView alloc] initWithFrame:NSZeroRect];
@@ -6194,7 +6188,7 @@ void showWatchList(NSView *anchor) {
         vc.view = content;
         mw.watchPopover = [[NSPopover alloc] init];
         mw.watchPopover.contentViewController = vc;
-        ADIFNightTrackPopover(mw.watchPopover);
+        theme::hostPopover(mw.watchPopover);
         mw.watchPopover.behavior = NSPopoverBehaviorTransient;
     }
     fillWatchList();
@@ -6724,7 +6718,6 @@ void cmdMap() {
         ((ADIFMapWindow *)mw.window).dockItem = kDockMap;
         mw.window.title = T(@"Map");
         mw.window.identifier = @"map.window";  // its title names the log
-        ADIFNightTrack(mw.window);
         mw.window.releasedWhenClosed = NO;
         mw.window.collectionBehavior |= NSWindowCollectionBehaviorFullScreenPrimary;
         mw.window.contentMinSize = NSMakeSize(1100, 700);
@@ -6741,7 +6734,7 @@ void cmdMap() {
         };
         auto heading = [](NSString *text, NSFontWeight weight) {  // a column's or a section's title
             NSTextField *t = ADIFLabel(text);
-            t.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize weight:weight];
+            t.font = theme::small(weight);
             t.textColor = NSColor.secondaryLabelColor;
             return t;
         };
@@ -7136,7 +7129,7 @@ void cmdMap() {
         });
         mw.listFrom = ADIFPopup(@[ @"Your station", @"Map centre", @"Grid square:" ]);
         mw.listFrom.controlSize = NSControlSizeSmall;
-        mw.listFrom.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        mw.listFrom.font = theme::small();
         mw.listFrom.autoenablesItems = NO;
         [mw.listFrom selectItemAtIndex:number("mapListFrom", 0, 2)];
         mw.listFrom.toolTip = T(@"Where the distances and bearings are from, and so what comes first: your station's grid (Settings, Your "
@@ -7203,7 +7196,7 @@ void cmdMap() {
         listScroll.autohidesScrollers = YES;
         listScroll.borderType = NSBezelBorder;
         mw.listHint = [NSTextField labelWithString:@""];  // one line in the list's footer; all of it as its tooltip
-        mw.listHint.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        mw.listHint.font = theme::small();
         mw.listHint.textColor = NSColor.secondaryLabelColor;
         mw.listHint.lineBreakMode = NSLineBreakByTruncatingTail;
         [mw.listHint setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow - 1 forOrientation:NSLayoutConstraintOrientationHorizontal];
@@ -7261,7 +7254,7 @@ void cmdMap() {
         mw.status = [NSTextField wrappingLabelWithString:@""];
         mw.status.identifier = @"map.status";
         mw.status.maximumNumberOfLines = 16;
-        mw.status.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        mw.status.font = theme::small();
         mw.useSpot = smallButton(@"New QSO", @"Fill New QSO with the spot chosen on the map: its call, frequency, band, mode and reference",
                                  ^{ useSelectedSpot(); });
         mw.useSpot.image = [NSImage imageWithSystemSymbolName:@"plus.circle" accessibilityDescription:nil];
@@ -7288,7 +7281,7 @@ void cmdMap() {
         mw.listNext.imagePosition = NSImageOnly;
         mw.listNext.identifier = @"map.list.next";
         mw.listPageLabel = ADIFLabel(@"");
-        mw.listPageLabel.font = [NSFont monospacedDigitSystemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightRegular];
+        mw.listPageLabel.font = theme::digits(NSFont.smallSystemFontSize, NSFontWeightRegular);
         mw.listPageLabel.identifier = @"map.list.page";
         mw.listPageSize = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
         for (int n : {25, 50, 100, 250, 500}) [mw.listPageSize.menu addItemWithTitle:TF(@"{n} a page", @{@"n" : @(n)}) action:nil keyEquivalent:@""].tag = n;
@@ -7331,7 +7324,7 @@ void cmdMap() {
         mw.listSearch.toolTip = T(@"Keep the rows with this in any column shown (or in the call, reference, name, park, country or grid)");
         mw.listSearch.identifier = @"map.list.search";
         mw.listSearch.controlSize = NSControlSizeSmall;
-        mw.listSearch.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        mw.listSearch.font = theme::small();
         [mw.listSearch setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
         ADIFOnAction(mw.listSearch, ^{
             mw.listPage[mw.listKind.selectedSegment] = 0;
@@ -7342,7 +7335,7 @@ void cmdMap() {
         for (int n : {10, 25, 50, 100, 250, 500, 1000}) [mw.listWithin.menu addItemWithTitle:@"" action:nil keyEquivalent:@""].tag = n;
         if (![mw.listWithin selectItemWithTag:std::atoi(setting("mapListWithin").c_str())]) [mw.listWithin selectItemAtIndex:0];
         mw.listWithin.controlSize = NSControlSizeSmall;
-        mw.listWithin.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        mw.listWithin.font = theme::small();
         mw.listWithin.toolTip = T(@"Keep the rows within this distance of where the list measures from (Nearest to)");
         mw.listWithin.identifier = @"map.list.within";
         for (NSMenuItem *item in mw.listWithin.itemArray)  // titled now; again by the list, as the units change
@@ -7360,7 +7353,7 @@ void cmdMap() {
         for (NSView *v in @[ mw.listKind, mw.listTitle ]) [listTop addView:v inGravity:NSStackViewGravityLeading];
         mw.listSortMenu = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
         mw.listSortMenu.controlSize = NSControlSizeSmall;
-        mw.listSortMenu.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        mw.listSortMenu.font = theme::small();
         mw.listSortMenu.toolTip = T(@"How the list is sorted (click a column's title to sort by it)");
         mw.listSortMenu.identifier = @"map.list.sort";
         ADIFOnAction(mw.listSortMenu, ^{
@@ -7381,7 +7374,7 @@ void cmdMap() {
         listTop.detachesHiddenViews = YES;
         mw.listBack = [NSButton buttonWithTitle:@"" target:nil action:nil];
         mw.listBack.bordered = NO;
-        mw.listBack.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        mw.listBack.font = theme::small();
         mw.listBack.contentTintColor = NSColor.linkColor;
         mw.listBack.toolTip = T(@"A click on the map showed its QSOs here; back to what the list showed");
         mw.listBack.identifier = @"map.list.back";
@@ -7393,7 +7386,7 @@ void cmdMap() {
         });
         [listTop insertView:mw.listBack atIndex:1 inGravity:NSStackViewGravityLeading];
         mw.listKind.controlSize = NSControlSizeSmall;
-        mw.listKind.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        mw.listKind.font = theme::small();
         [mw.listKind setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
         NSLayoutConstraint *searchWidth = [mw.listSearch.widthAnchor constraintEqualToConstant:220];
         searchWidth.priority = NSLayoutPriorityDefaultLow - 1;  // the tabs whole first
@@ -7404,7 +7397,7 @@ void cmdMap() {
         listFooter.spacing = 6;
         listFooter.identifier = @"map.list.footer";
         NSTextField *nearestTo = ADIFLabel(@"Nearest to:");
-        nearestTo.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        nearestTo.font = theme::small();
         for (NSView *v in @[ mw.listPrev, mw.listPageLabel, mw.listNext, nearestTo, mw.listFrom, mw.listGrid, mw.listUnits, mw.listWithin, mw.listHint ])
             [listFooter addView:v inGravity:NSStackViewGravityLeading];  // how far: beside where from and the units
         [listFooter setCustomSpacing:14 afterView:mw.listNext];
@@ -7594,7 +7587,7 @@ void cmdMap() {
         fillBell();
         mw.synced = [NSButton buttonWithTitle:@"" target:nil action:nil];
         mw.synced.bordered = NO;
-        mw.synced.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        mw.synced.font = theme::small();
         mw.synced.contentTintColor = NSColor.secondaryLabelColor;
         mw.synced.image = [NSImage imageWithSystemSymbolName:@"arrow.triangle.2.circlepath" accessibilityDescription:nil];
         mw.synced.imagePosition = NSImageLeading;
@@ -7620,7 +7613,7 @@ void cmdMap() {
         // Space weather: the indices from NOAA SWPC, once turned on in its popover.
         mw.solarTile = [NSButton buttonWithTitle:@"" target:nil action:nil];
         mw.solarTile.bordered = NO;
-        mw.solarTile.font = [NSFont monospacedDigitSystemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightMedium];
+        mw.solarTile.font = theme::digits(NSFont.smallSystemFontSize, NSFontWeightMedium);
         mw.solarTile.image = [NSImage imageWithSystemSymbolName:@"sun.max" accessibilityDescription:nil];
         mw.solarTile.imagePosition = NSImageLeading;
         mw.solarTile.identifier = @"map.solar";
@@ -7645,7 +7638,7 @@ void cmdMap() {
         // What the map shows (in the status bar, under the map): History's QSOs and their dates; Live's
         // stations, a dot of the feeds' health, and a click for Sources and Filters.
         mw.scopeLabel = [NSTextField labelWithString:@""];
-        mw.scopeLabel.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightMedium];
+        mw.scopeLabel.font = theme::small(NSFontWeightMedium);
         mw.scopeLabel.lineBreakMode = NSLineBreakByTruncatingTail;
         mw.scopeLabel.identifier = @"map.scope";
         ADIFOnClick(mw.scopeLabel, ^{
@@ -7668,7 +7661,7 @@ void cmdMap() {
         for (NSControl *c in @[ mw.band, mw.mode, mw.dates, mw.confirmed, mw.dxccBar, mw.potaBar, mw.spotAgeBar, mw.spotSourceBar, mw.continentPopup, mw.moreFilters,
                                 mw.clearFilters ]) {
             c.controlSize = NSControlSizeSmall;
-            c.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+            c.font = theme::small();
         }
         auto cluster = [](NSArray<NSView *> *views) {
             NSStackView *c = [NSStackView stackViewWithViews:views];
@@ -7764,7 +7757,7 @@ void cmdMap() {
         saveView.imagePosition = NSImageLeading;
         saveView.bordered = NO;
         saveView.contentTintColor = NSColor.linkColor;
-        saveView.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        saveView.font = theme::small();
         saveView.identifier = @"map.views.save";
         mw.viewsMenu = [[NSMenu alloc] init];
         mw.viewsMenu.delegate = mw.listRows;  // which fills it (fillViewsMenu)
@@ -7888,7 +7881,7 @@ void cmdMap() {
         mw.terrainStrength = ADIFPopup(@[ @"Subtle##terrain", @"Strong##terrain" ]);
         mw.terrainStrength.identifier = @"map.terrain.strength";
         mw.terrainStrength.controlSize = NSControlSizeSmall;
-        mw.terrainStrength.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        mw.terrainStrength.font = theme::small();
         mw.terrainStrength.toolTip = T(@"How strongly the terrain is shaded");
         mw.terrainStrength.accessibilityLabel = T(@"Terrain strength");
         [mw.terrainStrength selectItemAtIndex:std::clamp(number("mapTerrainStrength", terrain ? terrain - 1 : 0, 1), 0, 1)];
@@ -7991,7 +7984,7 @@ void cmdMap() {
             NSTextField *f = [NSTextField wrappingLabelWithString:@""];
             f.identifier = ident;
             f.maximumNumberOfLines = lines;
-            f.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+            f.font = theme::small();
             return f;
         };
         mw.situation = small(@"map.situation", 8);
@@ -8001,7 +7994,7 @@ void cmdMap() {
         mw.statHost = [[NSView alloc] initWithFrame:NSZeroRect];
         mw.air = small(@"map.air", 4);
         mw.wantedLabel = [NSTextField wrappingLabelWithString:@""];
-        mw.wantedLabel.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        mw.wantedLabel.font = theme::small();
         mw.wanted = [NSStackView stackViewWithViews:@[ mw.wantedLabel ]];
         mw.wanted.orientation = NSUserInterfaceLayoutOrientationVertical;
         mw.wanted.alignment = NSLayoutAttributeLeading;
@@ -8065,7 +8058,7 @@ void cmdMap() {
         mw.chosenFacts.hidden = YES;
         mw.whyList = rows(@[], 5);
         NSTextField *whyCaption = [NSTextField labelWithString:T(@"Why it's interesting")];  // sentence style, as the cards' groups
-        whyCaption.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightSemibold];
+        whyCaption.font = theme::small(NSFontWeightSemibold);
         NSStackView *whyStack = rows(@[ whyCaption, mw.whyList ], 6);
         [mw.whyList.widthAnchor constraintEqualToAnchor:whyStack.widthAnchor].active = YES;
         mw.whyBox = [[ADIFInsetBox alloc] initWithTint:NSColor.systemGreenColor];  // set apart by a green tint, not a border
@@ -8104,7 +8097,7 @@ void cmdMap() {
             fillViewList();
         });
         allSpots.bordered = NO;
-        allSpots.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        allSpots.font = theme::small();
         allSpots.contentTintColor = NSColor.linkColor;
         allSpots.identifier = @"map.recent.all";
         mw.recentHost = [[NSView alloc] initWithFrame:NSZeroRect];
@@ -8117,7 +8110,7 @@ void cmdMap() {
         mw.recentSection = recentSection;
         // Live's Band conditions, a group in Situation (remembered).
         mw.bandLine = [NSTextField wrappingLabelWithString:@""];
-        mw.bandLine.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        mw.bandLine.font = theme::small();
         mw.bandLine.identifier = @"map.bands.line";
         mw.bandHost = [[NSView alloc] initWithFrame:NSZeroRect];
         NSStackView *bandBody = rows(@[ mw.bandLine, mw.bandHost ], 6);
@@ -8189,7 +8182,7 @@ void cmdMap() {
         mapButton(fit, @"viewfinder", N(@"Fit Log"));
         mapButton(world, @"globe", N(@"World"));
         mapButton(home, @"house", N(@"Home"));
-        mw.zoomLabel.font = [NSFont monospacedDigitSystemFontOfSize:10 weight:NSFontWeightMedium];
+        mw.zoomLabel.font = theme::digits(10, NSFontWeightMedium);
         mw.zoomLabel.alignment = NSTextAlignmentCenter;
         mw.zoomLabel.textColor = NSColor.secondaryLabelColor;
         NSBox *navRule = [[NSBox alloc] initWithFrame:NSZeroRect];
@@ -8223,7 +8216,7 @@ void cmdMap() {
 
         // The status bar: what the map shows (the feeds' health in Live), then what is under the pointer.
         mw.hover = [NSTextField labelWithString:@""];
-        mw.hover.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        mw.hover.font = theme::small();
         mw.hover.textColor = NSColor.secondaryLabelColor;
         mw.hover.lineBreakMode = NSLineBreakByTruncatingTail;
         [mw.hover setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];

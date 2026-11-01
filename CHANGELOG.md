@@ -24,6 +24,8 @@ Versions before 0.8.0 were development builds and were not published.
 
 ### Fixed
 
+- Night Mode: a panel in the Operating Console was put through the red filter twice (its own, then the console's), so it was much darker than the same panel in a window of its own. The console now tints its frames once, and a panel that leaves it gets its own tint back.
+- Night Mode: the styles' Info popover and the space weather popover stayed in colour; every popover now follows Night Mode.
 - QSO Details opened from the Panels menu or the Map's toolbar showed its contact only after the next change in New QSO; it is now worked out as it opens.
 
 ## [1.8.0] - 2026-10-31

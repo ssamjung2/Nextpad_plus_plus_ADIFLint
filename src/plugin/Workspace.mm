@@ -207,14 +207,14 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
     _header = header;
     [self registerForDraggedTypes:@[ kFramePasteboardType ]];
     _title = [NSTextField labelWithString:@""];
-    _title.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightSemibold];
+    _title.font = theme::small(NSFontWeightSemibold);
     _title.textColor = NSColor.secondaryLabelColor;
     _title.lineBreakMode = NSLineBreakByTruncatingTail;
     _title.translatesAutoresizingMaskIntoConstraints = NO;
     [_title setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
     _choice = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     _choice.controlSize = NSControlSizeSmall;
-    _choice.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    _choice.font = theme::small();
     _choice.bordered = NO;
     _choice.translatesAutoresizingMaskIntoConstraints = NO;
     _choice.toolTip = T(@"What this frame shows: choosing one that is in another frame swaps them");
@@ -231,7 +231,7 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
     // Tabs, when the frame holds more than one panel: a click brings that one to the front.
     _tabs = [NSSegmentedControl segmentedControlWithLabels:@[] trackingMode:NSSegmentSwitchTrackingSelectOne target:self action:@selector(tabChosen:)];
     _tabs.controlSize = NSControlSizeSmall;
-    _tabs.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    _tabs.font = theme::small();
     _tabs.segmentStyle = NSSegmentStyleSeparated;
     _tabs.identifier = @"frame.tabs";
     _tabs.accessibilityLabel = T(@"Tabs");
@@ -672,7 +672,7 @@ bool countryBounds(const std::string &call, double *west, double *south, double 
     NSMutableParagraphStyle *cut = [[NSMutableParagraphStyle alloc] init];
     cut.lineBreakMode = NSLineBreakByTruncatingTail;  // one line, ended with "..." in a narrow frame (its tooltip has it all)
     [caption drawInRect:NSMakeRect(kADIFMargin, 4, NSWidth(bounds) - 2 * kADIFMargin, 18)
-         withAttributes:@{NSFontAttributeName : [NSFont systemFontOfSize:NSFont.smallSystemFontSize],
+         withAttributes:@{NSFontAttributeName : theme::small(),
                           NSForegroundColorAttributeName : NSColor.secondaryLabelColor,
                           NSParagraphStyleAttributeName : cut}];
     self.toolTip = caption;
@@ -758,7 +758,7 @@ static NSString *reasonSymbol(int kind, NSColor **colour) {
 
 - (void)show:(const workspace::QsoDetails &)d {
     for (NSView *v in [_stack.arrangedSubviews copy]) [v removeFromSuperview];
-    NSFont *small = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    NSFont *small = theme::small();
     if (d.call.empty()) {
         NSTextField *hint = [self text:tr("Type a call in New QSO: who it is, where, and why the contact is worth having show here, "
                                           "with your QSOs with it.")
@@ -822,7 +822,7 @@ static NSString *reasonSymbol(int kind, NSColor **colour) {
         [self heading:N(@"Your QSOs with this call")];
         std::string lines;
         for (const std::string &h : d.history) lines += (lines.empty() ? "" : "\n") + h;
-        NSTextField *list = [self text:lines font:[NSFont monospacedDigitSystemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightRegular]
+        NSTextField *list = [self text:lines font:theme::digits(NSFont.smallSystemFontSize, NSFontWeightRegular)
                                 colour:NSColor.labelColor];
         list.identifier = @"qsodetails.history";
         [self addFull:list];
@@ -843,7 +843,6 @@ void openAuxWindow(int item) {
         window.title = item == kDockContactMap ? T(@"Contact Map") : T(@"QSO Details");
         window.contentView = item == kDockContactMap ? [[ADIFContactMapView alloc] initWithFrame:NSMakeRect(0, 0, 360, 250)]
                                                      : [[ADIFQsoDetailsView alloc] initWithFrame:NSMakeRect(0, 0, 360, 250)];
-        ADIFNightTrack(window);
         [[NSNotificationCenter defaultCenter] addObserverForName:NSWindowWillCloseNotification  // closed (or its frame): the Map's button follows
                                                           object:window
                                                            queue:nil
@@ -1038,7 +1037,7 @@ void openAuxWindow(int item) {
     _host.collectionBehavior |= NSWindowCollectionBehaviorFullScreenPrimary;
     _host.autorecalculatesKeyViewLoop = YES;
     _host.delegate = self;
-    ADIFNightTrack(_host);
+    theme::host(_host);  // the console themes its frames, once
     __weak ADIFWorkspace *me = self;
     _host.keyEquivalent = ^BOOL(NSEvent *e) { return [me keyEquivalent:e]; };
     if (![_host setFrameUsingName:@"ADIFLoggingLayout"]) [_host setFrame:(_host.screen ?: NSScreen.mainScreen).visibleFrame display:NO];
@@ -1054,14 +1053,14 @@ void openAuxWindow(int item) {
     statusRule.boxType = NSBoxSeparator;
     statusRule.translatesAutoresizingMaskIntoConstraints = NO;
     _statusText = [NSTextField labelWithString:gStatus.empty() ? @"" : ADIFString(gStatus)];
-    _statusText.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    _statusText.font = theme::small();
     _statusText.textColor = NSColor.secondaryLabelColor;
     _statusText.lineBreakMode = NSLineBreakByTruncatingTail;
     _statusText.identifier = @"loggingLayout.status";
     _statusText.translatesAutoresizingMaskIntoConstraints = NO;
     [_statusText setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
     _statusClock = [NSTextField labelWithString:@""];
-    _statusClock.font = [NSFont monospacedDigitSystemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightRegular];
+    _statusClock.font = theme::digits(NSFont.smallSystemFontSize, NSFontWeightRegular);
     _statusClock.textColor = NSColor.secondaryLabelColor;
     _statusClock.identifier = @"loggingLayout.clock";
     _statusClock.translatesAutoresizingMaskIntoConstraints = NO;
@@ -1224,6 +1223,7 @@ void openAuxWindow(int item) {
         content.translatesAutoresizingMaskIntoConstraints = YES;
         content.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
         w.contentView = content;
+        theme::rehost(w);  // its own look again
     }
     [_content removeObjectForKey:@(item)];
     [_window removeObjectForKey:@(item)];
@@ -1267,6 +1267,7 @@ void openAuxWindow(int item) {
         _content[@(item)] = content;
         _window[@(item)] = [NSValue valueWithNonretainedObject:w];
         w.dockHost = _host;
+        theme::rehost(w);  // the console's look: its content tinted once, by the console
     }
     if (!_batching) {  // shown: its tab to the front
         _layout = layout::bringToFront(_layout, panelOf(item));
@@ -1550,7 +1551,7 @@ void openAuxWindow(int item) {
     title.font = [NSFont boldSystemFontOfSize:NSFont.systemFontSize];
     NSTextField *help = [NSTextField wrappingLabelWithString:T(@"A layout of your own: the console's panels, tabs and frame sizes as they are "
                                                                @"now, and the Map's panes. Console Layout Options lists it with the others.")];
-    help.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    help.font = theme::small();
     help.textColor = NSColor.secondaryLabelColor;
     NSTextField *name = ADIFTextField(@"Name, e.g. Evening on 40m", 300);
     name.identifier = @"layouts.name";
@@ -1597,7 +1598,7 @@ void openAuxWindow(int item) {
     [stack setCustomSpacing:14 afterView:name];
     [buttons.trailingAnchor constraintEqualToAnchor:help.trailingAnchor].active = YES;
     sheet.initialFirstResponder = name;
-    ADIFNightTrack(sheet);
+    theme::host(sheet);
     [_host beginSheet:sheet completionHandler:^(NSModalResponse) { [NSNotificationCenter.defaultCenter removeObserver:observer]; }];
 }
 

@@ -6741,6 +6741,17 @@ int main(int argc, char **argv) {
                 pump(0.2);
                 NSView *spotsContent = popoverView(@"map.spots");
                 CHECK(spotsContent && spotsContent.contentFilters.count == 1, "Night Mode: the Spots popover too");
+                {  // the styles' Info popover too: every popover is hosted by the theme, none opts in on its own
+                    NSPopUpButton *styleActions = (NSPopUpButton *)viewWithIdentifier(mapw.contentView, @"map.operatingStyle.menu");
+                    [styleActions.menu.delegate menuNeedsUpdate:styleActions.menu];
+                    NSInteger at = [styleActions.menu indexOfItemWithTitle:@"Info..."];
+                    if (at > 0) [styleActions.menu performActionForItemAtIndex:at];
+                    pump(0.2);
+                    NSView *infoContent = popoverView(@"map.operatingStyle.info");
+                    CHECK(infoContent && infoContent.contentFilters.count == 1, "Night Mode: the styles' Info popover too");
+                    for (NSWindow *w in [NSApp.windows copy])
+                        if (viewWithIdentifier(w.contentView, @"map.operatingStyle.info")) [w orderOut:nil];
+                }
                 for (NSWindow *w in [NSApp.windows copy])
                     if (viewWithIdentifier(w.contentView, @"map.spots")) [w orderOut:nil];
                 if (mapw) snapshot(mapw, "map-night");
@@ -7163,6 +7174,34 @@ int main(int argc, char **argv) {
                             typeCall(@"");
                             chooseLayout(0);
                             pump(0.3);
+                        }
+                        {  // Night Mode in the console: themed once, by the console; a panel that leaves it themed on its own again
+                            auto filtersAbove = [&](NSView *v) {
+                                int n = 0;
+                                for (NSView *p = v; p; p = p.superview) n += p.contentFilters.count > 0;
+                                return n;
+                            };
+                            chooseLayout(8);  // the Map, the log and New QSO in the console
+                            pump(0.3);
+                            NSView *call = qsoControl(qwL, @"CALL"), *workflow = viewWithIdentifier(mapw0.contentView, @"map.workflow");
+                            run("Night Mode");
+                            pump(0.2);
+                            int qsoOn = filtersAbove(call), mapOn = filtersAbove(workflow);
+                            bool dark = [host.appearance.name isEqualToString:NSAppearanceNameDarkAqua];
+                            chooseLayout(0);  // the Map out of the console
+                            pump(0.3);
+                            run("Map & Explorer...");
+                            pump(0.3);
+                            int alone = filtersAbove(workflow);
+                            bool own = workflow.window == mapw0 && mapw0.visible;
+                            run("Night Mode");
+                            pump(0.2);
+                            CHECK(dark && qsoOn == 1 && mapOn == 1 && own && alone == 1 && filtersAbove(call) == 0 && filtersAbove(workflow) == 0,
+                                  "Night Mode in the console: New QSO and the Map tinted once, by the console (%d, %d); the Map on its own tinted by its "
+                                  "window (%d); off, none (%d, %d)",
+                                  qsoOn, mapOn, alone, filtersAbove(call), filtersAbove(workflow));
+                            [mapw0 performClose:nil];
+                            pump(0.2);
                         }
                         {  // Save Layout As...: the console as it is, the Map's panes too, as a layout of your own; chosen again; deleted
                             NSMenu *options = layouts.firstObject.menu;

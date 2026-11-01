@@ -6,6 +6,8 @@
 
 #import <Cocoa/Cocoa.h>
 
+#import "Theme.h"
+
 #include <functional>
 #include <string>
 #include <utility>
@@ -117,6 +119,10 @@ NSView *content(NSWindow<ADIFDockable> *window);
         return _dockHost ? [_dockHost makeFirstResponder:responder] : [super makeFirstResponder:responder];    \
     }                                                                                                          \
     -(NSScreen *)screen { return _dockHost ? _dockHost.screen : [super screen]; }                              \
+    -(void)orderWindow : (NSWindowOrderingMode)place relativeTo : (NSInteger)other {                           \
+        if (place != NSWindowOut) theme::host(self); /* themed by being shown, with no call of its own */      \
+        [super orderWindow:place relativeTo:other];                                                            \
+    }                                                                                                          \
     -(void)setTitle : (NSString *)title {                                                                      \
         [super setTitle:title];                                                                                \
         workspace::retitle(self);                                                                              \

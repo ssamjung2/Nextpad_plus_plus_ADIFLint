@@ -187,7 +187,7 @@ static NSColor *rgb(int hex) {
     _time = [[ADIFSegmentDisplay alloc] initWithDigitHeight:26];
     _time.lit = lit;
     _date = [NSTextField labelWithString:@""];
-    _date.font = [NSFont monospacedDigitSystemFontOfSize:11 weight:NSFontWeightRegular];
+    _date.font = theme::digits(11, NSFontWeightRegular);
     _date.textColor = _name.textColor;
     NSStackView *top = [NSStackView stackViewWithViews:@[ light, _name ]];
     top.spacing = 6;
@@ -280,7 +280,6 @@ static NSColor *rgb(int hex) {
                                               defer:YES];
     ((ADIFDockWindow *)_window).dockItem = kDockNewQso;
     _window.title = T(@"New QSO");
-    ADIFNightTrack(_window);
     _window.releasedWhenClosed = NO;
     _window.tabbingMode = NSWindowTabbingModeDisallowed;
     _window.delegate = self;
@@ -311,7 +310,7 @@ static NSColor *rgb(int hex) {
     _currentTime.translatesAutoresizingMaskIntoConstraints = NO;
 
     _note = ADIFWrappingLabel();
-    _note.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    _note.font = theme::small();
     _note.textColor = NSColor.secondaryLabelColor;
     _note.maximumNumberOfLines = 3;
     _note.identifier = @"newqso.note";
@@ -384,7 +383,7 @@ static NSColor *rgb(int hex) {
     _spotGrid.rowAlignment = NSGridRowAlignmentFirstBaseline;
     _spotGrid.translatesAutoresizingMaskIntoConstraints = NO;
     _spotStatus = ADIFWrappingLabel();
-    _spotStatus.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    _spotStatus.font = theme::small();
     _spotStatus.textColor = NSColor.secondaryLabelColor;
     _spotStatus.maximumNumberOfLines = 2;
     _spotStatus.cell.truncatesLastVisibleLine = YES;
@@ -528,7 +527,7 @@ static NSColor *rgb(int hex) {
         label.toolTip = ADIFString(row.description);
         NSTextField *control = [self makeControlForRow:row];
         NSTextField *status = [NSTextField labelWithString:@""];
-        status.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        status.font = theme::small();
         status.lineBreakMode = NSLineBreakByTruncatingTail;
         // Cut short (its tooltip has it all), never wider than the panel: the rows' problems take the room left.
         [status setContentCompressionResistancePriority:1 forOrientation:NSLayoutConstraintOrientationHorizontal];
@@ -681,7 +680,7 @@ static NSColor *rgb(int hex) {
     while (_facts.numberOfRows > 0) [_facts removeRowAtIndex:0];
     auto label = [](NSString *text, NSColor *colour) {
         NSTextField *t = [NSTextField labelWithString:text ?: @""];
-        t.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        t.font = theme::small();
         t.textColor = colour;
         t.lineBreakMode = NSLineBreakByTruncatingTail;
         return t;
@@ -714,7 +713,7 @@ static NSColor *rgb(int hex) {
 - (void)setAidsTitle:(NSString *)title rows:(const std::vector<ADIFAidRow> &)rows menu:(NSMenu *)menu hidden:(BOOL)hidden {
     for (NSView *v in [_aids.arrangedSubviews copy]) [_aids removeView:v];
     if (!title) return;
-    NSFont *small = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    NSFont *small = theme::small();
     auto symbolView = [](NSString *name, NSColor *tint) {
         NSImageView *i = [NSImageView imageViewWithImage:[NSImage imageWithSystemSymbolName:name accessibilityDescription:nil] ?: [[NSImage alloc] init]];
         i.symbolConfiguration = [NSImageSymbolConfiguration configurationWithPointSize:NSFont.smallSystemFontSize weight:NSFontWeightRegular];
@@ -738,7 +737,7 @@ static NSColor *rgb(int hex) {
     };
     // The title: what it is and for which style, its menu, Hide or Show.
     NSTextField *head = [NSTextField labelWithString:title];
-    head.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightSemibold];
+    head.font = theme::small(NSFontWeightSemibold);
     head.textColor = NSColor.secondaryLabelColor;
     head.lineBreakMode = NSLineBreakByTruncatingTail;
     head.identifier = @"newqso.aids.title";
