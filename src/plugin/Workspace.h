@@ -21,8 +21,8 @@ enum ADIFDockItem { kDockNone = 0, kDockMap, kDockLog, kDockNewQso, kDockSpots, 
 namespace workspace {
 
 bool active();  // the layout's window is open
-// The menu command: open the layout, or close it. open() puts up the window and shows each item
-// it holds (through setOpener); they dock themselves.
+// The menu command: open the layout, or close it. open() puts up the window and shows each panel
+// it holds (through Panels.h, as the Panels menu would); they dock themselves.
 bool open();  // false when New QSO would not open (it says why) and the layout is not
 bool openActivation();  // the activation preset: New QSO and its log, spots, contact map and details
 bool openLogging();  // restore the focused New QSO, interactive Map and Log Table layout
@@ -30,8 +30,6 @@ void abandon();
 void close();
 NSMenuItem *optionsMenuItem();
 void retitleMenu();
-// How an item's window is created and shown (its menu command), for a frame's item choice.
-void setOpener(int item, std::function<void()> open);
 // Told when the layout opens or closes.
 void setOnChange(std::function<void(bool active)> onChange);
 // The status bar's text (the log, what was last done); the UTC time sits beside it.

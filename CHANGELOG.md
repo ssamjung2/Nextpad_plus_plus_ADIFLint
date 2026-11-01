@@ -9,6 +9,18 @@ Versions before 0.8.0 were development builds and were not published.
 
 ## [Unreleased]
 
+### Added
+
+- Operating Console: an actions menu (**⋯**) in each frame's header: **Add Tab** puts any panel in the frame as a tab (from another frame, or opened into it), **Move to Its Own Frame** gives the tab in front a frame of its own again (a drag couldn't), and **Close** closes it. Everything a drag does can now be done from the keyboard and with VoiceOver.
+
+### Changed
+
+- Operating Console: a frame's menu lists the panels in the Panels menu's order, and the console opens each panel as the Panels menu does.
+
+### Fixed
+
+- QSO Details opened from the Panels menu or the Map's toolbar showed its contact only after the next change in New QSO; it is now worked out as it opens.
+
 ## [1.8.0] - 2026-10-31
 
 ### Added

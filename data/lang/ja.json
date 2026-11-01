@@ -3065,6 +3065,10 @@
   "Frame contents": "フレームの内容",
   "Empty": "空",
   "What this frame shows: choosing one that is in another frame swaps them": "このフレームに表示するもの: 別のフレームにあるものを選ぶと入れ替わります",
-  "Drag a frame by its header onto another frame to swap them, or onto its header to make it a tab there": "フレームの見出しをドラッグして別のフレームに重ねると入れ替わり、その見出しに重ねるとそこにタブとして加わります"
+  "Drag a frame by its header onto another frame to swap them, or onto its header to make it a tab there": "フレームの見出しをドラッグして別のフレームに重ねると入れ替わり、その見出しに重ねるとそこにタブとして加わります",
+  "Add Tab": "タブとして追加",
+  "Frame actions": "フレームの操作",
+  "Frame actions: a panel as a tab here, the tab in front to a frame of its own, close": "フレームの操作: ここにパネルをタブとして追加、前面のタブを専用のフレームへ移動、閉じる",
+  "Move {panel} to Its Own Frame": "{panel} を専用のフレームへ移動"
  }
 }

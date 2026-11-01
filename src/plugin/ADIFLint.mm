@@ -507,6 +507,7 @@ static bool qsoVisible();
 static void loadQsoRows(NppHandle h, const adif::LintResult &r, bool keepValues, bool keepStation = true);
 static void refreshQsoTarget();
 static void scheduleQsoCheck();
+static void updateQsoDetails();
 
 namespace adifhost {
 NppHandle scintilla() { return currentScintilla(); }
@@ -598,6 +599,10 @@ std::vector<std::string> openFiles(bool *known) {
 }
 
 void openNewQso() { cmdNewQso(); }
+void openQsoDetails() {
+    workspace::openQsoInfo();
+    updateQsoDetails();  // worked out only while it is open
+}
 bool newQsoShown() { return qsoVisible(); }
 void toggleNewQso() {
     if (!qsoVisible()) return cmdNewQso();
@@ -3645,15 +3650,6 @@ extern "C" NPP_EXPORT void beNotified(SCNotification *n) {
                 g.ready = true;
                 logtools::setIndexListener(^{
                     if (qsoVisible()) scheduleQsoCheck();
-                });
-                workspace::setOpener(kDockMap, [] { worldmap::cmdMap(); });
-                workspace::setOpener(kDockNewQso, [] { cmdNewQso(); });
-                workspace::setOpener(kDockLog, [] { logtools::cmdLogTable(); });
-                workspace::setOpener(kDockSpots, [] { logtools::cmdPotaSpots(); });
-                workspace::setOpener(kDockContactMap, [] { workspace::openContactMap(); });
-                workspace::setOpener(kDockQsoInfo, [] {
-                    workspace::openQsoInfo();
-                    updateQsoDetails();  // worked out only while it is open
                 });
                 logtools::setSpotHandler(^(const std::vector<std::pair<std::string, std::string>> &fields) { useSpot(fields); });
                 worldmap::setSpotHandler(^(const std::vector<std::pair<std::string, std::string>> &fields) { useSpot(fields); });

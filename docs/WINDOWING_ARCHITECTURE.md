@@ -275,9 +275,11 @@ alone doesn't express); panes inside a panel may use `NSSplitViewItem` where it 
   one panel. Dropping a frame on another's header makes it a tab there (`moveToTab`); on its
   body the two swap. Divider drags are saved as shares; the old per-split autosaved sizes are
   no longer read, so sizes start afresh once. The tree is rebuilt only when its shape changes.
-  Choosing a layout always applies it, the ticked one too. Not yet: a keyboard and VoiceOver
-  way to make a tab (the header's menu only swaps); the Panels menu and the frames' menus
-  through one command table.
+  Choosing a layout always applies it, the ticked one too.
+- **Phase B, complete** (2026-10-31): each frame's actions menu (Add Tab, Move to Its Own
+  Frame, Close), so every drag has a command for the keyboard and VoiceOver; the console's
+  frame menus, panel names and openers come from the registry (`setOpener` and the console's
+  own names retired), and QSO Details is worked out as it opens however it is opened.
   Next (Phase C): the Layouts menu (Save Layout As…, your own layouts) and the Map's panes in
   the arrangement.
 

@@ -263,7 +263,10 @@ them. You can also drag a frame by its header: drop it on another frame's body t
 or on another frame's header to make it a **tab** there (the header is highlighted while a drop
 there would do that). A frame with tabs shows them in its header in place of its menu; click a
 tab to bring its panel to the front. The panels behind a tab stay open, and the frame's close
-button closes the one in front. Choosing a layout in Console Layout Options, the one ticked
+button closes the one in front. The **⋯** button in a frame's header does the same from the
+keyboard and with VoiceOver: **Add Tab** puts another panel in the frame as a tab (from its own
+frame, or opened into this one), **Move to Its Own Frame** gives the tab in front a frame of its
+own again, and **Close** closes it. Choosing a layout in Console Layout Options, the one ticked
 too, puts every panel back where that layout has it. When every frame is in use, a window you
 open (the Map, say) opens on its own instead of replacing a frame. The console keeps how you
 arranged it, its tabs and frame sizes, for the next time.

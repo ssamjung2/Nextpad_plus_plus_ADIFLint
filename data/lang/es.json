@@ -3162,6 +3162,10 @@
   "Frame contents": "Contenido del marco",
   "Empty": "Vacío",
   "What this frame shows: choosing one that is in another frame swaps them": "Qué muestra este marco: si elige uno que está en otro marco, se intercambian",
-  "Drag a frame by its header onto another frame to swap them, or onto its header to make it a tab there": "Arrastre un marco por su cabecera sobre otro marco para intercambiarlos, o sobre su cabecera para convertirlo allí en una pestaña"
+  "Drag a frame by its header onto another frame to swap them, or onto its header to make it a tab there": "Arrastre un marco por su cabecera sobre otro marco para intercambiarlos, o sobre su cabecera para convertirlo allí en una pestaña",
+  "Add Tab": "Añadir pestaña",
+  "Frame actions": "Acciones del marco",
+  "Frame actions: a panel as a tab here, the tab in front to a frame of its own, close": "Acciones del marco: añadir aquí un panel como pestaña, mover la pestaña del frente a un marco propio, cerrar",
+  "Move {panel} to Its Own Frame": "Mover {panel} a un marco propio"
  }
 }

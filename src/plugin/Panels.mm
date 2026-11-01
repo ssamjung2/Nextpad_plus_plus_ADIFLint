@@ -41,7 +41,7 @@ const Calls *callsFor(const std::string &id) {
         {adif::layout::kMap, {worldmap::mapShown, worldmap::cmdMap, worldmap::closeMap}},
         {adif::layout::kSpots, {logtools::spotsShown, logtools::cmdPotaSpots, closeSpots}},
         {adif::layout::kContactMap, {workspace::contactMapShown, workspace::openContactMap, closeContactMap}},
-        {adif::layout::kQsoDetails, {workspace::qsoDetailsShown, workspace::openQsoInfo, closeQsoDetails}},
+        {adif::layout::kQsoDetails, {workspace::qsoDetailsShown, adifhost::openQsoDetails, closeQsoDetails}},
     };
     for (const auto &[pid, calls] : kCalls)
         if (id == pid) return &calls;

@@ -3162,6 +3162,10 @@
   "Frame contents": "Contenu du cadre",
   "Empty": "Vide",
   "What this frame shows: choosing one that is in another frame swaps them": "Ce que montre ce cadre : en choisir un qui est dans un autre cadre les échange",
-  "Drag a frame by its header onto another frame to swap them, or onto its header to make it a tab there": "Faites glisser un cadre par son en-tête sur un autre cadre pour les échanger, ou sur son en-tête pour en faire un onglet"
+  "Drag a frame by its header onto another frame to swap them, or onto its header to make it a tab there": "Faites glisser un cadre par son en-tête sur un autre cadre pour les échanger, ou sur son en-tête pour en faire un onglet",
+  "Add Tab": "Ajouter un onglet",
+  "Frame actions": "Actions du cadre",
+  "Frame actions: a panel as a tab here, the tab in front to a frame of its own, close": "Actions du cadre : ajouter ici un panneau en onglet, placer l’onglet au premier plan dans son propre cadre, fermer",
+  "Move {panel} to Its Own Frame": "Placer {panel} dans son propre cadre"
  }
 }

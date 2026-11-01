@@ -3162,6 +3162,10 @@
   "Frame contents": "Rahmeninhalt",
   "Empty": "Leer",
   "What this frame shows: choosing one that is in another frame swaps them": "Was dieser Rahmen zeigt: Wählen Sie einen, der in einem anderen Rahmen steht, tauschen die beiden die Plätze",
-  "Drag a frame by its header onto another frame to swap them, or onto its header to make it a tab there": "Ziehen Sie einen Rahmen an seiner Kopfzeile auf einen anderen Rahmen, um sie zu tauschen, oder auf dessen Kopfzeile, um ihn dort als Tab einzufügen"
+  "Drag a frame by its header onto another frame to swap them, or onto its header to make it a tab there": "Ziehen Sie einen Rahmen an seiner Kopfzeile auf einen anderen Rahmen, um sie zu tauschen, oder auf dessen Kopfzeile, um ihn dort als Tab einzufügen",
+  "Add Tab": "Als Tab hinzufügen",
+  "Frame actions": "Rahmenaktionen",
+  "Frame actions: a panel as a tab here, the tab in front to a frame of its own, close": "Rahmenaktionen: einen Bereich hier als Tab hinzufügen, den vorderen Tab in einen eigenen Rahmen verschieben, schließen",
+  "Move {panel} to Its Own Frame": "{panel} in eigenen Rahmen verschieben"
  }
 }

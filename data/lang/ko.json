@@ -3065,6 +3065,10 @@
   "Frame contents": "프레임 내용",
   "Empty": "비어 있음",
   "What this frame shows: choosing one that is in another frame swaps them": "이 프레임에 표시할 항목: 다른 프레임에 있는 항목을 고르면 서로 바뀝니다",
-  "Drag a frame by its header onto another frame to swap them, or onto its header to make it a tab there": "프레임 머리글을 다른 프레임으로 끌어 놓으면 서로 바뀌고, 그 머리글에 놓으면 그곳의 탭이 됩니다"
+  "Drag a frame by its header onto another frame to swap them, or onto its header to make it a tab there": "프레임 머리글을 다른 프레임으로 끌어 놓으면 서로 바뀌고, 그 머리글에 놓으면 그곳의 탭이 됩니다",
+  "Add Tab": "탭으로 추가",
+  "Frame actions": "프레임 동작",
+  "Frame actions: a panel as a tab here, the tab in front to a frame of its own, close": "프레임 동작: 여기에 패널을 탭으로 추가, 앞의 탭을 별도 프레임으로 이동, 닫기",
+  "Move {panel} to Its Own Frame": "{panel}을(를) 별도 프레임으로 이동"
  }
 }

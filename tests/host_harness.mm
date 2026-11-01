@@ -7107,6 +7107,63 @@ int main(int argc, char **argv) {
                         [mapw0 performClose:nil];
                         chooseLayout(0);
                         pump(0.3);
+                        {  // The frame's actions menu: what a drag does, from the keyboard and VoiceOver
+                            auto actions = [&](NSWindow *w) -> NSMenu * {
+                                NSView *f = frameShowing(w);
+                                NSPopUpButton *more = f ? (NSPopUpButton *)viewWithIdentifier(f, @"frame.actions") : nil;
+                                if (more) [more.menu.delegate menuNeedsUpdate:more.menu];  // as when it opens
+                                return more.menu;
+                            };
+                            auto act = [&](NSMenu *m, NSString *ident, NSString *sub) {
+                                for (NSMenuItem *mi in m.itemArray) {
+                                    if (![mi.identifier isEqualToString:ident]) continue;
+                                    if (!sub) return mi.enabled ? ([m performActionForItemAtIndex:[m indexOfItem:mi]], pump(0.3), true) : false;
+                                    for (NSMenuItem *k in mi.submenu.itemArray)
+                                        if ([k.title isEqualToString:sub]) return [mi.submenu performActionForItemAtIndex:[mi.submenu indexOfItem:k]], pump(0.3), true;
+                                }
+                                return false;
+                            };
+                            auto detailsCall = [&]() -> NSString * {
+                                for (NSWindow *w in NSApp.windows)
+                                    if ([w.title isEqualToString:@"QSO Details"] && w.visible)
+                                        return ((NSTextField *)viewWithIdentifier(w.contentView, @"qsodetails.call")).stringValue ?: @"";
+                                return @"(closed)";
+                            };
+                            NSWindow *qdw = nil;
+                            for (NSWindow *w in NSApp.windows)
+                                if ([w.title isEqualToString:@"QSO Details"]) qdw = w;
+                            auto typeCall = [&](NSString *c) {
+                                qsoControl(qwL, @"CALL").stringValue = c;
+                                [[NSNotificationCenter defaultCenter] postNotificationName:NSControlTextDidChangeNotification object:qsoControl(qwL, @"CALL")];
+                                pump(0.4);
+                            };
+                            typeCall(@"W9DET");
+                            NSString *shownFirst = detailsCall();
+                            bool closed = qdw && act(actions(qdw), @"frame.actions.close", nil) && !qdw.visible;
+                            typeCall(@"W9NEW");  // QSO Details closed: not worked out
+                            NSMenu *qsoActions = actions(qwL);
+                            bool splitOff = true;
+                            for (NSMenuItem *mi in qsoActions.itemArray)
+                                if ([mi.identifier isEqualToString:@"frame.actions.split"]) splitOff = !mi.enabled;
+                            bool added = act(qsoActions, @"frame.actions.addTab", @"QSO Details");
+                            NSView *both = frameShowing(qdw);
+                            NSArray *items = [both valueForKey:@"items"];
+                            CHECK([shownFirst isEqualToString:@"W9DET"] && closed && splitOff && added && items.count == 2 && [detailsCall() isEqualToString:@"W9NEW"],
+                                  "Frame actions: Close closes QSO Details; Add Tab opens it as a tab in New QSO's frame, worked out for the call as it "
+                                  "opens (%s, then %s); Move to Its Own Frame off with one tab",
+                                  shownFirst.UTF8String, detailsCall().UTF8String);
+                            size_t tabbed = framesOf().size();
+                            bool split = act(actions(qdw), @"frame.actions.split", nil);
+                            CHECK(split && framesOf().size() == tabbed + 1 && frameShowing(qdw) && frameShowing(qwL) && frameShowing(qdw) != frameShowing(qwL) &&
+                                      [[frameShowing(qwL) valueForKey:@"items"] count] == 1,
+                                  "Frame actions: Move QSO Details to Its Own Frame gives it a frame again (%zu to %zu frames)", tabbed, framesOf().size());
+                            bool logTab = act(actions(qwL), @"frame.actions.addTab", @"Log Table");
+                            CHECK(logTab && frameShowing(tw) && !frameShowing(qwL) && [[frameShowing(tw) valueForKey:@"items"] count] == 2,
+                                  "Frame actions: Add Tab moves the Log Table from its frame into New QSO's, in front of it");
+                            typeCall(@"");
+                            chooseLayout(0);
+                            pump(0.3);
+                        }
                     }
                     [host performClose:nil];
                     pump(0.2);

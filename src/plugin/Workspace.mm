@@ -4,6 +4,7 @@
 #import "L10n.h"
 #import "Map.h"
 #import "Night.h"
+#import "Panels.h"
 #import "ToolWindow.h"
 #import "PluginHost.h"
 #import "Country.h"
@@ -79,16 +80,15 @@ layout::Node *nodeAt(layout::Node &root, NSString *path) {
     return n;
 }
 
+// A panel's name, as the Panels menu has it (Panels.mm).
 NSString *itemName(int item) {
-    switch (item) {
-        case kDockMap: return T(@"Map");
-        case kDockLog: return T(@"Log Table");
-        case kDockNewQso: return T(@"New QSO");
-        case kDockSpots: return T(@"Activations & Spots");
-        case kDockContactMap: return T(@"Contact Map");
-        case kDockQsoInfo: return T(@"QSO Details");
-        default: return T(@"Empty");
-    }
+    const panels::Spec *s = item != kDockNone ? panels::find(panelOf(item)) : nullptr;
+    return s ? T(s->title) : T(@"Empty");
+}
+
+// Shown, as the Panels menu shows it: opened (it docks itself when the console holds it), or brought forward.
+void openItem(int item) {
+    if (item != kDockNone) panels::setShown(panelOf(item), true);
 }
 
 // Keep each frame large enough to use; longer content scrolls inside its frame.
@@ -109,7 +109,7 @@ NSSize contentMinimum(int item) { return itemMinimum(item); }
 
 // ── A frame: its header (title, what it shows, close) over the item's content ──
 
-@interface ADIFDockFrame : NSView
+@interface ADIFDockFrame : NSView <NSMenuDelegate>
 @property(nonatomic) int index;                              // its stack's place among the console's (left to right, top to bottom)
 @property(nonatomic, readonly) int item;                     // the panel in front
 @property(nonatomic, readonly) NSArray<NSNumber *> *items;   // its panels, as tabs
@@ -117,6 +117,8 @@ NSSize contentMinimum(int item) { return itemMinimum(item); }
 @property(nonatomic, copy) void (^onSwap)(int from, int to);       // a frame dropped on this one's body: the two swap
 @property(nonatomic, copy) void (^onStack)(int from, int to);      // a frame dropped on this one's header: a tab here
 @property(nonatomic, copy) void (^onTab)(int index, int item);     // a tab chosen
+@property(nonatomic, copy) void (^onAddTab)(int index, int item);  // its actions menu: a panel as a tab here
+@property(nonatomic, copy) void (^onSplit)(int index);             // its actions menu: the tab in front to a frame of its own
 @property(nonatomic, copy) void (^onClose)(int index);             // its front panel closed
 - (void)showItems:(NSArray<NSNumber *> *)items front:(int)item title:(NSString *)title content:(NSView *)content;
 - (NSSize)leastSize;  // its panels' largest least size, with its header
@@ -174,6 +176,7 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
     NSPopUpButton *_choice;
     NSSegmentedControl *_tabs;
     NSButton *_close;
+    NSPopUpButton *_more;  // the frame's actions: Add Tab, Move to Its Own Frame, Close
     NSScrollView *_scroll;
     ADIFDockHeader *_header;
     NSView *_body;  // the scroll view's document: as big as the frame, or the content's least size when that is more
@@ -204,10 +207,13 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
     _choice.translatesAutoresizingMaskIntoConstraints = NO;
     _choice.toolTip = T(@"What this frame shows: choosing one that is in another frame swaps them");
     _choice.accessibilityLabel = T(@"Frame contents");
-    for (int item : {kDockNewQso, kDockLog, kDockSpots, kDockContactMap, kDockQsoInfo, kDockMap, kDockNone}) {
-        [_choice addItemWithTitle:itemName(item)];
-        _choice.lastItem.tag = item;
+    for (const panels::Spec &s : panels::all()) {  // the Panels menu's order, then none
+        if (itemOf(s.id) == kDockNone) continue;
+        [_choice addItemWithTitle:itemName(itemOf(s.id))];
+        _choice.lastItem.tag = itemOf(s.id);
     }
+    [_choice addItemWithTitle:itemName(kDockNone)];
+    _choice.lastItem.tag = kDockNone;
     _choice.target = self;
     _choice.action = @selector(chosen:);
     // Tabs, when the frame holds more than one panel: a click brings that one to the front.
@@ -230,6 +236,21 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
     _close.toolTip = T(@"Close this frame");
     _close.accessibilityLabel = T(@"Close this frame");
     _close.translatesAutoresizingMaskIntoConstraints = NO;
+    // What a drag does, from the keyboard and VoiceOver as well (HIG: a menu command for each drag).
+    _more = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:YES];
+    _more.bordered = NO;
+    _more.imagePosition = NSImageOnly;
+    ((NSPopUpButtonCell *)_more.cell).arrowPosition = NSPopUpNoArrow;
+    NSMenuItem *face = [[NSMenuItem alloc] initWithTitle:@"" action:nil keyEquivalent:@""];
+    face.image = [[NSImage imageWithSystemSymbolName:@"ellipsis.circle" accessibilityDescription:nil]
+        imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:12 weight:NSFontWeightRegular]];
+    [_more.menu addItem:face];
+    _more.menu.delegate = self;
+    _more.contentTintColor = NSColor.secondaryLabelColor;
+    _more.toolTip = T(@"Frame actions: a panel as a tab here, the tab in front to a frame of its own, close");
+    _more.accessibilityLabel = T(@"Frame actions");
+    _more.identifier = @"frame.actions";
+    _more.translatesAutoresizingMaskIntoConstraints = NO;
     NSBox *rule = [[NSBox alloc] initWithFrame:NSZeroRect];
     rule.boxType = NSBoxSeparator;
     rule.translatesAutoresizingMaskIntoConstraints = NO;
@@ -238,7 +259,7 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
     _dropMark.layer.backgroundColor = [NSColor.controlAccentColor colorWithAlphaComponent:0.25].CGColor;
     _dropMark.translatesAutoresizingMaskIntoConstraints = NO;
     _dropMark.hidden = YES;
-    for (NSView *v in @[ _dropMark, _title, _choice, _tabs, _close, rule ]) [header addSubview:v];
+    for (NSView *v in @[ _dropMark, _title, _choice, _tabs, _more, _close, rule ]) [header addSubview:v];
     _scroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
     _scroll.translatesAutoresizingMaskIntoConstraints = NO;
     _scroll.hasVerticalScroller = _scroll.hasHorizontalScroller = YES;
@@ -274,7 +295,11 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
         [_tabs.centerYAnchor constraintEqualToAnchor:header.centerYAnchor],
         _titleAfterChoice,
         [_title.centerYAnchor constraintEqualToAnchor:header.centerYAnchor],
-        [_close.leadingAnchor constraintGreaterThanOrEqualToAnchor:_title.trailingAnchor constant:6],
+        [_more.leadingAnchor constraintGreaterThanOrEqualToAnchor:_title.trailingAnchor constant:6],
+        [_more.trailingAnchor constraintEqualToAnchor:_close.leadingAnchor constant:-4],
+        [_more.centerYAnchor constraintEqualToAnchor:header.centerYAnchor],
+        [_more.widthAnchor constraintEqualToConstant:20],
+        [_more.heightAnchor constraintEqualToConstant:16],
         [_close.trailingAnchor constraintEqualToAnchor:header.trailingAnchor constant:-4],
         [_close.centerYAnchor constraintEqualToAnchor:header.centerYAnchor],
         [_close.widthAnchor constraintEqualToConstant:16],
@@ -360,6 +385,43 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
 
 - (void)closePressed:(id)sender {
     if (self.onClose) self.onClose(self.index);
+}
+
+// The actions menu, as the frame is now: each panel not here to add as a tab; the tab in front
+// to a frame of its own (with more than one); close the one in front.
+- (void)menuNeedsUpdate:(NSMenu *)menu {
+    if (menu != _more.menu) return;
+    while (menu.numberOfItems > 1) [menu removeItemAtIndex:1];
+    NSString *front = itemName(_item);
+    NSMenu *add = [[NSMenu alloc] initWithTitle:T(@"Add Tab")];
+    for (const panels::Spec &s : panels::all()) {
+        int item = itemOf(s.id);
+        if (item == kDockNone || [_items containsObject:@(item)] || item == _item) continue;
+        NSMenuItem *mi = [add addItemWithTitle:itemName(item) action:@selector(addTabChosen:) keyEquivalent:@""];
+        mi.target = self;
+        mi.tag = item;
+        mi.image = [NSImage imageWithSystemSymbolName:s.symbol accessibilityDescription:nil];
+    }
+    NSMenuItem *addItem = [menu addItemWithTitle:T(@"Add Tab") action:nil keyEquivalent:@""];
+    addItem.submenu = add;
+    addItem.identifier = @"frame.actions.addTab";
+    NSMenuItem *split = [menu addItemWithTitle:TF(@"Move {panel} to Its Own Frame", @{@"panel" : front}) action:@selector(splitChosen:) keyEquivalent:@""];
+    split.target = self;
+    split.identifier = @"frame.actions.split";
+    split.enabled = _items.count > 1;
+    menu.autoenablesItems = NO;
+    [menu addItem:NSMenuItem.separatorItem];
+    NSMenuItem *close = [menu addItemWithTitle:TF(@"Close {panel}", @{@"panel" : front}) action:@selector(closePressed:) keyEquivalent:@""];
+    close.target = self;
+    close.identifier = @"frame.actions.close";
+}
+
+- (void)addTabChosen:(NSMenuItem *)sender {
+    if (self.onAddTab) self.onAddTab(self.index, (int)sender.tag);
+}
+
+- (void)splitChosen:(id)sender {
+    if (self.onSplit) self.onSplit(self.index);
 }
 
 // Another frame dragged here by its header: over this one's header it would become a tab here;
@@ -818,8 +880,6 @@ void openAuxWindow(int item) {
 - (void)retitle:(NSWindow<ADIFDockable> *)window;
 @end
 
-static std::function<void()> gOpeners[kDockCount];
-
 // The console: its arrangement (adif::layout; saved as `consoleLayout`, and the preset it came from
 // as `consoleLayoutPreset`), shown as a tree of split views whose leaves are frames, one per stack
 // of panels. Each panel is still the window it was: docked, its content sits in its frame (the
@@ -1037,8 +1097,8 @@ static std::function<void()> gOpeners[kDockCount];
     [_host makeKeyAndOrderFront:nil];
     BOOL ok = YES;
     for (int item = 1; item < kDockCount; ++item) {
-        if (!layout::inConsole(_layout, panelOf(item)) || !gOpeners[item]) continue;
-        gOpeners[item]();
+        if (!layout::inConsole(_layout, panelOf(item))) continue;
+        openItem(item);
         // New QSO must open, unless an activation's log is still to be made (it takes its place when it opens).
         if (![self windowOf:item].dockHost && item == kDockNewQso && !allowEmptyQso) {
             ok = NO;
@@ -1215,6 +1275,27 @@ static std::function<void()> gOpeners[kDockCount];
     [self rebuild];
 }
 
+// A frame's Add Tab: the panel a tab there, from another frame, or opened into it.
+- (void)addTab:(int)item to:(int)index {
+    int here = [self frontOf:index];
+    if (item == kDockNone || here == kDockNone || item == here) return;
+    BOOL docked = layout::inConsole(_layout, panelOf(item));
+    _layout = docked ? layout::moveToTab(_layout, panelOf(item), panelOf(here)) : layout::showInConsole(_layout, panelOf(item), panelOf(here));
+    [self saveSettings];
+    if (!docked) openItem(item);  // it docks into its place
+    [self rebuild];
+    ADIFPanelShownChanged();
+}
+
+// A frame's Move to Its Own Frame: its tab in front at the end of the console's top row.
+- (void)splitOut:(int)index {
+    int item = [self frontOf:index];
+    if (item == kDockNone || _frames[(NSUInteger)index].items.count < 2) return;
+    _layout = layout::showInConsole(layout::hide(_layout, panelOf(item)), panelOf(item));
+    [self saveSettings];
+    [self rebuild];
+}
+
 - (void)tab:(int)index item:(int)item {
     _layout = layout::bringToFront(_layout, panelOf(item));
     [self saveSettings];
@@ -1237,7 +1318,7 @@ static std::function<void()> gOpeners[kDockCount];
     NSWindow<ADIFDockable> *oldWindow = [self windowOf:old];
     if (oldWindow) [NSNotificationCenter.defaultCenter postNotificationName:NSWindowWillCloseNotification object:oldWindow];
     [self undock:old];
-    if (gOpeners[item]) gOpeners[item]();
+    openItem(item);
     [self rebuild];
     ADIFPanelShownChanged();
 }
@@ -1258,8 +1339,8 @@ static std::function<void()> gOpeners[kDockCount];
             NSWindow<ADIFDockable> *w = [self windowOf:item];
             if (w) [NSNotificationCenter.defaultCenter postNotificationName:NSWindowWillCloseNotification object:w];
             [self undock:item];
-        } else if (!was[item] && in && gOpeners[item]) {
-            gOpeners[item]();
+        } else if (!was[item] && in) {
+            openItem(item);
         }
     }
     _batching = NO;
@@ -1292,7 +1373,7 @@ static std::function<void()> gOpeners[kDockCount];
     }
     NSWindow<ADIFDockable> *w = [self windowOf:item];
     if (w.visible && !w.dockHost) [w orderOut:nil];  // its own window: into the console
-    if (gOpeners[item]) gOpeners[item]();
+    openItem(item);
 }
 
 // The frames back to their first sizes: the built-in layout's shares when the console is still its
@@ -1412,6 +1493,8 @@ static double weightOf(NSView *v, bool width) {
     f.onSwap = ^(int from, int to) { [me swap:from with:to]; };
     f.onStack = ^(int from, int to) { [me stack:from onto:to]; };
     f.onTab = ^(int at, int item) { [me tab:at item:item]; };
+    f.onAddTab = ^(int at, int item) { [me addTab:item to:at]; };
+    f.onSplit = ^(int at) { [me splitOut:at]; };
     return f;
 }
 
@@ -1609,10 +1692,6 @@ void toggleQsoDetails() {
     if (!qsoDetailsShown()) return openQsoInfo();
     [gQsoInfoWindow performClose:nil];
     ADIFPanelShownChanged();
-}
-
-void setOpener(int item, std::function<void()> open) {
-    if (item > kDockNone && item < kDockCount) gOpeners[item] = std::move(open);
 }
 
 void setOnChange(std::function<void(bool)> onChange) { gOnChange = std::move(onChange); }
