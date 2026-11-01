@@ -9,6 +9,8 @@ Versions before 0.8.0 were development builds and were not published.
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-11-01
+
 ### Added
 
 - Operating Console: an actions menu (**⋯**) in each frame's header: **Add Tab** puts any panel in the frame as a tab (from another frame, or opened into it), **Move to Its Own Frame** gives the tab in front a frame of its own again (a drag couldn't), and **Close** closes it. Everything a drag does can now be done from the keyboard and with VoiceOver.
@@ -968,7 +970,8 @@ First public release.
 - **Fix Lengths**, as one undo step, and **Count Lengths in Characters**.
 - The `adiflint` command-line tool.
 
-[Unreleased]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.9.0...HEAD
+[1.9.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/compare/v1.5.0...v1.6.0
