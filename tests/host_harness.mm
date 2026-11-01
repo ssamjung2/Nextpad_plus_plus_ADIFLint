@@ -959,11 +959,11 @@ int main(int argc, char **argv) {
             NSString *openTitle = panelItem(@"logtable").title;
             [panelsMenu performActionForItemAtIndex:[panelsMenu indexOfItem:panelItem(@"logtable")]];
             pump(0.3);
-            CHECK(panelsAt > menuIndexWithIdentifier(operating) && panelsAt < menuIndexWithIdentifier(map) && panelsMenu.numberOfItems == 7 &&
+            CHECK(panelsAt > menuIndexWithIdentifier(operating) && panelsAt < menuIndexWithIdentifier(map) && panelsMenu.numberOfItems == 8 &&
                       [closedTitle isEqualToString:@"Show Log Table"] && table.visible == NO && [openTitle isEqualToString:@"Hide Log Table"] &&
                       [panelItem(@"logtable").title isEqualToString:@"Show Log Table"] &&
                       [panelItem(@"map").title isEqualToString:windowIdentified(@"map.window").visible ? @"Hide Map" : @"Show Map"],  // the welcome's Settings is the Map's
-                  "the Panels menu in Logging & Operating: seven panels, Show or Hide as each is (%s, then %s), the Log Table opened and closed",
+                  "the Panels menu in Logging & Operating: eight panels, Show or Hide as each is (%s, then %s), the Log Table opened and closed",
                   closedTitle.UTF8String, openTitle.UTF8String);
             CHECK(tableNormal, "the Log Table: a normal window (its cells are typed in), which minimizes to the Dock");
             {  // Map Style: a panel, from the Panels menu; Settings: a window of its own (the welcome's). Both were cards in the Map.
@@ -8108,6 +8108,28 @@ int main(int argc, char **argv) {
                           "Options: work and projects (and stage of life) off until turned on");
                     option(@"Bring Back Dismissed");
                     CHECK(iniValue("aidsDismissed").empty(), "Options: the dismissed suggestions brought back");
+                    {  // In Its Own Panel: the aids move to the Operating Aids panel, Skip works there, and come back to New QSO when it closes
+                        std::string inQso = rowsSaid();
+                        option(@"In Its Own Panel");
+                        pump(0.3);
+                        NSWindow *panelW = windowIdentified(@"aids.window");
+                        auto panelText = [&](NSString *ident) {
+                            NSControl *c = panelW ? (NSControl *)viewWithIdentifier(panelW.contentView, ident) : nil;
+                            return std::string((c ? c.stringValue : @"").UTF8String);
+                        };
+                        std::string panelFirst = panelText(@"aids.row.2"), panelSecond = panelText(@"aids.row.3");
+                        bool moved = panelW.visible && panelText(@"aids.title") == "Operating Aids (Social)" && text(@"newqso.aids.title").empty() &&
+                                     panelText(@"aids.row.0").find("Before: 1 QSO with K1ABC") == 0 && !panelFirst.empty();
+                        [(NSButton *)viewWithIdentifier(panelW.contentView, @"aids.skip.2") performClick:nil];
+                        pump(0.2);
+                        bool skipped = panelText(@"aids.row.2") == panelSecond;
+                        [panelW performClose:nil];
+                        pump(0.3);
+                        CHECK(moved && skipped && !panelW.visible && text(@"newqso.aids.title") == "Operating Aids (Social)" && !rowsSaid().empty(),
+                              "Operating Aids in their own panel: the strip moved there (%s), Skip there (%d); closed, back in New QSO (%s)",
+                              panelText(@"aids.title").c_str(), skipped, rowsSaid().c_str());
+                        (void)inQso;
+                    }
                     press(@"newqso.aids.hide");
                     bool hid = text(@"newqso.aids.title") == "Operating Aids (Social): hidden" && rowsSaid().empty() && viewWithIdentifier(aw.contentView, @"newqso.aids.show");
                     press(@"newqso.aids.show");

@@ -30,6 +30,18 @@ struct ADIFAidRow {
     bool note = false;        // it has words Note puts in NOTES for you to finish
 };
 
+// The Operating Aids strip: a title (its options menu, Hide or Show) over the facts and the
+// suggestions (Note, Skip, Dismiss). New QSO shows one under the lookup's facts; the Operating
+// Aids panel another; ADIFLint.mm fills whichever shows. Its controls are named after `prefix`:
+// <prefix>.title, .menu, .hide, .show, .row.N, .note.N, .skip.N, .dismiss.N.
+@interface ADIFAidsView : NSStackView
+- (instancetype)initWithPrefix:(NSString *)prefix;
+// A nil title: nothing; hidden: the title alone, with Show.
+- (void)setTitle:(NSString *)title rows:(const std::vector<ADIFAidRow> &)rows menu:(NSMenu *)menu hidden:(BOOL)hidden;
+// A suggestion's button ("note", "skip", "dismiss", with its row), or "hide" / "show" (row -1).
+@property(nonatomic, copy) void (^onAid)(NSString *action, NSInteger row);
+@end
+
 @interface ADIFNewQsoPanel : NSObject <NSWindowDelegate, NSTextFieldDelegate, NSComboBoxDelegate>
 
 @property(nonatomic, readonly) NSWindow *window;  // a normal window (docks in the Operating Console)

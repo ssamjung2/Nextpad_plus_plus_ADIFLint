@@ -307,6 +307,9 @@ alone doesn't express); panes inside a panel may use `NSSplitViewItem` where it 
   `interestSymbol` and `markColour`, so the Map and QSO Details agree. Colours that name a kind
   of thing rather than a state (the map's markers, its badges, the Contact Map's drawing) keep
   their own.
+- **After Phase F** (2026-11-01): **Operating Aids** is also a panel (registry id `aids`, dock
+  item `kDockAids`; section 8): the strip is one view class, `ADIFAidsView`, that New QSO and the
+  panel both use, and ADIFLint.mm fills whichever shows.
 - **After Phase F** (2026-11-01): the Log Table and Activations & Spots are normal windows
   (`ADIFToolWindow initWithTitle:size:headline:normal:`), as section 1's rule for typing-heavy
   panels has it; the task windows stay floating panels.

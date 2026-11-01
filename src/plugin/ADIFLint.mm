@@ -74,6 +74,7 @@
 #include "adif_upload.h"
 #include "adif_geo.h"
 #include "adif_programs.h"
+#include "adif_layout.h"
 
 #include <algorithm>
 #include <tuple>
@@ -2459,15 +2460,106 @@ static std::string aidsNoteField() { return [g.qso hasField:"NOTES"] ? "NOTES" :
 
 static NSMenu *aidsMenu(adif::styles::OperatingStyle style);
 
+// ── Operating Aids as a panel of its own ──
+
+@interface ADIFAidsPage : NSView  // the panel's page: the aids from the top
+@end
+@implementation ADIFAidsPage
+- (BOOL)isFlipped { return YES; }
+@end
+
+static struct {
+    ADIFDockPanel *window;
+    ADIFAidsView *view;
+    NSTextField *empty;  // why there are none: no style that has them, or New QSO not open
+} gAidsPanel;
+
+static void makeAidsPanel() {
+    if (gAidsPanel.window) return;
+    ADIFDockPanel *w = [[ADIFDockPanel alloc] initWithContentRect:NSMakeRect(0, 0, 360, 280)
+                                                        styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable
+                                                          backing:NSBackingStoreBuffered
+                                                            defer:YES];
+    w.dockItem = kDockAids;
+    w.title = T(@"Operating Aids");
+    w.identifier = @"aids.window";
+    w.releasedWhenClosed = NO;
+    w.floatingPanel = YES;  // links to press, nothing to type: a panel (HIG)
+    w.hidesOnDeactivate = YES;
+    w.contentMinSize = NSMakeSize(280, 140);
+    gAidsPanel.view = [[ADIFAidsView alloc] initWithPrefix:@"aids"];
+    gAidsPanel.view.onAid = ^(NSString *action, NSInteger row) { aidPressed(action, row); };
+    gAidsPanel.empty = [NSTextField wrappingLabelWithString:T(@"Operating Aids come with the Social and Portable styles (the Map's toolbar), "
+                                                              @"for the contact in New QSO.")];
+    gAidsPanel.empty.font = theme::small();
+    gAidsPanel.empty.textColor = theme::faint();
+    gAidsPanel.empty.identifier = @"aids.empty";
+    NSStackView *page = [NSStackView stackViewWithViews:@[ gAidsPanel.empty, gAidsPanel.view ]];
+    page.orientation = NSUserInterfaceLayoutOrientationVertical;
+    page.alignment = NSLayoutAttributeLeading;
+    page.spacing = 6;
+    page.edgeInsets = NSEdgeInsetsMake(kADIFMargin, kADIFMargin, kADIFMargin, kADIFMargin);
+    page.translatesAutoresizingMaskIntoConstraints = NO;
+    NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
+    scroll.hasVerticalScroller = YES;
+    scroll.autohidesScrollers = YES;
+    scroll.drawsBackground = NO;
+    ADIFAidsPage *doc = [[ADIFAidsPage alloc] initWithFrame:NSZeroRect];
+    doc.translatesAutoresizingMaskIntoConstraints = NO;
+    [doc addSubview:page];
+    scroll.documentView = doc;
+    NSClipView *clip = scroll.contentView;
+    [NSLayoutConstraint activateConstraints:@[
+        [doc.leadingAnchor constraintEqualToAnchor:clip.leadingAnchor], [doc.topAnchor constraintEqualToAnchor:clip.topAnchor],
+        [doc.widthAnchor constraintEqualToAnchor:clip.widthAnchor],
+        [page.topAnchor constraintEqualToAnchor:doc.topAnchor], [page.leadingAnchor constraintEqualToAnchor:doc.leadingAnchor],
+        [page.trailingAnchor constraintEqualToAnchor:doc.trailingAnchor], [page.bottomAnchor constraintEqualToAnchor:doc.bottomAnchor],
+        [gAidsPanel.view.widthAnchor constraintEqualToAnchor:page.widthAnchor constant:-2 * kADIFMargin],
+        [gAidsPanel.empty.widthAnchor constraintEqualToAnchor:gAidsPanel.view.widthAnchor],
+    ]];
+    w.contentView = scroll;
+    [w center];
+    [[NSNotificationCenter defaultCenter] addObserverForName:NSWindowWillCloseNotification  // closed (or its frame): the aids back in New QSO
+                                                      object:w
+                                                       queue:nil
+                                                  usingBlock:^(NSNotification *) {
+                                                      ADIFPanelShownChanged();
+                                                      dispatch_async(dispatch_get_main_queue(), ^{ updateAids(false, false); });
+                                                  }];
+    gAidsPanel.window = w;
+}
+
+// The aids where they show: their panel while it is open, else New QSO's strip.
+static void showAids(NSString *title, const std::vector<ADIFAidRow> &rows, NSMenu *menu, BOOL hidden) {
+    bool panel = adifhost::aidsPanelShown();
+    [g.qso setAidsTitle:panel ? nil : title rows:panel ? std::vector<ADIFAidRow>() : rows menu:panel ? nil : menu hidden:hidden];
+    if (!gAidsPanel.view) return;
+    [gAidsPanel.view setTitle:panel ? title : nil rows:panel ? rows : std::vector<ADIFAidRow>() menu:panel ? menu : nil hidden:hidden];
+    gAidsPanel.empty.hidden = panel && title != nil;
+}
+
+namespace adifhost {
+bool aidsPanelShown() { return gAidsPanel.window && gAidsPanel.window.visible; }
+void openAidsPanel() {
+    makeAidsPanel();
+    [gAidsPanel.window makeKeyAndOrderFront:nil];
+    if (g.qso) updateAids(false, false);
+    else showAids(nil, {}, nil, NO);  // no New QSO yet: why there are none
+}
+void closeAidsPanel() {
+    if (aidsPanelShown()) [gAidsPanel.window performClose:nil];  // docked: its frame closes
+}
+}  // namespace adifhost
+
 // The strip as things are: Portable's facts or the earlier QSOs (each check), the suggestions (afresh
 // at a natural pause: a new call or the lookup's answer, a QSO logged; or only after each QSO; or
 // only on Skip, as its timing says). `pause`: a natural pause now; `logged`: a QSO was just logged.
 static void updateAids(bool pause, bool logged) {
     if (!g.qso) return;
     std::optional<adif::styles::OperatingStyle> style = aidsStyle();
-    if (!style) return [g.qso setAidsTitle:nil rows:{} menu:nil hidden:NO];
+    if (!style) return showAids(nil, {}, nil, NO);
     NSString *styleName = T(ADIFString(adif::styles::title(*style)));
-    if (gAids.hidden) return [g.qso setAidsTitle:TF(@"Operating Aids ({style}): hidden", @{@"style" : styleName}) rows:{} menu:nil hidden:YES];
+    if (gAids.hidden) return showAids(TF(@"Operating Aids ({style}): hidden", @{@"style" : styleName}), {}, nil, YES);
     aids::Level level = aids::parseLevel(adifhost::setting(aidsKey("Level", *style)));
     aids::Timing timing = aids::parseTiming(adifhost::setting(aidsKey("Timing", *style)));
     std::vector<ADIFAidRow> rows;
@@ -2548,7 +2640,7 @@ static void updateAids(bool pause, bool logged) {
     }
     NSString *title = level == aids::Level::Off ? TF(@"Operating Aids ({style}): off", @{@"style" : styleName})
                                                 : TF(@"Operating Aids ({style})", @{@"style" : styleName});
-    [g.qso setAidsTitle:title rows:rows menu:aidsMenu(*style) hidden:NO];
+    showAids(title, rows, aidsMenu(*style), NO);
 }
 
 // Choose the suggestions again now (Skip, Dismiss, Note, an option changed).
@@ -2664,6 +2756,11 @@ static NSMenu *aidsMenu(adif::styles::OperatingStyle style) {
         adifhost::setSetting("aidsDismissed", "");
         aidsAfresh();
     });
+    [menu addItem:NSMenuItem.separatorItem];
+    NSMenuItem *own = [menu addItemWithTitle:T(@"In Its Own Panel") action:nil keyEquivalent:@""];
+    own.state = adifhost::aidsPanelShown() ? NSControlStateValueOn : NSControlStateValueOff;
+    own.toolTip = T(@"Operating Aids in a panel of their own (beside the Map, or a tab in the Operating Console) instead of in New QSO");
+    ADIFBlockMenuItem(own, ^{ panels::toggle(adif::layout::kAids); });
     return menu;
 }
 

@@ -30,6 +30,7 @@ inline constexpr const char *kSpots = "spots";
 inline constexpr const char *kContactMap = "contactmap";
 inline constexpr const char *kQsoDetails = "qsodetails";
 inline constexpr const char *kMapStyle = "mapstyle";
+inline constexpr const char *kAids = "aids";
 const std::vector<std::string> &knownPanels();
 
 struct Node {

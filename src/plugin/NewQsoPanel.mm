@@ -241,6 +241,119 @@ static NSColor *rgb(int hex) {
 }
 @end
 
+// ── The Operating Aids strip (New QSO's, and the Operating Aids panel's) ──
+
+@implementation ADIFAidsView {
+    NSString *_prefix;  // its controls' names: <prefix>.title, .menu, .row.N, .note.N, .skip.N...
+}
+
+- (instancetype)initWithPrefix:(NSString *)prefix {
+    if (!(self = [super initWithFrame:NSZeroRect])) return nil;
+    _prefix = [prefix copy];
+    self.orientation = NSUserInterfaceLayoutOrientationVertical;
+    self.alignment = NSLayoutAttributeLeading;
+    self.spacing = 3;
+    self.identifier = prefix;
+    self.translatesAutoresizingMaskIntoConstraints = NO;
+    return self;
+}
+
+- (void)setTitle:(NSString *)title rows:(const std::vector<ADIFAidRow> &)rows menu:(NSMenu *)menu hidden:(BOOL)hidden {
+    for (NSView *v in [self.arrangedSubviews copy]) [self removeView:v];
+    if (!title) return;
+    NSFont *small = theme::small();
+    auto symbolView = [](NSString *name, NSColor *tint) {
+        NSImageView *i = [NSImageView imageViewWithImage:[NSImage imageWithSystemSymbolName:name accessibilityDescription:nil] ?: [[NSImage alloc] init]];
+        i.symbolConfiguration = [NSImageSymbolConfiguration configurationWithPointSize:NSFont.smallSystemFontSize weight:NSFontWeightRegular];
+        i.contentTintColor = tint;
+        [i setContentHuggingPriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
+        [i setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
+        return i;
+    };
+    auto link = [&](NSString *name, NSString *ident, NSString *tip, NSInteger row) {  // its action is in its identifier
+
+        NSButton *b = [NSButton buttonWithTitle:name target:self action:@selector(aidPressed:)];
+        b.bordered = NO;
+        b.font = small;
+        b.contentTintColor = NSColor.linkColor;
+        b.identifier = ident;
+        b.toolTip = tip;
+        b.tag = row;
+        [b setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
+        [b setContentHuggingPriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
+        return b;
+    };
+    // The title: what it is and for which style, its menu, Hide or Show.
+    NSTextField *head = [NSTextField labelWithString:title];
+    head.font = theme::small(NSFontWeightSemibold);
+    head.textColor = theme::faint();
+    head.lineBreakMode = NSLineBreakByTruncatingTail;
+    head.identifier = [_prefix stringByAppendingString:@".title"];
+    [head setContentCompressionResistancePriority:1 forOrientation:NSLayoutConstraintOrientationHorizontal];
+    NSMutableArray<NSView *> *top = [NSMutableArray arrayWithObjects:symbolView(@"text.bubble", theme::faint()), head, nil];
+    if (menu && !hidden) {
+        NSPopUpButton *m = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:YES];
+        m.bordered = NO;
+        m.controlSize = NSControlSizeSmall;
+        m.font = small;
+        NSMenuItem *face = [[NSMenuItem alloc] initWithTitle:T(@"Options") action:nil keyEquivalent:@""];
+        [menu insertItem:face atIndex:0];  // a pull-down's title
+        m.menu = menu;
+        m.identifier = [_prefix stringByAppendingString:@".menu"];
+        m.toolTip = T(@"Operating Aids: how many suggestions, when they change, which topics, and the prompts you dismissed");
+        m.accessibilityLabel = T(@"Operating Aids options");
+        [m setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
+        [top addObject:m];
+    }
+    [top addObject:hidden ? link(T(@"Show"), [_prefix stringByAppendingString:@".show"], T(@"Show Operating Aids again"), -1)
+                          : link(T(@"Hide"), [_prefix stringByAppendingString:@".hide"], T(@"Hide Operating Aids until ADIF Lint starts again (Options turns them off for good)"), -1)];
+    NSStackView *topRow = [NSStackView stackViewWithViews:top];
+    topRow.spacing = 6;
+    topRow.alignment = NSLayoutAttributeCenterY;
+    [self addArrangedSubview:topRow];
+    [topRow.widthAnchor constraintEqualToAnchor:self.widthAnchor].active = YES;
+    if (hidden) return;
+    NSInteger i = 0;
+    for (const ADIFAidRow &r : rows) {
+        NSTextField *t = ADIFWrappingLabel();
+        t.stringValue = ADIFString(r.text);
+        t.font = r.suggestion ? [[NSFontManager sharedFontManager] convertFont:small toHaveTrait:NSItalicFontMask] : small;
+        t.textColor = r.suggestion ? theme::faint() : r.severity == 1 || r.severity == 2 ? theme::severity(r.severity) : NSColor.labelColor;
+        t.maximumNumberOfLines = 3;
+        t.toolTip = r.why.empty() ? nil : ADIFString(r.why);
+        t.identifier = [NSString stringWithFormat:@"%@.row.%ld", _prefix, (long)i];
+        t.accessibilityLabel = r.suggestion ? TF(@"Suggestion: {text}", @{@"text" : t.stringValue}) : nil;
+        [t setContentCompressionResistancePriority:1 forOrientation:NSLayoutConstraintOrientationHorizontal];
+        [t setContentHuggingPriority:1 forOrientation:NSLayoutConstraintOrientationHorizontal];
+        NSColor *tint = r.suggestion ? theme::faint()
+                                     : theme::severity(r.severity == 1 || r.severity == 2 ? r.severity : 3);
+        NSMutableArray<NSView *> *parts = [NSMutableArray arrayWithObjects:symbolView(r.symbol ?: (r.suggestion ? @"bubble.left" : @"circle.fill"), tint), t, nil];
+        if (r.suggestion) {
+            if (r.note)
+                [parts addObject:link(T(@"Note"), [NSString stringWithFormat:@"%@.note.%ld", _prefix, (long)i],
+                                      T(@"Start a note on this topic in NOTES, for you to finish (nothing is sent anywhere)"), i)];
+            [parts addObject:link(T(@"Skip"), [NSString stringWithFormat:@"%@.skip.%ld", _prefix, (long)i], T(@"Another suggestion in its place"), i)];
+            [parts addObject:link(T(@"Dismiss"), [NSString stringWithFormat:@"%@.dismiss.%ld", _prefix, (long)i],
+                                  T(@"Don't suggest this again (Options brings dismissed suggestions back)"), i)];
+        }
+        NSStackView *line = [NSStackView stackViewWithViews:parts];
+        line.spacing = 6;
+        line.alignment = NSLayoutAttributeFirstBaseline;
+        [self addArrangedSubview:line];
+        [line.widthAnchor constraintEqualToAnchor:self.widthAnchor].active = YES;
+        ++i;
+    }
+}
+
+- (void)aidPressed:(NSButton *)sender {
+    // <prefix>.<action>[.<row>]
+    NSString *rest = [sender.identifier substringFromIndex:MIN(_prefix.length + 1, sender.identifier.length)];
+    NSString *action = [rest componentsSeparatedByString:@"."].firstObject;
+    if (self.onAid && action.length) self.onAid(action, sender.tag);
+}
+
+@end
+
 @implementation ADIFNewQsoPanel {
     NSWindow *_window;
     NSTextField *_target, *_summary, *_note;
@@ -255,7 +368,7 @@ static NSColor *rgb(int hex) {
     NSGridView *_spotGrid;
     NSLayoutConstraint *_logAfterGrid, *_logAfterStatus;  // one is active: the status line shown or not
     NSGridView *_facts;  // what the lookup says, a fact a row
-    NSStackView *_aids;  // Operating Aids: its title, its facts and suggestions
+    ADIFAidsView *_aids;  // Operating Aids: its title, its facts and suggestions
     NSStackView *_lookupRow, *_stationRow;
     NSTextField *_stationSummary;
     NSPopUpButton *_lookup, *_station;
@@ -403,12 +516,12 @@ static NSColor *rgb(int hex) {
     _clocks.spacing = 10;
     _clocks.identifier = @"newqso.clocks";
     _clocks.translatesAutoresizingMaskIntoConstraints = NO;
-    _aids = [[NSStackView alloc] initWithFrame:NSZeroRect];
-    _aids.orientation = NSUserInterfaceLayoutOrientationVertical;
-    _aids.alignment = NSLayoutAttributeLeading;
-    _aids.spacing = 3;
-    _aids.identifier = @"newqso.aids";
-    _aids.translatesAutoresizingMaskIntoConstraints = NO;
+    _aids = [[ADIFAidsView alloc] initWithPrefix:@"newqso.aids"];
+    __weak ADIFNewQsoPanel *me = self;
+    _aids.onAid = ^(NSString *action, NSInteger row) {
+        ADIFNewQsoPanel *panel = me;
+        if (panel.onAid) panel.onAid(action, row);
+    };
     for (NSView *v in @[ _clocks, _target, _stationRow, _scroll, _currentTime, _lookupRow, _facts, _aids, _note, _summary, _spotGrid, _spotStatus, buttons ])
         [root addSubview:v];
     const CGFloat m = kADIFMargin;
@@ -711,95 +824,7 @@ static NSColor *rgb(int hex) {
 // Operating Aids: suggestions in italics after a speech bubble, each with its buttons; facts plain,
 // coloured as they matter. Each line wraps at the panel's width.
 - (void)setAidsTitle:(NSString *)title rows:(const std::vector<ADIFAidRow> &)rows menu:(NSMenu *)menu hidden:(BOOL)hidden {
-    for (NSView *v in [_aids.arrangedSubviews copy]) [_aids removeView:v];
-    if (!title) return;
-    NSFont *small = theme::small();
-    auto symbolView = [](NSString *name, NSColor *tint) {
-        NSImageView *i = [NSImageView imageViewWithImage:[NSImage imageWithSystemSymbolName:name accessibilityDescription:nil] ?: [[NSImage alloc] init]];
-        i.symbolConfiguration = [NSImageSymbolConfiguration configurationWithPointSize:NSFont.smallSystemFontSize weight:NSFontWeightRegular];
-        i.contentTintColor = tint;
-        [i setContentHuggingPriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
-        [i setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
-        return i;
-    };
-    auto link = [&](NSString *name, NSString *ident, NSString *tip, NSInteger row) {  // its action is in its identifier
-
-        NSButton *b = [NSButton buttonWithTitle:name target:self action:@selector(aidPressed:)];
-        b.bordered = NO;
-        b.font = small;
-        b.contentTintColor = NSColor.linkColor;
-        b.identifier = ident;
-        b.toolTip = tip;
-        b.tag = row;
-        [b setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
-        [b setContentHuggingPriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
-        return b;
-    };
-    // The title: what it is and for which style, its menu, Hide or Show.
-    NSTextField *head = [NSTextField labelWithString:title];
-    head.font = theme::small(NSFontWeightSemibold);
-    head.textColor = theme::faint();
-    head.lineBreakMode = NSLineBreakByTruncatingTail;
-    head.identifier = @"newqso.aids.title";
-    [head setContentCompressionResistancePriority:1 forOrientation:NSLayoutConstraintOrientationHorizontal];
-    NSMutableArray<NSView *> *top = [NSMutableArray arrayWithObjects:symbolView(@"text.bubble", theme::faint()), head, nil];
-    if (menu && !hidden) {
-        NSPopUpButton *m = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:YES];
-        m.bordered = NO;
-        m.controlSize = NSControlSizeSmall;
-        m.font = small;
-        NSMenuItem *face = [[NSMenuItem alloc] initWithTitle:T(@"Options") action:nil keyEquivalent:@""];
-        [menu insertItem:face atIndex:0];  // a pull-down's title
-        m.menu = menu;
-        m.identifier = @"newqso.aids.menu";
-        m.toolTip = T(@"Operating Aids: how many suggestions, when they change, which topics, and the prompts you dismissed");
-        m.accessibilityLabel = T(@"Operating Aids options");
-        [m setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
-        [top addObject:m];
-    }
-    [top addObject:hidden ? link(T(@"Show"), @"newqso.aids.show", T(@"Show Operating Aids again"), -1)
-                          : link(T(@"Hide"), @"newqso.aids.hide", T(@"Hide Operating Aids until ADIF Lint starts again (Options turns them off for good)"), -1)];
-    NSStackView *topRow = [NSStackView stackViewWithViews:top];
-    topRow.spacing = 6;
-    topRow.alignment = NSLayoutAttributeCenterY;
-    [_aids addArrangedSubview:topRow];
-    [topRow.widthAnchor constraintEqualToAnchor:_aids.widthAnchor].active = YES;
-    if (hidden) return;
-    NSInteger i = 0;
-    for (const ADIFAidRow &r : rows) {
-        NSTextField *t = ADIFWrappingLabel();
-        t.stringValue = ADIFString(r.text);
-        t.font = r.suggestion ? [[NSFontManager sharedFontManager] convertFont:small toHaveTrait:NSItalicFontMask] : small;
-        t.textColor = r.suggestion ? theme::faint() : r.severity == 1 || r.severity == 2 ? theme::severity(r.severity) : NSColor.labelColor;
-        t.maximumNumberOfLines = 3;
-        t.toolTip = r.why.empty() ? nil : ADIFString(r.why);
-        t.identifier = [NSString stringWithFormat:@"newqso.aids.row.%ld", (long)i];
-        t.accessibilityLabel = r.suggestion ? TF(@"Suggestion: {text}", @{@"text" : t.stringValue}) : nil;
-        [t setContentCompressionResistancePriority:1 forOrientation:NSLayoutConstraintOrientationHorizontal];
-        [t setContentHuggingPriority:1 forOrientation:NSLayoutConstraintOrientationHorizontal];
-        NSColor *tint = r.suggestion ? theme::faint()
-                                     : theme::severity(r.severity == 1 || r.severity == 2 ? r.severity : 3);
-        NSMutableArray<NSView *> *parts = [NSMutableArray arrayWithObjects:symbolView(r.symbol ?: (r.suggestion ? @"bubble.left" : @"circle.fill"), tint), t, nil];
-        if (r.suggestion) {
-            if (r.note)
-                [parts addObject:link(T(@"Note"), [NSString stringWithFormat:@"newqso.aids.note.%ld", (long)i],
-                                      T(@"Start a note on this topic in NOTES, for you to finish (nothing is sent anywhere)"), i)];
-            [parts addObject:link(T(@"Skip"), [NSString stringWithFormat:@"newqso.aids.skip.%ld", (long)i], T(@"Another suggestion in its place"), i)];
-            [parts addObject:link(T(@"Dismiss"), [NSString stringWithFormat:@"newqso.aids.dismiss.%ld", (long)i],
-                                  T(@"Don't suggest this again (Options brings dismissed suggestions back)"), i)];
-        }
-        NSStackView *line = [NSStackView stackViewWithViews:parts];
-        line.spacing = 6;
-        line.alignment = NSLayoutAttributeFirstBaseline;
-        [_aids addArrangedSubview:line];
-        [line.widthAnchor constraintEqualToAnchor:_aids.widthAnchor].active = YES;
-        ++i;
-    }
-}
-
-- (void)aidPressed:(NSButton *)sender {
-    NSArray<NSString *> *parts = [sender.identifier componentsSeparatedByString:@"."];  // newqso.aids.<action>[.<row>]
-    if (self.onAid && parts.count >= 3) self.onAid(parts[2], sender.tag);
+    [_aids setTitle:title rows:rows menu:menu hidden:hidden];
 }
 
 - (void)appendText:(const std::string &)text toField:(const std::string &)name {

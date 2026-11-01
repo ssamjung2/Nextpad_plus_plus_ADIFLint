@@ -388,6 +388,9 @@ Beside each suggestion:
 - **Topics**: each topic on or off. Work and projects, and stage of life, are off until you
   turn them on, and are worded for when the other operator brings them up.
 - In Portable, **Night Mode** and **Offline Mode** too.
+- **In Its Own Panel**: the aids in an **Operating Aids** panel instead of New QSO (also
+  **Panels → Show Operating Aids**), beside the Map or as a tab in the Operating Console; close
+  it and they are back in New QSO.
 
 Your notes appear only on your screen. VoiceOver reads each suggestion as "Suggestion: …", so
 it isn't mistaken for a fact.

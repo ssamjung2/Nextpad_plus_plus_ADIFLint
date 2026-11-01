@@ -9,6 +9,10 @@ Versions before 0.8.0 were development builds and were not published.
 
 ## [Unreleased]
 
+### Added
+
+- **Operating Aids as a panel**: Options → **In Its Own Panel** (or Panels → Show Operating Aids) puts the aids in a panel of their own, beside the Map or as a tab in the Operating Console, with Note, Skip and Dismiss as in New QSO. Closed, they are back in New QSO.
+
 ### Changed
 
 - The **Log Table** and **Activations & Spots** are ordinary windows, as New QSO is: you type into them (a cell, a filter), and Apple's guidelines keep typing out of floating panels. They stay in sight when you switch apps and minimize to the Dock. The task windows (Bulk Edit, Sort, the imports and exports) stay panels.
