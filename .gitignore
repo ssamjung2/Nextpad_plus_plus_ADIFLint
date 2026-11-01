@@ -6,3 +6,4 @@ dist/
 .DS_Store
 drafts/
 __pycache__/
+tests/fixtures/lookup/uploads.log
