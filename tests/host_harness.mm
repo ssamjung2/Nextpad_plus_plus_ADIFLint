@@ -8102,9 +8102,16 @@ int main(int argc, char **argv) {
                 pick(proj, @"Equal Earth");
                 [findButton(mapw.contentView, @"World") performClick:nil];
                 snapshot(mapw, "docs-map-colour-blind");
-                // Day and night with the grey line, at the time of a QSO in Tokyo's square (PM95).
+                // Day and night with the grey line, at the time of a QSO in Tokyo's square (PM95). The spots
+                // hidden: a fixture's spot (JA1XYZ) is in Tokyo, drawn over the square.
                 stylePick(@"palette", @"Standard");
                 box(@"Contacts", false), box(@"Worked squares", true);
+                NSButton *spotsBox = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.show.spots");
+                bool spotsWereOn = spotsBox.state == NSControlStateValueOn;
+                if (spotsWereOn) {
+                    spotsBox.state = NSControlStateValueOff;
+                    [spotsBox sendAction:spotsBox.action to:spotsBox.target];
+                }
                 [findButton(mapw.contentView, @"World") performClick:nil];
                 {
                     NSPoint at = pointFor(139.69, 35.68);
@@ -8116,6 +8123,10 @@ int main(int argc, char **argv) {
                 snapshot(mapw, "docs-map-day-night");
                 stylePick(@"sunTime", @"Now"), styleSet(@"dayNight", false), styleSet(@"greyLine", false);
                 box(@"Worked squares", false);
+                if (spotsWereOn) {
+                    spotsBox.state = NSControlStateValueOn;
+                    [spotsBox sendAction:spotsBox.action to:spotsBox.target];
+                }
                 // Propagation: the beacons on the world map, space weather in the header (the fixtures' NOAA SWPC files).
                 {
                     NSButton *beaconsBox = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.beacons");
