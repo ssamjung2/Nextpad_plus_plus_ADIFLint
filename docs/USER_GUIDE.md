@@ -13,26 +13,38 @@ Edit & Transform, opens the two layout commands in a submenu. New QSO, Log Table
 each switches to the others; **QSL Sync…** opens each upload window. Every change a command
 makes to your log is one undo step, and nothing is saved to disk until you save the file.
 
-**A quick tour**
+**Getting started** (ten minutes)
 
-1. Open an `.adi` file: problems are marked as you type
+1. Open an `.adi` file in Nextpad++: problems are marked as you type
    ([Checking and repairing a log](#checking-and-repairing-a-log)).
-2. **Check Log…** finds and repairs known problems. **Fix Field Lengths** (or the **Fix
-   Lengths** button in Check Log) corrects the ADIF data lengths.
-3. **Settings… → Your Station**: your callsign and grid ([Settings](#settings)).
-4. **New QSO…** logs contacts ([Logging with New QSO](#logging-with-new-qso)), and **Start
-   Activation…** starts a park, reference or summit
-   ([Station profiles and activations](#station-profiles-and-activations)).
-5. **Map & Explorer…** shows where you've worked ([Map](#map)).
+2. **Check Log…** lists every problem with its repair; tick the ones to make and press **Repair
+   Ticked**.
+   **Fix Field Lengths** corrects the ADIF data lengths in one go.
+3. **Settings…** → **Your Station**: your callsign and grid square. The lookup, the map, the
+   distances and Only DX all start from them ([Settings](#settings)).
+4. **Start Logging** opens the Operating Console; log a contact in New QSO and press Return
+   ([Log a contact](#log-a-contact)).
+5. **Map & Explorer…** shows where you've worked, and in **Live** who is on the air now ([Map](#map)).
 6. **QSL Sync…** uploads your QSOs and downloads confirmations
    ([QSL Sync and uploading](#qsl-sync-and-uploading)).
 
+The [Step by step](#step-by-step) chapter walks through the common tasks; the chapters after it
+describe every window and option.
+
 **Contents**
 
+- [Step by step](#step-by-step): [log a contact](#log-a-contact),
+  [arrange the console](#arrange-the-operating-console-your-way), [chase DX](#chase-dx),
+  [hunt parks](#hunt-parks-pota), [activate a park](#activate-a-park),
+  [see who hears you](#see-who-hears-you), [keep time](#keep-time-in-several-places),
+  [Operating Aids](#use-operating-aids-in-a-ragchew)
 - [Checking and repairing a log](#checking-and-repairing-a-log):
   [what is checked](#what-is-checked), [bytes or characters?](#bytes-or-characters)
 - [Logging with New QSO](#logging-with-new-qso): [choosing the fields](#choosing-the-fields),
   [looking up the call](#looking-up-the-call), [contests and Field Day](#contests-and-field-day)
+- [The Operating Console](#the-operating-console): [the panels](#the-panels), [layouts](#layouts),
+  [frames, tabs and regions](#frames-tabs-and-regions), [QSO Details](#qso-details),
+  [the Contact Map](#the-contact-map), [Clocks](#clocks)
 - [Station profiles and activations](#station-profiles-and-activations)
 - [Monitor: QSOs from WSJT-X and other programs](#monitor-qsos-from-wsjt-x-and-other-programs):
   [setting up the other programs](#setting-up-the-other-programs)
@@ -56,6 +68,126 @@ makes to your log is one undo step, and nothing is saved to disk until you save 
 - [Limits](#limits)
 
 *The screenshots come from the test suite, with sample data.*
+
+## Step by step
+
+Each walkthrough is a task from start to finish, with links to where its windows are described.
+
+### Log a contact
+
+1. Open your log (or a new, empty `.adi` file) and choose **Start Logging**. The Operating
+   Console opens: the Map over the Log Table, New QSO beside them.
+2. In New QSO, type the call. **Look up** (country data at first, or QRZ.com or HamQTH with an
+   account) fills what it can: the country, zones and continent, and from a callbook the name,
+   QTH and grid.
+3. Check **QSO Details** for who it is and why the contact is worth having: a new DXCC, band or
+   mode, a park you haven't hunted, a duplicate. No QSO Details in the console? New QSO's **Show in
+   QSO Details** opens it.
+4. Fill in the band (or frequency), mode and reports. QSO_DATE and TIME_ON are the current UTC
+   time when you log, unless you untick **Use the current UTC date and time when logging** (for a
+   paper log).
+5. Press **Log QSO** (Return). The record is added to the log in its own layout, the Log Table
+   shows it, and New QSO is ready for the next call. Save the file when you're done (⌘S).
+
+See [Logging with New QSO](#logging-with-new-qso) and [The Operating Console](#the-operating-console).
+
+### Arrange the Operating Console your way
+
+1. Choose a starting layout in **Console Layout Options**: say *Map over the log, QSO on the
+   right*.
+2. Add a panel where you want it: in New QSO's frame, **⋯ → Split Down ▸ QSO Details** puts QSO
+   Details under New QSO, the two sharing its room. **Split Right** puts it beside instead.
+3. Move frames by dragging their headers: onto another frame's **edge** to go beside it on that
+   side, onto its **header** to become a tab there, onto its **middle** to swap. **⋯ → Move
+   Frame** puts a frame along an edge of the console, the whole height or width.
+4. Turn a pair of frames: **⋯ → Side by Side** or **One Above the Other**.
+5. Drag the dividers to size the frames. Close what you don't need: it comes back in the same
+   place when you open it again.
+6. The layout keeps all of it. Choose another layout and come back: it's as you left it.
+   **Reset Layout** brings back the original; **Save Layout As…** keeps yours under a name.
+
+See [Frames, tabs and regions](#frames-tabs-and-regions).
+
+### Chase DX
+
+1. On the Map, choose the **Chasing** style (or the **DX Chase** workflow). The spots show the
+   DXCC entities and bands you need first (**Needed on its band**), plain DX spots only, and the
+   grey line.
+2. DX Chase shows **only DX**: stations in your own country are left out (the tag **Only DX**
+   under the toolbar says so; click it to see them all again). Your country is the one your grid
+   is in.
+3. Press **⌘G** (**Next Opportunity**) to step through the opportunities, best first, each
+   chosen on the map with why it's worth working; **⇧⌘G** steps back.
+4. Choose a spot to see its information in the order you work it: what to tune, why, its park,
+   how fresh, where to point. **New QSO** (⌘↩) copies it into New QSO.
+5. The **Contact Map** shows the station and you, and its spot's card. Log it: in the Chasing
+   style the Map moves on to the next opportunity.
+
+![DX Chase in the Chasing style: 1A0KM, needed on its band, the grey line, and the tags Needed on its band and Only DX](images/map-chasing.png)
+
+See [Operating styles](#operating-styles) and [Spots on the map](#spots-on-the-map).
+
+### Hunt parks (POTA)
+
+1. On the Map, choose the **POTA** workflow: the POTA activators spotted now, at their parks.
+2. Their badges say what each park is for you: **light blue** a park you haven't hunted,
+   **green** one you have. The rings say what the station is for your DXCC (two rings a new DXCC,
+   dashed a new band or mode).
+3. Point at a spot: its rings turn, and the status line names it. Click it for its park, how
+   fresh the spot is, and the spotter's comment.
+4. **New QSO** copies the activator, frequency, mode and park (POTA_REF, SIG and SIG_INFO) into
+   New QSO; the lookup says whether the park is new to you.
+5. **Spots & Hunting…** lists the same activators as a table, with NEW for parks you haven't
+   hunted.
+
+See [Spots](#spots) and [Activations: POTA, WWFF and SOTA](#activations-pota-wwff-and-sota).
+
+### Activate a park
+
+1. Choose **Start Activation…**: the **Program** (POTA, WWFF or SOTA) and its **References** (for
+   POTA, type part of a park's name and choose it; two parks make a two-fer), the **Station**
+   (Your Station or a profile), and where to **Log to** (a new file named as the program asks).
+2. Press **Start**: the activation's log opens with its fields ready (MY_SIG, MY_SIG_INFO and the
+   program's reference on every QSO), in the console's activation layout, New QSO the whole
+   height on the left.
+3. Log as usual. New QSO's top line counts toward the activation ("US-7929 today: 8 of 10").
+4. **Finish…** ends it, checks the log and exports it for the program; for POTA, **Open pota.app
+   Uploads** opens the page to upload it.
+
+See [Station profiles and activations](#station-profiles-and-activations).
+
+### See who hears you
+
+1. On the Map, in **Live**, open **More Filters…** and find the **Spots** group.
+2. Tick **Show who hears** (leave the callsign empty for yours). The map turns the spots around:
+   every station that heard you, where it is, with a line to you, as on PSKReporter's map.
+3. To see only what one listener hears, put its call in **Heard by** (a DX cluster spotter, a
+   Reverse Beacon skimmer such as W3LPL, a PSKReporter receiver).
+4. To follow particular stations, put their calls in **Stations spotted**. With **Heard by** too,
+   you see those stations as those listeners heard them.
+5. Each filter is a tag under the toolbar while it is on; click the tag, or **Clear**, to remove
+   it.
+
+![More Filters' Spots group: Stations spotted DL1ABC, Heard by K1TTT, and Show who hears](images/more-filters-spots.png)
+
+### Keep time in several places
+
+1. Show the **Clocks** panel (Panels, or its button in the Map's toolbar): UTC and your local time.
+2. **Add Clock** adds a city's (Chicago, London, Tokyo…) or any time zone by region.
+3. Control-click a clock to move it or remove it.
+4. Put the clocks where you look: in the console, New QSO's **⋯ → Split Down ▸ Clocks**.
+
+### Use Operating Aids in a ragchew
+
+1. Choose the **Social** style on the Map. Its layout puts **Operating Aids** under New QSO.
+2. Type the call: the aids show your QSOs with it before and what you noted, then a couple of
+   suggestions for the conversation.
+3. **Note** starts a note on that topic, **Skip** brings the next one, **Dismiss** stops it.
+   **Options** sets how many and when.
+
+![Operating Aids in the Social style: your earlier QSO with K1ABC, your notes, and two suggestions](images/operating-aids.png)
+
+See [Operating Aids](#operating-aids).
 
 ## Checking and repairing a log
 
@@ -227,7 +359,7 @@ is selected.
 **New QSO…** opens a window for logging contacts one after another. It is an ordinary window:
 it stays where you left it when you switch to another app, and it minimizes to the Dock.
 
-![New QSO with a call looked up in the country data: DXCC, zones and continent filled in, and the distance and bearing from your grid](images/new-qso-lookup.png)
+![New QSO with a call looked up in the country data: DXCC, country, zones and continent filled in, and Show in QSO Details for the rest of what it found](images/new-qso-lookup.png)
 
 - **Fields:** the window keeps the log's field order, then adds CALL, QSO_DATE, TIME_ON,
   BAND, FREQ, MODE, SUBMODE, RST_SENT and RST_RCVD if the log doesn't have them.
@@ -250,56 +382,8 @@ it stays where you left it when you switch to another app, and it minimizes to t
   this log on other bands, modes or days and, with a logs folder chosen in Worked Before, in
   your other logs ("4 QSOs in 2 other logs; last 2026-09-30 14:05 on 20m SSB").
 
-**Start Logging** (in the ADIF Lint menu) opens the **Operating Console**: New QSO, the Map and
-the Log Table in one resizable window. **Console Layout Options** chooses an arrangement, shows or
-hides frames, and resets their sizes. **Panels** (beside it) shows or hides each panel, New QSO,
-the Log Table, the Map, Activations & Spots, the Contact Map and QSO Details, whether it is in
-the console or a window of its own; each item says what it will do (**Show Map**, **Hide Map**),
-as the Map's toolbar buttons show it. At the top of New QSO two clocks show the time in LED
-digits: **UTC** (green, the time QSOs are logged in) and **local** time (amber, with your time
-zone), each with its date.
-Each frame's header menu chooses what it shows; choosing a view already in another frame swaps
-them. You can also drag a frame by its header: drop it on another frame's body to swap the two,
-or on another frame's header to make it a **tab** there (the header is highlighted while a drop
-there would do that). A frame with tabs shows them in its header in place of its menu; click a
-tab to bring its panel to the front. The panels behind a tab stay open, and the frame's close
-button closes the one in front. The **⋯** button in a frame's header does the same from the
-keyboard and with VoiceOver: **Add Tab** puts another panel in the frame as a tab (from its own
-frame, or opened into this one), **Move to Its Own Frame** gives the tab in front a frame of its
-own again, and **Close** closes it. Choosing a layout in Console Layout Options, the one ticked
-too, puts every panel back where that layout has it. **Save Layout As...** keeps the console as
-it is now (its panels, tabs and frame sizes, and whether the Map's sidebar, list and selected
-panel show) as a layout of your own; it is listed after the built-in ones, and **Delete Layout**
-removes it. Saving under a name you have used replaces that layout. When every frame is in use, a window you
-open (the Map, say) opens on its own instead of replacing a frame. The console keeps how you
-arranged it, its tabs and frame sizes, for the next time.
-
-**QSO Details** shows who you are working as you type the call in New QSO, as the Map's selected
-panel does for a spot:
-
-- the call, the operator and where they are, from New QSO and its lookup;
-- **Why this contact**: on your watch list; a duplicate (this call on this band and mode today,
-  UTC, which a program counts once); in an activation, new for it; otherwise a new DXCC entity,
-  band or mode for this log, or worked or confirmed there already; park to park when they give
-  a reference, and a park you haven't hunted; and your QSOs with the call before;
-- the lookup's facts (country and zones, grid, distance and bearing, local time, LoTW, worked
-  before in your other logs, the park);
-- this QSO (band, frequency, mode and reports), and your last QSOs with the call.
-
-The **Contact Map** places the contact by its grid square (or LAT and LON, else its country) and
-marks your station, with the distance and bearing between you. The status bar shows the log,
-the last action and UTC time.
-
-**Start Activation…** opens the activation layout first and then shows its setup panel: New QSO
-the whole height on the left, so Log QSO is always in sight; on the right, QSO Details beside the
-Contact Map, then the activation's log, then the spots. Press Start to open the activation log
-with its station profile and fields ready. Close the Operating Console window to close the
-workspace. It needs an ADIF log open, as New QSO does.
-
-**Start Logging** restores the original logging arrangement: the interactive Map above the Log
-Table, with New QSO alongside them. The Map is set for operating each time: **Live**, spots from
-the **last 5 minutes**, **plain DX only** (no POTA parks or activators; the toolbar's program menu
-brings them back) and zoomed to **2.5×** about your Home View, or about where the map was.
+**Start Logging** opens New QSO in the **Operating Console**, with the Map and the Log Table
+beside it; see [The Operating Console](#the-operating-console).
 
 ### Choosing the fields
 
@@ -326,7 +410,8 @@ its description in the ADIF specification (hover a row for the full text).
 - **QRZ.com** or **HamQTH**: name, QTH, state, grid and more from your callbook account.
   For a portable or park station, the home address is shown but not written.
 
-Under it, the station's facts, a row each (point at one for all of it):
+What it finds about the station is in **QSO Details** (New QSO's **Show in QSO Details** opens
+it while it is closed), a row each:
 
 - **Operator**: the name, QTH and state (the window's, else the callbook's).
 - **Country**: the DXCC entity, continent, CQ and ITU zones and DXCC number.
@@ -345,7 +430,7 @@ Under it, the station's facts, a row each (point at one for all of it):
   what your logs say about it ("US-1234: a new park!", "KFF-5255: worked 2 times before,
   last 2026-10-03 (a.adi)").
 
-A callbook's notice or error ("QRZ.com: K1ABC not found") shows under them. Changing the
+A callbook's notice or error ("QRZ.com: K1ABC not found") shows under New QSO's **Look up**. Changing the
 call takes back what the last lookup filled, unless you edited it.
 
 In **POTA_REF** and **MY_POTA_REF**, type part of a park's name or reference ("yellowstone",
@@ -355,9 +440,10 @@ park the same way (a two-fer). It needs POTA's park list (Settings → POTA Park
 
 ### Operating Aids
 
-With the Map's operating style set to **Social** or **Portable** (see
-[Operating styles](#operating-styles)), New QSO shows **Operating Aids** under the lookup's
-facts: a few facts about the QSO, then one to three suggestions. They are cues, never a
+With the Map's operating style set to **Social**, **Chasing** or **Portable** (see
+[Operating styles](#operating-styles)), the **Operating Aids** panel (Panels → Show Operating
+Aids, or its button in the Map's toolbar; those styles' layouts have it under New QSO) shows,
+for the contact in New QSO, a few facts about the QSO, then one to three suggestions. They are cues, never a
 script or a requirement, chosen from a small fixed library of the familiar exchange (name and
 QTH, the report, station and antenna, conditions, weather, how they got started, interests,
 clubs and nets, the area, QSL, a courteous close). Nothing is fetched and nothing leaves your
@@ -388,9 +474,9 @@ Beside each suggestion:
 - **Topics**: each topic on or off. Work and projects, and stage of life, are off until you
   turn them on, and are worded for when the other operator brings them up.
 - In Portable, **Night Mode** and **Offline Mode** too.
-- **In Its Own Panel**: the aids in an **Operating Aids** panel instead of New QSO (also
-  **Panels → Show Operating Aids**), beside the Map or as a tab in the Operating Console; close
-  it and they are back in New QSO.
+
+The panel can be beside the Map or a frame or tab in the Operating Console; closed and opened
+again, the aids are as they were.
 
 In **Chasing**, Operating Aids show the opportunities instead of topics: where the call in New
 QSO stands ("Opportunity 2 of 7: New DXCC entity (Japan). Spotted 3 min ago."), a duplicate
@@ -484,6 +570,163 @@ QSOs, and again when the band or mode changes or 10 minutes have passed.
 PSKReporter: reception reports of the stations you log by hand (your station as the
 receiver, marked as taken from your log) would need PSKReporter's author to welcome them,
 since its developer page is unclear about them; ADIF Lint doesn't send any yet.
+
+## The Operating Console
+
+The **Operating Console** is one window that holds the panels you operate with, each in a frame,
+so nothing hides behind anything else. You choose which panels it holds and where; ADIF Lint keeps
+the arrangement for next time.
+
+![The Operating Console on a sample log: the Map over the Log Table on the left; New QSO, QSO Details and the Clocks on the right](images/operating-console.png)
+
+### Opening it
+
+- **Start Logging** opens it for everyday logging: the Map over the Log Table, New QSO beside
+  them. The Map is set for operating each time: **Live**, spots from the **last 5 minutes**,
+  **plain DX only** (no POTA parks or activators; the toolbar's program menu brings them back)
+  and zoomed to **2.5×** about your Home View, or about where the map was (your station while
+  that can't be told yet).
+- **Start Activation…** opens the activation layout and then its setup panel: New QSO the whole
+  height on the left, so Log QSO is always in sight; on the right, QSO Details beside the
+  Contact Map, then the activation's log, then the spots. Press Start to open the activation log
+  with its station profile and fields ready (see
+  [Station profiles and activations](#station-profiles-and-activations)).
+- **Start Contest** opens the Contest layout: New QSO over the log, the Map beside them (see
+  [Contests and Field Day](#contests-and-field-day)).
+- An operating style on the Map (Social, Chasing, Contest, Portable) arranges the console in its
+  own layout while **Arrange Panels** is on (see [Operating styles](#operating-styles)).
+
+All of them need an ADIF log open, as New QSO does. Close the console's window to close the
+workspace; the status bar along its bottom shows the log, the last action and the UTC time.
+
+### The panels
+
+**Panels** (in the ADIF Lint menu, beside Console Layout Options) shows or hides each one. Each
+item says what it will do (**Show Map**, **Hide Map**), and the Map's toolbar has a button for
+the ones you use most, lit while it shows. A panel opens in the console when the console holds
+it, else in a window of its own.
+
+| Panel | What it is for |
+|---|---|
+| **New QSO** | Logging a contact ([Logging with New QSO](#logging-with-new-qso)). |
+| **Log Table** | The log as a sortable, editable table ([Log Table](#log-table-summary-and-worked-before)). |
+| **Map** | Where you've worked, and who is on the air now ([Map](#map)). |
+| **Activations & Spots** | The activators and stations spotted, as a table ([Spots](#spots)). |
+| **QSO Details** | Who you are working, why the contact is worth having, what the lookup found. |
+| **Contact Map** | The contact and your station on a small map, and the spot's card. |
+| **Operating Aids** | The operating style's facts and suggestions for the contact ([Operating Aids](#operating-aids)). |
+| **Clocks** | UTC, your local time and the time zones you choose. |
+| **Map Style** | The Map's palette, markers and text ([Map Style and export](#map-style-and-export)). |
+| **Spot Sources**, **Your Station** | Settings' sections, to keep in sight while you operate. |
+
+A panel you close in the console (with Panels, a toolbar button or its frame's close button)
+opens there again in the same place.
+
+### Layouts
+
+**Console Layout Options** (in the ADIF Lint menu) lists the built-in layouts, each a starting
+point made for a way of operating:
+
+| Layout | Made for |
+|---|---|
+| QSO, log and spots with map and details below | Everyday logging with spots in view |
+| QSO on the left, operating panels on the right | A tall New QSO, everything else beside it |
+| Log and QSO across the top, operating panels below | A wide screen, the log first |
+| Map and details on the right | Logging with the map and details beside it |
+| Spots on the left, QSO and log on the right | Hunting from the spots |
+| QSO and log only | Paper logs and quick entry |
+| QSO, spots and details | Chasing without the map |
+| Activation | A park, reference or summit activation |
+| Map over the log, QSO on the right | Start Logging's |
+| Social, Chasing, Contest, Portable | The operating styles' (each with its Operating Aids where it has them) |
+
+**Each layout keeps your changes.** The panels you add or close (and where a closed one goes
+back), the tabs, splits and frame sizes are kept for the layout you changed, so choosing another
+and coming back finds it as you left it. **Reset Layout** (on while the layout chosen has
+changes) brings it back as it comes; **Reset Frame Sizes** keeps its panels and only evens out
+their sizes.
+
+**Save Layout As…** keeps the console as it is now (its panels, tabs and frame sizes, and whether
+the Map's sidebar, list and selected panel show) as a layout of your own, under a name; yours are
+listed after the built-in ones, and **Delete Layout** removes one. Saving under a name you have
+used replaces that layout. Console Layout Options also lists every panel, ticked while it is in
+the console, to put it in or take it out.
+
+### Frames, tabs and regions
+
+Each frame has a header: its panel's name (a menu to choose what the frame shows: one already in
+another frame swaps with it), its tabs when it holds more than one panel, the **⋯** actions menu
+and the close button.
+
+Everything a drag does can be done from the **⋯** menu too, from the keyboard and with VoiceOver:
+
+| ⋯ menu | What it does |
+|---|---|
+| **Add Tab ▸** | A panel as a tab in this frame (from its own frame, or opened into this one). |
+| **Split Right ▸**, **Split Down ▸** | This frame's region split in two, the panel you choose in the new half. |
+| **Move** *panel* **to Its Own Frame** | The tab in front out into a frame of its own. |
+| **Side by Side**, **One Above the Other** | The frames of this split arranged that way (the ticked one is how they are). |
+| **Move Frame ▸** | The frame along an edge of the console (left, right, top or bottom), the whole height or width. |
+| **Close** *panel* | The panel in front closed; it comes back to this place when you open it again. |
+
+Drag a frame by its header onto another frame:
+
+- onto its **header**: it becomes a **tab** there (the header is highlighted);
+- near one of its **edges** (the outer quarter): it goes **beside** that frame, on that side, the
+  two sharing the frame's room (the half it would take is highlighted);
+- onto its **middle**: the two **swap** places (the frame is outlined).
+
+Click a tab to bring its panel to the front; the panels behind their tabs stay open. Drag a
+divider between frames to resize them. A frame is never smaller than its panel needs: a panel put
+in a small frame (chosen in its menu, swapped or split in) takes room from the frames beside it,
+and the window grows if it has to.
+
+### QSO Details
+
+**QSO Details** shows who you are working as you type the call in New QSO, as the Map's selected
+panel does for a spot:
+
+- the call, the operator and where they are, from New QSO and its lookup;
+- **Why this contact**: on your watch list; a duplicate (this call on this band and mode today,
+  UTC, which a program counts once); in an activation, new for it; otherwise a new DXCC entity,
+  band or mode for this log, or worked or confirmed there already; park to park when they give
+  a reference, and a park you haven't hunted; and your QSOs with the call before;
+- **Lookup**: what the lookup found (see [Looking up the call](#looking-up-the-call)): country
+  and zones, grid, distance and bearing, local time, LoTW, worked before in your other logs, the
+  park;
+- **This QSO** (band, frequency, mode and reports), and your last QSOs with the call.
+
+![QSO Details for DL2XYZ: a new mode for Germany on 20m, the lookup's country, grid, distance and local time, and this QSO](images/qso-details.png)
+
+### The Contact Map
+
+The **Contact Map** shows the contact in New QSO and your station on a small map, with the way
+between them and the distance and bearing under it. Both are always in view.
+
+- **The contact** is where New QSO's GRIDSQUARE (or LAT and LON) puts it, else at the grid the
+  lookup found in the callbook, else where its spot places it, else in its country (roughly).
+- **Your station** is where MY_LAT and MY_LON put it, else at MY_GRIDSQUARE (a station profile's
+  or a park's), else at Your Station's grid in Settings, else at the grid the log uses most (as
+  the Map's home).
+- **Spot Info** (the ⓘ button, on at first): while the station is spotted, a card of its spot:
+  what to tune, why it is worth having, its park, and how fresh the spot is. The card sits in a
+  corner clear of both stations.
+
+![The Contact Map of DL1ABC from its spot: Europe and North America, and the spot's card with its frequency, band, age, comment and distance](images/contact-map.png)
+
+### Clocks
+
+The **Clocks** panel shows the time in LED digits, each clock with its date: **UTC** (green, the
+time QSOs are logged in) and your **local** time (amber, with your time zone) at first.
+
+- **Add Clock** adds another: UTC or local time; a city operators often keep (New York, Chicago,
+  Denver, Phoenix, Los Angeles, Anchorage, Honolulu, London, Berlin, Tokyo, Sydney); or any time
+  zone under **Other Time Zones**, by region. A city's clock is blue and named for its city.
+- Control-click a clock for its own menu: **Move Left**, **Move Right**, **Remove This Clock**
+  (the last one stays).
+- The clocks share the panel's width, as many to a row as fit.
+
+![The Clocks panel: UTC, local time, Chicago, London and Tokyo](images/clocks.png)
 
 ## Station profiles and activations
 
@@ -634,7 +877,7 @@ top chooses where from:
   already worked today on that band. References logged in SIG_INFO for any program, and
   in IOTA, count as worked, and show on the Map's Other programs layer where the QSO has a grid.
 
-![New QSO filled from a POTA spot: the call, frequency, band, mode and park, with the lookup line saying it is a new park](images/new-qso-spot.png)
+![New QSO filled from a POTA spot: the call, frequency, band and mode, and the park in SIG and SIG_INFO](images/new-qso-spot.png)
 
 ## Log Table, Summary and Worked Before
 
@@ -730,7 +973,8 @@ The Map has two ways of working, chosen at the left of its toolbar:
 - **Live** shows the stations spotted now, and which of them your log needs: a new DXCC, a
   new band or mode for an entity, a new park.
 - **DX Chase** is Live for the DXCC entities and bands you need: it opens on **Needed on its
-  band**, with plain DX spots (no programs), no parks, and the grey line.
+  band**, with plain DX spots (no programs), no parks, and the grey line. It shows only DX:
+  stations in your own DXCC entity are left out (see **Only DX** under Sources and Filters).
 - **POTA** is Live for the parks: it opens on **POTA activators**, with every park (those you
   worked badged) and no DXCC shading. It only ever shows POTA's activators: **Clear** keeps
   that, and the program menu offers POTA only or New POTA parks (Live has every program's
@@ -849,8 +1093,8 @@ goes full screen with the green button):
     (and in Live which spots show) as a Quick View of your own in that workflow, after the
     others; right-click one of yours to remove it.
   - **Spots** (Live): **Heat map** (see [Space weather and
-    propagation](#space-weather-and-propagation)), **Sources and Filters…**, refresh,
-    **Only spots of** (see [Spots on the map](#spots-on-the-map)), and **Watch List…** (see
+    propagation](#space-weather-and-propagation)), **Sources and Filters…**, refresh, and
+    **Watch List…** (see
     [The watch list](#the-watch-list)). The layer's own boxes are the **Spots** row of
     **Layers**, as every layer's are.
   - **Layers**: a row for each layer, the **Spots** layer's too (see
@@ -1018,6 +1262,8 @@ a tag in the toolbar that removes it when clicked; **Clear** shows every QSO aga
 
 The **Spots** layer marks the stations spotted now, live, beside your log:
 
+![Live: DL1ABC chosen, its line from your station, K9ABC calling from a POTA park, the legend with each kind of spot, and the selected panel with the spot's facts](images/map-spots.png)
+
 - **Show** fetches the spots and marks each station: a dot in a ring in its colour (see
   [Colours](#colours): by confirmation, what the spot means for your log), solid for 10
   minutes and fainter as it ages. The ring's shape says it too, without colour: two rings for
@@ -1056,8 +1302,7 @@ it is at its country's centre.
 The layer's boxes are the **Spots** row under **Places** in the sidebar's **Layers** card:
 **All** shows the stations spotted, **Labels** their calls. Spots are never "worked", so the
 row has nothing under Worked. The sidebar's **Spots** card (in Live) holds **Heat map**,
-**Lines from the spotters**, **Sources and Filters…**, the refresh arrow, **Only spots of**
-and **Watch List…**.
+**Lines from the spotters**, **Sources and Filters…**, the refresh arrow and **Watch List…**.
 
 **Sources and Filters…** chooses which spots show:
 
@@ -1066,6 +1311,14 @@ and **Watch List…**.
   greyed out.
 - **Program:** all programs, plain DX spots only (no program reference), or one program
   (POTA, WWFF, GMA…) among the spots now.
+- **Only DX: not** *your country* leaves out the stations in your own DXCC entity, from their
+  callsigns. Yours is the entity whose land holds your grid (Settings → Your Station, else
+  the log's most used MY_GRIDSQUARE), else your callsign's; the box names it. Alaska, Hawaii
+  and Puerto Rico are DXCC entities of their own, so from the lower 48 they still show. DX
+  Chase starts with it on, Live and POTA with it off, and each keeps its own; while it is on,
+  a tag under the toolbar says so (click it to turn it off), and **Clear** turns it off. With
+  **Who hears** on, or **Stations spotted** named (More Filters), those stations show whatever
+  their country.
 - **Settings…** opens Settings at Spots.
 
 Below them, the number of stations on the map and of spots received, and what each source
@@ -1073,10 +1326,18 @@ is doing ("Spothole: 42 new spots at 14:02 UTC (every 2 minutes)", "DX cluster: 
 to dxc.hamserve.uk:7300 as N0CALL."). The Map's band and mode filters and **More Filters**'
 places apply to spots too; the dates and confirmation don't.
 
-**Only spots of** (with a callsign; empty means yours, from Your Station) shows only that
-station's spots, each with every station that heard it (up to 100): who is hearing you, as
-on PSKReporter's map. While it is ticked, PSKReporter is asked about that callsign. Typing a
-callsign ticks it.
+**More Filters…** has a **Spots** group for which stations' spots show (in Live), each kept
+until you clear it, each a tag under the toolbar while it is on:
+
+- **Stations spotted**: only the spots of these stations, the ones on the air (a portable
+  call, K1ABC/P, is the same station).
+- **Heard by**: only the spots these stations made, that is what they heard: a DX cluster
+  spotter, a Reverse Beacon skimmer (W3LPL is W3LPL-#), a PSKReporter receiver. With
+  **Stations spotted** too: those stations as these heard them.
+- **Who hears** (**Show who hears**, with a callsign; empty means yours, from Your Station)
+  turns the spots around: the stations that heard it, each where it is with a line to it (up
+  to 100), as on PSKReporter's map: who is hearing you. While it is on, PSKReporter is asked
+  about that callsign. Typing a callsign turns it on.
 
 The round arrow beside **Sources and Filters…** refreshes them now, as far as each source allows:
 Spothole is asked again unless it was asked less than a minute ago, PSKReporter only once 5
@@ -1221,12 +1482,23 @@ Spots follow it too:
   log), a **new band or mode** for an entity you have worked, its entity **worked** on the
   band, or **confirmed** there. A station the country data can't place is grey. This is the
   one for chasing DX: the spots in the new-DXCC and new-band colours are the ones you need.
+  A POTA activator's spot (the park's badge) is coloured by its park instead: **light blue**
+  a park you haven't hunted, **green** one you have; what it means for your DXCC is in its
+  ring's shape, as for every spot (two rings a new DXCC, a dashed one a new band or mode).
+
+Under the pointer, a spot's rings turn, in long dashes, the two of them opposite ways, while
+its station shows in the status line (still with Reduce Motion on in the Mac's Accessibility
+settings).
 - **By band** and **by mode**, their own band and mode.
 - **By QSO count** and **by year**, your QSOs with that call (grey: none).
 
 The spotters' lines take their spot's colour (Map Style can make them faint or grey),
 and the spot's information box says what it means for the log ("For this log: new band for
-Sov Mil Order of Malta (40m)").
+Sov Mil Order of Malta (40m)"). The box is in the order you work a station: what to tune
+(frequency, mode, band), why it is worth having, what to log (its park, reference and name),
+how fresh the spot is (when, the spotter's comment, the report), where to point (distance and
+bearing), whether it is in this log, then the facts of the place (grid, country, zones,
+position), the source, and who heard it.
 
 **Map Style** has five palettes: **Standard**, **Colour-blind safe**, **High contrast**,
 **Light** for printing, and **Night (red)**. The sidebar's Map section has them too, a

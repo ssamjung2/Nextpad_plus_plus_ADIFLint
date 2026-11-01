@@ -26,7 +26,13 @@ Log and eQSL.
   clean.
 - **Logs contacts fast.** **New QSO** carries your station's fields over, looks the call up
   (offline country data, QRZ.com or HamQTH), warns of duplicates by POTA's park-to-park
-  rule, and handles contests and Field Day.
+  rule, and handles contests and Field Day. **QSO Details** says who you are working and why
+  the contact is worth having.
+- **An Operating Console you arrange.** New QSO, the Map, the Log Table, the spots, QSO Details,
+  the Contact Map, Operating Aids and Clocks in one window: split any frame in two, put panels
+  side by side or one above the other, tab them, or drag them beside each other. Thirteen
+  built-in layouts to start from, each keeping your changes until you reset it, and your own
+  saved under a name.
 - **Makes activations easy.** **Start Activation** for POTA, WWFF or SOTA names the log the
   way the program asks, writes the activation's fields into every QSO, counts toward the
   goal ("US-7929 today: 8 of 10"), and exports the files each program wants.
@@ -39,7 +45,10 @@ Log and eQSL.
 - **An operating map.** **History** maps what your log reached: the squares, countries, US
   states and counties, CQ and ITU zones, POTA parks and IOTA groups you worked, with your
   progress toward DXCC, WAS, WAZ and VUCC. **Live**, **DX Chase** and **POTA** show the
-  stations spotted now and which your log needs, with a watch list, Band conditions, space
+  stations spotted now and which your log needs (DX Chase only DX, outside your own country;
+  POTA parks light blue until you've hunted them), each spot in the order you work it, with
+  Next Opportunity (⌘G), a watch list, filters for the stations spotted and who heard them
+  (PSKReporter's "who hears me" too), Band conditions, space
   weather from NOAA, the aurora and the NCDXF beacons. A globe or a flat map, offline, with
   terrain, country flags and OpenStreetMap streets for the regions you download; filter by
   band, mode, date, confirmation and place; colour by band in PSKReporter's colours, mode,
@@ -55,6 +64,10 @@ Log and eQSL.
 - **Private.** Accounts live in your macOS Keychain, every request is HTTPS and only when
   you ask, and there is no telemetry.
 
+![The Operating Console on a sample log: the Map over the Log Table, New QSO, QSO Details and the Clocks beside them](docs/images/operating-console.png)
+
+*The Operating Console: the Map over the Log Table, New QSO with QSO Details and the Clocks split in under it.*
+
 ADIF Lint is free software under the [GNU GPL v3](LICENSE). It is an independent project,
 not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
 
@@ -65,10 +78,12 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
 | ![Check Log listing errors, warnings and notes, each with a repair, ticked to repair together](docs/images/check-log.png) | ![Log Table with 257 sample QSOs, sortable and editable](docs/images/log-table.png) |
 | **Spots: parks not in your logs in green** | **Monitor: QSOs from WSJT-X, N1MM and loggers** |
 | ![POTA spots with the park names, and NEW for parks not yet worked](docs/images/spots.png) | ![Monitor listening on its ports, listing the QSOs that arrived and where each went](docs/images/monitor.png) |
-| **New QSO: lookup, distance and bearing** | **QSL Sync, and the Activation Tracker** |
-| ![New QSO with the call looked up in the country data: DXCC, zones, continent, and 7,086 km at 42 degrees](docs/images/new-qso-lookup.png) | ![QSL Sync listing QRZ.com Logbook, LoTW, Club Log and eQSL with QSOs to upload, uploaded and confirmed](docs/images/qsl-sync.png)<br><br>![Activation Tracker: a POTA park-day with 10 QSOs, activated](docs/images/activation-tracker.png) |
+| **New QSO: the lookup fills the fields** | **QSL Sync, and the Activation Tracker** |
+| ![New QSO with the call looked up in the country data: DXCC, country, zones and continent filled in](docs/images/new-qso-lookup.png) | ![QSL Sync listing QRZ.com Logbook, LoTW, Club Log and eQSL with QSOs to upload, uploaded and confirmed](docs/images/qsl-sync.png)<br><br>![Activation Tracker: a POTA park-day with 10 QSOs, activated](docs/images/activation-tracker.png) |
 | **Map: worked squares and CQ zones** | **Map: countries and contacts** |
 | ![Equal Earth world map with worked squares coloured by band and CQ zones numbered](docs/images/map-zones.png) | ![Europe with country outlines and names, and a pin at each contact](docs/images/map-europe.png) |
+| **QSO Details: who, and why it's worth it** | **Clocks: UTC, local time and the cities you choose** |
+| ![QSO Details for DL2XYZ: a new mode for Germany on 20m, the lookup's country, grid, distance and local time](docs/images/qso-details.png) | ![The Clocks panel: UTC, local time, Chicago, London and Tokyo](docs/images/clocks.png) |
 
 *Screenshots from the test suite, with sample data.*
 
@@ -94,8 +109,15 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
 
 **Logging and activations**
 - **New QSO**: your station's fields carried over (or a **station profile**), UTC date and
-  time, live checks, duplicate warnings, callsign lookup with distance and bearing, what
-  your logs say about the park, and LoTW users (optional).
+  time, live checks, duplicate warnings, and a callsign lookup whose facts (distance and
+  bearing, local time, what your logs say about the park, LoTW users) show in **QSO Details**,
+  with why the contact is worth having.
+- **The Operating Console**: the panels you operate with in one window: New QSO, the Map, the
+  Log Table, the spots, QSO Details, the **Contact Map** (both stations, and the spot's card),
+  **Operating Aids** and **Clocks** (UTC, local time and any city's). Split a frame's region in
+  two, arrange frames side by side or one above the other, move one to an edge, tab panels, or
+  drag a frame beside another; thirteen built-in layouts keep your changes until **Reset
+  Layout**, and **Save Layout As** keeps your own.
 - **Contests and Field Day**: ARRL Field Day, Winter Field Day or serial numbers, with the
   exchange asked for, duplicates warned by the contest's rule, and Cabrillo.
 - **Start Activation** and the **Activation Tracker** for POTA, WWFF and SOTA, each with
@@ -136,8 +158,10 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
   placeholders), other programs' references, **lines to contacts** in their contacts'
   colours, and **distance rings**.
 - **Filters** by band, mode, date, confirmation (by any service or one), DXCC need, spot age,
-  source and program, and **More Filters** by place, distance and kind of record; **Clear**
-  says how many are on.
+  source and program, **Only DX** (DX Chase's: not your own country's stations), and **More
+  Filters** by place, distance, kind of record, the **stations spotted** and **who heard
+  them**, or **who hears** a call (yours: PSKReporter's view); each a tag while it is on, and
+  **Clear** says how many are on.
 - A **list under the map** of the QSOs you click, the contacts, POTA parks or spots in view,
   the newest QSOs, Check Log's problems, or your DXCC progress by band and mode, with
   distance and bearing, search, pages, sorting and the columns you choose.
@@ -146,8 +170,12 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
   at your station), **Awards** (DXCC, WAS, WAZ, VUCC, counts of counties, continents, IOTA
   groups and parks) and **Band conditions** (each band's spots near you).
 - **Spots coloured by what they mean for your log**: a new DXCC, a new band or mode,
-  worked or confirmed, with ring shapes that say it without colour, and a **watch list** of
-  calls, references and entities that puts them first and counts them under a bell.
+  worked or confirmed, with ring shapes that say it without colour; POTA activators by their
+  park (light blue until you've hunted it, then green); the rings of the spot under the
+  pointer turning. Each spot's information in the order you work it (what to tune, why, its
+  park, how fresh, where to point), **Next Opportunity** (⌘G) through Chasing's ranked
+  opportunities, and a **watch list** of calls, references and entities that puts them first
+  and counts them under a bell.
 - **Spots**: the stations spotted now, from Spothole, a DX cluster (telnet, logged in with
   your callsign) and PSKReporter (who heard you and what you heard, or what's heard around
   your grid square), in their band's colours and
@@ -237,13 +265,16 @@ To uninstall, quit Nextpad++ and delete the `ADIFLint` folder.
    to read it.
 2. **Plugins → ADIF Lint → Check Log…** lists every problem and repairs what it can;
    **Fix Field Lengths** repairs the data lengths.
-3. **New QSO…** starts logging. The first time, Settings asks for your callsign and grid.
+3. **Start Logging** opens the Operating Console with New QSO. The first time, Settings asks for
+   your callsign and grid.
 4. **Map & Explorer…** shows the log on a world map; choose **Globe** in the
    projection pop-up and drag to turn it.
 5. To use an online service, add your account in **Settings…** first.
 
 The source repository has [`examples/try-me.adi`](examples/try-me.adi), with one of each
-kind of mistake.
+kind of mistake. The [user guide's Step by step](docs/USER_GUIDE.md#step-by-step) walks through
+logging, arranging the console, chasing DX, hunting and activating parks, and seeing who hears
+you.
 
 ## Menu
 
