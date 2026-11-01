@@ -3074,6 +3074,15 @@
   "Delete Layout": "레이아웃 삭제",
   "Replace": "바꾸기",
   "Save Layout As": "레이아웃을 다른 이름으로 저장",
-  "Save Layout As...": "레이아웃을 다른 이름으로 저장..."
+  "Save Layout As...": "레이아웃을 다른 이름으로 저장...",
+  "Arrange Panels": "패널 배치",
+  "Choosing a style puts the panels in its layout in the Operating Console (yours, after Save); off, a style changes only the map": "스타일을 고르면 운용 콘솔의 패널이 그 레이아웃으로 배치됩니다(저장 후에는 내 레이아웃). 끄면 스타일은 지도만 바꿉니다",
+  "Its panels: {layout}": "패널: {layout}",
+  "Not arranged: Arrange Panels is off": "배치 안 함: 패널 배치가 꺼져 있음",
+  "Yours, kept with Save": "내 레이아웃(저장됨)",
+  "Social: the Map, with New QSO and QSO Details beside it": "교류: 지도와 그 옆에 새 QSO와 QSO 세부 정보",
+  "Chasing: the Map over the spots, New QSO beside them": "체이싱: 스팟 위에 지도, 그 옆에 새 QSO",
+  "Contest: New QSO over the log, the Map beside them": "콘테스트: 로그 위에 새 QSO, 그 옆에 지도",
+  "Portable: New QSO, with the Map over the log beside it": "이동 운용: 새 QSO와 그 옆에 로그 위의 지도"
  }
 }

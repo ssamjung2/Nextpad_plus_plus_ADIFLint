@@ -520,6 +520,20 @@ const std::vector<Preset> &presets() {
     static const std::vector<Preset> all = [] {
         std::vector<Preset> out;
         for (const LegacyPreset &l : legacyPresets()) out.push_back({l.id, l.name, fill(l.tree, l.items)});
+        // The operating styles' layouts (OPERATING_STYLES_PLAN.md, Stage 6), by the styles' ids.
+        auto add = [&](const char *id, const char *name, Node console) {
+            Arrangement a;
+            a.console = std::move(console);
+            out.push_back({id, name, tidy(a)});
+        };
+        add("social", N_("Social: the Map, with New QSO and QSO Details beside it"),
+            row({stack({kMap}, 0.6), column({stack({kNewQso}, 0.6), stack({kQsoDetails}, 0.4)}, 0.4)}));
+        add("chasing", N_("Chasing: the Map over the spots, New QSO beside them"),
+            row({column({stack({kMap}, 0.62), stack({kSpots}, 0.38)}, 0.64), stack({kNewQso}, 0.36)}));
+        add("contest", N_("Contest: New QSO over the log, the Map beside them"),
+            row({column({stack({kNewQso}, 0.55), stack({kLogTable}, 0.45)}, 0.4), stack({kMap}, 0.6)}));
+        add("portable", N_("Portable: New QSO, with the Map over the log beside it"),
+            row({stack({kNewQso}, 0.36), column({stack({kMap}, 0.6), stack({kLogTable}, 0.4)}, 0.64)}));
         return out;
     }();
     return all;

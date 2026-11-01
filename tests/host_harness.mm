@@ -7243,6 +7243,22 @@ int main(int argc, char **argv) {
                     pump(0.3);
                     CHECK(mapw.visible && mapw.contentView.window == mapw && [viewWithIdentifier(mapw.contentView, @"map.workflow") window] == mapw,
                           "Map & Explorer after the console closed: the Map in its own window again");
+                    {  // Start Contest: the console in the Contest layout (New QSO over the log, the Map beside them), then the Contest window
+                        run("Start Contest...");
+                        pump(0.5);
+                        NSWindow *contestW = nil;
+                        for (NSWindow *w in NSApp.windows)
+                            if (w.visible && viewWithIdentifier(w.contentView, @"contest.preset")) contestW = w;
+                        NSWindow *qwC = qsoWindow();
+                        CHECK(host.visible && [mapw valueForKey:@"dockHost"] == host && [tw valueForKey:@"dockHost"] == host && [qwC valueForKey:@"dockHost"] == host &&
+                                  !windowTitled(@"QSO Details").visible && contestW,
+                              "Start Contest: the console in the Contest layout (New QSO, the log, the Map), and the Contest window");
+                        [contestW performClose:nil];
+                        [host performClose:nil];
+                        pump(0.3);
+                        run("Map & Explorer...");
+                        pump(0.3);
+                    }
                 }
 
                 // Off and on again: PSKReporter isn't asked again within five minutes; the cluster closes and reconnects.
@@ -7723,6 +7739,15 @@ int main(int argc, char **argv) {
                 NSTableView *quick = (NSTableView *)viewWithIdentifier(mapw.contentView, @"map.views");
                 std::string start = values(), where = place();
                 CHECK(styleShown().empty(), "the styles: none chosen at first (%s)", styleShown().c_str());
+                {  // Arrange Panels: on at first; off for the checks of the map's settings (its own checks come at the end)
+                    NSInteger at = styleItem(@"Arrange Panels");
+                    bool onAtFirst = at > 0 && [styleActions.menu itemAtIndex:at].state == NSControlStateValueOn;
+                    styleMenu(@"Arrange Panels");
+                    at = styleItem(@"Arrange Panels");
+                    CHECK(onAtFirst && at > styleItem(@"Info...") && [styleActions.menu itemAtIndex:at].state == NSControlStateValueOff &&
+                              iniValue("stylesArrangePanels") == "0",
+                          "the styles' menu: Arrange Panels, on at first, after Info; off when chosen");
+                }
                 CHECK(styleBar.accessibilityLabel.length && styleBar.segmentCount == 4 && [[styleBar labelForSegment:0] isEqualToString:@"Social"] &&
                           [[styleBar labelForSegment:3] isEqualToString:@"Portable"] && styleActions && styleItem(@"No Style") == 1 && styleItem(@"Reset") > 1 &&
                           styleItem(@"Save") > styleItem(@"Reset") && styleItem(@"Info...") > styleItem(@"Save") &&
@@ -8066,6 +8091,70 @@ int main(int argc, char **argv) {
                     notify(NPPN_BUFFERACTIVATED);
                     notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
                     pump(0.3);
+                }
+                {  // Arrange Panels on: a style puts the console in its layout; Save keeps yours; Restore Previous Layout; the recommended again
+                    auto dockedIn = [&](NSWindow *w) -> NSWindow * {
+                        return w && [w respondsToSelector:NSSelectorFromString(@"dockHost")] ? [w valueForKey:@"dockHost"] : nil;
+                    };
+                    auto infoPanels = [&]() -> std::string {
+                        styleMenu(@"Info...");
+                        NSTextField *f = (NSTextField *)inPopover(@"map.operatingStyle.layout");
+                        std::string t = f ? f.stringValue.UTF8String : "";
+                        closePopovers();
+                        return t;
+                    };
+                    auto chooseConsoleLayout = [&](NSString *name) {
+                        std::function<NSMenuItem *(NSMenu *)> seek = [&](NSMenu *m) -> NSMenuItem * {
+                            for (NSMenuItem *mi in m.itemArray) {
+                                if ([mi.title isEqualToString:name]) return mi;
+                                if (mi.submenu)
+                                    if (NSMenuItem *f = seek(mi.submenu)) return f;
+                            }
+                            return nil;
+                        };
+                        if (NSMenuItem *mi = seek(NSApp.mainMenu)) [mi.menu performActionForItemAtIndex:[mi.menu indexOfItem:mi]];
+                        pump(0.5);
+                    };
+                    styleMenu(@"Arrange Panels");  // on again
+                    styleMenu(@"chasing");
+                    pump(0.5);
+                    NSWindow *console = windowTitled(@"Operating Console");
+                    NSWindow *spotsW = windowTitled(@"Activations & Spots"), *qsoW = qsoWindow();
+                    std::string chasingPanels = infoPanels();
+                    CHECK(console.visible && dockedIn(mapw) == console && dockedIn(spotsW) == console && dockedIn(qsoW) == console &&
+                              chasingPanels == "Its panels: Chasing: the Map over the spots, New QSO beside them",
+                          "Arrange Panels: Chasing opens the console with the Map over the spots and New QSO beside them (%s)", chasingPanels.c_str());
+                    chooseConsoleLayout(@"Map over the log, QSO on the right");
+                    NSWindow *logW = windowTitled(@"Log Table");
+                    bool saveOn = [styleActions.menu itemAtIndex:styleItem(@"Save")].enabled;
+                    styleMenu(@"Save");
+                    std::string kept = iniValue("consoleStyleLayoutChasing"), ownPanels = infoPanels();
+                    CHECK(saveOn && dockedIn(logW) == console && kept.find("\"logtable\"") != std::string::npos && kept.find("\"spots\"") == std::string::npos &&
+                              ownPanels == "Its panels: Yours, kept with Save",
+                          "Save with the panels moved: the console's arrangement kept as Chasing's own (%s)", ownPanels.c_str());
+                    styleMenu(@"social");
+                    pump(0.5);
+                    NSWindow *detailsW = windowTitled(@"QSO Details");
+                    bool social = dockedIn(detailsW) == console && dockedIn(logW) != console && dockedIn(mapw) == console;
+                    bool restored = styleMenu(@"Restore Previous Layout");
+                    pump(0.5);
+                    CHECK(social && restored && styleShown() == "Chasing" && dockedIn(logW) == console && dockedIn(detailsW) != console && dockedIn(mapw) == console,
+                          "Social arranges its panels (the Map, New QSO, QSO Details); Restore Previous Layout puts back Chasing and its own panels");
+                    styleMenu(@"Info...");
+                    if (NSButton *recommended = (NSButton *)inPopover(@"map.operatingStyle.recommended")) [recommended performClick:nil];
+                    pump(0.5);
+                    closePopovers();
+                    CHECK(iniValue("consoleStyleLayoutChasing").empty() && dockedIn(spotsW) == console && dockedIn(logW) != console &&
+                              infoPanels() == "Its panels: Chasing: the Map over the spots, New QSO beside them",
+                          "Use Recommended Defaults: Chasing's own panels forgotten, its built-in layout again");
+                    styleMenu(@"No Style");
+                    styleMenu(@"Arrange Panels");  // off, as the tests after expect
+                    [console performClose:nil];
+                    pump(0.3);
+                    run("Map & Explorer...");
+                    pump(0.3);
+                    CHECK(iniValue("stylesArrangePanels") == "0" && mapw.visible && !dockedIn(mapw) && styleShown().empty(),
+                          "No Style moves nothing; the console closed, the Map on its own again");
                 }
                 wfBar.selectedSegment = 1;  // Live, as the tests left it
                 [wfBar sendAction:wfBar.action to:wfBar.target];

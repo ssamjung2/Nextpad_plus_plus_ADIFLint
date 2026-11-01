@@ -286,7 +286,16 @@ alone doesn't express); panes inside a panel may use `NSSplitViewItem` where it 
   Layout, in Console Layout Options after the built-in layouts. The Map's panes are kept in the
   arrangement (`workspace::paneShown`/`setPane`); `mapSidebar`, `mapList` and `mapSelected` are
   moved in once and cleared. A built-in layout keeps the panes as they are; yours brings its own.
-  Next (Phase D): styles as profiles that arrange the panels.
+- **Phase D** (2026-11-01): styles arrange the panels. Each style has a built-in layout (presets
+  `social`, `chasing`, `contest`, `portable`) and, after Save, its own (`consoleStyleLayout<Style>`).
+  Choosing a style or Reset applies it through the console (opening it when closed), unless
+  **Arrange Panels** (`stylesArrangePanels`) is off; Restore Previous Layout re-applies the
+  console's arrangement from before (when it was open); Use Recommended Defaults forgets the
+  style's own. The field being typed in keeps the keyboard. Start Logging, Start Activation and
+  Start Contest are profiles (`openProfile`: a layout and their own set-up); Start Contest now
+  uses the Contest layout. The Map's list is hidden beside the spots' table as beside the Log
+  Table, and the Map's least height includes its list where it shows.
+  Next (Phase E): theme tokens, applied by the hosts.
 
 ## Plan
 

@@ -3171,6 +3171,15 @@
   "Delete Layout": "Eliminar disposición",
   "Replace": "Reemplazar",
   "Save Layout As": "Guardar disposición como",
-  "Save Layout As...": "Guardar disposición como..."
+  "Save Layout As...": "Guardar disposición como...",
+  "Arrange Panels": "Organizar paneles",
+  "Choosing a style puts the panels in its layout in the Operating Console (yours, after Save); off, a style changes only the map": "Al elegir un estilo, los paneles se colocan en su disposición en la consola de operación (la suya, tras Guardar); desactivado, un estilo solo cambia el mapa",
+  "Its panels: {layout}": "Sus paneles: {layout}",
+  "Not arranged: Arrange Panels is off": "Sin organizar: Organizar paneles está desactivado",
+  "Yours, kept with Save": "La suya, guardada con Guardar",
+  "Social: the Map, with New QSO and QSO Details beside it": "Social: el mapa, con Nuevo QSO y Detalles del QSO al lado",
+  "Chasing: the Map over the spots, New QSO beside them": "Caza: el mapa sobre los spots, Nuevo QSO al lado",
+  "Contest: New QSO over the log, the Map beside them": "Concurso: Nuevo QSO sobre el registro, el mapa al lado",
+  "Portable: New QSO, with the Map over the log beside it": "Portátil: Nuevo QSO, con el mapa sobre el registro al lado"
  }
 }

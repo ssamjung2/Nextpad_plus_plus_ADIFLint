@@ -5706,6 +5706,16 @@ void noteStyleChange(std::optional<styles::OperatingStyle> from, std::optional<s
                                                          @{NSAccessibilityAnnouncementKey : said, NSAccessibilityPriorityKey : @(NSAccessibilityPriorityHigh)});
 }
 
+// The panels as the style lays them out (Workspace.h; unless Arrange Panels is off). After the
+// click that chose it: the Map itself may move into the console.
+void arrangeForStyle(styles::OperatingStyle s) {
+    std::string id(styles::id(s));
+    dispatch_async(dispatch_get_main_queue(), ^{
+        workspace::styleChosen(id);
+        fillOperatingStyleBar();
+    });
+}
+
 // A style chosen (or none): the one left saved as it is, the new one as it was left, else its
 // defaults. None leaves the map as it is.
 void chooseOperatingStyle(std::optional<styles::OperatingStyle> to) {
@@ -5719,6 +5729,7 @@ void chooseOperatingStyle(std::optional<styles::OperatingStyle> to) {
     noteStyleChange(from, to, before);
     if (from == styles::OperatingStyle::Portable || to == styles::OperatingStyle::Portable) spotfeeds::policyChanged();  // its lighter spots
     styleChangedElsewhere();
+    if (to) arrangeForStyle(*to);
 }
 
 // Reset: the style's defaults again, its saved changes forgotten.
@@ -5730,6 +5741,7 @@ void resetOperatingStyle() {
     styles::forget(*s, keys, styleSet);
     setStyleValues(styles::startingPoint(*s, keys, styleGet), !styles::hasMine(*s, styleGet));  // yours (Save), else the recommended
     noteStyleChange(s, s, before);
+    arrangeForStyle(*s);
 }
 
 // Save: the settings now become the style's own defaults, what it starts from and what Reset gives back.
@@ -5739,6 +5751,7 @@ void saveOperatingStyle() {
     std::vector<std::string> keys = styleKeys();
     styles::saveMine(*s, keys, styleGet, styleSet);
     styles::save(*s, keys, styleGet, styleSet);
+    workspace::keepStyleLayout(std::string(styles::id(*s)));  // the console's arrangement too, when it is open
     fillOperatingStyleBar();
     NSString *said = TF(@"{style}: these settings are now its own defaults", @{@"style" : T(ADIFString(styles::title(*s)))});
     if (mw.window) NSAccessibilityPostNotificationWithUserInfo(mw.window, NSAccessibilityAnnouncementRequestedNotification,
@@ -5755,6 +5768,8 @@ void recommendedOperatingStyle() {
     styles::forget(*s, keys, styleSet);
     setStyleValues(styles::defaults(*s), true);
     noteStyleChange(s, s, before);
+    workspace::forgetStyleLayout(std::string(styles::id(*s)));
+    arrangeForStyle(*s);
 }
 
 // Restore Previous Layout: the last change of style undone, the settings and the style chosen
@@ -5772,6 +5787,7 @@ void restorePreviousStyle() {
     fillOperatingStyleBar();
     if (back.from == styles::OperatingStyle::Portable || back.to == styles::OperatingStyle::Portable) spotfeeds::policyChanged();
     styleChangedElsewhere();
+    dispatch_async(dispatch_get_main_queue(), ^{ workspace::restoreBeforeStyle(); });  // the panels as they were too
 }
 
 // A setting as What Changed names it, and its value, in the words of the sidebar, the toolbar and
@@ -5892,6 +5908,10 @@ void showStyleInfo() {
         bool mine = styles::hasMine(*now, styleGet);
         [parts addObject:label(mine ? T(@"Its defaults: yours, saved with Save") : T(@"Its defaults: the recommended ones"), small, NSFontWeightMedium,
                                NSColor.labelColor)];
+        NSTextField *panels = label(TF(@"Its panels: {layout}", @{@"layout" : ADIFString(workspace::styleLayoutName(std::string(styles::id(*now))))}), small,
+                                    NSFontWeightRegular, NSColor.secondaryLabelColor);
+        panels.identifier = @"map.operatingStyle.layout";
+        [parts addObject:panels];
         // What differs from them now.
         styles::Settings start = styles::startingPoint(*now, keys, styleGet), current;
         for (const auto &kv : start) current[kv.first] = styleGet(kv.first);
@@ -6030,7 +6050,7 @@ void fillOperatingStyleBar() {
                         : T(@"Choose a style first");
     ADIFBlockMenuItem(reset, ^{ resetOperatingStyle(); });
     NSMenuItem *save = [menu addItemWithTitle:T(@"Save") action:nil keyEquivalent:@""];
-    save.enabled = changed;
+    save.enabled = changed || (now && workspace::styleLayoutDiffers(std::string(styles::id(*now))));  // its settings, or the panels moved
     save.toolTip = now ? TF(@"Keep these settings as {style}'s own defaults: what it starts from, and what Reset gives back (Info has the recommended ones again)",
                             @{@"style" : styleName})
                        : T(@"Choose a style first");
@@ -6038,6 +6058,15 @@ void fillOperatingStyleBar() {
     NSMenuItem *info = [menu addItemWithTitle:T(@"Info...") action:nil keyEquivalent:@""];
     info.toolTip = T(@"What the style is for, how the map differs from its defaults, and the last change of style (with Restore Previous Layout)");
     ADIFBlockMenuItem(info, ^{ showStyleInfo(); });
+    [menu addItem:NSMenuItem.separatorItem];
+    NSMenuItem *arrange = [menu addItemWithTitle:T(@"Arrange Panels") action:nil keyEquivalent:@""];
+    arrange.state = workspace::stylesArrange() ? NSControlStateValueOn : NSControlStateValueOff;
+    arrange.identifier = @"map.operatingStyle.arrange";
+    arrange.toolTip = T(@"Choosing a style puts the panels in its layout in the Operating Console (yours, after Save); off, a style changes only the map");
+    ADIFBlockMenuItem(arrange, ^{
+        workspace::setStylesArrange(!workspace::stylesArrange());
+        fillOperatingStyleBar();
+    });
 }
 
 // ── The watch list: the calls, references and DXCC entities you want to know are on the air ──

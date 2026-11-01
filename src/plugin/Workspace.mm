@@ -15,6 +15,7 @@
 #include "adif_world.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <map>
 #include <vector>
@@ -81,6 +82,13 @@ layout::Node *nodeAt(layout::Node &root, NSString *path) {
 }
 
 // A panel's name, as the Panels menu has it (Panels.mm).
+// Where a style's own layout is kept (its Save): "consoleStyleLayoutSocial".
+std::string styleLayoutKey(const std::string &style) {
+    std::string key = "consoleStyleLayout" + style;
+    if (key.size() > 18) key[18] = (char)std::toupper((unsigned char)key[18]);
+    return key;
+}
+
 NSString *itemName(int item) {
     const panels::Spec *s = item != kDockNone ? panels::find(panelOf(item)) : nullptr;
     return s ? T(s->title) : T(@"Empty");
@@ -91,10 +99,14 @@ void openItem(int item) {
     if (item != kDockNone) panels::setShown(panelOf(item), true);
 }
 
+bool gMapListShows = false;  // the Map in the console shows its own list (no table of the same records beside it)
+
 // Keep each frame large enough to use; longer content scrolls inside its frame.
 NSSize itemMinimum(int item) {
     switch (item) {
-        case kDockMap: return NSMakeSize(720, 460);  // room under its toolbar (its groups wrap below this width), header and footer for the zoom buttons
+        // Room under its toolbar (its groups wrap below this width), header and footer for the zoom
+        // buttons; and for its list under the map when that shows.
+        case kDockMap: return NSMakeSize(720, gMapListShows ? 600 : 460);
         case kDockLog: return NSMakeSize(380, 240);
         case kDockSpots: return NSMakeSize(400, 220);
         case kDockContactMap: return NSMakeSize(240, 200);
@@ -895,6 +907,12 @@ void openAuxWindow(int item) {
     layout::Arrangement _layout;
     std::string _presetId;  // the layout it started from, built in or yours ("mine:" and its name); Console Layout Options ticks it
     std::vector<layout::Named> _mine;  // your own layouts (Save Layout As...), kept as `consoleLayouts`
+    std::map<std::string, layout::Arrangement> _styleLayouts;  // a style's own (its Save), by the style's id
+    layout::Arrangement _beforeStyle;  // the console before a style last arranged it (Restore Previous Layout)
+    std::string _beforeStyleId;
+    BOOL _beforeStyleActive, _hasBeforeStyle;
+    BOOL _builtListShows;  // the frames were sized with the Map's list showing
+    BOOL _rebuilding;
     BOOL _loaded;
     BOOL _active, _batching, _closing, _sizing, _saveQueued;
     std::string _builtShape;  // the tree the frames were built for
@@ -976,9 +994,16 @@ void openAuxWindow(int item) {
     if (moved) [self saveSettings];
 }
 
-// A layout by its id: built in, or yours ("mine:" and its name).
+// A layout by its id: built in, yours ("mine:" and its name), or a style's own ("style:" and its id).
 - (const layout::Arrangement *)arrangementFor:(const std::string &)id {
     if (const layout::Preset *p = layout::preset(id)) return &p->arrangement;
+    if (id.rfind("style:", 0) == 0) {
+        std::string style = id.substr(6);
+        if (!_styleLayouts.count(style))
+            if (std::optional<layout::Arrangement> a = layout::read(adifhost::setting(styleLayoutKey(style)))) _styleLayouts[style] = *a;
+        auto it = _styleLayouts.find(style);
+        return it == _styleLayouts.end() ? nullptr : &it->second;
+    }
     if (id.rfind("mine:", 0) != 0) return nullptr;
     const layout::Named *n = layout::findNamed(_mine, id.substr(5));
     return n ? &n->arrangement : nullptr;
@@ -1085,14 +1110,20 @@ void openAuxWindow(int item) {
     return [self openPreset:"" allowEmptyQso:NO];
 }
 
+// Start Logging, Start Activation and Start Contest: each its layout and its own set-up (the
+// architecture's profiles; ADIFLint.mm and Contest.mm do the set-up). The console opened in the
+// layout, or put in it when it is open. An activation's log may be made after it opens.
+- (BOOL)openProfile:(const std::string &)layoutId allowEmptyQso:(BOOL)allowEmptyQso {
+    if (_active) return [self applyPreset:layoutId], YES;
+    return [self openPreset:layoutId allowEmptyQso:allowEmptyQso];
+}
+
 - (BOOL)openActivation {
-    if (_active) return [self applyPreset:"activation"], YES;
-    return [self openPreset:"activation" allowEmptyQso:YES];
+    return [self openProfile:"activation" allowEmptyQso:YES];
 }
 
 - (BOOL)openLogging {
-    if (_active) return [self applyPreset:"logging"], YES;
-    return [self openPreset:"logging" allowEmptyQso:NO];
+    return [self openProfile:"logging" allowEmptyQso:NO];
 }
 
 // A layout's arrangement: a built-in one keeps the panes as they are; yours brings its own.
@@ -1351,12 +1382,23 @@ void openAuxWindow(int item) {
 // A built-in layout: the panels it doesn't hold closed, those it does opened into their places.
 - (void)applyPreset:(const std::string &)id {
     [self loadSettings];
-    if (![self arrangementFor:id]) return;
+    const layout::Arrangement *a = [self arrangementFor:id];
+    if (!a) return;
+    layout::Arrangement next = *a;
+    if (layout::preset(id)) next.panes = _layout.panes;  // a built-in layout keeps the panes as they are; yours brings its own
+    [self applyArrangement:next id:id];
+}
+
+// An arrangement, as the console's now: what it no longer holds closed, what it holds opened into its place.
+- (void)applyArrangement:(const layout::Arrangement &)next id:(const std::string &)id {
     [self loadSettings];
     bool was[kDockCount] = {};
     for (int item = 1; item < kDockCount; ++item) was[item] = [self shows:item];
-    [self takePreset:id];
+    bool panes = next.panes != _layout.panes;
+    _layout = next;
+    _presetId = id;
     [self saveSettings];
+    if (panes) worldmap::applyPanes();
     if (!_active) return;
     _batching = YES;
     for (int item = 1; item < kDockCount; ++item) {
@@ -1568,6 +1610,66 @@ void openAuxWindow(int item) {
     [self saveSettings];
 }
 
+// ── Operating styles arrange the panels (the Map's style menu) ──
+
+- (std::string)styleLayoutId:(const std::string &)style {
+    std::string own = "style:" + style;
+    return [self arrangementFor:own] ? own : style;  // its own (Save), else its built-in layout
+}
+
+// The text field being typed in, if any: it keeps the keyboard when a style moves the panels.
+- (NSView *)typingField {
+    NSResponder *r = NSApp.keyWindow.firstResponder;
+    if (![r isKindOfClass:NSTextView.class] || !((NSTextView *)r).isFieldEditor) return nil;
+    id field = ((NSTextView *)r).delegate;
+    return [field isKindOfClass:NSView.class] ? field : nil;
+}
+
+- (void)arrangeForStyle:(const std::string &)style {
+    [self loadSettings];
+    std::string id = [self styleLayoutId:style];
+    if (![self arrangementFor:id]) return;
+    _beforeStyle = _layout, _beforeStyleId = _presetId, _beforeStyleActive = _active, _hasBeforeStyle = YES;
+    NSView *typing = [self typingField];
+    if (_active) [self applyPreset:id];
+    else [self openPreset:id allowEmptyQso:YES];  // no log yet: New QSO's place waits for one
+    if (typing.window) [typing.window makeFirstResponder:typing];
+}
+
+- (void)keepStyleLayout:(const std::string &)style {
+    [self loadSettings];
+    if (!_active) return;
+    if (_root && layout::shown([self shownLayout]) == layout::shown(_layout)) [self recordShares:_root];
+    adifhost::setSetting(styleLayoutKey(style), layout::write(_layout));
+    _styleLayouts[style] = _layout;
+    _presetId = "style:" + style;
+    [self saveSettings];
+}
+
+- (void)forgetStyleLayout:(const std::string &)style {
+    adifhost::setSetting(styleLayoutKey(style), "");
+    _styleLayouts.erase(style);
+}
+
+- (BOOL)styleLayoutDiffers:(const std::string &)style {
+    [self loadSettings];
+    const layout::Arrangement *a = [self arrangementFor:[self styleLayoutId:style]];
+    return _active && a && shapeOf(a->console) != shapeOf(_layout.console);
+}
+
+- (BOOL)styleLayoutIsOwn:(const std::string &)style {
+    [self loadSettings];
+    return [self arrangementFor:"style:" + style] != nullptr;
+}
+
+// Restore Previous Layout: the console as it was before the style arranged it (when it was open;
+// opened by the style, it stays open: closing it puts each panel back in its window).
+- (void)restoreBeforeStyle {
+    if (!_hasBeforeStyle) return;
+    _hasBeforeStyle = NO;
+    if (_beforeStyleActive && _active) [self applyArrangement:_beforeStyle id:_beforeStyleId];
+}
+
 // The panes of a panel (the Map's sidebar, list and selected panel), as the arrangement has them.
 - (BOOL)paneShown:(const char *)panel pane:(const char *)pane {
     [self loadSettings];
@@ -1579,6 +1681,7 @@ void openAuxWindow(int item) {
     if (layout::paneShown(_layout, panel, pane) == (bool)on && _layout.panes.count(panel) && _layout.panes[panel].count(pane)) return;
     _layout = layout::setPane(_layout, panel, pane, on);
     [self saveSettings];
+    if (!strcmp(panel, layout::kMap) && !strcmp(pane, "list")) [self rebuild];  // the Map's least size follows its list
 }
 
 - (NSMenuItem *)optionsMenuItem {
@@ -1715,8 +1818,14 @@ static double weightOf(NSView *v, bool width) {
 }
 
 - (void)rebuild {
-    if (!_active || _batching || _closing) return;
+    if (!_active || _batching || _closing || _rebuilding) return;
+    _rebuilding = YES;
     layout::Arrangement shown = [self shownLayout];
+    // The Map's own list hidden while a table of the same records (the Log Table, or the spots) is beside it.
+    bool listBeside = layout::inConsole(shown, layout::kMap) && (layout::inConsole(shown, layout::kLogTable) || layout::inConsole(shown, layout::kSpots));
+    gMapListShows = layout::inConsole(shown, layout::kMap) && !listBeside && layout::paneShown(_layout, layout::kMap, "list");
+    if (gMapListShows != _builtListShows) _builtShape.clear();  // the Map's least size changed: sized afresh
+    _builtListShows = gMapListShows;
     std::vector<const layout::Node *> stacks;
     stacksOf(shown.console, stacks);
     std::string shape = shapeOf(shown.console);
@@ -1759,7 +1868,8 @@ static double weightOf(NSView *v, bool width) {
     NSSize m = _root ? minimumOf(_root) : NSZeroSize;
     _host.contentMinSize = NSMakeSize(std::max<CGFloat>(m.width, 480), m.height + kStatusHeight + kADIFMargin);
     // Keep the standalone Map's list in its normal state; the static contact map has no log list.
-    worldmap::setListSuppressed([self shows:kDockMap] && [self shows:kDockLog]);
+    worldmap::setListSuppressed(listBeside);
+    _rebuilding = NO;
 }
 
 // ── Split delegate: no frame below its least size; a divider dragged keeps its shares ──
@@ -1817,6 +1927,14 @@ bool openActivation() {
         if (gOnChange) gOnChange(on);
     };
     return [ws openActivation];
+}
+
+bool openContest() {
+    ADIFWorkspace *ws = ADIFWorkspace.shared;
+    ws.onChange = ^(BOOL on) {
+        if (gOnChange) gOnChange(on);
+    };
+    return [ws openProfile:"contest" allowEmptyQso:NO];
 }
 
 bool openLogging() {
@@ -1877,6 +1995,31 @@ bool show(NSWindow<ADIFDockable> *window) { return [ADIFWorkspace.shared dock:wi
 bool hide(NSWindow<ADIFDockable> *window, bool closing) { return [ADIFWorkspace.shared hide:window closing:closing]; }
 
 bool paneShown(const char *panel, const char *pane) { return [ADIFWorkspace.shared paneShown:panel pane:pane]; }
+
+bool stylesArrange() { return adifhost::setting("stylesArrangePanels") != "0"; }
+
+void setStylesArrange(bool on) { adifhost::setSetting("stylesArrangePanels", on ? "1" : "0"); }
+
+void styleChosen(const std::string &style) {
+    if (!style.empty() && stylesArrange()) [ADIFWorkspace.shared arrangeForStyle:style];
+}
+
+void keepStyleLayout(const std::string &style) {
+    if (stylesArrange()) [ADIFWorkspace.shared keepStyleLayout:style];
+}
+
+void forgetStyleLayout(const std::string &style) { [ADIFWorkspace.shared forgetStyleLayout:style]; }
+
+bool styleLayoutDiffers(const std::string &style) { return stylesArrange() && [ADIFWorkspace.shared styleLayoutDiffers:style]; }
+
+void restoreBeforeStyle() { [ADIFWorkspace.shared restoreBeforeStyle]; }
+
+std::string styleLayoutName(const std::string &style) {
+    if (!stylesArrange()) return tr("Not arranged: Arrange Panels is off");
+    if ([ADIFWorkspace.shared styleLayoutIsOwn:style]) return tr("Yours, kept with Save");
+    const adif::layout::Preset *p = adif::layout::preset(style);
+    return p ? tr(p->name) : std::string();
+}
 
 void setPane(const char *panel, const char *pane, bool shown) { [ADIFWorkspace.shared setPane:panel pane:pane shown:shown]; }
 

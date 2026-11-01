@@ -394,8 +394,9 @@ it isn't mistaken for a fact.
 
 ### Contests and Field Day
 
-**Contest…** in New QSO, or **Start Contest…** on the menu (which opens the logging layout
-first), chooses a contest and starts it:
+**Contest…** in New QSO, or **Start Contest…** on the menu (which first opens the Operating
+Console in its Contest layout: New QSO over the log, the Map beside them), chooses a contest and
+starts it:
 
 - **ARRL Field Day:** type your exchange, class and section, such as `1D IL`. New QSO then
   asks for the other station's **CLASS** and **ARRL_SECT** and writes, with each QSO,
@@ -760,6 +761,15 @@ layers, the sun's shading, the palette, the text size and the distance rings; no
   the last Reset): every setting it changed, and which style was chosen. After a Save, **Use
   Recommended Defaults** forgets yours and resets the style to the recommended ones.
 - **No Style** changes nothing: the Map stays as it is, and is yours to set as before.
+- **Arrange Panels** (on at first): choosing a style, or its Reset, also puts the panels in
+  the style's layout in the Operating Console, opening it if it is closed. Social: the Map, with
+  New QSO and QSO Details beside it. Chasing: the Map over the spots, New QSO beside them.
+  Contest: New QSO over the log, the Map beside them. Portable: New QSO, with the Map over the
+  log beside it. Move the panels and **Save** keeps the console's arrangement as the style's own
+  too; Info says which ("Its panels"). Restore Previous Layout puts the panels back as they
+  were (when the console was open before), and Use Recommended Defaults brings back the style's
+  own layout. A field you are typing in keeps the keyboard. Turn Arrange Panels off and a style
+  changes only the map. The styles' layouts are also in Console Layout Options.
 
 A style never moves the map or changes its zoom, the band and mode, or what is chosen (a
 square, a contact or a spotted station stays chosen while it is still on the map), and never

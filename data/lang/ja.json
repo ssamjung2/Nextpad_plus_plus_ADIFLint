@@ -3074,6 +3074,15 @@
   "Delete Layout": "レイアウトを削除",
   "Replace": "置き換える",
   "Save Layout As": "レイアウトに名前を付けて保存",
-  "Save Layout As...": "レイアウトに名前を付けて保存..."
+  "Save Layout As...": "レイアウトに名前を付けて保存...",
+  "Arrange Panels": "パネルを配置",
+  "Choosing a style puts the panels in its layout in the Operating Console (yours, after Save); off, a style changes only the map": "スタイルを選ぶと、運用コンソールのパネルがそのレイアウトに並びます(保存後は自分のレイアウト)。オフにすると、スタイルはマップだけを変えます",
+  "Its panels: {layout}": "パネル: {layout}",
+  "Not arranged: Arrange Panels is off": "配置しない: 「パネルを配置」がオフです",
+  "Yours, kept with Save": "自分のレイアウト(保存済み)",
+  "Social: the Map, with New QSO and QSO Details beside it": "交流: マップと、その横に新規 QSO と QSO の詳細",
+  "Chasing: the Map over the spots, New QSO beside them": "チェイス: スポットの上にマップ、その横に新規 QSO",
+  "Contest: New QSO over the log, the Map beside them": "コンテスト: ログの上に新規 QSO、その横にマップ",
+  "Portable: New QSO, with the Map over the log beside it": "移動運用: 新規 QSO と、その横にログの上のマップ"
  }
 }

@@ -3171,6 +3171,15 @@
   "Delete Layout": "Anordnung löschen",
   "Replace": "Ersetzen",
   "Save Layout As": "Anordnung sichern unter",
-  "Save Layout As...": "Anordnung sichern unter..."
+  "Save Layout As...": "Anordnung sichern unter...",
+  "Arrange Panels": "Bereiche anordnen",
+  "Choosing a style puts the panels in its layout in the Operating Console (yours, after Save); off, a style changes only the map": "Ein gewählter Stil ordnet die Bereiche in der Funkkonsole nach seiner Anordnung an (Ihrer, nach Sichern); aus: Ein Stil ändert nur die Karte",
+  "Its panels: {layout}": "Seine Bereiche: {layout}",
+  "Not arranged: Arrange Panels is off": "Nicht angeordnet: Bereiche anordnen ist aus",
+  "Yours, kept with Save": "Ihre, mit Sichern behalten",
+  "Social: the Map, with New QSO and QSO Details beside it": "Gespräch: die Karte, daneben Neues QSO und QSO-Details",
+  "Chasing: the Map over the spots, New QSO beside them": "Jagd: die Karte über den Spots, daneben Neues QSO",
+  "Contest: New QSO over the log, the Map beside them": "Contest: Neues QSO über dem Log, daneben die Karte",
+  "Portable: New QSO, with the Map over the log beside it": "Portabel: Neues QSO, daneben die Karte über dem Log"
  }
 }

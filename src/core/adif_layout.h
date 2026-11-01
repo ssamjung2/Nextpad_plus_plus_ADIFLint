@@ -97,7 +97,9 @@ struct Preset {
     const char *name;  // English, for tr(): as the console's Layouts menu shows it
     Arrangement arrangement;
 };
-const std::vector<Preset> &presets();  // the console's built-in layouts
+// The console's built-in layouts: the nine it has had, then the operating styles' (their ids the
+// styles' own: "social", "chasing", "contest", "portable").
+const std::vector<Preset> &presets();
 const Preset *preset(std::string_view id);
 
 // Your own layouts (Save Layout As...), each named, in the order saved; kept as one JSON value.

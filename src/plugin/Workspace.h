@@ -26,6 +26,7 @@ bool active();  // the layout's window is open
 bool open();  // false when New QSO would not open (it says why) and the layout is not
 bool openActivation();  // the activation preset: New QSO and its log, spots, contact map and details
 bool openLogging();  // restore the focused New QSO, interactive Map and Log Table layout
+bool openContest();  // the Contest layout: New QSO over the log, the Map beside them
 void abandon();
 void close();
 NSMenuItem *optionsMenuItem();
@@ -33,6 +34,18 @@ NSMenuItem *optionsMenuItem();
 // them, saved with your layouts: shown unless hidden.
 bool paneShown(const char *panel, const char *pane);
 void setPane(const char *panel, const char *pane, bool shown);
+// Operating styles arrange the panels (docs/WINDOWING_ARCHITECTURE.md, "Operating styles as
+// profiles"; the Map's style menu, Arrange Panels, on at first): a style chosen, or reset, puts
+// the console in its layout (its own from Save, else its built-in one), opening the console when
+// it is closed. A field being typed in keeps the keyboard.
+bool stylesArrange();
+void setStylesArrange(bool on);
+void styleChosen(const std::string &style);        // a style's id ("social"); empty: none, nothing moves
+void keepStyleLayout(const std::string &style);    // Save: the console as it is now, when it is open
+void forgetStyleLayout(const std::string &style);  // Use Recommended Defaults: its built-in layout again
+bool styleLayoutDiffers(const std::string &style);  // the console open in another shape than the style's
+void restoreBeforeStyle();                          // Restore Previous Layout: the console as it was
+std::string styleLayoutName(const std::string &style);  // for Info, translated
 void retitleMenu();
 // Told when the layout opens or closes.
 void setOnChange(std::function<void(bool active)> onChange);

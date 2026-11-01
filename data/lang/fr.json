@@ -3171,6 +3171,15 @@
   "Delete Layout": "Supprimer la disposition",
   "Replace": "Remplacer",
   "Save Layout As": "Enregistrer la disposition sous",
-  "Save Layout As...": "Enregistrer la disposition sous..."
+  "Save Layout As...": "Enregistrer la disposition sous...",
+  "Arrange Panels": "Disposer les panneaux",
+  "Choosing a style puts the panels in its layout in the Operating Console (yours, after Save); off, a style changes only the map": "Choisir un style place les panneaux selon sa disposition dans la console de trafic (la vôtre, après Enregistrer) ; désactivé, un style ne change que la carte",
+  "Its panels: {layout}": "Ses panneaux : {layout}",
+  "Not arranged: Arrange Panels is off": "Non disposés : Disposer les panneaux est désactivé",
+  "Yours, kept with Save": "La vôtre, gardée avec Enregistrer",
+  "Social: the Map, with New QSO and QSO Details beside it": "Convivial : la carte, avec Nouveau QSO et Détails du QSO à côté",
+  "Chasing: the Map over the spots, New QSO beside them": "Chasse : la carte au-dessus des spots, Nouveau QSO à côté",
+  "Contest: New QSO over the log, the Map beside them": "Concours : Nouveau QSO au-dessus du journal, la carte à côté",
+  "Portable: New QSO, with the Map over the log beside it": "Portable : Nouveau QSO, avec la carte au-dessus du journal à côté"
  }
 }

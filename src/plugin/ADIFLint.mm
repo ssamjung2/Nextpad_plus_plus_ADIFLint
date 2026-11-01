@@ -3423,7 +3423,7 @@ static void cmdStartLogging() {
 
 // Start Contest...: as Start Activation, the logging layout first, then the contest's setup.
 static void cmdStartContest() {
-    workspace::openLogging();
+    workspace::openContest();
     contest::cmdContest();
 }
 

@@ -4632,7 +4632,12 @@ static void testLayouts() {
     using namespace adif::layout;
     using Ids = std::vector<std::string>;
     // The built-in layouts: sound, and as the console had them.
-    CHECK(presets().size() == 9, "nine built-in layouts (%zu)", presets().size());
+    CHECK(presets().size() == 13, "thirteen built-in layouts, the styles' four last (%zu)", presets().size());
+    for (const char *style : {"social", "chasing", "contest", "portable"})
+        CHECK(preset(style) && inConsole(preset(style)->arrangement, kMap) && inConsole(preset(style)->arrangement, kNewQso),
+              "the %s style's layout: the Map and New QSO in the console", style);
+    CHECK(shown(preset("chasing")->arrangement) == (Ids{kMap, kSpots, kNewQso}) && shown(preset("social")->arrangement) == (Ids{kMap, kNewQso, kQsoDetails}),
+          "Chasing: the Map over the spots, New QSO beside; Social: the Map, New QSO and QSO Details");
     for (const Preset &p : presets()) CHECK(problems(p.arrangement).empty(), "layout %s is sound", p.id.c_str());
     const Preset *act = preset("activation"), *qsoLog = preset("qso-log");
     CHECK(act && shown(act->arrangement) == (Ids{kNewQso, kQsoDetails, kContactMap, kLogTable, kSpots}) && act->arrangement.console.kind == Node::Kind::Row &&
