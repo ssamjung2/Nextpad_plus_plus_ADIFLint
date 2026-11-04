@@ -4921,9 +4921,10 @@ static void testScripts() {
     using namespace adif::scripts;
     namespace aids = adif::aids;
     CHECK(modeGroupOf("SSB", "USB") == ModeGroup::Phone && modeGroupOf("fm", "") == ModeGroup::Phone && modeGroupOf("CW", "") == ModeGroup::Cw &&
-              modeGroupOf("FT8", "") == ModeGroup::Wsjt && modeGroupOf("MFSK", "FT4") == ModeGroup::Wsjt && modeGroupOf("MFSK", "OLIVIA 8/500") == ModeGroup::Digital &&
-              modeGroupOf("RTTY", "") == ModeGroup::Digital && modeGroupOf("PSK", "PSK31") == ModeGroup::Digital && !modeGroupOf(" ", ""),
-          "scripts: a QSO's mode as phone, CW, keyboard digital or WSJT-X");
+              !modeGroupOf("FT8", "") && !modeGroupOf("MFSK", "FT4") && modeGroupOf("MFSK", "OLIVIA 8/500") == ModeGroup::Psk &&
+              modeGroupOf("RTTY", "") == ModeGroup::Rtty && modeGroupOf("PSK", "PSK31") == ModeGroup::Psk && modeGroupOf("JS8", "") == ModeGroup::Js8 &&
+              !modeGroupOf(" ", ""),
+          "scripts: a QSO's mode as phone, CW, RTTY, PSK or JS8Call (none for WSJT-X's)");
     std::vector<std::string> missing;
     Values v = {{"CALL", "K1ABC"}, {"MYCALL", "KW9D"}, {"MYAGE", ""}};
     std::string filled = adif::scripts::fill("{CALL} DE {MYCALL} {MYAGE} {MYAGE} {call} {NOPE} {CALL", v, &missing);
@@ -4956,9 +4957,9 @@ static void testScripts() {
           "scripts: Social on CW in a contact: answer, report... (not CQ, which comes before; not age, hidden at first)");
     std::vector<std::string> potaPhone = ids_of(applicable(all, aids::kPortable, ModeGroup::Phone, true));
     CHECK(potaPhone == std::vector<std::string>({"social.phone.qrl", "portable.phone.cq"}), "scripts: Portable on phone, before: ask, then CQ POTA");
-    CHECK(ids_of(applicable(all, aids::kContest, ModeGroup::Digital, false)) ==
-              std::vector<std::string>({"contest.digital.exchange", "contest.digital.tu"}),
-          "scripts: a keyboard contest: the exchange, then TU");
+    CHECK(ids_of(applicable(all, aids::kContest, ModeGroup::Rtty, false)) ==
+              std::vector<std::string>({"contest.rtty.exchange", "contest.rtty.tu"}),
+          "scripts: an RTTY contest: the exchange, then TU");
 
     // Changed, hidden, removed and yours: kept, and only those in the file.
     all[1].text = "QRL? QRL? DE {MYCALL}";  // a built-in changed
@@ -5003,8 +5004,6 @@ static void testOperatingAids() {
     std::vector<Suggestion> before = suggest(c);
     CHECK(before.size() == 1 && std::string(before[0].prompt->id) == "listen-first" && before[0].why.find("12.5.2") != std::string::npos,
           "aids: without a call, only what comes before a contact: listen first, saying where it comes from (%zu)", before.size());
-    c.modes = adif::scripts::modeBit(adif::scripts::ModeGroup::Wsjt);
-    CHECK(suggest(c).empty(), "aids: not on WSJT-X modes, which have no frequency to ask about");
     c.modes = 0;
     c.call = "K1ABC";
     std::vector<Suggestion> s = suggest(c);
@@ -5069,7 +5068,7 @@ static void testOperatingAids() {
     c.modes = adif::scripts::modeBit(adif::scripts::ModeGroup::Cw);
     CHECK(std::string(suggest(c)[0].prompt->id) == "dx-listen", "aids: phonetics only on phone");
     c.style = OperatingStyle::Contest;
-    c.modes = adif::scripts::modeBit(adif::scripts::ModeGroup::Digital);
+    c.modes = adif::scripts::modeBit(adif::scripts::ModeGroup::Rtty);
     c.level = Level::Off;
     CHECK(suggest(c).empty(), "aids: Contest's off too");
     c.level = Level::More;

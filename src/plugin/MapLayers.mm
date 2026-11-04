@@ -75,7 +75,7 @@ NSBezierPath *thinned(NSBezierPath *src, CGFloat tolerance) {
 
 }  // namespace
 
-// A view the pointer passes through: the turning rings over the map (placeHoverRings).
+// A view the pointer passes through: the turning ring over the map (placeHoverRings).
 @interface ADIFPassThroughView : NSView
 @end
 @implementation ADIFPassThroughView
@@ -601,6 +601,30 @@ NSBezierPath *thinned(NSBezierPath *src, CGFloat tolerance) {
     }
 }
 
+// A line from (lat1, lon1) to (lat2, lon2) arched over the globe, rising with the distance and
+// leaning to one side (see drawLines); the lines to the spots and the chosen one's path arch the
+// same way. The pieces that show: none where it is all behind the globe. `middle`, if given,
+// is the middle of the longest piece, where a label goes (NaN if none shows).
+- (NSBezierPath *)archedViewPathFromLat:(double)lat1 lon:(double)lon1 toLat:(double)lat2 lon:(double)lon2 middle:(NSPoint *)middle {
+    double arc = adif::greatCircleKm(lat1, lon1, lat2, lon2) / 6371.0;  // radians
+    NSBezierPath *path = [NSBezierPath bezierPath];
+    if (middle) *middle = NSMakePoint(NAN, NAN);
+    size_t longest = 0;
+    for (const adif::ShapePiece &piece : adif::projectSpace(_pr, adif::archedPath(lat1, lon1, lat2, lon2, std::min(0.28, 0.2 * arc), 30, 2))) {
+        for (size_t k = 0; k < piece.pts.size(); ++k) {
+            NSPoint v = [self planeToView:piece.pts[k].first y:piece.pts[k].second];
+            if (k == 0) [path moveToPoint:v];
+            else [path lineToPoint:v];
+        }
+        if (middle && piece.pts.size() > longest) {
+            longest = piece.pts.size();
+            const auto &m = piece.pts[longest / 2];
+            *middle = [self planeToView:m.first y:m.second];
+        }
+    }
+    return path;
+}
+
     // Lines to contacts: from your station (the QSO's MY_GRIDSQUARE, else home) to the contact
     // (its LAT and LON, else its GRIDSQUARE, else its DXCC entity's centre), along great
     // circles; each pair once, coloured as the map colours. On the globe they can arch over
@@ -644,20 +668,8 @@ NSBezierPath *thinned(NSBezierPath *src, CGFloat tolerance) {
             else if (auto sq = squareOf.find(qi); sq != squareOf.end()) colour = [self colorFor:_squareAgg[sq->second] entity:NO];
             else if (auto e = entityOf.find(qi); e != entityOf.end()) colour = [self colorFor:_entityAgg[e->second] entity:YES];
             else colour = [self colorFor:[self aggregate:{qi}] entity:NO];
-            NSBezierPath *path = nil;
-            if (arched) {
-                double arc = adif::greatCircleKm(flat, flon, tlat, tlon) / 6371.0;  // radians
-                path = [NSBezierPath bezierPath];
-                for (const adif::ShapePiece &piece :
-                     adif::projectSpace(_pr, adif::archedPath(flat, flon, tlat, tlon, std::min(0.28, 0.2 * arc), 30, 2)))
-                    for (size_t k = 0; k < piece.pts.size(); ++k) {
-                        NSPoint v = [self planeToView:piece.pts[k].first y:piece.pts[k].second];
-                        if (k == 0) [path moveToPoint:v];
-                        else [path lineToPoint:v];
-                    }
-            } else {
-                path = [self viewPath:adif::greatCirclePath(flat, flon, tlat, tlon, 3) close:NO wraps:YES];
-            }
+            NSBezierPath *path = arched ? [self archedViewPathFromLat:flat lon:flon toLat:tlat lon:tlon middle:nil]
+                                        : [self viewPath:adif::greatCirclePath(flat, flon, tlat, tlon, 3) close:NO wraps:YES];
             [self styleLine:path];
             path.lineJoinStyle = NSLineJoinStyleRound;
             static const CGFloat kStrength[] = {0.35, 0.65, 0.95};
@@ -1499,29 +1511,32 @@ bool mapkit::potaSpot(const adif::Spot &s) { return s.program == "POTA"; }
 // A POTA activator's spot: the park badge (a pale disc with a tree, here in the spot's colour: a
 // park you haven't hunted or one you have) with the spot's ring round it, a station calling from a
 // park; its DXCC's need in the ring's shape, as the other spots'. Fainter as it ages, like the rest.
-// Under the pointer its rings turn instead (placeHoverRings).
+// Under the pointer its ring turns instead (placeHoverRings).
 - (void)drawPotaSpotAt:(NSPoint)p radius:(double)r color:(NSColor *)c alpha:(CGFloat)alpha lit:(BOOL)lit spot:(const ADIFMapSpot &)s hovered:(BOOL)hovered {
     CGContextRef ctx = NSGraphicsContext.currentContext.CGContext;
     CGContextSaveGState(ctx);
     CGContextSetAlpha(ctx, alpha);
     double ring = r * 1.6;
-    if (!hovered) [self strokeSpotRings:s at:p radius:ring color:c lit:lit];
+    [self strokeSpotRings:s at:p radius:ring color:c lit:lit hovered:hovered];
     [self drawParkBadgeAt:p radius:r color:c worked:NO activated:NO lit:lit];
     CGContextRestoreGState(ctx);
 }
 
 // A spot's ring, its shape saying what it means for the log: a new DXCC two rings, a new band or
-// mode a dashed one.
-- (void)strokeSpotRings:(const ADIFMapSpot &)s at:(NSPoint)p radius:(double)ring color:(NSColor *)c lit:(BOOL)lit {
-    NSBezierPath *circle = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(p.x - ring, p.y - ring, 2 * ring, 2 * ring)];
-    circle.lineWidth = lit ? 2.2 : 1.4;
-    bool newBandOrMode = !s.spot.heardMe && (s.status.need == adif::SpotNeed::NewBand || s.status.need == adif::SpotNeed::NewMode);
-    if (newBandOrMode) {
-        const CGFloat dash[] = {2.6, 1.8};
-        [circle setLineDash:dash count:2 phase:0];
-    }
+// mode a dashed one. Hovered, the ring itself is the turning one (placeHoverRings); a second
+// ring stays.
+- (void)strokeSpotRings:(const ADIFMapSpot &)s at:(NSPoint)p radius:(double)ring color:(NSColor *)c lit:(BOOL)lit hovered:(BOOL)hovered {
     [c setStroke];
-    [circle stroke];
+    if (!hovered) {
+        NSBezierPath *circle = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(p.x - ring, p.y - ring, 2 * ring, 2 * ring)];
+        circle.lineWidth = lit ? 2.2 : 1.4;
+        bool newBandOrMode = !s.spot.heardMe && (s.status.need == adif::SpotNeed::NewBand || s.status.need == adif::SpotNeed::NewMode);
+        if (newBandOrMode) {
+            const CGFloat dash[] = {2.6, 1.8};
+            [circle setLineDash:dash count:2 phase:0];
+        }
+        [circle stroke];
+    }
     if (!s.spot.heardMe && s.status.need == adif::SpotNeed::NewDxcc) {
         double outer = ring + 2.6 * _style.marker;
         NSBezierPath *second = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(p.x - outer, p.y - outer, 2 * outer, 2 * outer)];
@@ -1530,8 +1545,8 @@ bool mapkit::potaSpot(const adif::Spot &s) { return s.program == "POTA"; }
     }
 }
 
-// The spot under the pointer: its rings as long dashes turning opposite ways (held still with
-// Reduce Motion), on a layer over the map so that the map isn't drawn again to turn them.
+// The spot under the pointer: its own ring as two long dashes, turning (held still with Reduce
+// Motion), on a layer over the map so that the map isn't drawn again to turn it.
 - (void)placeHoverRings {
     bool on = _hover.kind == ADIFMapHit::Spot && _hover.index < _spots.size() && _style[kLayerSpots].show;
     if (!on && !_hoverRingsView) return;
@@ -1541,41 +1556,40 @@ bool mapkit::potaSpot(const adif::Spot &s) { return s.program == "POTA"; }
         _hoverRingsView.layer = [CALayer layer];  // its own layers (layer-hosting)
         _hoverRingsView.wantsLayer = YES;
         _hoverRingsView.identifier = @"map.hoverRings";
-        for (int i = 0; i < 2; ++i) {
-            CAShapeLayer *r = [CAShapeLayer layer];
-            r.fillColor = nil;
-            r.lineWidth = i ? 1.4 : 2.0;
-            r.lineDashPattern = @[ @7, @4 ];
-            r.hidden = YES;
-            [_hoverRingsView.layer addSublayer:r];
-        }
+        CAShapeLayer *ring = [CAShapeLayer layer];
+        ring.fillColor = nil;
+        ring.lineWidth = 2.2;  // as a lit spot's ring
+        ring.hidden = YES;
+        [_hoverRingsView.layer addSublayer:ring];
         [self addSubview:_hoverRingsView];
     }
-    NSArray<CALayer *> *rings = _hoverRingsView.layer.sublayers;
+    CAShapeLayer *ring = (CAShapeLayer *)_hoverRingsView.layer.sublayers.firstObject;
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
-    for (CALayer *r in rings) r.hidden = !on;
+    ring.hidden = !on;
     if (!on) return [CATransaction commit];
     const ADIFMapSpot &s = _spots[_hover.index];
     NSPoint p = [self viewPointForLon:s.lon lat:s.lat];
     NSColor *c = paletteAt(_style.palette).night ? NSColor.systemRedColor : [self spotColor:s];
-    bool still = NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
-    for (NSUInteger i = 0; i < rings.count; ++i) {
-        CAShapeLayer *r = (CAShapeLayer *)rings[i];
-        double rad = [self spotRadius:s] + (i ? 4.5 * _style.marker : 0);
-        r.frame = CGRectMake(p.x - rad - 2, p.y - rad - 2, 2 * rad + 4, 2 * rad + 4);
-        CGPathRef path = CGPathCreateWithEllipseInRect(CGRectMake(2, 2, 2 * rad, 2 * rad), nullptr);
-        r.path = path;
-        CGPathRelease(path);
-        r.strokeColor = c.CGColor;
-        if (still) [r removeAnimationForKey:@"turn"];
-        else if (![r animationForKey:@"turn"]) {
-            CABasicAnimation *turn = [CABasicAnimation animationWithKeyPath:@"lineDashPhase"];
+    double rad = [self spotRadius:s], circumference = 2 * M_PI * rad;
+    ring.frame = CGRectMake(p.x - rad - 2, p.y - rad - 2, 2 * rad + 4, 2 * rad + 4);
+    CGPathRef path = CGPathCreateWithEllipseInRect(CGRectMake(2, 2, 2 * rad, 2 * rad), nullptr);
+    ring.path = path;
+    CGPathRelease(path);
+    ring.strokeColor = c.CGColor;
+    ring.lineDashPattern = @[ @(circumference * 0.4), @(circumference * 0.1) ];  // two dashes, two gaps
+    if (NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion) {
+        [ring removeAnimationForKey:@"turn"];
+    } else {
+        CABasicAnimation *turn = (CABasicAnimation *)[ring animationForKey:@"turn"];
+        double period = circumference / 2;  // one dash and its gap: the pattern comes round to itself
+        if (!turn || fabs([turn.toValue doubleValue] - period) > 0.01) {
+            turn = [CABasicAnimation animationWithKeyPath:@"lineDashPhase"];
             turn.fromValue = @0;
-            turn.toValue = @(i ? -22 : 22);  // two of the pattern's 11 points: one way, and the other
-            turn.duration = 1.4;
+            turn.toValue = @(period);
+            turn.duration = 1.2;
             turn.repeatCount = HUGE_VALF;
-            [r addAnimation:turn forKey:@"turn"];
+            [ring addAnimation:turn forKey:@"turn"];
         }
     }
     [CATransaction commit];
@@ -1627,7 +1641,8 @@ bool mapkit::potaSpot(const adif::Spot &s) { return s.program == "POTA"; }
 }
 
 // The great-circle path from your station to the spot or contact chosen, dashed in the accent
-// colour, with its distance and bearing at its middle: where to point the antenna.
+// colour (arched over the globe, as the contacts' lines are), with its distance and bearing at
+// its middle: where to point the antenna.
 - (void)drawChosenPath:(MapDrawCtx &)d {
     if (!_hasHome) return;
     const ADIFMapHit &h = _selected;
@@ -1637,17 +1652,29 @@ bool mapkit::potaSpot(const adif::Spot &s) { return s.program == "POTA"; }
     else return;
     double km = adif::greatCircleKm(_homeLat, _homeLon, lat, lon);
     if (km < 1) return;
+    bool arched = d.globe && _style.arcs;
     std::vector<std::pair<double, double>> pts = adif::greatCirclePath(_homeLat, _homeLon, lat, lon, 2);
-    NSBezierPath *path = [self viewPath:pts close:NO wraps:YES];
+    NSPoint m = NSMakePoint(NAN, NAN);
+    NSBezierPath *path = nil;
+    if (arched) {
+        path = [self archedViewPathFromLat:_homeLat lon:_homeLon toLat:lat lon:lon middle:&m];
+    } else {
+        path = [self viewPath:pts close:NO wraps:YES];
+        const std::pair<double, double> &mid = pts[pts.size() / 2];  // (lon, lat)
+        m = [self viewPointForLon:mid.first lat:mid.second];
+    }
     NSColor *accent = [NSColor.controlAccentColor colorUsingColorSpace:NSColorSpace.sRGBColorSpace] ?: NSColor.systemBlueColor;
     path.lineWidth = 2;
     path.lineJoinStyle = NSLineJoinStyleRound;
     const CGFloat dash[] = {7, 4};
     [path setLineDash:dash count:2 phase:0];
     [[accent colorWithAlphaComponent:0.9] setStroke];
+    if (arched) CGContextRestoreGState(d.ctx);  // its arch shows past the globe's edge: outside the world's clip, as the contacts' do
     [path stroke];
-    const std::pair<double, double> &mid = pts[pts.size() / 2];  // (lon, lat)
-    NSPoint m = [self viewPointForLon:mid.first lat:mid.second];
+    if (arched) {
+        CGContextSaveGState(d.ctx);
+        [d.world addClip];
+    }
     if (!NSPointInRect(m, NSInsetRect(d.b, 30, 12))) return;
     char bearing[16];
     snprintf(bearing, sizeof bearing, "%.0f\u00B0", adif::initialBearing(_homeLat, _homeLon, lat, lon));
@@ -1663,6 +1690,8 @@ bool mapkit::potaSpot(const adif::Spot &s) { return s.program == "POTA"; }
 
 - (void)drawSpotLines:(MapDrawCtx &)d {
     if (!_style[kLayerSpots].show) return;
+    bool arched = d.globe && _style.arcs;
+    if (arched) CGContextRestoreGState(d.ctx);  // arches show past the globe's edge: outside the world's clip, as the contacts' do
     std::set<std::string> litSpotters;
     for (const ADIFMapHit *h : {&_hover, &_selected})
         if (h->kind == ADIFMapHit::Spotter && h->index < _spotters.size()) litSpotters.insert(adif::spotterCall(_spotters[h->index].call));
@@ -1676,7 +1705,8 @@ bool mapkit::potaSpot(const adif::Spot &s) { return s.program == "POTA"; }
                 if (lit != (pass == 1) || (!lit && !_style[kLayerSpots].overlay)) continue;
                 if (!lit && !drawn.insert({std::lround(h.lat * 10), std::lround(h.lon * 10), std::lround(s.lat * 10), std::lround(s.lon * 10)}).second)
                     continue;
-                NSBezierPath *path = [self viewPath:adif::greatCirclePath(h.lat, h.lon, s.lat, s.lon, 3) close:NO wraps:YES];
+                NSBezierPath *path = arched ? [self archedViewPathFromLat:h.lat lon:h.lon toLat:s.lat lon:s.lon middle:nil]
+                                            : [self viewPath:adif::greatCirclePath(h.lat, h.lon, s.lat, s.lon, 3) close:NO wraps:YES];
                 path.lineWidth = lit ? 1.8 : _style.spotLines == 0 ? 0.8 : 0.7;
                 path.lineJoinStyle = NSLineJoinStyleRound;
                 NSColor *colour = lit                      ? [[self spotColor:s] colorWithAlphaComponent:0.9]
@@ -1686,6 +1716,10 @@ bool mapkit::potaSpot(const adif::Spot &s) { return s.program == "POTA"; }
                 [path stroke];
             }
         }
+    if (arched) {  // back inside the world for the rest
+        CGContextSaveGState(d.ctx);
+        [d.world addClip];
+    }
 }
 
 // A spotter's marker, a triangle like a listening antenna, centred on p with radius r. The spots
@@ -1765,14 +1799,16 @@ bool mapkit::potaSpot(const adif::Spot &s) { return s.program == "POTA"; }
         NSBezierPath *dot = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(p.x - r, p.y - r, 2 * r, 2 * r)];
         [c setFill];
         [dot fill];
-        if (!hovered) [self strokeSpotRings:s at:p radius:ring color:c lit:lit];
+        [self strokeSpotRings:s at:p radius:ring color:c lit:lit hovered:hovered];
         [[NSColor colorWithCalibratedWhite:lit ? ink : (pal.dark && darkColour(c) ? 1 : 0) alpha:lit ? 1 : 0.7 * alpha] setStroke];
         dot.lineWidth = lit ? 1.4 : 0.8;
         [dot stroke];
     }
     // Each label a tag beside its marker: the call, then the details Style Options chooses, on a
     // card of the map's own colour edged in the spot's; the chosen spot's always shows (labels on
-    // or off), edged in the accent colour, over the rest.
+    // or off), edged in the accent colour, over the rest. On the globe they are drawn outside the
+    // world's clip, so that a spot at the horizon has its label floating past the edge, not cut off.
+    if (d.globe) CGContextRestoreGState(d.ctx);
     long long now = (long long)time(nullptr);
     NSDictionary *tagCall = @{NSFontAttributeName : attrs[NSFontAttributeName], NSForegroundColorAttributeName : textColor};
     NSDictionary *tagSmall = @{NSFontAttributeName : small[NSFontAttributeName], NSForegroundColorAttributeName : textColor};
@@ -1827,6 +1863,10 @@ bool mapkit::potaSpot(const adif::Spot &s) { return s.program == "POTA"; }
             [text drawAtPoint:r.origin withAttributes:spotterAttrs];
             taken.push_back(r);
         }
+    if (d.globe) {  // back inside the world for the rest
+        CGContextSaveGState(d.ctx);
+        [d.world addClip];
+    }
 }
 
 - (size_t)spotAt:(NSPoint)p {

@@ -114,7 +114,8 @@ const std::vector<Prompt> &library() {
         // v1.3, the activator, hunter and CW guides).
         {"listen-first", Category::Practice, kSocial | kPortable | kContest,
          N_("Listen first, then ask if the frequency is in use: QRL? on CW and keyboard modes, \"Is this frequency in use?\" on phone"), "", true,
-         scripts::modeBit(scripts::ModeGroup::Phone) | scripts::modeBit(scripts::ModeGroup::Cw) | scripts::modeBit(scripts::ModeGroup::Digital),
+         scripts::modeBit(scripts::ModeGroup::Phone) | scripts::modeBit(scripts::ModeGroup::Cw) | scripts::modeBit(scripts::ModeGroup::Rtty) |
+             scripts::modeBit(scripts::ModeGroup::Psk) | scripts::modeBit(scripts::ModeGroup::Js8),
          N_("IARU Ethics and Operating Procedures, 4th edition, §9.4 and §12.5.2")},
         {"pota-spot", Category::Practice, kPortable, N_("Spot yourself, or ask your first contact to spot you"), "", true, 0,
          N_("POTA's activator guide (docs.pota.app)")},
@@ -153,7 +154,7 @@ const std::vector<Prompt> &library() {
         {"no-overcall", Category::Practice, kContest | kChasing, N_("Never call on top of a contact in progress"), "", false, 0,
          N_("ARRL's HF Contesting Guidelines; IARU Ethics and Operating Procedures, 4th edition, chapter 15")},
         {"rtty-serial", Category::Practice, kContest, N_("On RTTY, send the serial number twice: the mode doesn't correct errors"), "", false,
-         scripts::modeBit(scripts::ModeGroup::Digital), N_("IARU Ethics and Operating Procedures, 4th edition, §16.6.3")},
+         scripts::modeBit(scripts::ModeGroup::Rtty), N_("IARU Ethics and Operating Procedures, 4th edition, §16.6.3")},
     };
     return all;
 }

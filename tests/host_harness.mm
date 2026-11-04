@@ -6735,20 +6735,23 @@ int main(int argc, char **argv) {
                     CHECK(inOrder && found >= 8 && info.find("\nFrequency: ") < info.find("\nSpotted: ") && info.find("\nDistance: ") < info.find("\nSource: "),
                           "the spot's information in operating order: %s", [@(info.c_str()) stringByReplacingOccurrencesOfString:@"\n" withString:@" | "].UTF8String);
                 }
-                {  // Under the pointer, its rings turn: long dashes, the two one way and the other; away from it, gone
+                {  // Under the pointer, its ring turns: two long dashes, as large as the spot's own ring; away from it, gone
                     [mapView mouseMoved:mouse(NSEventTypeMouseMoved, berlin, 0)];
                     pump(0.1);
                     NSView *ringsView = viewWithIdentifier(mapView, @"map.hoverRings");
                     NSArray<CALayer *> *rings = ringsView.layer.sublayers;
-                    bool shown = rings.count == 2 && !rings[0].hidden && !rings[1].hidden;
-                    CABasicAnimation *one = (CABasicAnimation *)[rings.firstObject animationForKey:@"turn"], *two = (CABasicAnimation *)[rings.lastObject animationForKey:@"turn"];
+                    CAShapeLayer *ring = (CAShapeLayer *)rings.firstObject;
+                    bool shown = rings.count == 1 && !ring.hidden;
+                    CABasicAnimation *turn = (CABasicAnimation *)[ring animationForKey:@"turn"];
                     bool reduced = NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
-                    bool opposite = reduced || (one && two && [one.toValue doubleValue] * [two.toValue doubleValue] < 0);
-                    bool dashed = rings.count == 2 && [((CAShapeLayer *)rings[0]).lineDashPattern isEqualToArray:@[ @7, @4 ]];
+                    bool turning = reduced || (turn && [turn.toValue doubleValue] > 0);
+                    double circumference = shown ? M_PI * CGRectGetWidth(CGPathGetBoundingBox(ring.path)) : 0;
+                    bool dashed = shown && ring.lineDashPattern.count == 2 && [ring.lineDashPattern.firstObject doubleValue] > circumference / 4;
+                    bool own = shown && CGRectGetWidth(CGPathGetBoundingBox(ring.path)) <= 13;  // a spot's ring, 12 points across, no larger
                     [mapView mouseExited:mouse(NSEventTypeMouseMoved, berlin, 0)];
                     pump(0.1);
-                    CHECK(ringsView && shown && opposite && dashed && rings[0].hidden && rings[1].hidden,
-                          "a spot under the pointer: its two rings in long dashes, turning opposite ways (%d %d %d); away, gone", shown, opposite, dashed);
+                    CHECK(ringsView && shown && turning && dashed && own && ring.hidden,
+                          "a spot under the pointer: its own ring in two long dashes, turning (%d %d %d %d); away, gone", shown, turning, dashed, own);
                 }
                 if (mapw) snapshot(mapw, "map-spots");
                 // The list beside the map, of spots: each station spotted in view, with its frequency, mode and age;

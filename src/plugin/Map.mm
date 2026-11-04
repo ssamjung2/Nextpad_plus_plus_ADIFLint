@@ -2104,8 +2104,9 @@ void fillStyle() {
     if (!mw.styleBody) return;
     NSView *root = mw.styleBody;
     if (NSPopUpButton *p = (NSPopUpButton *)findView(root, @"map.style.palette")) [p selectItemAtIndex:number("mapPalette", 0, 4)];
-    for (NSString *ident in @[ @"map.style.line", @"map.style.width", @"map.style.strength", @"map.style.arcs" ])
+    for (NSString *ident in @[ @"map.style.line", @"map.style.width", @"map.style.strength" ])
         if (NSControl *c = (NSControl *)findView(root, ident)) c.enabled = s.paths;
+    if (NSControl *c = (NSControl *)findView(root, @"map.style.arcs")) c.enabled = s.paths || s[kLayerSpots].show;  // the spots' lines arch too
     if (NSControl *c = (NSControl *)findView(root, @"map.style.rings")) c.enabled = !mw.home.empty();
     if (NSControl *c = (NSControl *)findView(root, @"map.style.sunTime")) c.enabled = s.dayNight || s.greyLine;
     if (NSControl *c = (NSControl *)findView(root, @"map.style.palette")) c.enabled = !ADIFNightMode();  // Night Mode sets it

@@ -29,6 +29,8 @@ Versions before 0.8.0 were development builds and were not published.
 
 ### Fixed
 
+- Live on the globe: the spotters' lines and the path to the chosen spot arch over the globe, as the contacts' lines do in History (**Arch over the globe** in Map Appearance), and a spot's label at the horizon floats past the globe's edge instead of being cut off.
+- A spot under the pointer: its own ring turns, as two long dashes, in place of the two larger rings (still with Reduce Motion).
 - TQSL's exit code 15 was described as a wrong certificate password; TQSL's source says it is a wrong passphrase for a certificate file (.p12) being loaded.
 
 ## [1.10.0] - 2026-11-01

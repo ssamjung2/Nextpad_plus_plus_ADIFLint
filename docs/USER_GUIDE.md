@@ -133,7 +133,7 @@ See [Operating styles](#operating-styles) and [Spots on the map](#spots-on-the-m
 2. Their badges say what each park is for you: **light blue** a park you haven't hunted,
    **green** one you have. The rings say what the station is for your DXCC (two rings a new DXCC,
    dashed a new band or mode).
-3. Point at a spot: its rings turn, and the status line names it. Click it for its park, how
+3. Point at a spot: its ring turns, and the status line names it. Click it for its park, how
    fresh the spot is, and the spotter's comment.
 4. **New QSO** copies the activator, frequency, mode and park (POTA_REF, SIG and SIG_INFO) into
    the QSO panel; the lookup says whether the park is new to you.
@@ -1658,7 +1658,7 @@ Spots follow it too:
   a park you haven't hunted, **green** one you have; what it means for your DXCC is in its
   ring's shape, as for every spot (two rings a new DXCC, a dashed one a new band or mode).
 
-Under the pointer, a spot's rings turn, in long dashes, the two of them opposite ways, while
+Under the pointer, a spot's own ring turns, as two long dashes, while
 its station shows in the status line (still with Reduce Motion on in the Mac's Accessibility
 settings).
 - **By band** and **by mode**, their own band and mode.
@@ -2034,7 +2034,8 @@ is kept; **Reset to Defaults** puts them all back (the layers stay as they are).
   the globe as arches rising over it, higher the further they go and leaning to one side so
   they read as arches from above your station too, and over the horizon for contacts on the
   far side. They are for looks: the true path, and the beam heading, is the straight line
-  you get with it off.
+  you get with it off. The spotters' lines, and the path to the spot chosen, arch the same
+  way (with Spots showing, the setting is there without Contact paths).
 - **POTA parks**: **Parks with an outline**: a badge on the outline, or the outline alone
   once it is big enough to see (only with outlines downloaded; see [Overlays](#overlays)).
 - **Spots** (while the Spots layer shows): **Spotters** hidden, faint grey, as markers, or

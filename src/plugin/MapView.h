@@ -310,7 +310,7 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
     std::vector<std::pair<NSRect, std::string>> _legendKeys;  // its entries that a click turns off or on
     std::vector<std::pair<std::string, bool>> _legendNames;   // theirs as they read, and whether off (accessibility actions)
     std::shared_ptr<struct ReliefShown> _reliefShown;          // the globe's terrain as last drawn (MapRelief.mm)
-    NSView *_hoverRingsView;                                    // over the map: the spot under the pointer's turning rings
+    NSView *_hoverRingsView;                                    // over the map: the spot under the pointer's turning ring
 }
 @property(nonatomic) BOOL showContacts;
 @property(nonatomic) std::set<std::string> hiddenPrograms;
@@ -483,6 +483,7 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 - (void)drawIota:(MapDrawCtx &)d;
 - (void)drawCities:(MapDrawCtx &)d;
 - (void)drawLines:(MapDrawCtx &)d;
+- (NSBezierPath *)archedViewPathFromLat:(double)lat1 lon:(double)lon1 toLat:(double)lat2 lon:(double)lon2 middle:(NSPoint *)middle;
 - (void)drawSquares:(MapDrawCtx &)d;
 - (void)drawGridLabels:(MapDrawCtx &)d;
 - (void)drawRings:(MapDrawCtx &)d;
@@ -511,9 +512,9 @@ struct OsmCache;  // MapOsm.mm: Map Detail's tiles, decoded
 - (void)drawParkLabelsIn:(NSRect)b;
 - (NSBezierPath *)spotMarkerAt:(NSPoint)p;
 - (double)spotRadius:(const ADIFMapSpot &)s;  // its marker's, ring and all
-- (void)placeHoverRings;  // the spot under the pointer's rings, turning (MapLayers.mm)
+- (void)placeHoverRings;  // the spot under the pointer's ring, turning (MapLayers.mm)
 - (void)drawPotaSpotAt:(NSPoint)p radius:(double)r color:(NSColor *)c alpha:(CGFloat)alpha lit:(BOOL)lit spot:(const ADIFMapSpot &)s hovered:(BOOL)hovered;
-- (void)strokeSpotRings:(const ADIFMapSpot &)s at:(NSPoint)p radius:(double)ring color:(NSColor *)c lit:(BOOL)lit;
+- (void)strokeSpotRings:(const ADIFMapSpot &)s at:(NSPoint)p radius:(double)ring color:(NSColor *)c lit:(BOOL)lit hovered:(BOOL)hovered;
 - (CGFloat)spotAlpha:(const ADIFMapSpot &)s;
 - (bool)spotLit:(size_t)k;     // under the pointer or chosen
 - (bool)spotterLit:(size_t)j;  // so, or a spotter of such a spot
