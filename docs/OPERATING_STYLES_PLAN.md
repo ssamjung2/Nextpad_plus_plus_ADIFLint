@@ -31,7 +31,7 @@ follow a recommendation. It should reduce friction while leaving the human in
 control.
 
 Guidance can appear as a compact **Operating Aids** card, a suggestion row in
-New QSO, or an optional next-action strip. It should:
+the QSO panel, or an optional next-action strip. It should:
 
 - be dismissible and easy to hide for the session or permanently;
 - appear at natural pauses, not while the operator is entering an exchange;
@@ -136,7 +136,7 @@ Chasing guidance should keep attention on the operator’s goal:
 - show the next missing band, mode, entity, award, or program credit;
 - suggest the best next action after a failed, stale, or duplicate spot;
 - distinguish already worked from unconfirmed;
-- provide concise preparation cues before New QSO.
+- provide concise preparation cues before the QSO panel.
 
 For example:
 
@@ -255,7 +255,7 @@ Optimize for recognition, context, warmth, and low pressure.
 - Prefer callsign, operator name, location/grid, distance, bearing, and contact
   history over award urgency.
 - Use a calm, low-density visual treatment with limited spot emphasis.
-- Make notes and operator context prominent in New QSO.
+- Make notes and operator context prominent in the QSO panel.
 - Support logging and retaining the selected station for nets and roundtables.
 - Make prior conversation context easy to find.
 
@@ -269,7 +269,7 @@ Optimize for goal visibility, explainable prioritization, and progress.
 - Show spot age, source, frequency, mode, distance, and confidence.
 - Explain each recommendation, for example:
   “New DXCC on 20m and new digital-mode credit; spotted 42 seconds ago.”
-- Pre-fill New QSO from the selected spot.
+- Pre-fill the QSO panel from the selected spot.
 - Warn early about duplicates and already-worked targets.
 - Provide next-opportunity navigation and post-log advancement.
 
@@ -278,7 +278,7 @@ Optimize for goal visibility, explainable prioritization, and progress.
 Optimize for recognition over recall, stable spatial layout, minimal scanning,
 fast validation, and error recovery.
 
-- Make the contest/New QSO workflow primary and keep the map compact.
+- Make the contest/QSO workflow primary and keep the map compact.
 - Emphasize duplicate status, new multipliers, exchange requirements, serial
   numbers, point value, and logging validity.
 - Use keyboard-first exchange entry and predictable field placement.
@@ -350,8 +350,8 @@ capture, apply, reset, and report profile changes.
 - Document operator journeys for all four styles.
 - Identify each style’s top tasks, must-show data, must-hide data, and failure
   behavior.
-- Decide whether the first release affects only the Map or also rearranges New
-  QSO and other windows.
+- Decide whether the first release affects only the Map or also rearranges the
+  QSO panel and other windows.
 - Define accessibility, outdoor-use, offline, and performance requirements.
 
 **Exit criteria:** each style has measurable acceptance criteria and a defined
@@ -419,10 +419,10 @@ without silently starting or changing the active contest.
 Generalize the existing logging layout into a style-aware policy:
 
 ```text
-Social:   Map + New QSO + notes/context
-Chasing:  Map + ranked opportunities + New QSO
-Contest:  Contest/New QSO dominant + compact map
-Portable: compact New QSO + activation progress + minimal map
+Social:   Interactive Map + QSO + notes/context
+Chasing:  Interactive Map + ranked opportunities + QSO
+Contest:  Contest/QSO dominant + compact map
+Portable: compact QSO + activation progress + minimal map
 ```
 
 The user must be able to opt out of automatic window arrangement, and the
@@ -463,7 +463,7 @@ toolbar (Stage 2); they are still open to review.
 
 ### Decisions
 
-- **The first release changes the Map only.** New QSO, the Log Table and window arrangement
+- **The first release changes the Map only.** The QSO panel, the Log Table and window arrangement
   stay as they are until Stage 6. The Map's own workflows (History, Live, DX Chase, POTA),
   Quick Views and saved views keep working as before; a style sits on top of them.
 - **No style is the default.** Until the operator picks one, nothing changes; choosing
@@ -543,7 +543,7 @@ toolbar (Stage 2); they are still open to review.
     skip topics the notes already cover (word starts, so "net" doesn't match "internet"),
     dismissed prompts and topics turned off, and give a reason when it isn't plain.
     `testOperatingAids` covers it.
-  - New QSO's Operating Aids strip: Social's earlier QSOs and notes with the call, Portable's
+  - The QSO panel's Operating Aids strip: Social's earlier QSOs and notes with the call, Portable's
     cues (activation progress, ready or missing, the duplicate check, saved or not, waiting to
     sync or synced, offline, lighter spots), suggestions in italics with Note, Skip and Dismiss,
     Hide for the session, and Options (per style, in ADIFLint.ini as `aidsLevel<Style>`,

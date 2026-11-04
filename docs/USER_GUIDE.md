@@ -300,8 +300,8 @@ claims. Then:
 - Values that became import-only later are fine (MODE PSK31 is a mode in 3.0.3, import-only
   from 3.0.4 on), and a field's type and the band edges are that version's (CQZ was a Number
   until 3.0.5; 30m was 10.0 to 10.15 MHz until 3.0.4).
-- Autocomplete offers that version's fields and values, and the logs ADIF Lint writes (New
-  QSO's new logs, exports, uploads) declare it as ADIF_VER.
+- Autocomplete offers that version's fields and values, and the logs ADIF Lint writes (the QSO
+  panel's new logs, exports, uploads) declare it as ADIF_VER.
 
 What each version holds was read from its specification, as ADIF publishes table files only
 from 3.1.5 on; see [`spec/adif-history.md`](../spec/adif-history.md). Descriptions, notes and
@@ -1135,7 +1135,7 @@ world, 1:50m zoomed in, and 1:10m from 12× down to city level): land, lakes, ri
 largest at first, smaller ones as you zoom in), country borders, state and province lines
 from 2.5×, and towns' built-up areas at 1:10m. Every choice is remembered.
 
-![The Map in History: the sidebar with Quick Views and layers on the left, US states worked on the map, the list under it, the selected panel on the right](images/map-history.png)
+![The Interactive Map in History: the sidebar with Quick Views and layers on the left, US states worked on the map, the list under it, the selected panel on the right](images/map-history.png)
 
 The Map has two ways of working, chosen at the left of its toolbar:
 
@@ -2430,12 +2430,12 @@ and grid, "3 of 4 on", **Saved** or **not set** for an account), so the one you 
 to find. The first time ADIF Lint runs, it opens with a welcome and Your Station open.
 
 **Spots** and **Your Station** can each be a panel of their own while you operate: the button at
-the right of the section's heading (or **Panels → Show Spot Sources**, **Show Your Station**)
+the right of the section's heading (or **Panels → Show Spot Configuration**, **Show Your Station**)
 moves the section into its own window, which can sit as a tab in the Operating Console (beside
 the spots, say). Settings then says where it is, with **Show It**; close the panel and the
 section is back in Settings.
 
-- **Your Station:** your callsign and grid, used where a log doesn't say: New QSO fills
+- **Your Station:** your callsign and grid, used where a log doesn't say: the QSO panel fills
   STATION_CALLSIGN and MY_GRIDSQUARE from them in a new log, distances are measured from the
   grid, and the activation and Cabrillo exports offer the callsign. Also the logs folder
   Worked Before searches.
@@ -2452,7 +2452,7 @@ section is back in Settings.
   release from country-files.com into the plugin config folder.
 - **LoTW Users:** off until you tick **Show LoTW users**. **Update** downloads ARRL's list
   of LoTW users and their last upload (`lotw.arrl.org`, about 6 MB, updated weekly); it is
-  downloaded again when a week old, and used in New QSO's lookup line, the Spots window's
+  downloaded again when a week old, and used in the QSO panel's lookup line, the Spots window's
   LoTW column and the Log Table's optional LoTW column. No terms of use for the list were
   found; it is only fetched while on.
 - **POTA Parks:** **Download** fetches POTA's list of parks (`pota.app/all_parks_ext.csv`,
@@ -2527,7 +2527,7 @@ section is back in Settings.
   © RSGB and IOTA Ltd, who allow downloading it for personal non-commercial use, so it
   isn't included with ADIF Lint and is only fetched when you press Download.
 - **Accounts**, one section each: QRZ.com and HamQTH (username and password, for Enrich
-  and New QSO's lookup, and HamQTH's also for Upload to HamQTH); HRDLog.net (callsign and
+  and the QSO panel's lookup, and HamQTH's also for Upload to HamQTH); HRDLog.net (callsign and
   upload code); LoTW (your LoTW website login, for Import); QRZ.com Logbook (API
   key); Club Log (email and Application Password) and Club
   Log API key; eQSL (username and password); the TQSL certificate password; and World Radio
@@ -2540,7 +2540,7 @@ Where things are kept:
 
 - **Credentials** only in your macOS Keychain, as items named "ADIF Lint: QRZ.com",
   "ADIF Lint: LoTW" and so on; never in a file. A saved password is never shown again.
-- **Settings** (menu toggles, New QSO fields and lookup, folders, table columns and sort,
+- **Settings** (menu toggles, the QSO panel's fields and lookup, folders, table columns and sort,
   the last time zone and program) in `ADIFLint.ini`, in Nextpad++'s plugin config folder
   (`~/Library/Application Support/Nextpad++/plugins/Config/`). Beside it: station profiles
   (`ADIFLint-profiles.adi`), the Monitor's queue (`ADIFLint-queue.adi`), a downloaded
@@ -2561,10 +2561,10 @@ parameters of their HTTPS address, as those services document it.
 offline**) stops every network request ADIF Lint makes, for off-grid operating or to be sure
 nothing is sent:
 
-- callbook lookups (New QSO, Enrich) and sign-in tests;
+- callbook lookups (the QSO panel, Enrich) and sign-in tests;
 - the Spots window, and the Map's spots (Spothole, the DX cluster and PSKReporter), space
   weather and aurora (NOAA SWPC);
-- New QSO's Spot when logging (its boxes are dimmed);
+- the QSO panel's Spot when logging (its boxes are dimmed);
 - uploads, TQSL included, and imports from LoTW, QRZ.com Logbook and eQSL;
 - the downloads in Settings (country data, LoTW users, POTA parks and their outlines, IOTA
   groups, Map Detail),
@@ -2573,14 +2573,14 @@ nothing is sent:
   pages, the Map's Help and NOAA SWPC links).
 
 Each says "Offline mode is on" instead. Everything that works on your Mac's own files goes
-on as usual: checking and editing logs, New QSO, the Map, the exports, and Monitor, which
+on as usual: checking and editing logs, the QSO panel, the Map, the exports, and Monitor, which
 only listens to the programs on your Mac. The setting is kept until you turn it off.
 
 ### Night mode
 
 **Night Mode** (ticked in the ADIF Lint menu) keeps your night vision: every ADIF Lint
-window and popover goes dark and red (the Map, New QSO, Settings, the Log Table, the Spots
-window and the rest), and the Map takes its **Night (red)** palette; Map Style's palette
+window and popover goes dark and red (the Map, the QSO panel, Settings, the Log Table, the Spots
+window and the rest), and the Map takes its **Night (red)** palette; Map Appearance's palette
 choice comes back when you turn it off. The setting is kept.
 
 A plugin can't recolour Nextpad++'s own windows, its menus or the menu bar. For the whole
@@ -2606,7 +2606,7 @@ ADIF Lint doesn't have.
 - The translations were drafted by Claude, an AI, and are waiting for review by native
   speakers. Anything not translated shows in English.
 - Some things stay in English in every language: this guide, the ADIF specification's
-  field descriptions (shown in New QSO's field list and tips), place names on the Map,
+  field descriptions (shown in the QSO panel's field list and tips), place names on the Map,
   and what goes into files (headers of exported logs, Cabrillo).
 - Each language is a file, `lang/<code>.json` beside the plugin (`data/lang/` in the
   source), keyed by the English text. To correct a translation, change its value there;

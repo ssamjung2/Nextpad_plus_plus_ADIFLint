@@ -25,7 +25,7 @@ The conformance tests (`tests/conformance/rules.cases`) hold, for every rule and
 | `eoh-late` | IV.A.2 | ADI | error | The header comes before the records. | `raw:<CALL:4>W1AW <EOR>\n<EOH>\n` |
 | `no-eor` | IV.A.6 | ADI | error | Every record ends with &lt;EOR&gt;. *The repair adds it.* | `raw:log\n<EOH>\n<CALL:4>W1AW\n` |
 | `empty-record` | IV.A.6 | ADI, ADX | warning | A record is one or more fields, then &lt;EOR&gt; (in ADX, a RECORD element). *The ADX schemas allow an empty RECORD, which carries no QSO all the same.* | `bare` |
-| `no-records` | IV.A.2 | ADI | note | An ADI file has one or more records. *A note: Start Activation and the QSO panel create a log before its first QSO. ADX allows zero records (IV.B).* | `raw:log\n<ADIF_VER:5>3.1.8\n<EOH>\n` |
+| `no-records` | IV.A.2 | ADI | note | An ADI file has one or more records. *A note: Start Activation and New QSO create a log before its first QSO. ADX allows zero records (IV.B).* | `raw:log\n<ADIF_VER:5>3.1.8\n<EOH>\n` |
 
 ## ADX structure
 
