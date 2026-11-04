@@ -1,0 +1,151 @@
+#!/usr/bin/env python3
+"""Generate src/core/adif_adx_schemas.cpp from the published ADX schemas in spec/adx/.
+
+Every adxNNN.xsd and adxNNNgeneric.xsd there must be listed in spec/adx/SOURCE.md with
+its SHA-256, and match it, so what is built in is what adif.org published. Two things
+change on the way in, neither of them what the schema means:
+
+- The byte order mark goes, and CR LF becomes LF, which an XML parser does anyway
+  (XML 1.0 section 2.11).
+- CNTY_ALT's type in 3.1.5 and later uses a look-ahead, which XML Schema 1.0 does not
+  have, so libxml2 refuses the whole schema. It is replaced by two restriction steps
+  that accept exactly the same values (spec/adx/SOURCE.md says how that was checked).
+  The script stops if the published pattern is not where it expects, so a new release
+  cannot slip past unnoticed.
+
+Usage:  python3 tools/gen_adx_schemas.py [spec/adx] [src/core/adif_adx_schemas.cpp]
+"""
+import hashlib
+import re
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+SRC = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "spec/adx"
+OUT = Path(sys.argv[2]) if len(sys.argv) > 2 else ROOT / "src/core/adif_adx_schemas.cpp"
+
+ALT = "Secondary_Administrative_Subdivision_Enumeration_Alt"
+PREFIX = "[nN][zZ]_[rR][eE][gG][iI][oO][nN][sS]:"
+# The published pattern: region and district of letters, with single spaces or dashes
+# between letters, of 5-17 and 4-21 characters.
+LOOKAHEAD = (f'<xs:pattern value="{PREFIX}[a-zA-Z]([ \\-](?=[a-zA-Z])|[a-zA-Z]){{4,16}}'
+             f'/[a-zA-Z]([ \\-](?=[a-zA-Z])|[a-zA-Z]){{3,20}}" />')
+# The same in XML Schema 1.0: patterns on different derivation steps must all match.
+REWRITE = f"""<xs:simpleType name="{ALT}_Shape">
+    <!-- ADIF Lint: the published pattern's look-ahead, [ \\-](?=[a-zA-Z]), is not XML Schema 1.0, so
+         this type and the next say the same thing in two steps (spec/adx/SOURCE.md). -->
+    <xs:restriction base="xs:string">
+      <xs:pattern value="{PREFIX}[a-zA-Z]([ \\-]?[a-zA-Z])*/[a-zA-Z]([ \\-]?[a-zA-Z])*" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="{ALT}">
+    <xs:restriction base="{ALT}_Shape">
+      <xs:pattern value="{PREFIX}[^/]{{5,17}}/[^/]{{4,21}}" />
+    </xs:restriction>
+  </xs:simpleType>"""
+BLOCK = re.compile(f'<xs:simpleType name="{ALT}">.*?</xs:simpleType>', re.S)
+
+
+def fail(msg):
+    sys.exit(f"gen_adx_schemas: {msg}")
+
+
+def recorded_hashes():
+    table = {}
+    for m in re.finditer(r"^\| (adx\d{3}(?:generic)?\.xsd) \| `([0-9a-f]{64})` \|$", (SRC / "SOURCE.md").read_text(), re.M):
+        table[m.group(1)] = m.group(2)
+    return table
+
+
+def built_in(path, version):
+    text = path.read_bytes().decode("utf-8").removeprefix("\ufeff").replace("\r\n", "\n")
+    if "\r" in text:
+        fail(f"{path.name}: a CR outside CR LF")
+    if f"{ALT}_Shape" in text:
+        fail(f"{path.name}: already has {ALT}_Shape")
+    count = text.count(LOOKAHEAD)
+    if version >= (3, 1, 5):
+        blocks = BLOCK.findall(text)
+        if count != 1 or len(blocks) != 1 or LOOKAHEAD not in blocks[0]:
+            fail(f"{path.name}: expected the published CNTY_ALT pattern once, in {ALT}; found it {count} times")
+        text = BLOCK.sub(lambda _: REWRITE, text)
+    elif count:
+        fail(f"{path.name}: has the look-ahead pattern, which only 3.1.5 and later should")
+    for value in re.findall(r'<xs:pattern value="([^"]*)"', text):
+        if "(?" in value:
+            fail(f"{path.name}: a pattern still uses (?...), which XML Schema 1.0 lacks: {value[:60]}")
+    return text
+
+
+def literal(text):
+    out = []
+    for line in text.split("\n"):
+        b = []
+        for ch in line:
+            if ch == "\\" or ch == '"' or ch == "?":
+                b.append("\\" + ch)
+            elif " " <= ch <= "~":
+                b.append(ch)
+            elif ch == "\t":
+                b.append("\\t")
+            else:
+                b.extend(f"\\{byte:03o}" for byte in ch.encode("utf-8"))
+        out.append('    "' + "".join(b) + '\\n"')
+    return "\n".join(out)
+
+
+def main():
+    hashes = recorded_hashes()
+    files = sorted(SRC.glob("adx*.xsd"))
+    names = {f.name for f in files}
+    for name in sorted(set(hashes) - names):
+        fail(f"SOURCE.md lists {name}, which is not in {SRC}")
+    schemas = []
+    for f in files:
+        m = re.fullmatch(r"adx(\d)(\d)(\d)(generic)?\.xsd", f.name)
+        if not m:
+            fail(f"unexpected file {f.name}")
+        if f.name not in hashes:
+            fail(f"{f.name} is not listed in SOURCE.md")
+        digest = hashlib.sha256(f.read_bytes()).hexdigest()
+        if digest != hashes[f.name]:
+            fail(f"{f.name}: SHA-256 {digest} is not the {hashes[f.name]} SOURCE.md records")
+        version = tuple(int(d) for d in m.groups()[:3])
+        schemas.append((version, bool(m.group(4)), f.name, built_in(f, version)))
+    schemas.sort(key=lambda s: (s[0], s[1]))
+
+    lines = [
+        "// GENERATED by tools/gen_adx_schemas.py from spec/adx/ (see spec/adx/SOURCE.md). Do not edit by hand.",
+        f"// The ADX schemas published with ADIF {'.'.join(map(str, schemas[0][0]))} to "
+        f"{'.'.join(map(str, schemas[-1][0]))}, as built in: no byte order mark, LF line ends,",
+        "// and CNTY_ALT's look-ahead pattern in 3.1.5 and later restated in XML Schema 1.0.",
+        '#include "adif_adx.h"',
+        "",
+        "namespace adif {",
+        "",
+    ]
+    for version, generic, name, text in schemas:
+        lines.append(f"static const char k{name[:-4].capitalize()}[] =")
+        lines.append(literal(text) + ";")
+        lines.append("")
+    lines.append("static const AdxSchema kSchemas[] = {")
+    for version, generic, name, text in schemas:
+        ident = f"k{name[:-4].capitalize()}"
+        lines.append(f'    {{"{".".join(map(str, version))}", {"true" if generic else "false"}, "{name}", {ident}, sizeof {ident} - 1}},')
+    lines += [
+        "};",
+        "",
+        "const AdxSchema *adxSchemas(size_t *count) {",
+        "    *count = sizeof kSchemas / sizeof kSchemas[0];",
+        "    return kSchemas;",
+        "}",
+        "",
+        "}  // namespace adif",
+        "",
+    ]
+    OUT.write_text("\n".join(lines))
+    print(f"wrote {OUT.relative_to(ROOT) if OUT.is_relative_to(ROOT) else OUT}: {len(schemas)} schemas")
+
+
+main()

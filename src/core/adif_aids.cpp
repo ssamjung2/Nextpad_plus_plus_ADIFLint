@@ -1,6 +1,7 @@
 #include "adif_aids.h"
 
 #include "adif_i18n.h"
+#include "adif_scripts.h"
 
 #include <algorithm>
 #include <array>
@@ -33,6 +34,7 @@ const std::array<CategoryInfo, kCategoryCount> kCategories = {{
     {"career", N_("Work and projects"), false, {"work", "job", "career", "retired", "engineer", "teacher", "student", "project"}},
     {"age", N_("Stage of life"), false, {"retired", "student", "years old", "birthday"}},
     {"closing", N_("Closing"), true, {}},
+    {"practice", N_("Good practice"), true, {}},
 }};
 
 const CategoryInfo &info(Category c) { return kCategories[(size_t)c]; }
@@ -70,7 +72,17 @@ std::string_view levelId(Level l) {
 }
 size_t shown(Level l, styles::OperatingStyle s) {
     size_t n = l == Level::Off ? 0 : l == Level::Minimal ? 1 : l == Level::Standard ? 2 : 3;
-    return s == styles::OperatingStyle::Portable && n > 1 ? n - 1 : n;
+    return s != styles::OperatingStyle::Social && n > 1 ? n - 1 : n;
+}
+
+unsigned styleBit(styles::OperatingStyle s) {
+    switch (s) {
+        case styles::OperatingStyle::Social: return kSocial;
+        case styles::OperatingStyle::Portable: return kPortable;
+        case styles::OperatingStyle::Chasing: return kChasing;
+        case styles::OperatingStyle::Contest: break;
+    }
+    return kContest;
 }
 
 Timing parseTiming(std::string_view s) { return s == "after" ? Timing::AfterQso : s == "manual" ? Timing::Manual : Timing::Pauses; }
@@ -95,6 +107,53 @@ const std::vector<Prompt> &library() {
         {"career", Category::Career, kSocial, N_("If it comes up: what they do, or what they are working on"), N_("Work: ")},
         {"age", Category::Age, kSocial, N_("Only if they bring it up: their stage of life (studying, working, retired)"), ""},
         {"closing", Category::Closing, kSocial | kPortable, N_("Close courteously: thank them, confirm their call, and 73"), ""},
+        // Good practice, each from the source it names (read 2026-11-03): IARU, Ethics and Operating
+        // Procedures for the Radio Amateur, 4th ed. rev. 4.2.0 (2026, www.iaru-r1.org/on-the-air/eop/);
+        // 47 CFR §97.119 (eCFR, as amended to 2010); the DX Code of Conduct (as IARU Region 1 publishes
+        // it); ARRL's HF Contesting Guidelines and The Amateur's Code (arrl.org); docs.pota.app (rules
+        // v1.3, the activator, hunter and CW guides).
+        {"listen-first", Category::Practice, kSocial | kPortable | kContest,
+         N_("Listen first, then ask if the frequency is in use: QRL? on CW and keyboard modes, \"Is this frequency in use?\" on phone"), "", true,
+         scripts::modeBit(scripts::ModeGroup::Phone) | scripts::modeBit(scripts::ModeGroup::Cw) | scripts::modeBit(scripts::ModeGroup::Digital),
+         N_("IARU Ethics and Operating Procedures, 4th edition, §9.4 and §12.5.2")},
+        {"pota-spot", Category::Practice, kPortable, N_("Spot yourself, or ask your first contact to spot you"), "", true, 0,
+         N_("POTA's activator guide (docs.pota.app)")},
+        {"pota-ten", Category::Practice, kPortable, N_("Ten contacts from the park in one UTC day make a successful activation"), "", true, 0,
+         N_("POTA's rules, version 1.3 (docs.pota.app)")},
+        {"identify", Category::Practice, kSocial | kPortable,
+         N_("Identify: your call at the end of the contact, and every ten minutes in a long one (in the US; elsewhere, as your licence says)"), "",
+         false, 0, N_("47 CFR §97.119(a); IARU Ethics and Operating Procedures, 4th edition, §12.4")},
+        {"phonetics", Category::Practice, kSocial | kPortable | kChasing | kContest,
+         N_("Give your call in the ITU phonetic alphabet (Alfa, Bravo, Charlie...), above all when signals are weak"), "", false,
+         scripts::modeBit(scripts::ModeGroup::Phone), N_("IARU Ethics and Operating Procedures, 4th edition, §11.1; encouraged in the US by 47 CFR §97.119(b)(2)")},
+        {"friendly", Category::Practice, kSocial, N_("Operate slowly and patiently when asked, and help newcomers along"), "", false, 0,
+         N_("The Amateur's Code (ARRL): Friendly")},
+        {"pota-brief", Category::Practice, kPortable, N_("Busy? Keep exchanges short: calls, a real report and your state"), "", false, 0,
+         N_("POTA's activator and hunter guides (docs.pota.app): no exchange is required")},
+        {"pota-p2p", Category::Practice, kPortable, N_("Park to park: give your park after the report, and log theirs in SIG_INFO"), "", false, 0,
+         N_("POTA's CW guide and Park to Park page (docs.pota.app)")},
+        {"dx-listen", Category::Practice, kChasing,
+         N_("Listen, and listen again, before calling: call only if you copy the DX well, and be sure of its call, not only the cluster's word"), "",
+         false, 0, N_("The DX Code of Conduct, points 1 to 3")},
+        {"dx-wait", Category::Practice, kChasing, N_("Wait for the DX to end a contact before you call; never tune up on its frequency or where it listens"),
+         "", false, 0, N_("The DX Code of Conduct, points 4 and 5")},
+        {"dx-full-call", Category::Practice, kChasing, N_("Send your full call, then listen a while: don't call continuously"), "", false, 0,
+         N_("The DX Code of Conduct, points 6 and 7")},
+        {"dx-not-you", Category::Practice, kChasing, N_("Don't call when the DX calls or asks for another call, or another area than yours"), "", false, 0,
+         N_("The DX Code of Conduct, points 8 to 10")},
+        {"dx-once", Category::Practice, kChasing, N_("When the DX comes back to you, don't repeat your call unless it was copied wrong"), "", false, 0,
+         N_("The DX Code of Conduct, point 11")},
+        {"contest-exchange", Category::Practice, kContest, N_("Send only the exchange the contest asks for"), "", false, 0,
+         N_("IARU Ethics and Operating Procedures, 4th edition, §16.6; ARRL's HF Contesting Guidelines")},
+        {"contest-call", Category::Practice, kContest, N_("Running? Give your call in every contact, and close with a short TU"), "", false, 0,
+         N_("IARU Ethics and Operating Procedures, 4th edition, §16.6.1 and §16.6.2")},
+        {"contest-log", Category::Practice, kContest,
+         N_("Log what you copy, and keep every completed contact: one deleted is a not-in-log for the other station"), "", false, 0,
+         N_("ARRL's HF Contesting Guidelines")},
+        {"no-overcall", Category::Practice, kContest | kChasing, N_("Never call on top of a contact in progress"), "", false, 0,
+         N_("ARRL's HF Contesting Guidelines; IARU Ethics and Operating Procedures, 4th edition, chapter 15")},
+        {"rtty-serial", Category::Practice, kContest, N_("On RTTY, send the serial number twice: the mode doesn't correct errors"), "", false,
+         scripts::modeBit(scripts::ModeGroup::Digital), N_("IARU Ethics and Operating Procedures, 4th edition, §16.6.3")},
     };
     return all;
 }
@@ -112,15 +171,19 @@ bool mentioned(Category c, std::string_view notes, std::string_view noteWords) {
 std::vector<Suggestion> suggest(const Context &c) {
     std::vector<Suggestion> out;
     size_t n = shown(c.level, c.style);
-    if (c.call.empty() || !n) return out;
-    unsigned style = c.style == styles::OperatingStyle::Portable ? kPortable : c.style == styles::OperatingStyle::Social ? kSocial : 0;
+    if (!n) return out;
+    unsigned style = styleBit(c.style);
+    bool before = c.call.empty();  // no contact yet
     std::vector<Suggestion> eligible;
     const std::vector<Prompt> &all = library();
     for (size_t i = 0; i < all.size(); ++i) {
         const Prompt &p = all[i];
-        if (!(p.styles & style) || c.dismissed.count(p.id) || c.off.count(std::string(categoryId(p.category)))) continue;
+        if (!(p.styles & style) || p.before != before || c.dismissed.count(p.id) || c.off.count(std::string(categoryId(p.category)))) continue;
+        if (p.modes && c.modes && !(p.modes & c.modes)) continue;
         std::string why;
-        if (p.category == Category::NameQth) {
+        if (p.category == Category::Practice) {
+            if (*p.source) why = tr(p.source);
+        } else if (p.category == Category::NameQth) {
             if (c.name && c.qth) continue;
             why = tr("NAME or QTH is still empty");
         } else if (p.category == Category::Report) {

@@ -20,15 +20,15 @@
 
 namespace adif::aids {
 
-enum class Category { NameQth, Report, Station, Conditions, Weather, Start, Interests, Clubs, Local, Qsl, Career, Age, Closing };
-constexpr int kCategoryCount = 13;
+enum class Category { NameQth, Report, Station, Conditions, Weather, Start, Interests, Clubs, Local, Qsl, Career, Age, Closing, Practice };
+constexpr int kCategoryCount = 14;
 
 std::string_view categoryId(Category c);  // "station", "weather"... (kept in ADIFLint.ini)
 const char *categoryTitle(Category c);    // English, for tr()
 bool onAtFirst(Category c);               // every topic but age and career
 
 // How many suggestions show at once: Off none (the card only says it is off), Minimal 1,
-// Standard 2, More 3. Portable's are brief: at most one less, never fewer than one.
+// Standard 2, More 3. Portable's, Chasing's and Contest's are brief: at most one less, never fewer than one.
 enum class Level { Off, Minimal, Standard, More };
 Level parseLevel(std::string_view s);  // "off", "minimal", "standard", "more"; else Standard
 std::string_view levelId(Level l);
@@ -40,14 +40,18 @@ enum class Timing { Pauses, AfterQso, Manual };
 Timing parseTiming(std::string_view s);  // "pauses", "after", "manual"; else Pauses
 std::string_view timingId(Timing t);
 
-constexpr unsigned kSocial = 1, kPortable = 2;  // Prompt::styles
+constexpr unsigned kSocial = 1, kPortable = 2, kChasing = 4, kContest = 8;  // Prompt::styles, scripts::Script::styles
+unsigned styleBit(styles::OperatingStyle s);
 
 struct Prompt {
     const char *id;     // stable, for Dismiss
     Category category;
-    unsigned styles;    // kSocial, kPortable
-    const char *text;   // English, for tr(): a suggestion, never a script
+    unsigned styles;    // kSocial, kPortable, kChasing, kContest
+    const char *text;   // English, for tr(): a suggestion, never a requirement
     const char *note;   // English, for tr(): the words Note puts in NOTES to finish ("Antenna: "); "" none
+    bool before = false;     // before a contact (no call yet), not during one
+    unsigned modes = 0;      // the mode groups it is for (scripts::modeBit); 0 any
+    const char *source = ""; // English, for tr(): where the practice comes from, said as why it shows; "" none
 };
 const std::vector<Prompt> &library();  // in the order of a QSO
 
@@ -63,6 +67,7 @@ struct Context {
     std::vector<std::string> noteWords;              // each prompt's Note words as shown (translated), by library index
     size_t skip = 0;                                 // Skip pressed so many times since the call changed
     Level level = Level::Standard;
+    unsigned modes = 0;                              // the QSO's mode group (scripts::modeBit); 0 not known: any
 };
 
 struct Suggestion {
@@ -70,8 +75,9 @@ struct Suggestion {
     std::string why;  // when the reason isn't plain (translated); "" none
 };
 // The suggestions for now, in the order of a QSO, from the skip'th one eligible, wrapping round:
-// none without a call; name and QTH while either is empty, the report while one is; no topic the
-// notes (this QSO's or earlier ones') already mention.
+// without a call, only those for before a contact (listening first); with one, name and QTH while
+// either is empty, the report while one is, no topic the notes (this QSO's or earlier ones')
+// already mention; only those for the style, and for the mode when it is known.
 std::vector<Suggestion> suggest(const Context &c);
 
 // Whether `notes` already mention the category (its words, in English, or the prompt's Note words).

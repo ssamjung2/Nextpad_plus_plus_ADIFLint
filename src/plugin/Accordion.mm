@@ -563,10 +563,6 @@ static bool reduceMotion() {
 
 #pragma mark - Cards that move
 
-// Shows where a dragged card will go: a line in the accent colour in the gap between two cards.
-@interface ADIFDropLine : NSView
-@end
-
 @implementation ADIFDropLine
 
 - (NSView *)hitTest:(NSPoint)point {
@@ -579,7 +575,7 @@ static bool reduceMotion() {
 
 - (void)drawRect:(NSRect)dirty {
     [NSColor.controlAccentColor setFill];
-    CGFloat radius = NSHeight(self.bounds) / 2;
+    CGFloat radius = std::min(NSWidth(self.bounds), NSHeight(self.bounds)) / 2;  // across a column or down a row
     [[NSBezierPath bezierPathWithRoundedRect:self.bounds xRadius:radius yRadius:radius] fill];
 }
 

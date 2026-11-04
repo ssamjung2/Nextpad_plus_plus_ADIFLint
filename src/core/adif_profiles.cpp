@@ -68,6 +68,25 @@ void StationProfile::set(std::string_view field, std::string value) {
     }
 }
 
+std::string StationProfile::fact(std::string_view key) const {
+    for (const auto &[k, v] : facts)
+        if (equalsNoCase(k, key)) return v;
+    return {};
+}
+
+void StationProfile::setFact(std::string_view key, std::string value) {
+    std::string name = upper(key);
+    value = trimmed(value);
+    auto it = std::find_if(facts.begin(), facts.end(), [&](const auto &f) { return f.first == name; });
+    if (value.empty()) {
+        if (it != facts.end()) facts.erase(it);
+    } else if (it != facts.end()) {
+        it->second = value;
+    } else {
+        facts.emplace_back(name, value);
+    }
+}
+
 std::vector<StationProfile> parseProfiles(std::string_view text) {
     LintOptions opt;
     opt.buildModel = true;
@@ -81,6 +100,8 @@ std::vector<StationProfile> parseProfiles(std::string_view text) {
             if (n == "APP_ADIFLINT_PROFILE") p.name = trimmed(value);
             else if (n == "APP_ADIFLINT_TQSL") p.tqslLocation = trimmed(value);
             else if (n == "APP_ADIFLINT_TQSL_CALL") p.tqslCall = upper(trimmed(value));
+            else if (n == "APP_ADIFLINT_TQSL_SERIAL") p.tqslSerial = trimmed(value);
+            else if (n.rfind("APP_ADIFLINT_FACT_", 0) == 0) p.setFact(n.substr(18), std::string(value));
             else if (!value.empty()) p.fields.emplace_back(n, value);
         }
         if (!p.name.empty()) out.push_back(std::move(p));
@@ -101,6 +122,8 @@ std::string profilesText(const std::vector<StationProfile> &profiles, std::strin
         fields.insert(fields.end(), p.fields.begin(), p.fields.end());
         if (!p.tqslLocation.empty()) fields.emplace_back("APP_ADIFLINT_TQSL", p.tqslLocation);
         if (!p.tqslCall.empty()) fields.emplace_back("APP_ADIFLINT_TQSL_CALL", p.tqslCall);
+        if (!p.tqslSerial.empty()) fields.emplace_back("APP_ADIFLINT_TQSL_SERIAL", p.tqslSerial);
+        for (const auto &[key, value] : p.facts) fields.emplace_back("APP_ADIFLINT_FACT_" + key, value);
         out += buildRecord(fields, Layout::RecordPerLine, "\n", LengthUnit::Characters, true).text;
     }
     return out;

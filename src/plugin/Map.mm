@@ -2403,7 +2403,7 @@ void refresh() {
         const adif::LintResult &r = lint(h);
         std::string_view text = adifhost::text(h);
         mw.buffer = buffer();
-        mw.window.title = TF(@"Map — {name}", @{@"name" : ADIFString(documentName())});
+        mw.window.title = TF(@"Interactive Map — {name}", @{@"name" : ADIFString(documentName())});
         // The bands, modes and years in the log, for the filters.
         std::set<std::string> bands, modes, years;
         std::map<std::string, size_t> qsosPerBand, myGrids;
@@ -6957,7 +6957,7 @@ void cmdMap() {
                                                  backing:NSBackingStoreBuffered
                                                    defer:NO];
         ((ADIFMapWindow *)mw.window).dockItem = kDockMap;
-        mw.window.title = T(@"Map");
+        mw.window.title = T(@"Interactive Map");
         mw.window.identifier = @"map.window";  // its title names the log
         mw.window.releasedWhenClosed = NO;
         mw.window.collectionBehavior |= NSWindowCollectionBehaviorFullScreenPrimary;
@@ -7086,10 +7086,10 @@ void cmdMap() {
         mw.contacts = ADIFCheckbox(@"QSO markers", flag("mapContacts", false));
         mw.contacts.identifier = @"map.contacts";
         mw.contacts.toolTip = T(@"A marker at each contact's own place: its LAT and LON, else a GRIDSQUARE of 6 or 8 characters (a 4-character "
-                              @"square is 100 km or more across: Show grid squares shows those). Map Style chooses pins, dots or crosshairs");
+                              @"square is 100 km or more across: Show grid squares shows those). Map Appearance chooses pins, dots or crosshairs");
         mw.lines = ADIFCheckbox(@"Contact paths", flag("mapPaths", false));
         mw.lines.identifier = @"map.lines";
-        mw.lines.toolTip = T(@"A great-circle line from your station to each contact, in its marker's colour; Map Style chooses their look");
+        mw.lines.toolTip = T(@"A great-circle line from your station to each contact, in its marker's colour; Map Appearance chooses their look");
         mw.mine = ADIFCheckbox(@"Home station", flag("mapMine", true));
         mw.mine.identifier = @"map.mine";
         mw.mine.toolTip = T(@"A star at each MY_GRIDSQUARE in the log");
@@ -7173,7 +7173,7 @@ void cmdMap() {
         mw.projection.toolTip = T(@"Equirectangular: the grid as rectangles. Mercator: familiar shapes. Equal Earth: true sizes. Globe: the Earth "
                                 @"as seen from space, centred on your grid; drag (or the arrow keys) to turn it any way, zoom in for detail, "
                                 @"World to come home. Bearings from the centre are true (beam headings)");
-        NSButton *styleButton = smallButton(@"Map Style...", @"Map Style: colours, markers, how worked areas are shaded, lines to contacts, the legend, "
+        NSButton *styleButton = smallButton(@"Map Appearance...", @"Map Appearance: colours, markers, how worked areas are shaded, lines to contacts, the legend, "
                                                              @"distance rings, day and night, the grey line",
                                             ^{ showStyleOptions(); });
         styleButton.identifier = @"map.style.open";
@@ -7815,7 +7815,7 @@ void cmdMap() {
         toolbarIcon(settings, @"gearshape");
         settings.identifier = @"map.settings";
         NSButton *help = smallButton(@"Help", @"The user guide's Map section, in your browser", ^{
-            ADIFOpenURL(@"https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/blob/main/docs/USER_GUIDE.md#map");
+            ADIFOpenURL(@"https://github.com/ssamjung2/Nextpad_plus_plus_ADIFLint/blob/main/docs/USER_GUIDE.md#interactive-map");
         });
         toolbarIcon(help, @"questionmark.circle");
         help.identifier = @"map.help";
@@ -8090,9 +8090,9 @@ void cmdMap() {
             });
             return b;
         };
-        mw.greyLineBox = sunBox(@"Grey line", "mapGreyLine", N(@"The band of dawn and dusk round the Earth, where low-band paths open (Map Style: when)"));
+        mw.greyLineBox = sunBox(@"Grey line", "mapGreyLine", N(@"The band of dawn and dusk round the Earth, where low-band paths open (Map Appearance: when)"));
         mw.greyLineBox.identifier = @"map.greyline";
-        mw.dayNightBox = sunBox(@"Day and night", "mapDayNight", N(@"Night shaded on the map (Map Style: now or at the QSO chosen)"));
+        mw.dayNightBox = sunBox(@"Day and night", "mapDayNight", N(@"Night shaded on the map (Map Appearance: now or at the QSO chosen)"));
         mw.dayNightBox.identifier = @"map.daynight";
         auto layerBox = [](NSString *title, const char *setting, NSString *tip, NSString *ident) {
             NSButton *b = ADIFCheckbox(title, flag(setting, false));
@@ -8420,7 +8420,7 @@ void cmdMap() {
                                                                   backing:NSBackingStoreBuffered
                                                                     defer:YES];
             w.dockItem = kDockMapStyle;
-            w.title = T(@"Map Style");
+            w.title = T(@"Map Appearance");
             w.identifier = @"map.style.window";
             w.releasedWhenClosed = NO;
             w.floatingPanel = YES;

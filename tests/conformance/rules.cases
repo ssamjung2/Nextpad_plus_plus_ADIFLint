@@ -1,0 +1,271 @@
+# ADIF Lint conformance cases: for every rule in src/core/adif_rules.cpp and each file format it
+# applies to, a case that breaks it and one that keeps it. tests/conformance_tests.cpp says how a
+# line is read; in short:
+#
+#   CODE  FORMATS  VERSION  EXPECT  INPUT
+#
+# FORMATS adi, adx or both. VERSION "-" (the newest), an ADIF version, or "file" (the file's own).
+# EXPECT error, warning or note (one finding of CODE), error*2..., or clean (none of CODE).
+# INPUT [HEADER ||] RECORD [| RECORD]: <NAME>value or <NAME:T>value, lengths filled in; each record
+# gets QSO_DATE 20240115, TIME_ON 1830, CALL WF1B, BAND 20m and MODE CW unless it names them or
+# starts with "bare". Or raw:TEXT, the whole file. Escapes: \n \r \t \s \| \< \\ \xHH.
+# "Today" is 2026-11-01.
+
+# ── ADI structure (§IV.A) ──
+tag-syntax        adi   -  error    raw:log\n<EOH>\n<QSO_DATE:8>20240115 <CALL:4W1AW <EOR>\n
+tag-syntax        adi   -  warning  raw:log\n<EOH>\n<QSO_DATE:8>20240115 <CALL:4>W1AW < <EOR>\n
+tag-syntax        adi   -  clean    <CALL>W1AW
+length            adi   -  error    raw:log\n<EOH>\n<QSO_DATE:8>20240115 <CALL:3>W1AW<BAND:3>20m<EOR>\n
+length            adi   -  error    raw:log\n<EOH>\n<QSO_DATE:8>20240115 <CALL:5>W1AW\n<EOR>\n
+length            adi   -  clean    <CALL>W1AW
+length-zeros      adi   -  warning  raw:log\n<EOH>\n<QSO_DATE:8>20240115 <CALL:04>W1AW <EOR>\n
+length-zeros      adi   -  clean    <CALL>W1AW
+length-swallows   adi   -  warning  raw:log\n<EOH>\n<QSO_DATE:8>20240115 <NAME:16>Bob <BAND:3>20m <EOR>\n
+length-swallows   adi   -  clean    <NAME>Bob
+missing-lt        adi   -  warning  raw:log\n<EOH>\n<CALL:4>W1AW <EOR>\nBAND:3>20m\n<CALL:4>K1AB <EOR>\n
+missing-lt        adi   -  clean    <CALL>W1AW
+bom               adi   -  warning  raw:\xEF\xBB\xBFlog\n<EOH>\n<CALL:4>W1AW <EOR>\n
+bom               adi   -  clean    <CALL>W1AW
+eoh-missing       adi   -  error    raw:log\n<ADIF_VER:5>3.1.8\n
+eoh-missing       adi   -  warning  raw:log\n<CALL:4>W1AW <EOR>\n
+eoh-missing       adi   -  note     raw:\s\n<CALL:4>W1AW <EOR>\n
+eoh-missing       adi   -  clean    <CALL>W1AW
+eoh-no-header     adi   -  warning  raw:<ADIF_VER:5>3.1.8 <EOH>\n<CALL:4>W1AW <EOR>\n
+eoh-no-header     adi   -  clean    raw:<CALL:4>W1AW <EOR>\n
+eoh-twice         adi   -  error    raw:log\n<EOH>\n<EOH>\n<CALL:4>W1AW <EOR>\n
+eoh-twice         adi   -  clean    <CALL>W1AW
+eoh-late          adi   -  error    raw:<CALL:4>W1AW <EOR>\n<EOH>\n
+eoh-late          adi   -  clean    <CALL>W1AW
+no-eor            adi   -  error    raw:log\n<EOH>\n<CALL:4>W1AW\n
+no-eor            adi   -  clean    <CALL>W1AW
+empty-record      both  -  warning  bare
+empty-record      both  -  clean    <CALL>W1AW
+no-records        adi   -  note     raw:log\n<ADIF_VER:5>3.1.8\n<EOH>\n
+no-records        adi   -  clean    <CALL>W1AW
+
+# ── ADX structure (§IV.B, §IV.B.1) ──
+xml               adx   -  error    raw:<?xml version="1.0"?>\n<ADX><HEADER/><RECORDS><RECORD><CALL>W1AW</RECORD></RECORDS></ADX>\n
+xml               adx   -  error    raw:<?xml version="1.0"?>\n<ADX><HEADER/><RECORDS><RECORD><CALL>&W1AW;</CALL></RECORD></RECORDS></ADX>\n
+xml               adx   -  clean    <CALL>W1AW
+adx-encoding      adx   -  error    raw:<?xml version="1.0" encoding="ISO-8859-1"?>\n<ADX><HEADER><ADIF_VER>3.1.8</ADIF_VER></HEADER><RECORDS/></ADX>\n
+adx-encoding      adx   -  clean    raw:<?xml version="1.0" encoding="utf-8"?>\n<ADX><HEADER><ADIF_VER>3.1.8</ADIF_VER></HEADER><RECORDS/></ADX>\n
+adx-doctype       adx   -  error    raw:<?xml version="1.0"?>\n<!DOCTYPE ADX>\n<ADX><HEADER><ADIF_VER>3.1.8</ADIF_VER></HEADER><RECORDS/></ADX>\n
+adx-doctype       adx   -  clean    <CALL>W1AW
+adx-entity        adx   -  error    raw:<?xml version="1.0"?>\n<!DOCTYPE ADX [<!ENTITY tb "160m">]>\n<ADX><HEADER><ADIF_VER>3.1.8</ADIF_VER></HEADER><RECORDS><RECORD><CALL>W1AW</CALL><BAND>&tb;</BAND></RECORD></RECORDS></ADX>\n
+adx-entity        adx   -  clean    <COMMENT>Bob & Alice \<rig>
+adx-cdata         adx   -  error    raw:<?xml version="1.0"?>\n<ADX><HEADER><ADIF_VER>3.1.8</ADIF_VER></HEADER><RECORDS><RECORD><CALL>W1AW</CALL><COMMENT><![CDATA[a < b]]></COMMENT></RECORD></RECORDS></ADX>\n
+adx-cdata         adx   -  clean    raw:<?xml version="1.0"?>\n<ADX><HEADER><ADIF_VER>3.1.8</ADIF_VER></HEADER><RECORDS><RECORD><CALL>W1AW</CALL><![CDATA[ a note between fields ]]></RECORD></RECORDS></ADX>\n
+
+# ── Header (§III.C.1.a) ──
+adif-ver          both  -  warning  <ADIF_VER>3.1 || <CALL>W1AW
+adif-ver          both  -  clean    <ADIF_VER>3.1.8 || <CALL>W1AW
+created-timestamp both  -  error    <ADIF_VER>3.1.8 <CREATED_TIMESTAMP>20240115 250000 || <CALL>W1AW
+created-timestamp both  -  clean    <ADIF_VER>3.1.8 <CREATED_TIMESTAMP>20240115 120000 || <CALL>W1AW
+
+# ── Fields (§III.C) ──
+unknown-field     both  -  warning  <FOO>bar
+unknown-field     both  -  warning  <ADIF_VER>3.1.8 <FOO>bar || <CALL>W1AW
+unknown-field     both  -  clean    <NAME>Bob
+field-version     both  3.1.3  warning  <POTA_REF>K-0001
+field-version     both  3.1.4  clean    <POTA_REF>K-0001
+field-place       both  -  warning  <PROGRAMID>MonoLog
+field-place       both  -  clean    <ADIF_VER>3.1.8 <PROGRAMID>MonoLog || <CALL>W1AW
+dup-field         both  -  error    <NAME>Bob <NAME>Robert
+dup-field         both  -  error    <ADIF_VER>3.1.8 <PROGRAMID>A <PROGRAMID>B || <CALL>W1AW
+dup-field         both  -  clean    <NAME>Bob
+import-only       both  -  warning  <VE_PROV>ON
+import-only       both  -  warning  <QSL_RCVD>V
+import-only       both  -  clean    <MODE>DIGITALVOICE <SUBMODE>C4FM
+intl-adi          adi   -  error    <NAME_INTL>Jos\xC3\xA9
+intl-adi          adi   -  note     <ADIF_VER>3.1.8 <USERDEF1:I>NOTE || <CALL>W1AW
+intl-adi          adi   -  clean    <NAME>Jose
+indicator         both  -  error    <APP_MONOLOG_SPEED:Q>18
+indicator         adi   -  warning  <CALL:N>W1AW
+indicator         both  -  clean    <APP_MONOLOG_SPEED:N>18
+
+# ── Data types (§III.A) ──
+type-boolean      both  -  error    <QSO_RANDOM>X
+type-boolean      both  -  clean    <QSO_RANDOM>y
+type-integer      both  -  error    <K_INDEX>1.5
+type-integer      both  -  clean    <K_INDEX>5
+type-positive-integer both - error  <CQZ>0
+type-positive-integer both - clean  <CQZ>05
+type-number       both  -  error    <AGE>abc
+type-number       both  -  error    <AGE>+30
+type-number       both  -  clean    <AGE>-0.5
+power-unit        both  -  error    <TX_PWR>30W
+power-unit        both  -  clean    <TX_PWR>30
+date-format       both  -  error    <QSO_DATE>2024-01-15
+date-format       both  -  error    <QSO_DATE>20230229
+date-format       both  -  error    <QSO_DATE>19291231
+date-format       both  -  clean    <QSO_DATE>20240229
+time-format       both  -  error    <TIME_ON>2460
+time-format       both  -  clean    <TIME_ON>235959
+type-grid         both  -  error    <GRIDSQUARE>FN3
+type-grid         both  -  error    <GRIDSQUARE>SS00
+type-grid         both  -  clean    <GRIDSQUARE>fn31PR45
+type-grid-ext     both  -  error    <GRIDSQUARE>FN31pr45 <GRIDSQUARE_EXT>a1
+type-grid-ext     both  -  clean    <GRIDSQUARE>FN31pr45 <GRIDSQUARE_EXT>ab12
+type-grid-list    both  -  error    <VUCC_GRIDS>FN3,FN32
+type-grid-list    both  -  clean    <VUCC_GRIDS>FN31,FN32
+type-location     both  -  error    <LAT>N40 42.000
+type-location     both  -  error    <LON>W074 60.000
+type-location     both  -  clean    <LAT>N040 42.000
+type-iota         both  -  error    <IOTA>NA-1
+type-iota         both  -  clean    <IOTA>NA-001
+type-pota         both  -  error    <POTA_REF>K-12
+type-pota         both  -  clean    <POTA_REF>K-0001,VE-5082@CA-AB
+type-sota         both  -  warning  <SOTA_REF>W2/WE-0003
+type-sota         both  -  warning  <SOTA_REF>W2WE003
+type-sota         both  -  clean    <SOTA_REF>W2/WE-003
+type-wwff         both  -  error    <WWFF_REF>KFF-1
+type-wwff         both  -  clean    <WWFF_REF>KFF-4655
+type-credit       both  -  error    <CREDIT_SUBMITTED>XXX
+type-credit       both  -  error    <CREDIT_SUBMITTED>WAS:POST
+type-credit       both  -  clean    <CREDIT_SUBMITTED>IOTA,WAS:LOTW&CARD
+type-sponsored-award both - warning <AWARD_SUBMITTED>ARRL_DXCC
+type-sponsored-award both - warning <AWARD_SUBMITTED>XYZ_AWARD_ONE
+type-sponsored-award both - clean   <AWARD_SUBMITTED>ADIF_CENTURY_BASIC
+type-county-list  both  -  error    <USACA_COUNTIES>MA,Middlesex
+type-county-list  both  -  warning  <USACA_COUNTIES>MA,Franklin:Hampshire
+type-county-list  both  -  clean    <USACA_COUNTIES>MA,Franklin:MA,Hampshire
+type-subdivision-alt both - error   <CNTY_ALT>Auckland
+type-subdivision-alt both - error   <CNTY_ALT>NZ_Regions:Hawkes Bay/Wairoa;NZ_Regions:Auckland/Rodney
+type-subdivision-alt both - clean   <CNTY_ALT>NZ_Regions:Hawkes Bay/Wairoa
+control-char      both  -  error    <NAME>Bob\tSmith
+control-char      both  -  error    <NAME>Bob\nSmith
+control-char      both  -  clean    <NAME>Bob Smith
+line-break        adi   -  warning  <NOTES>line one\nline two
+line-break        adi   -  clean    <NOTES>line one\r\nline two
+non-ascii         adi   -  warning  <NAME>Jos\xC3\xA9
+non-ascii         adx   -  error    <ADIF_VER>3.1.8 <USERDEF1:S>NOTE || <NOTE>caf\xC3\xA9
+non-ascii         both  -  clean    <NAME>Jose
+intl-line-break   adx   -  error    <ADIF_VER>3.1.8 <USERDEF1:I>NOTE_I || <NOTE_I>two\nlines
+intl-line-break   adx   -  clean    <ADIF_VER>3.1.8 <USERDEF1:I>NOTE_I || <NOTE_I>Alen\xC3\xA7on
+
+# ── Enumerations (§III.B, §II.B, §II.C) ──
+enumeration       both  -  error    <BAND>21m
+enumeration       both  -  error    <CONT>XX
+enumeration       both  -  clean    <BAND>20M <CONT>na
+advisory-list     both  -  note     <CONTEST_ID>MY-OWN-CONTEST
+advisory-list     both  -  note     <MODE>SSB <SUBMODE>XSB
+advisory-list     both  -  clean    <CONTEST_ID>CQ-WW-CW
+deleted-code      both  -  warning  <ARRL_SECT>ON
+deleted-code      both  -  clean    <ARRL_SECT>ON <QSO_DATE>20100101
+mode-is-submode   both  -  error    <MODE>USB
+mode-is-submode   both  -  warning  <MODE>PSK31
+mode-is-submode   both  -  warning  <MODE>C4FM
+mode-is-submode   both  -  clean    <MODE>PSK <SUBMODE>PSK31
+subdivision       both  -  warning  <DXCC>291 <STATE>ZZ
+subdivision       both  -  clean    <DXCC>291 <STATE>MA
+region-dxcc       both  -  warning  <DXCC>291 <REGION>SY
+region-dxcc       both  -  clean    <DXCC>248 <REGION>SY
+subdivision-alt   both  -  warning  <CNTY_ALT>NZ_Regions:Nowhere/Town
+subdivision-alt   both  -  note     <CNTY_ALT>XX_Isles:North
+subdivision-alt   both  -  clean    <CNTY_ALT>NZ_Regions:Hawkes Bay/Wairoa
+
+# ── Field definitions ──
+range             both  -  error    <AGE>121
+range             both  -  error    <CQZ>41
+range             both  -  error    <ADIF_VER>3.1.8 <USERDEF1:N>SHOESIZE,{5:20} || <SHOESIZE>25
+range             both  -  clean    <AGE>120 <CQZ>40
+normalize         both  -  warning  <ANT_AZ>370
+normalize         both  -  clean    <ANT_AZ>360 <ANT_EL>-90
+vucc-grids        both  -  error    <VUCC_GRIDS>FN,FM
+vucc-grids        both  -  warning  <VUCC_GRIDS>FN31
+vucc-grids        both  -  warning  <VUCC_GRIDS>FN31,FN32pr
+vucc-grids        both  -  warning  <VUCC_GRIDS>FN31,FN33
+vucc-grids        both  -  clean    <VUCC_GRIDS>EM98,FM08,EM97,FM07
+grid-ext-length   both  -  warning  <GRIDSQUARE>FN31pr45 <GRIDSQUARE_EXT>ab12cd
+grid-ext-length   both  -  clean    <GRIDSQUARE>FN31pr45 <GRIDSQUARE_EXT>ab
+grid-ext-base     both  -  warning  <GRIDSQUARE>FN31 <GRIDSQUARE_EXT>ab
+grid-ext-base     both  -  clean    <GRIDSQUARE>FN31pr45 <GRIDSQUARE_EXT>ab
+lat-lon           both  -  error    <LAT>W074 00.000
+lat-lon           both  -  error    <LON>N040 00.000
+lat-lon           both  -  clean    <LAT>S033 52.000 <LON>E151 12.000
+qsl-date          both  -  warning  <QSLRDATE>20240201
+qsl-date          both  -  warning  <QSL_SENT>N <QSLSDATE>20240201
+qsl-date          both  -  clean    <QSL_RCVD>Y <QSLRDATE>20240201
+
+# ── Between fields ──
+submode-mode      both  -  error    <MODE>CW <SUBMODE>USB
+submode-mode      both  -  clean    <MODE>SSB <SUBMODE>USB
+mode-missing      both  -  warning  bare <QSO_DATE>20240115 <TIME_ON>1830 <CALL>WF1B <BAND>20m <SUBMODE>USB
+mode-missing      both  -  clean    <MODE>SSB <SUBMODE>USB
+freq-band         both  -  warning  <FREQ>7.1
+freq-band         both  -  warning  <BAND_RX>40m <FREQ_RX>14.1
+freq-band         both  -  clean    <FREQ>14.35 <BAND_RX>40m <FREQ_RX>7.0
+grid-agree        both  -  warning  <GRIDSQUARE>FN31 <VUCC_GRIDS>EM98,EM99
+grid-agree        both  -  clean    <GRIDSQUARE>EM98ab <VUCC_GRIDS>EM98,EM99
+depends           both  -  note     <STATE>MA
+depends           both  -  clean    <DXCC>291 <STATE>MA
+
+# ── User-defined fields (§IV.A.5, §IV.B.3) ──
+userdef-id        both  -  warning  <ADIF_VER>3.1.8 <USERDEF0:N>EPC || <EPC>1
+userdef-id        both  -  clean    <ADIF_VER>3.1.8 <USERDEF1:N>EPC || <EPC>1
+userdef-type      adi   -  warning  <ADIF_VER>3.1.8 <USERDEF1>EPC || <EPC>1
+userdef-type      adi   -  clean    <ADIF_VER>3.1.8 <USERDEF1:N>EPC || <EPC>1
+userdef-name      both  -  error    <ADIF_VER>3.1.8 <USERDEF1:S>CALL || <NAME>Bob
+userdef-name      adi   -  error    <ADIF_VER>3.1.8 <USERDEF1:S>MY FIELD\s || <NAME>Bob
+userdef-name      both  -  clean    <ADIF_VER>3.1.8 <USERDEF1:S>MYFIELD || <MYFIELD>x
+userdef-values    both  -  error    <ADIF_VER>3.1.8 <USERDEF1:N>SHOESIZE,{20:5} || <SHOESIZE>10
+userdef-values    adi   -  error    <ADIF_VER>3.1.8 <USERDEF1:E>SIZE,S,M,L || <SIZE>M
+userdef-values    both  -  clean    <ADIF_VER>3.1.8 <USERDEF1:N>SHOESIZE,{5:20} || <SHOESIZE>10
+userdef-dup       both  -  error    <ADIF_VER>3.1.8 <USERDEF1:S>NOTE <USERDEF2:N>NOTE || <NOTE>x
+userdef-dup       both  -  clean    <ADIF_VER>3.1.8 <USERDEF1:S>NOTE <USERDEF2:N>EPC || <NOTE>x
+userdef-value     both  -  error    <ADIF_VER>3.1.8 <USERDEF1:E>SIZE,{S,M,L} || <SIZE>XL
+userdef-value     both  -  clean    <ADIF_VER>3.1.8 <USERDEF1:E>SIZE,{S,M,L} || <SIZE>m
+userdef-enum-range adx  -  error    raw:<?xml version="1.0"?>\n<ADX><HEADER><ADIF_VER>3.1.8</ADIF_VER><USERDEF FIELDID="1" TYPE="E" ENUM="{S,M,L}" RANGE="{1:5}">SIZE</USERDEF></HEADER><RECORDS/></ADX>\n
+userdef-enum-range adx  -  clean    <ADIF_VER>3.1.8 <USERDEF1:E>SIZE,{S,M,L} || <SIZE>M
+
+# ── Application-defined fields (§IV.A.4, §IV.B.2) ──
+app-name          both  -  warning  <APP_MONOLOG>1
+app-name          adx   -  warning  raw:<?xml version="1.0"?>\n<ADX><HEADER><ADIF_VER>3.1.8</ADIF_VER></HEADER><RECORDS><RECORD><CALL>W1AW</CALL><APP PROGRAMID="My:Log" FIELDNAME="X">1</APP></RECORD></RECORDS></ADX>\n
+app-name          both  -  clean    <APP_MONOLOG_COMPRESSION>off
+app-type          both  -  error    <APP_MONOLOG_NEXT:N>1 | <APP_MONOLOG_NEXT:D>20240101
+app-type          both  -  clean    <APP_MONOLOG_NEXT:N>1 | <APP_MONOLOG_NEXT:N>2
+
+# ── ADX schemas (§IV.B.5, §V.A) ──
+schema            adx   -  error    <BAND>21m
+schema            adx   -  error    <AGE>121
+schema            adx   3.1.0  error  <POTA_REF>K-0001
+schema            adx   -  clean    <AGE>120
+schema-export     adx   -  warning  <VE_PROV>ON
+schema-export     adx   -  warning  <ANT_AZ>370
+schema-export     adx   -  clean    <ANT_AZ>360
+schema-strict     adx   -  warning  <ADIF_VER>3.1.8 <USERDEF1:E>SIZE,{S,M,L} || <Size>M
+schema-strict     adx   -  warning  raw:<?xml version="1.0"?>\n<ADX><HEADER><ADIF_VER>3.1.8</ADIF_VER><USERDEF FIELDID="1" TYPE="S">NOTE</USERDEF></HEADER><RECORDS><RECORD><CALL>W1AW</CALL><USERDEF FIELDNAME="NOTE" TYPE="S">x</USERDEF></RECORD></RECORDS></ADX>\n
+schema-strict     adx   -  clean    <ADIF_VER>3.1.8 <USERDEF1:E>SIZE,{S,M,L} || <SIZE>M
+schema-version    adx   3.0.2  note   <NAME>Bob
+schema-version    adx   3.0.3  clean  <NAME>Bob
+
+# ── Versions ──
+version-mismatch  both  3.1.3  note   <ADIF_VER>3.1.8 || <CALL>W1AW
+version-mismatch  both  3.1.3  clean  <ADIF_VER>3.1.3 || <CALL>W1AW
+version-mismatch  both  file   clean  <ADIF_VER>3.1.3 || <CALL>W1AW
+version-missing   both  file   note   <PROGRAMID>MonoLog || <CALL>W1AW
+version-missing   both  file   note   <ADIF_VER>2.2.7 || <CALL>W1AW
+version-missing   both  file   clean  <ADIF_VER>3.1.4 || <CALL>W1AW
+version-missing   both  -      clean  <PROGRAMID>MonoLog || <CALL>W1AW
+field-version     both  file   warning  <ADIF_VER>3.1.3 || <POTA_REF>K-0001
+
+# ── Practice ──
+minimum-fields    both  -  note     bare <CALL>W1AW
+minimum-fields    both  -  clean    bare <QSO_DATE>20240115 <TIME_ON>1830 <CALL>WF1B <FREQ>14.025 <MODE>CW
+placeholder       both  -  warning  <IOTA>none
+placeholder       both  -  warning  <AGE>-
+placeholder       both  -  clean    <IOTA>NA-001 <COMMENT>none
+case              both  -  note     <CALL>w1aw
+case              both  -  clean    <CALL>W1AW <NAME>bob
+band-missing      both  -  note     bare <QSO_DATE>20240115 <TIME_ON>1830 <CALL>WF1B <MODE>CW <FREQ>14.025
+band-missing      both  -  clean    <FREQ>14.025
+future-date       both  -  warning  <QSO_DATE>20261231
+future-date       both  -  clean    <QSO_DATE>20261101
+sat-name          both  -  note     <PROP_MODE>SAT <BAND>2m
+sat-name          both  -  clean    <PROP_MODE>SAT <SAT_NAME>AO-7 <BAND>2m
+sat-prop          both  -  warning  <SAT_NAME>AO-7 <BAND>2m
+sat-prop          both  -  clean    <PROP_MODE>SAT <SAT_NAME>AO-7 <BAND>2m
+pota-station      both  -  note     <MY_SIG>POTA <MY_SIG_INFO>K-0001
+pota-station      both  -  clean    <MY_SIG>POTA <MY_SIG_INFO>K-0001 <STATION_CALLSIGN>W1AW
+field-day-class   both  -  error    <ARRL_SECT>1D
+field-day-class   both  -  clean    <ARRL_SECT>CT <CLASS>1D

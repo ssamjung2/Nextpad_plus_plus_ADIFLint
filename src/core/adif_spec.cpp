@@ -9,6 +9,7 @@ namespace adif {
 
 namespace {
 std::atomic<size_t> gVersion{SIZE_MAX};  // SIZE_MAX: the newest
+thread_local size_t tVersion = SIZE_MAX;  // this thread's SpecVersionScope, SIZE_MAX: none
 }
 
 size_t newestSpecVersion() {
@@ -20,9 +21,16 @@ size_t newestSpecVersion() {
 void useSpecVersion(size_t index) { gVersion = index < newestSpecVersion() ? index : SIZE_MAX; }
 
 size_t specVersionIndex() {
+    if (tVersion != SIZE_MAX) return tVersion;
     size_t v = gVersion;
     return v == SIZE_MAX ? newestSpecVersion() : v;
 }
+
+SpecVersionScope::SpecVersionScope(size_t index) : saved_(tVersion) {
+    tVersion = index <= newestSpecVersion() ? index : SIZE_MAX;
+}
+
+SpecVersionScope::~SpecVersionScope() { tVersion = saved_; }
 
 const char *specVersion() {
     size_t n = 0;

@@ -22,6 +22,11 @@
 
 #import <Cocoa/Cocoa.h>
 
+// Where a dragged card (or clock, Clocks.mm) will go: a rounded bar in the accent colour, across
+// a column or down a row. Never hit.
+@interface ADIFDropLine : NSView
+@end
+
 @interface ADIFAccordionHeader : NSControl
 - (instancetype)initWithTitle:(NSString *)title symbol:(NSString *)symbol level:(NSInteger)level;
 @property(nonatomic) BOOL open;                       // setting it doesn't call onToggle

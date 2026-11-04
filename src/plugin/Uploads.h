@@ -6,6 +6,8 @@
 // HTTPS requests in Lookup.mm.
 #pragma once
 
+#include <string>
+
 namespace uploads {
 
 void cmdUploadQrz();
@@ -22,5 +24,11 @@ void downloaded(int site);
 
 // The active document changed or another became active.
 void documentChanged();
+
+// TQSL's folder, the one holding its certificates (certs/user): $TQSLDIR, else ~/.tqsl, else
+// the older Application Support folder; "" when none has them.
+std::string tqslFolder();
+// The TQSL application, or "" when it is not installed (Settings can name it).
+std::string tqslApplication();
 
 }  // namespace uploads

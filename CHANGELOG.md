@@ -9,6 +9,28 @@ Versions before 0.8.0 were development builds and were not published.
 
 ## [Unreleased]
 
+### Added
+
+- **TQSL Certificate…** in Station Profiles: choose the profile's certificate from the callsign certificates TQSL holds (with entity, QSO dates, expiry and serial), type its passphrase and **Test** it against the certificate's own key, as TQSL opens it, without starting TQSL. **Save** keeps the certificate in the profile and the passphrase in your Keychain, and Upload to LoTW passes it to TQSL. Open TQSL and Refresh for loading a certificate file there.
+- **Clocks you arrange and style**: drag a clock to move it (a line shows where it will go). The panel's own menu (Control-click between the clocks) adds and removes clocks, in place of the Add Clock button. A clock's own menu sets its look: **Digital** or **Analog** with three faces in the panel's LED look (**Studio**, a ring of LEDs filling with the seconds; **Dial**, numbered like a rig's dial; **Minimal**), its colour, size and label size, 12- or 24-hour time, seconds, and the date. Each clock keeps its own.
+- **Operating Aids' scripts**: what to say or send at each step of a contact, written out with New QSO's fields and your station's ({CALL}, {MYCALL}, {RST_SENT}, {MYRIG}, the contest's {EXCH}...), for the mode (phone, CW, keyboard modes such as RTTY and PSK, WSJT-X's FT8 and FT4) and the style: a conversation's QRL?, CQ, report, name and QTH, station, weather and close; Chasing's full call once and the report; a contest's exchange and TU; POTA's CQ, report and state, and park to park. Each follows a cited source (the IARU's Ethics and Operating Procedures, fldigi's macros, the WSJT-X User Guide, the DX Code of Conduct, docs.pota.app). **Copy** puts one on the clipboard; **Edit Scripts…** changes, adds, hides and removes them (kept in ADIFLint-scripts.adi).
+- **Station Facts…** in Station Profiles: your name and QTH as you give them, licensed, age, weather, club and a line about your station, for the scripts, kept with the profile and never written into a QSO; and its rig, antenna and power.
+- **Good practice** in Operating Aids' suggestions, each with its source: listening first and asking if the frequency is in use, identifying, phonetics, the DX Code of Conduct when chasing, contest practice (only the required exchange, logging what you copy, the serial twice on RTTY), and POTA's (spotting yourself, ten contacts, park to park). Operating Aids now come with the Contest style too (the contest, the exchange to copy, the duplicate check), and list your earlier QSOs with the call (with name, QTH and reports) in every style.
+- Operating Aids' **look**: text size, and a prompt style (a list, cards, or a status display), font and colour.
+- **Check against** in Check Log: the ADIF version the log is checked against, the same choice as Settings → Editor, with a new one, **The version each log declares**, which checks every log against its own ADIF_VER (`--adif file` on the command line). Check Log says which version was used and which one the log declares.
+- **The rules, documented and tested one by one**: every finding now names its rule by a code (the compiler insists), and [RULES.md](docs/RULES.md) lists the 97 rules with their section of the specification, the formats they apply to, their severity and an example that breaks them, with what the specification says that cannot be checked and why. It is generated from the rule catalogue and the 233 conformance cases, which break and keep every rule as ADI and as ADX, against any ADIF version.
+- **ADX files** (`.adx`, ADIF in XML) are checked as you type, in two parts reported apart: against the XML Schemas ADIF publishes for the version checked against (3.0.3 to 3.1.8, all 32 built in), and by ADIF Lint's own rules, the same as for ADI (user fields against their definitions, duplicate fields, SUBMODE and MODE...). The XML must be well formed and UTF-8, without DOCTYPE, other entities than XML's own, or CDATA in a field (§IV.B.1). What only the version's export schema rejects is an import-only warning when ADIF deprecates it, and an error otherwise. The Record Panel counts the two checks apart, and `adiflint` checks ADX files too. ADX files are not changed: the repairing and log tools work on ADI files.
+
+### Changed
+
+- Panels renamed: **New QSO** is **QSO**, **Map** is **Interactive Map**, **Contact Map** is **Static Map**, **Map Style** is **Map Appearance** and **Spot Sources** is **Spot Configuration**. The **New QSO…** menu command keeps its name.
+- Operating Aids' options are their Control-click menu (VoiceOver: Show Menu), in place of the Options button.
+- The published ADX schemas were compared with ADIF Lint's ADI rules on 9,347 values; every difference has a stated reason ([ADIF conformance](docs/ADIF_CONFORMANCE.md#adx)). Three ADI rules were weaker than the specification and are now as strict as it: a SponsoredAwardList item must be `SPONSOR_PROGRAM_AWARD` (`ARRL_DXCC` passed), a SOTA reference has a two-letter region and a three-digit number (`W2/WE-0003` passed), and VUCC_GRIDS mixing 4- and 6-character locators is a warning.
+
+### Fixed
+
+- TQSL's exit code 15 was described as a wrong certificate password; TQSL's source says it is a wrong passphrase for a certificate file (.p12) being loaded.
+
 ## [1.10.0] - 2026-11-01
 
 ### Added

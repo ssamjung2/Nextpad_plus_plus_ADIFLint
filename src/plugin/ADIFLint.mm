@@ -58,13 +58,16 @@
 #import "RecordPanel.h"
 #import "SettingsPanel.h"
 #import "Station.h"
+#import "Scripts.h"
 #import "ToolWindow.h"
 #import "Imports.h"
 #import "Uploads.h"
 #import "Workspace.h"
+#include "adif_adx.h"
 #include "adif_facts.h"
 #include "adif_needs.h"
 #include "adif_aids.h"
+#include "adif_scripts.h"
 #include "adif_world.h"
 #include "adif_edit.h"
 #include "adif_enrich.h"
@@ -177,6 +180,7 @@ static struct {
     bool colour = true;
     bool autocomplete = true;
     bool countCharacters = false;
+    bool fileVersion = false;  // check each log against the ADIF version it declares (Settings, Check Log)
     bool panelWanted = false;
     std::string qsoTargetLine;  // what New QSO says it is logging to, for the layout's status bar
     bool firstRun = false;  // no ADIFLint.ini yet: show the welcome
@@ -312,14 +316,24 @@ static bool isAdiPath(const std::string &path) {
     return adif::equalsNoCase(ext, "adi") || adif::equalsNoCase(ext, "adif");
 }
 
-static bool isAdifBuffer(intptr_t buffer) { return g.manualBuffers.count(buffer) || isAdiPath(currentPath()); }
-
 static std::string_view docText(NppHandle h) {
     intptr_t len = sci(h, SCI_GETLENGTH);
     const char *p = (const char *)sci(h, SCI_GETCHARACTERPOINTER);
     if (!p || len <= 0) return {};
     return std::string_view(p, (size_t)len);
 }
+
+// ADIF §IV.B: ADX files use .adx. One checked on request is ADX when it reads as XML.
+// ADIF Lint checks ADX files (adif_adx.h); its tools that read and change records
+// work on ADI files, so an ADX buffer is never an ADIF buffer to them.
+static bool isAdxBuffer(intptr_t buffer) {
+    std::string path = currentPath();
+    size_t dot = path.find_last_of('.');
+    if (dot != std::string::npos && path.find('/', dot) == std::string::npos && adif::equalsNoCase(path.substr(dot + 1), "adx")) return true;
+    return g.manualBuffers.count(buffer) && adif::isAdx(docText(currentScintilla()));
+}
+
+static bool isAdifBuffer(intptr_t buffer) { return (g.manualBuffers.count(buffer) || isAdiPath(currentPath())) && !isAdxBuffer(buffer); }
 
 static bool docUtf8(NppHandle h) { return sci(h, SCI_GETCODEPAGE) == SC_CP_UTF8; }
 
@@ -342,10 +356,13 @@ static std::string configPath() {
     return std::string(buf) + "/ADIFLint.ini";
 }
 
-// The ADIF version the checks follow and new logs declare (Settings): the newest, unless one is chosen.
+// The ADIF version the checks follow and new logs declare (Settings, Check Log): the newest,
+// unless one is chosen; "file", each log's own ADIF_VER (new logs then declare the newest).
 static void applySpecVersion() {
     auto it = g.extra.find("adifVersion");
-    adif::useSpecVersion(it == g.extra.end() || it->second.empty() ? SIZE_MAX : adif::findSpecVersion(it->second));
+    std::string v = it == g.extra.end() ? std::string() : it->second;
+    g.fileVersion = v == "file";
+    adif::useSpecVersion(v.empty() || g.fileVersion ? SIZE_MAX : adif::findSpecVersion(v));
 }
 
 static void loadSettings() {
@@ -455,10 +472,19 @@ static std::string severityLabel(adif::Severity s) {
     return "";
 }
 
+// ADX files are checked, not changed: the tools that change a log work on ADI records.
+static bool refuseAdx(NppHandle h) {
+    if (!isAdxBuffer(currentBuffer())) return false;
+    showTip(h, sci(h, SCI_GETCURRENTPOS),
+            wrap(tr("ADIF Lint: this is an ADX file. ADIF Lint checks it, but the tools that change a log work on ADI (.adi) files.")));
+    return true;
+}
+
 // Apply edits (sorted by position, non-overlapping) as one undo step.
 // `byUser`: an edit you made through the plugin (Record Panel, autocomplete), which
 // counts as hand editing for the upload status; other plugin edits mark it themselves.
 static void applyEdits(NppHandle h, const std::vector<adif::TextEdit> &edits, bool byUser = false) {
+    if (refuseAdx(h)) return;  // the edits come from ADI records
     g.ownEdit = !byUser;
     sci(h, SCI_BEGINUNDOACTION);
     for (auto it = edits.rbegin(); it != edits.rend(); ++it) {  // from the end: earlier offsets stay valid
@@ -529,6 +555,7 @@ adif::LintResult lintText(std::string_view text) {
     adif::LintOptions opt;
     opt.lengthUnit = ::lengthUnit();
     opt.buildModel = true;
+    opt.fileVersion = g.fileVersion;
     return adif::lint(text, opt);
 }
 std::string structureProblem(const adif::LintResult &r) {
@@ -539,6 +566,31 @@ std::string structureProblem(const adif::LintResult &r) {
     return "";
 }
 const adif::LintResult &lint(NppHandle h) { return freshLint(h); }
+std::vector<std::pair<std::string, std::string>> adifVersionChoices() {
+    size_t n = 0;
+    const adif::SpecVersion *versions = adif::specVersions(&n);
+    std::vector<std::pair<std::string, std::string>> out;
+    out.push_back({"", trf("ADIF {version} (the newest)", {{"version", versions[n - 1].name}})});
+    out.push_back({"file", tr("The version each log declares (ADIF_VER)")});
+    for (size_t i = n - 1; i-- > 0;)
+        out.push_back({versions[i].name, versions[i].date ? trf("ADIF {version} ({date})", {{"version", versions[i].name}, {"date", versions[i].date}})
+                                                         : trf("ADIF {version}", {{"version", versions[i].name}})});
+    return out;
+}
+std::string adifVersionChoice() { return setting("adifVersion"); }
+void chooseAdifVersion(const std::string &choice) {
+    if (choice == setting("adifVersion")) return;
+    setSetting("adifVersion", choice);
+    applySpecVersion();
+    g.lastLength = -1;  // checked against another version: check again
+    [g.settings setAdifVersion:ADIFString(choice)];
+    if (isAdifBuffer(currentBuffer()) || isAdxBuffer(currentBuffer())) {
+        try {
+            validateNow(currentScintilla(), true);
+        } catch (...) {
+        }
+    }
+}
 void validate(NppHandle h) {
     g.manualBuffers.insert(currentBuffer());
     validateNow(h, g.autoValidate);
@@ -686,7 +738,8 @@ static const adif::LintResult &lintNow(NppHandle h) {
     opt.utf8 = docUtf8(h);
     opt.buildModel = true;
     opt.today = adifhost::utcNow("%Y%m%d");
-    g.last = adif::lint(docText(h), opt);
+    opt.fileVersion = g.fileVersion;
+    g.last = isAdxBuffer(currentBuffer()) ? adif::lintAdx(docText(h), opt) : adif::lint(docText(h), opt);
     g.lastBuffer = currentBuffer();
     g.lastEdit = g.editCount;
     g.lastLength = sci(h, SCI_GETLENGTH);
@@ -757,8 +810,25 @@ static void schedulePaint() {
 
 static void refreshPanel();
 
+// An ADX buffer: its problems marked and the panel and Check Log told; none of the
+// ADI tools (colours, log tools, uploads, maps) look at it.
+static const adif::LintResult &validateAdx(NppHandle h, bool showDiagnostics) {
+    const adif::LintResult &r = lintNow(h);
+    styleIndicators(h);
+    if (showDiagnostics) paintDiagnostics(h, r);
+    else clearDiagnosticMarks(h);
+    clearColours(h);
+    refreshPanel();
+    logtools::documentChanged();
+    uploads::documentChanged();
+    imports::documentChanged();
+    checklog::documentChanged();
+    return r;
+}
+
 // Lint the active buffer, mark its problems and colour it.
 static const adif::LintResult &validateNow(NppHandle h, bool showDiagnostics = true) {
+    if (isAdxBuffer(currentBuffer())) return validateAdx(h, showDiagnostics);
     const adif::LintResult &r = lintNow(h);
     styleIndicators(h);
     if (showDiagnostics) paintDiagnostics(h, r);
@@ -818,6 +888,10 @@ static void runScheduled() {
     if (!g.ready) return;
     try {
         NppHandle h = currentScintilla();
+        if (isAdxBuffer(currentBuffer())) {
+            if (sci(h, SCI_GETLENGTH) <= kAutoValidateMaxBytes || g.manualBuffers.count(currentBuffer())) validateAdx(h, g.autoValidate);
+            return;
+        }
         if (!isAdifBuffer(currentBuffer())) {
             refreshPanel();
             logtools::documentChanged();
@@ -852,6 +926,7 @@ static void cmdFixLengths() {
             return;
         }
         g.manualBuffers.insert(currentBuffer());
+        if (refuseAdx(h)) return;
         g.pending.active = false;
         adif::LintResult r = lintNow(h);  // a copy: the edits below change the document
         if (r.fixes.empty()) {
@@ -932,6 +1007,7 @@ static void reformatAs(adif::Layout layout) {
             return;
         }
         g.manualBuffers.insert(currentBuffer());
+        if (refuseAdx(h)) return;
         g.pending.active = false;
         adif::LintResult r = lintNow(h);
         if (!adif::canReformat(r)) {
@@ -1317,8 +1393,22 @@ static ADIFPanelSnapshot buildSnapshot(NppHandle h) {
     ADIFPanelSnapshot s;
     g.panelGroupStart = -1;
     g.panelNames.clear();
+    if (isAdxBuffer(currentBuffer())) {
+        // No fields to list: the panel's record tools are ADI's. The two checks, apart.
+        const adif::LintResult &r = freshLint(h);
+        using adifhost::plural;
+        s.title = r.schemaVersion.empty()
+                      ? tr("ADX file: not well-formed XML, so nothing else is checked yet.")
+                      : trf("ADX file, {records}: checked against the ADIF {version} schemas and ADIF Lint's rules. Hover a squiggle for details.",
+                            {{"records", plural(r.records, "record")}, {"version", r.schemaVersion}});
+        s.health = trf("Schemas: {errors}, {warnings}  ·  ADIF Lint: {lintErrors}, {lintWarnings}",
+                       {{"errors", plural(r.schemaErrors, "error")}, {"warnings", plural(r.schemaWarnings, "warning")},
+                        {"lintErrors", plural(r.errors - r.schemaErrors, "error")}, {"lintWarnings", plural(r.warnings - r.schemaWarnings, "warning")}});
+        s.healthSeverity = r.errors ? 2 : r.warnings ? 1 : r.infos ? 0 : -1;
+        return s;
+    }
     if (!isAdifBuffer(currentBuffer())) {
-        s.title = tr("Not an ADIF document (.adi). Use Check Log to treat it as one.");
+        s.title = tr("Not an ADIF document (.adi or .adx). Use Check Log to treat it as one.");
         return s;
     }
     const adif::LintResult &r = freshLint(h);
@@ -1666,6 +1756,7 @@ static QsoCheck checkQso(NppHandle h) {
     opt.lengthUnit = lengthUnit();
     opt.utf8 = docUtf8(h);
     opt.today = adifhost::utcNow("%Y%m%d");
+    opt.fileVersion = g.fileVersion;
     adif::LintResult r = adif::lint(header + br.text, opt);
     std::vector<std::string> recordProblems;
     for (const adif::Diagnostic &d : r.diagnostics) {
@@ -2357,9 +2448,16 @@ static void runLookup() {
                  }];
 }
 
-// ── Operating Aids (adif_aids.h): New QSO's strip in the Social and Portable operating styles ──
+// ── Operating Aids (adif_aids.h, adif_scripts.h): each operating style's facts, your QSOs with the
+// call before, the scripts for the mode, and suggestions ──
 
 namespace aids = adif::aids;
+namespace sc = adif::scripts;
+
+// An earlier QSO with the call, as Before lists it.
+struct AidsEarlierQso {
+    std::string when, band, mode, name, qth, sent, rcvd, notes;
+};
 
 static struct {
     bool hidden = false;  // Hide: until ADIF Lint starts again
@@ -2367,13 +2465,15 @@ static struct {
     std::string call;     // the call they are for
     bool chosen = false;  // chosen at least once
     std::vector<aids::Suggestion> shown;
-    size_t facts = 0;  // the strip's fact rows, before the suggestions
-    // The earlier QSOs with the call in this log: how many, the last, their notes.
+    size_t facts = 0;                      // the rows before the suggestions
+    std::vector<std::string> scriptIds;    // by row: a script's id ("" for the other rows), for its Dismiss
+    // The earlier QSOs with the call in this log: how many, the last, their notes, the newest few.
     std::string earlierFor;
     uint64_t earlierEdit = 0;
     intptr_t earlierBuffer = 0;
     size_t earlier = 0;
     std::string earlierNotes, lastQso;
+    std::vector<AidsEarlierQso> history;  // newest first
     // The log's uploads: the services it uses, and the QSOs not yet uploaded to them.
     uint64_t syncEdit = 0;
     intptr_t syncBuffer = 0;
@@ -2391,11 +2491,9 @@ static std::vector<std::string> aidsList(const std::string &v) {
 }
 
 static std::optional<adif::styles::OperatingStyle> aidsStyle() {
-    std::optional<adif::styles::OperatingStyle> s = adif::styles::parse(adifhost::setting("mapOperatingStyle"));
-    if (s == adif::styles::OperatingStyle::Social || s == adif::styles::OperatingStyle::Portable || s == adif::styles::OperatingStyle::Chasing) return s;
-    return std::nullopt;
+    return adif::styles::parse(adifhost::setting("mapOperatingStyle"));  // every style has its aids
 }
-// Each style's own choices: "aidsLevelSocial", "aidsTimingPortable", "aidsTopicsOffSocial".
+// Each style's own choices: "aidsLevelSocial", "aidsTimingPortable", "aidsTopicsOffSocial", "aidsHistoryContest".
 static std::string aidsKey(const char *what, adif::styles::OperatingStyle s) {
     std::string id(adif::styles::id(s));
     id[0] = (char)std::toupper((unsigned char)id[0]);
@@ -2423,26 +2521,68 @@ static std::set<std::string> aidsDismissed() {
     return out;
 }
 
+// A choice kept as one of its ids: its index, or `otherwise` when unset or not one.
+static int aidsChoice(const std::string &key, const std::vector<const char *> &ids, int otherwise) {
+    std::string v = adifhost::setting(key);
+    for (size_t i = 0; i < ids.size(); ++i)
+        if (v == ids[i]) return (int)i;
+    return otherwise;
+}
+static const std::vector<const char *> kAidsSizes = {"small", "medium", "large"}, kAidsLayouts = {"list", "cards", "minimal"},
+                                       kAidsFonts = {"system", "rounded", "monospaced", "serif"},
+                                       kAidsColours = {"plain", "style", "accent", "green", "amber", "blue"};
+// How many earlier QSOs Before lists: none, the last, three, ten. At first three for Social and
+// Chasing, the last one for Portable and Contest (brief).
+static const std::vector<const char *> kAidsHistory = {"0", "1", "3", "10"};
+static size_t aidsHistoryCount(adif::styles::OperatingStyle s) {
+    int otherwise = s == adif::styles::OperatingStyle::Social || s == adif::styles::OperatingStyle::Chasing ? 2 : 1;
+    return (size_t)std::atoi(kAidsHistory[(size_t)aidsChoice(aidsKey("History", s), kAidsHistory, otherwise)]);
+}
+
+static NSColor *aidsRgb(int hex) {
+    return [NSColor colorWithSRGBRed:((hex >> 16) & 255) / 255.0 green:((hex >> 8) & 255) / 255.0 blue:(hex & 255) / 255.0 alpha:1];
+}
+// The aids' tint: none (plain grey), the style's own colour, the system accent, or the Clocks' green, amber or blue.
+static NSColor *aidsTint(adif::styles::OperatingStyle s) {
+    switch (aidsChoice("aidsColour", kAidsColours, 0)) {
+        case 1: return theme::styleAccent((int)s);
+        case 2: return NSColor.controlAccentColor;
+        case 3: return aidsRgb(0x4BE07A);
+        case 4: return aidsRgb(0xFFB938);
+        case 5: return aidsRgb(0x5CC8F5);
+    }
+    return nil;
+}
+
 // The earlier QSOs with the call in this log (worked out again when the log changes).
 static void aidsEarlier(NppHandle h, const std::string &call) {
     if (call == gAids.earlierFor && g.editCount == gAids.earlierEdit && currentBuffer() == gAids.earlierBuffer) return;
     gAids.earlierFor = call, gAids.earlierEdit = g.editCount, gAids.earlierBuffer = currentBuffer();
-    gAids.earlier = 0, gAids.earlierNotes.clear(), gAids.lastQso.clear();
+    gAids.earlier = 0, gAids.earlierNotes.clear(), gAids.lastQso.clear(), gAids.history.clear();
     if (call.empty()) return;
     std::string me = adif::lookupCall(call), lastWhen;
     for (const adif::Record &rec : adif::records(docText(h), freshLint(h).model)) {
         if (adif::lookupCall(rec.get("CALL")) != me) continue;
         ++gAids.earlier;
+        AidsEarlierQso q;
         for (const char *f : {"NOTES", "COMMENT"})
-            if (std::string n = rec.get(f); !n.empty()) gAids.earlierNotes += (gAids.earlierNotes.empty() ? "" : "  ·  ") + n;
+            if (std::string n = rec.get(f); !n.empty()) {
+                gAids.earlierNotes += (gAids.earlierNotes.empty() ? "" : "  ·  ") + n;
+                q.notes += (q.notes.empty() ? "" : "  ·  ") + n;
+            }
+        std::string d = rec.get("QSO_DATE");
+        if (d.size() == 8) d = d.substr(0, 4) + "-" + d.substr(4, 2) + "-" + d.substr(6, 2);
+        q.when = d, q.band = rec.get("BAND"), q.mode = rec.get("MODE"), q.name = rec.get("NAME"), q.qth = rec.get("QTH");
+        q.sent = rec.get("RST_SENT"), q.rcvd = rec.get("RST_RCVD");
         std::string when = rec.get("QSO_DATE") + rec.get("TIME_ON");
         if (when >= lastWhen) {
             lastWhen = when;
-            std::string d = rec.get("QSO_DATE");
-            if (d.size() == 8) d = d.substr(0, 4) + "-" + d.substr(4, 2) + "-" + d.substr(6, 2);
-            gAids.lastQso = trf("{date} on {band} {mode}", {{"date", d}, {"band", rec.get("BAND")}, {"mode", rec.get("MODE")}});
+            gAids.lastQso = trf("{date} on {band} {mode}", {{"date", d}, {"band", q.band}, {"mode", q.mode}});
         }
+        q.when = when.size() >= 8 ? d + (rec.get("TIME_ON").size() >= 4 ? " " + rec.get("TIME_ON").substr(0, 2) + ":" + rec.get("TIME_ON").substr(2, 2) : "") : d;
+        gAids.history.push_back(std::move(q));
     }
+    std::stable_sort(gAids.history.begin(), gAids.history.end(), [](const AidsEarlierQso &a, const AidsEarlierQso &b) { return a.when > b.when; });
 }
 
 // The upload services this log uses (any QSO uploaded to it), and the QSOs not yet uploaded to them.
@@ -2467,6 +2607,13 @@ static void aidsSync(NppHandle h) {
 // The field Note writes in: NOTES, else COMMENT; "" when New QSO asks for neither.
 static std::string aidsNoteField() { return [g.qso hasField:"NOTES"] ? "NOTES" : [g.qso hasField:"COMMENT"] ? "COMMENT" : ""; }
 
+// The mode group the scripts are for: the menu's choice, else New QSO's MODE and SUBMODE.
+static std::optional<sc::ModeGroup> aidsModeGroup() {
+    std::string chosen = adifhost::setting("aidsScriptsMode");
+    if (std::optional<sc::ModeGroup> g0 = sc::parseModeGroup(chosen)) return g0;
+    return g.qso ? sc::modeGroupOf(qsoValue("MODE"), qsoValue("SUBMODE")) : std::nullopt;
+}
+
 static NSMenu *aidsMenu(adif::styles::OperatingStyle style);
 
 // ── Operating Aids as a panel of its own ──
@@ -2480,7 +2627,8 @@ static NSMenu *aidsMenu(adif::styles::OperatingStyle style);
 static struct {
     ADIFDockPanel *window;
     ADIFAidsView *view;
-    NSTextField *empty;  // why there are none: no style that has them, or New QSO not open
+    ADIFAidsPage *page;
+    NSTextField *empty;  // why there are none: no style chosen, or New QSO not open
 } gAidsPanel;
 
 static void makeAidsPanel() {
@@ -2498,8 +2646,8 @@ static void makeAidsPanel() {
     w.contentMinSize = NSMakeSize(280, 140);
     gAidsPanel.view = [[ADIFAidsView alloc] initWithPrefix:@"aids"];
     gAidsPanel.view.onAid = ^(NSString *action, NSInteger row) { aidPressed(action, row); };
-    gAidsPanel.empty = [NSTextField wrappingLabelWithString:T(@"Operating Aids come with the Social, Chasing and Portable styles (the Map's "
-                                                              @"toolbar), for the contact in New QSO.")];
+    gAidsPanel.empty = [NSTextField wrappingLabelWithString:T(@"Operating Aids come with an operating style (Social, Chasing, Contest or Portable, in the "
+                                                              @"Map's toolbar), for the contact in New QSO.")];
     gAidsPanel.empty.font = theme::small();
     gAidsPanel.empty.textColor = theme::faint();
     gAidsPanel.empty.identifier = @"aids.empty";
@@ -2513,7 +2661,7 @@ static void makeAidsPanel() {
     scroll.hasVerticalScroller = YES;
     scroll.autohidesScrollers = YES;
     scroll.drawsBackground = NO;
-    ADIFAidsPage *doc = [[ADIFAidsPage alloc] initWithFrame:NSZeroRect];
+    ADIFAidsPage *doc = gAidsPanel.page = [[ADIFAidsPage alloc] initWithFrame:NSZeroRect];
     doc.translatesAutoresizingMaskIntoConstraints = NO;
     [doc addSubview:page];
     scroll.documentView = doc;
@@ -2535,10 +2683,19 @@ static void makeAidsPanel() {
     gAidsPanel.window = w;
 }
 
-// The aids in their panel (made when it first opens; kept up to date while it is closed).
-static void showAids(NSString *title, const std::vector<ADIFAidRow> &rows, NSMenu *menu, BOOL hidden) {
+// The aids in their panel (made when it first opens; kept up to date while it is closed), in the
+// look the menu chose.
+static void showAids(NSString *title, const std::vector<ADIFAidRow> &rows, NSMenu *menu, BOOL hidden,
+                     std::optional<adif::styles::OperatingStyle> style = std::nullopt) {
     if (!gAidsPanel.view) return;
-    [gAidsPanel.view setTitle:title rows:rows menu:menu hidden:hidden];
+    ADIFAidsView *v = gAidsPanel.view;
+    v.textSize = aidsChoice("aidsTextSize", kAidsSizes, 0);
+    v.layoutStyle = aidsChoice("aidsLayout", kAidsLayouts, 0);
+    v.fontFamily = aidsChoice("aidsFont", kAidsFonts, 0);
+    v.tint = style ? aidsTint(*style) : nil;
+    [v setTitle:title rows:rows menu:menu hidden:hidden];
+    gAidsPanel.page.menu = menu;  // the page round the aids, and the panel below them (a click there reaches the scroll view)
+    gAidsPanel.page.enclosingScrollView.menu = menu;
     gAidsPanel.empty.hidden = title != nil;
 }
 
@@ -2553,20 +2710,117 @@ void openAidsPanel() {
 void closeAidsPanel() {
     if (aidsPanelShown()) [gAidsPanel.window performClose:nil];  // docked: its frame closes
 }
+
+// The scripts' variables now: New QSO's fields (the call's name and QTH from your last QSO with them
+// when New QSO has none), your station's (New QSO's own, then the profile's and the activation's,
+// then the log's last record's), the profile's Station Facts, and the running contest's exchange.
+sc::Values scriptValues() {
+    sc::Values v;
+    auto upper = [](std::string s) {
+        for (char &c : s) c = (char)std::toupper((unsigned char)c);
+        return s;
+    };
+    adif::FieldList mine = station::stationFields(), carried;
+    std::string_view text;
+    try {
+        if (g.qso) {
+            NppHandle h = currentScintilla();
+            text = docText(h);
+            if (g.qsoCarryHidden) carried = adif::hiddenStationFields(text, freshLint(h).model, {});
+        }
+    } catch (...) {
+    }
+    auto station = [&](const char *name) -> std::string {
+        if (g.qso)
+            for (const adif::QsoField &q : g.qsoFields)
+                if (q.name == name && !qsoValue(name).empty()) return qsoValue(name);
+        for (const auto &f : mine)
+            if (f.first == name && !f.second.empty()) return f.second;
+        for (const auto &f : carried)
+            if (f.first == name && !f.second.empty()) return f.second;
+        return "";
+    };
+    if (g.qso) {
+        v["CALL"] = upper(qsoValue("CALL"));
+        for (const char *f : {"NAME", "QTH", "RST_SENT", "RST_RCVD", "BAND", "MODE", "FREQ"}) v[f] = qsoValue(f);
+        if (v["CALL"] == gAids.earlierFor && !gAids.history.empty())
+            for (const AidsEarlierQso &q : gAids.history) {  // the newest that has them
+                if (v["NAME"].empty() && !q.name.empty()) v["NAME"] = q.name;
+                if (v["QTH"].empty() && !q.qth.empty()) v["QTH"] = q.qth;
+            }
+    }
+    std::string me = station("STATION_CALLSIGN");
+    if (me.empty()) me = station("OPERATOR");
+    if (me.empty()) me = adifhost::setting("stationCall");
+    v["MYCALL"] = upper(me);
+    std::string grid = station("MY_GRIDSQUARE");
+    if (grid.empty()) grid = adifhost::setting("stationGrid");
+    v["MYGRID"] = grid, v["MYGRID4"] = grid.substr(0, std::min<size_t>(4, grid.size()));
+    v["MYSTATE"] = station("MY_STATE"), v["MYRIG"] = station("MY_RIG"), v["MYANT"] = station("MY_ANTENNA"), v["MYPWR"] = station("TX_PWR");
+    std::string park = station("MY_POTA_REF");
+    if (park.empty() && !station("MY_SIG").empty()) park = station("MY_SIG_INFO");
+    if (park.empty()) park = station("MY_WWFF_REF");
+    if (park.empty()) park = station("MY_SOTA_REF");
+    v["MYPARK"] = park;
+    // The chosen profile's Station Facts.
+    adif::StationProfile profile;
+    std::vector<adif::StationProfile> profiles = station::profiles();
+    NSInteger chosen = station::chosenProfile();
+    if (chosen > 0 && (size_t)chosen <= profiles.size()) profile = profiles[(size_t)chosen - 1];
+    v["MYNAME"] = !profile.fact("NAME").empty() ? profile.fact("NAME") : station("MY_NAME");
+    v["MYQTH"] = !profile.fact("QTH").empty() ? profile.fact("QTH") : station("MY_CITY");
+    v["MYLICENSED"] = profile.fact("LICENSED"), v["MYAGE"] = profile.fact("AGE"), v["MYWX"] = profile.fact("WEATHER");
+    v["MYCLUB"] = profile.fact("CLUB"), v["MYABOUT"] = profile.fact("ABOUT");
+    if (!v["CALL"].empty()) v["CALL_PHONETIC"] = sc::phonetic(v["CALL"]);
+    if (!v["MYCALL"].empty()) v["MYCALL_PHONETIC"] = sc::phonetic(v["MYCALL"]);
+    // The running contest: the report when its exchange has one, the next serial, the rest (twice, for keyboard contests).
+    adif::ContestSetup cs = contest::setup();
+    if (cs.preset != adif::ContestPreset::None && g.qso) {
+        v["CONTEST"] = adif::contestName(cs);
+        int serial = 0;
+        try {
+            NppHandle h = currentScintilla();
+            if (adif::contestSerial(cs)) serial = adif::nextSerial(docText(h), freshLint(h).model, adif::contestIdFor(cs));
+        } catch (...) {
+        }
+        std::string rest;
+        for (const auto &f : adif::contestFields(cs, [g.qso values], serial))
+            if (f.first == "STX_STRING") rest = f.second;
+        const adif::ContestDef *def = cs.preset == adif::ContestPreset::Defined ? adif::findContestDef(cs.contestId) : nullptr;
+        bool report = cs.preset == adif::ContestPreset::Serial || (def && def->rst);
+        std::string rst = report ? v["RST_SENT"] : "", number = serial > 0 ? std::to_string(serial) : "";
+        auto join = [](std::initializer_list<std::string> parts) {
+            std::string out;
+            for (const std::string &p : parts)
+                if (!p.empty()) out += (out.empty() ? "" : " ") + p;
+            return out;
+        };
+        if (serial > 0) v["SERIAL"] = number;
+        v["EXCH"] = join({rst, number, rest});
+        v["EXCH_TWICE"] = join({rst, number, number, rest, rest});
+    }
+    return v;
+}
+
+void scriptsChanged() {
+    if (g.qso) updateAids(false, false);
+}
 }  // namespace adifhost
 
-// The strip as things are: Portable's facts or the earlier QSOs (each check), the suggestions (afresh
-// at a natural pause: a new call or the lookup's answer, a QSO logged; or only after each QSO; or
-// only on Skip, as its timing says). `pause`: a natural pause now; `logged`: a QSO was just logged.
+// The aids as things are: the style's facts (Chasing's opportunities, Portable's state, the contest),
+// your QSOs with the call before, the scripts for the mode, and the suggestions (afresh at a natural
+// pause: a new call or the lookup's answer, a QSO logged; or only after each QSO; or only on Skip,
+// as its timing says). `pause`: a natural pause now; `logged`: a QSO was just logged.
 static void updateAids(bool pause, bool logged) {
     if (!g.qso) return;
     std::optional<adif::styles::OperatingStyle> style = aidsStyle();
     if (!style) return showAids(nil, {}, nil, NO);
     NSString *styleName = T(ADIFString(adif::styles::title(*style)));
-    if (gAids.hidden) return showAids(TF(@"Operating Aids ({style}): hidden", @{@"style" : styleName}), {}, nil, YES);
+    if (gAids.hidden) return showAids(TF(@"Operating Aids ({style}): hidden", @{@"style" : styleName}), {}, aidsMenu(*style), YES, style);
     aids::Level level = aids::parseLevel(adifhost::setting(aidsKey("Level", *style)));
     aids::Timing timing = aids::parseTiming(adifhost::setting(aidsKey("Timing", *style)));
     std::vector<ADIFAidRow> rows;
+    std::vector<std::string> scriptIds;
     try {
         NppHandle h = currentScintilla();
         std::string call = qsoValue("CALL");
@@ -2574,11 +2828,12 @@ static void updateAids(bool pause, bool logged) {
         aidsEarlier(h, call);
         if (level != aids::Level::Off) {
             if (*style == adif::styles::OperatingStyle::Chasing) {  // the opportunities (adif_chase.h, ranked on the Map)
-                for (const worldmap::ChaseLine &l : worldmap::chaseLines(call, qsoValue("FREQ"), qsoValue("MODE"))) {
-                    ADIFAidRow r;
-                    r.text = l.text, r.severity = l.severity, r.symbol = ADIFString(l.symbol), r.next = l.next;
-                    rows.push_back(r);
-                }
+                if (adifhost::setting("aidsOpportunities") != "0")
+                    for (const worldmap::ChaseLine &l : worldmap::chaseLines(call, qsoValue("FREQ"), qsoValue("MODE"))) {
+                        ADIFAidRow r;
+                        r.text = l.text, r.severity = l.severity, r.symbol = ADIFString(l.symbol), r.next = l.next;
+                        rows.push_back(r);
+                    }
                 if (gQsoState.duplicate && !call.empty()) {
                     ADIFAidRow d;
                     d.text = trf("A duplicate: {call} is in the log today on this band and mode", {{"call", call}});
@@ -2604,13 +2859,59 @@ static void updateAids(bool pause, bool logged) {
                     r.text = c.text, r.severity = c.severity, r.symbol = kSymbols[c.kind];
                     rows.push_back(r);
                 }
-            } else if (!call.empty()) {  // Social: your QSOs with them before, and what you noted
+            } else if (*style == adif::styles::OperatingStyle::Contest) {  // the contest, its exchange, a duplicate
+                adif::ContestSetup cs = contest::setup();
+                ADIFAidRow r;
+                r.symbol = @"flag.checkered";
+                if (cs.preset == adif::ContestPreset::None) {
+                    r.text = tr("No contest is running: Contest... in New QSO chooses one, and its exchange");
+                    r.severity = 1;
+                    rows.push_back(r);
+                } else {
+                    r.text = contest::label();
+                    rows.push_back(r);
+                    std::string theirs;
+                    for (const std::string &f : adif::contestRows(cs)) theirs += (theirs.empty() ? "" : ", ") + f;
+                    if (!theirs.empty()) {
+                        ADIFAidRow t;
+                        t.symbol = @"arrow.down.circle";
+                        t.text = trf("Copy their exchange: {fields}", {{"fields", theirs}});
+                        rows.push_back(t);
+                    }
+                    if (!call.empty()) {
+                        ADIFAidRow d;
+                        d.symbol = gQsoState.duplicate ? @"exclamationmark.triangle" : @"checkmark.circle";
+                        d.text = gQsoState.duplicate ? trf("A duplicate: {call} is in the log ({rule})", {{"call", call}, {"rule", adif::dupeRuleText(cs)}})
+                                                     : trf("Not a duplicate ({rule})", {{"rule", adif::dupeRuleText(cs)}});
+                        d.severity = gQsoState.duplicate ? 2 : 0;
+                        rows.push_back(d);
+                    }
+                }
+            }
+            // Before: your QSOs with them in this log, the newest few, and what you noted.
+            size_t history = aidsHistoryCount(*style);
+            if (!call.empty() && history > 0) {
                 ADIFAidRow r;
                 r.symbol = gAids.earlier ? @"clock.arrow.circlepath" : @"sparkles";
                 r.text = gAids.earlier ? trp("Before: {n} QSO with {call}, the last {last}", "Before: {n} QSOs with {call}, the last {last}",
                                              (long long)gAids.earlier, {{"call", call}, {"last", gAids.lastQso}})
                                        : trf("First QSO with {call} in this log", {{"call", call}});
                 rows.push_back(r);
+                for (size_t k = 0; k < gAids.history.size() && k < history; ++k) {
+                    const AidsEarlierQso &q = gAids.history[k];
+                    std::string line = q.when;
+                    auto part = [&](const std::string &p) {
+                        if (!p.empty()) line += "  ·  " + p;
+                    };
+                    part(q.band + (q.band.empty() || q.mode.empty() ? "" : " ") + q.mode);
+                    part(q.name + (q.name.empty() || q.qth.empty() ? "" : ", ") + q.qth);
+                    part(q.sent.empty() && q.rcvd.empty() ? "" : q.sent + "/" + q.rcvd);
+                    ADIFAidRow e;
+                    e.symbol = @"clock";
+                    e.text = line;
+                    e.why = q.notes;
+                    rows.push_back(e);
+                }
                 if (!gAids.earlierNotes.empty()) {
                     ADIFAidRow n;
                     n.symbol = @"note.text";
@@ -2620,13 +2921,49 @@ static void updateAids(bool pause, bool logged) {
                     rows.push_back(n);
                 }
             }
+            // The scripts for the style and mode, before a contact or during one, written out.
+            std::optional<sc::ModeGroup> group = aidsModeGroup();
+            if (!group) {
+                ADIFAidRow r;
+                r.symbol = @"text.quote";
+                std::string mode = qsoValue("MODE");
+                r.text = mode.empty() ? tr("Scripts follow New QSO's MODE, and none is set yet (the menu's Scripts can choose the mode)")
+                                      : trf("No scripts for {mode}: its program makes its own messages (the menu's Scripts can choose a mode)",
+                                            {{"mode", mode}});
+                rows.push_back(r);
+            } else {
+                std::vector<sc::Script> all = scriptsui::all();
+                std::vector<const sc::Script *> list = sc::applicable(all, aids::styleBit(*style), *group, call.empty());
+                if (!list.empty()) {
+                    ADIFAidRow head;
+                    head.heading = true;
+                    head.symbol = @"text.quote";
+                    head.text = trf(call.empty() ? "Scripts, before a contact · {mode}" : "Scripts · {mode}", {{"mode", tr(sc::modeGroupTitle(*group))}});
+                    head.why = tr("Written out with New QSO's fields and your station's: a {VARIABLE} still showing has no value yet. "
+                                  "Control-click for which scripts show, or Edit Scripts.");
+                    rows.push_back(head);
+                    sc::Values values = adifhost::scriptValues();
+                    for (const sc::Script *s : list) {
+                        std::vector<std::string> missing;
+                        ADIFAidRow r;
+                        r.title = scriptsui::titleOf(*s);
+                        r.text = sc::fill(scriptsui::textOf(*s), values, &missing);
+                        if (!missing.empty()) {
+                            std::string names;
+                            for (const std::string &m : missing) names += (names.empty() ? "{" : ", {") + m + "}";
+                            r.why = trf("Not known yet: {variables} (New QSO, or the profile's Station Facts)", {{"variables", names}});
+                        }
+                        scriptIds.resize(rows.size() + 1);
+                        scriptIds[rows.size()] = s->id;
+                        rows.push_back(r);
+                    }
+                }
+            }
         }
         // The suggestions: afresh at the moments the timing allows, else as they were.
         bool callChanged = call != gAids.call;
         if (callChanged) gAids.call = call, gAids.skip = 0;
-        bool afresh = *style != adif::styles::OperatingStyle::Chasing &&  // Chasing's are its opportunities, not topics
-                      (!gAids.chosen || (timing == aids::Timing::Pauses && (callChanged || pause)) || (timing != aids::Timing::Manual && logged));
-        if (*style == adif::styles::OperatingStyle::Chasing) gAids.shown.clear();
+        bool afresh = !gAids.chosen || (timing == aids::Timing::Pauses && (callChanged || pause)) || (timing != aids::Timing::Manual && logged);
         if (afresh) {
             aids::Context c;
             c.style = *style;
@@ -2642,6 +2979,8 @@ static void updateAids(bool pause, bool logged) {
             for (const aids::Prompt &p : aids::library()) c.noteWords.push_back(*p.note ? tr(p.note) : std::string());
             c.skip = gAids.skip;
             c.level = level;
+            std::optional<sc::ModeGroup> group = aidsModeGroup();
+            c.modes = group ? sc::modeBit(*group) : 0;
             gAids.shown = aids::suggest(c);
             gAids.chosen = true;
         }
@@ -2651,14 +2990,17 @@ static void updateAids(bool pause, bool logged) {
             if (level == aids::Level::Off) break;
             ADIFAidRow r;
             r.text = tr(x.prompt->text), r.why = x.why, r.suggestion = true;
+            if (x.prompt->category == aids::Category::Practice) r.symbol = @"checkmark.seal";
             r.note = *x.prompt->note && !noteField.empty();
             rows.push_back(r);
         }
     } catch (...) {
     }
+    scriptIds.resize(rows.size());
+    gAids.scriptIds = scriptIds;
     NSString *title = level == aids::Level::Off ? TF(@"Operating Aids ({style}): off", @{@"style" : styleName})
                                                 : TF(@"Operating Aids ({style})", @{@"style" : styleName});
-    showAids(title, rows, aidsMenu(*style), NO);
+    showAids(title, rows, aidsMenu(*style), NO, style);
 }
 
 // Choose the suggestions again now (Skip, Dismiss, Note, an option changed).
@@ -2677,6 +3019,8 @@ static void aidPressed(NSString *action, NSInteger row) {
         worldmap::nextOpportunity(1);
         return updateAids(false, false);
     }
+    if ([action isEqualToString:@"dismiss"] && row >= 0 && (size_t)row < gAids.scriptIds.size() && !gAids.scriptIds[(size_t)row].empty())
+        return scriptsui::setShown(gAids.scriptIds[(size_t)row], false);  // a script: not shown (the menu's Scripts ticks it again)
     if (!style || row < (NSInteger)gAids.facts || (size_t)row - gAids.facts >= gAids.shown.size()) return;
     const aids::Prompt &p = *gAids.shown[(size_t)row - gAids.facts].prompt;
     if ([action isEqualToString:@"skip"]) {
@@ -2696,82 +3040,148 @@ static void aidPressed(NSString *action, NSInteger row) {
     aidsAfresh();
 }
 
-// The strip's Options: how many suggestions, when they change, which topics, the dismissed ones.
+// Operating Aids' menu (Control-click the aids): how many suggestions, when they change, which
+// topics; Chasing's opportunities; the scripts and their mode; your QSOs with the call before; the
+// text size and the aids' look; the field's own switches in Portable; the dismissed suggestions.
 static NSMenu *aidsMenu(adif::styles::OperatingStyle style) {
     NSMenu *menu = [[NSMenu alloc] init];
     menu.autoenablesItems = NO;
-    auto heading = [&](NSString *title) {
-        NSMenuItem *h = [menu addItemWithTitle:title action:nil keyEquivalent:@""];
-        h.enabled = NO;
+    auto submenu = [](NSMenu *in, NSString *title) {
+        NSMenu *sub = [[NSMenu alloc] initWithTitle:title];
+        sub.autoenablesItems = NO;
+        [in addItemWithTitle:title action:nil keyEquivalent:@""].submenu = sub;
+        return sub;
     };
-    auto choice = [&](NSString *title, bool on, void (^choose)(void)) {
-        NSMenuItem *i = [menu addItemWithTitle:title action:nil keyEquivalent:@""];
+    auto heading = [](NSMenu *in, NSString *title) {
+        if (@available(macOS 14.0, *)) [in addItem:[NSMenuItem sectionHeaderWithTitle:title]];
+        else [in addItemWithTitle:title action:nil keyEquivalent:@""].enabled = NO;
+    };
+    auto choice = [](NSMenu *in, NSString *title, bool on, void (^choose)(void)) {
+        NSMenuItem *i = [in addItemWithTitle:title action:nil keyEquivalent:@""];
         i.state = on ? NSControlStateValueOn : NSControlStateValueOff;
-        i.indentationLevel = 1;
         ADIFBlockMenuItem(i, choose);
         return i;
     };
+    auto setting = [](std::string key, std::string value) {  // by value: the block keeps its own copies
+        return ^{
+            adifhost::setSetting(key, value);
+            aidsAfresh();
+        };
+    };
     aids::Level level = aids::parseLevel(adifhost::setting(aidsKey("Level", style)));
-    if (style == adif::styles::OperatingStyle::Chasing) {  // its opportunities shown or not; no suggestions to tune
-        NSMenuItem *shown = [menu addItemWithTitle:T(@"Show the Opportunities") action:nil keyEquivalent:@""];
-        shown.state = level == aids::Level::Off ? NSControlStateValueOff : NSControlStateValueOn;
-        ADIFBlockMenuItem(shown, ^{
-            adifhost::setSetting(aidsKey("Level", style), std::string(aids::levelId(level == aids::Level::Off ? aids::Level::Standard : aids::Level::Off)));
-            aidsAfresh();
-        });
-        return menu;
-    }
-    heading(T(@"Suggestions at once"));
+    NSMenu *at = submenu(menu, T(@"Suggestions at once"));
     static NSString *const kLevels[] = {N(@"Off##aids"), N(@"Minimal (one)"), N(@"Standard (two)"), N(@"More (three)")};
-    for (int i = 0; i < 4; ++i) {
-        aids::Level l = (aids::Level)i;
-        choice(T(kLevels[i]), level == l, ^{
-            adifhost::setSetting(aidsKey("Level", style), std::string(aids::levelId(l)));
-            aidsAfresh();
-        });
-    }
-    [menu addItem:NSMenuItem.separatorItem];
+    for (int i = 0; i < 4; ++i) choice(at, T(kLevels[i]), level == (aids::Level)i, setting(aidsKey("Level", style), std::string(aids::levelId((aids::Level)i))));
     aids::Timing timing = aids::parseTiming(adifhost::setting(aidsKey("Timing", style)));
-    heading(T(@"New suggestions"));
+    NSMenu *when = submenu(menu, T(@"New suggestions"));
     static NSString *const kTimings[] = {N(@"At natural pauses (a new call, a QSO logged)"), N(@"After each QSO"), N(@"Only when I press Skip")};
-    for (int i = 0; i < 3; ++i) {
-        aids::Timing t = (aids::Timing)i;
-        choice(T(kTimings[i]), timing == t, ^{
-            adifhost::setSetting(aidsKey("Timing", style), std::string(aids::timingId(t)));
-            aidsAfresh();
-        });
-    }
-    [menu addItem:NSMenuItem.separatorItem];
-    NSMenuItem *topics = [menu addItemWithTitle:T(@"Topics") action:nil keyEquivalent:@""];
-    NSMenu *sub = [[NSMenu alloc] init];
-    sub.autoenablesItems = NO;
+    for (int i = 0; i < 3; ++i)
+        choice(when, T(kTimings[i]), timing == (aids::Timing)i, setting(aidsKey("Timing", style), std::string(aids::timingId((aids::Timing)i))));
+    NSMenu *topics = submenu(menu, T(@"Topics"));
     std::set<std::string> off = aidsTopicsOff(style);
     for (int i = 0; i < aids::kCategoryCount; ++i) {
         aids::Category c = (aids::Category)i;
+        bool any = false;  // a topic this style has prompts for
+        for (const aids::Prompt &p : aids::library()) any |= p.category == c && (p.styles & aids::styleBit(style));
+        if (!any) continue;
         std::string id(aids::categoryId(c));
-        NSMenuItem *t = [sub addItemWithTitle:T(ADIFString(aids::categoryTitle(c))) action:nil keyEquivalent:@""];
-        t.state = off.count(id) ? NSControlStateValueOff : NSControlStateValueOn;
-        if (!aids::onAtFirst(c)) t.toolTip = T(@"Off at first: a personal topic, for when the other operator brings it up");
-        ADIFBlockMenuItem(t, ^{
+        NSMenuItem *t = choice(topics, T(ADIFString(aids::categoryTitle(c))), !off.count(id), ^{
             std::set<std::string> now = aidsTopicsOff(style);
             if (now.count(id)) now.erase(id);
             else now.insert(id);
             saveTopicsOff(style, now);
             aidsAfresh();
         });
+        if (!aids::onAtFirst(c)) t.toolTip = T(@"Off at first: a personal topic, for when the other operator brings it up");
+        if (c == aids::Category::Practice)
+            t.toolTip = T(@"Listening first, identifying, the DX Code of Conduct, contest and POTA practice: each says where it comes from");
     }
-    topics.submenu = sub;
+    if (style == adif::styles::OperatingStyle::Chasing) {
+        bool shown = adifhost::setting("aidsOpportunities") != "0";
+        choice(menu, T(@"Show the Opportunities"), shown, setting("aidsOpportunities", shown ? "0" : "1"));
+    }
+    [menu addItem:NSMenuItem.separatorItem];
+
+    // Scripts: the ones for this style and mode, ticked when shown; the mode; Edit Scripts.
+    NSMenu *scripts = submenu(menu, T(@"Scripts"));
+    std::optional<sc::ModeGroup> group = aidsModeGroup();
+    std::string chosenMode = adifhost::setting("aidsScriptsMode");
+    if (group) {
+        heading(scripts, TF(@"For {style}, {mode}", @{@"style" : T(ADIFString(adif::styles::title(style))), @"mode" : T(ADIFString(sc::modeGroupTitle(*group)))}));
+        std::vector<sc::Script> all = scriptsui::all();
+        size_t listed = 0;
+        for (const sc::Script &s : all) {
+            if (!(s.styles & aids::styleBit(style)) || !(s.modes & sc::modeBit(*group))) continue;
+            std::string id = s.id;
+            bool shown = s.shown;
+            NSMenuItem *mi = choice(scripts, ADIFString(scriptsui::titleOf(s)), shown, ^{ scriptsui::setShown(id, !shown); });
+            mi.toolTip = ADIFString(scriptsui::textOf(s));
+            mi.indentationLevel = 1;
+            ++listed;
+        }
+        if (!listed) [scripts addItemWithTitle:T(@"None for this style and mode") action:nil keyEquivalent:@""].enabled = NO;
+        [scripts addItem:NSMenuItem.separatorItem];
+    }
+    NSMenu *mode = submenu(scripts, T(@"Mode"));
+    std::optional<sc::ModeGroup> fromQso = sc::modeGroupOf(qsoValue("MODE"), qsoValue("SUBMODE"));
+    choice(mode, fromQso ? TF(@"From New QSO's Mode ({mode})", @{@"mode" : T(ADIFString(sc::modeGroupTitle(*fromQso)))}) : T(@"From New QSO's Mode"),
+           !sc::parseModeGroup(chosenMode), setting("aidsScriptsMode", ""));
+    [mode addItem:NSMenuItem.separatorItem];
+    for (int i = 0; i < sc::kModeGroupCount; ++i) {
+        sc::ModeGroup m = (sc::ModeGroup)i;
+        choice(mode, T(ADIFString(sc::modeGroupTitle(m))), chosenMode == sc::modeGroupId(m), setting("aidsScriptsMode", std::string(sc::modeGroupId(m))));
+    }
+    NSMenuItem *edit = [scripts addItemWithTitle:T(@"Edit Scripts...") action:nil keyEquivalent:@""];
+    ADIFBlockMenuItem(edit, ^{ scriptsui::cmdEditScripts(); });
+    NSMenuItem *facts = [scripts addItemWithTitle:T(@"Station Facts...") action:nil keyEquivalent:@""];
+    facts.toolTip = T(@"Your name, QTH, rig, antenna, weather and more, as the scripts say them: in the station profile New QSO uses");
+    ADIFBlockMenuItem(facts, ^{ station::cmdStationFacts(); });
+
+    // Before: how many of your QSOs with the call are listed.
+    NSMenu *before = submenu(menu, T(@"Previous QSOs"));
+    static NSString *const kHistory[] = {N(@"None##history"), N(@"The Last One"), N(@"The Last Three"), N(@"The Last Ten")};
+    size_t history = aidsHistoryCount(style);
+    for (size_t i = 0; i < kAidsHistory.size(); ++i)
+        choice(before, T(kHistory[i]), history == (size_t)std::atoi(kAidsHistory[i]), setting(aidsKey("History", style), kAidsHistory[i]));
+    [menu addItem:NSMenuItem.separatorItem];
+
+    // How the aids look.
+    NSMenu *size = submenu(menu, T(@"Text Size"));
+    static NSString *const kSizes[] = {N(@"Small"), N(@"Medium##size"), N(@"Large")};
+    int sizeNow = aidsChoice("aidsTextSize", kAidsSizes, 0);
+    for (int i = 0; i < 3; ++i) choice(size, T(kSizes[i]), sizeNow == i, setting("aidsTextSize", kAidsSizes[(size_t)i]));
+    NSMenu *look = submenu(menu, T(@"Prompt Style"));
+    heading(look, T(@"Layout"));
+    static NSString *const kLayouts[] = {N(@"List"), N(@"Cards"), N(@"Minimal")};
+    int layoutNow = aidsChoice("aidsLayout", kAidsLayouts, 0);
+    static NSString *const kLayoutTips[] = {N(@"Each line with its symbol, the groups under their headings"),
+                                            N(@"Message bubbles: what the aids tell you on the left, your scripts on the right"),
+                                            N(@"Only the prompts: the scripts' words, the suggestions and warnings, without headings, symbols or facts")};
+    for (int i = 0; i < 3; ++i) {
+        NSMenuItem *l = choice(look, T(kLayouts[i]), layoutNow == i, setting("aidsLayout", kAidsLayouts[(size_t)i]));
+        l.indentationLevel = 1;
+        l.toolTip = T(kLayoutTips[i]);
+    }
+    heading(look, T(@"Font"));
+    static NSString *const kFonts[] = {N(@"System"), N(@"Rounded"), N(@"Monospaced"), N(@"Serif")};
+    int fontNow = aidsChoice("aidsFont", kAidsFonts, 0);
+    for (int i = 0; i < 4; ++i) choice(look, T(kFonts[i]), fontNow == i, setting("aidsFont", kAidsFonts[(size_t)i])).indentationLevel = 1;
+    heading(look, T(@"Colour"));
+    static NSString *const kColours[] = {N(@"Plain"), N(@"The Operating Style's"), N(@"Accent Colour"), N(@"Green"), N(@"Amber"), N(@"Blue")};
+    int colourNow = aidsChoice("aidsColour", kAidsColours, 0);
+    for (int i = 0; i < 6; ++i) {
+        NSMenuItem *c = choice(look, T(kColours[i]), colourNow == i, setting("aidsColour", kAidsColours[(size_t)i]));
+        c.indentationLevel = 1;
+        if (i == 1) c.toolTip = T(@"Social purple, Chasing orange, Contest red, Portable green, as in the Map's toolbar");
+    }
+
     if (style == adif::styles::OperatingStyle::Portable) {  // the field's own switches, said here too
         [menu addItem:NSMenuItem.separatorItem];
-        NSMenuItem *night = [menu addItemWithTitle:T(@"Night Mode (red, for your night vision)") action:nil keyEquivalent:@""];
-        night.state = ADIFNightMode() ? NSControlStateValueOn : NSControlStateValueOff;
-        ADIFBlockMenuItem(night, ^{
+        choice(menu, T(@"Night Mode (red, for your night vision)"), ADIFNightMode(), ^{
             ADIFSetNightMode(!ADIFNightMode());
             aidsAfresh();
         });
-        NSMenuItem *offline = [menu addItemWithTitle:T(@"Offline Mode (nothing fetched or sent)") action:nil keyEquivalent:@""];
-        offline.state = ADIFOffline() ? NSControlStateValueOn : NSControlStateValueOff;
-        ADIFBlockMenuItem(offline, ^{
+        choice(menu, T(@"Offline Mode (nothing fetched or sent)"), ADIFOffline(), ^{
             ADIFSetOffline(!ADIFOffline());
             aidsAfresh();
         });
@@ -2967,24 +3377,14 @@ static void ensureSettings() {
             if ([ident isEqualToString:@"settings.spots"]) panels::setShown(adif::layout::kSpotSources, true);
             else if ([ident isEqualToString:@"settings.station"]) panels::setShown(adif::layout::kStation, true);
         };
-        [g.settings offerPanel:@"settings.spots" tip:T(@"Spot Sources in a panel of its own, beside the spots or as a tab in the Operating Console")];
+        [g.settings offerPanel:@"settings.spots" tip:T(@"Spot Configuration in a panel of its own, beside the spots or as a tab in the Operating Console")];
         [g.settings offerPanel:@"settings.station" tip:T(@"Your Station in a panel of its own, beside New QSO or as a tab in the Operating Console")];
         g.settings.onOfflineToggled = ^(BOOL on) { ADIFSetOffline(on); };
         g.settings.onLanguageChosen = ^(NSString *code) {
             adifhost::setSetting("uiLanguage", ADIFStd(code));
             ADIFLoadLanguage();
         };
-        g.settings.onAdifVersion = ^(NSString *version) {
-            adifhost::setSetting("adifVersion", ADIFStd(version));
-            applySpecVersion();
-            g.lastLength = -1;  // checked against another version: check again
-            if (isAdifBuffer(currentBuffer())) {
-                try {
-                    validateNow(currentScintilla(), true);
-                } catch (...) {
-                }
-            }
-        };
+        g.settings.onAdifVersion = ^(NSString *version) { adifhost::chooseAdifVersion(ADIFStd(version)); };
         g.settings.onMapDetailCheck = ^(NSString *choice, NSInteger zoom) {
             [g.settings setMapDetailState:@"Checking..." ok:YES checked:NO busy:YES];
             mapdetail::check(choice.UTF8String ?: "", (int)zoom, ^(BOOL ok, NSString *message) {
@@ -3093,7 +3493,7 @@ struct SectionPanel {
     ADIFDockWindow *window;
 };
 static SectionPanel gSectionPanels[] = {
-    {@"settings.spots", @"spotsources", kDockSpotSources, N(@"Spot Sources"), nil},
+    {@"settings.spots", @"spotsources", kDockSpotSources, N(@"Spot Configuration"), nil},
     {@"settings.station", @"station", kDockStation, N(@"Your Station"), nil},
 };
 

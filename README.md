@@ -7,14 +7,15 @@
 
 **ADIF Lint** turns [Nextpad++](https://nextpad.org) into a logbook workbench for amateur
 radio. It checks [ADIF 3.1.8](https://www.adif.org/318/ADIF_318.htm) logs (`.adi`,
-`.adif`) as you type and repairs them, and it adds what you need around a log: logging
+`.adif`) as you type and repairs them, checks ADX files (`.adx`) against the XML Schemas ADIF
+publishes for each version, and it adds what you need around a log: logging
 contacts, POTA, WWFF and SOTA activations, spots, QSOs captured from WSJT-X and N1MM, an
 operating map of your log and of who's on the air now, and QSL sync with LoTW, QRZ.com, Club
 Log and eQSL.
 
-![The Map: a globe centred on your station, each contact at its own place with a line to it, coloured by band in PSKReporter's colours](docs/images/map-globe.png)
+![The Interactive Map: a globe centred on your station, each contact at its own place with a line to it, coloured by band in PSKReporter's colours](docs/images/map-globe.png)
 
-*The Map: a globe you turn by dragging, each contact at its own place, coloured by band.*
+*The Interactive Map: a globe you turn by dragging, each contact at its own place, coloured by band.*
 
 ## Highlights
 
@@ -24,12 +25,12 @@ Log and eQSL.
   type, or those of any ADIF version back to 3.0.2 when your logs must suit an older program.
   **Check Log** repairs what it can in one undo step. ADIF's own 6,202-QSO test file lints
   clean.
-- **Logs contacts fast.** **New QSO** carries your station's fields over, looks the call up
+- **Logs contacts fast.** The **QSO** panel carries your station's fields over, looks the call up
   (offline country data, QRZ.com or HamQTH), warns of duplicates by POTA's park-to-park
   rule, and handles contests and Field Day. **QSO Details** says who you are working and why
   the contact is worth having.
-- **An Operating Console you arrange.** New QSO, the Map, the Log Table, the spots, QSO Details,
-  the Contact Map, Operating Aids and Clocks in one window: split any frame in two, put panels
+- **An Operating Console you arrange.** QSO, the Interactive Map, the Log Table, the spots, QSO Details,
+  the Static Map, Operating Aids and Clocks in one window: split any frame in two, put panels
   side by side or one above the other, tab them, or drag them beside each other. Thirteen
   built-in layouts to start from, each keeping your changes until you reset it, and your own
   saved under a name.
@@ -64,9 +65,9 @@ Log and eQSL.
 - **Private.** Accounts live in your macOS Keychain, every request is HTTPS and only when
   you ask, and there is no telemetry.
 
-![The Operating Console on a sample log: the Map over the Log Table, New QSO, QSO Details and the Clocks beside them](docs/images/operating-console.png)
+![The Operating Console on a sample log: the Interactive Map over the Log Table, QSO, QSO Details and the Clocks beside them](docs/images/operating-console.png)
 
-*The Operating Console: the Map over the Log Table, New QSO with QSO Details and the Clocks split in under it.*
+*The Operating Console: the Interactive Map over the Log Table, QSO with QSO Details and the Clocks split in under it.*
 
 ADIF Lint is free software under the [GNU GPL v3](LICENSE). It is an independent project,
 not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
@@ -78,12 +79,12 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
 | ![Check Log listing errors, warnings and notes, each with a repair, ticked to repair together](docs/images/check-log.png) | ![Log Table with 257 sample QSOs, sortable and editable](docs/images/log-table.png) |
 | **Spots: parks not in your logs in green** | **Monitor: QSOs from WSJT-X, N1MM and loggers** |
 | ![POTA spots with the park names, and NEW for parks not yet worked](docs/images/spots.png) | ![Monitor listening on its ports, listing the QSOs that arrived and where each went](docs/images/monitor.png) |
-| **New QSO: the lookup fills the fields** | **QSL Sync, and the Activation Tracker** |
-| ![New QSO with the call looked up in the country data: DXCC, country, zones and continent filled in](docs/images/new-qso-lookup.png) | ![QSL Sync listing QRZ.com Logbook, LoTW, Club Log and eQSL with QSOs to upload, uploaded and confirmed](docs/images/qsl-sync.png)<br><br>![Activation Tracker: a POTA park-day with 10 QSOs, activated](docs/images/activation-tracker.png) |
-| **Map: worked squares and CQ zones** | **Map: countries and contacts** |
+| **QSO: the lookup fills the fields** | **QSL Sync, and the Activation Tracker** |
+| ![QSO with the call looked up in the country data: DXCC, country, zones and continent filled in](docs/images/new-qso-lookup.png) | ![QSL Sync listing QRZ.com Logbook, LoTW, Club Log and eQSL with QSOs to upload, uploaded and confirmed](docs/images/qsl-sync.png)<br><br>![Activation Tracker: a POTA park-day with 10 QSOs, activated](docs/images/activation-tracker.png) |
+| **Interactive Map: worked squares and CQ zones** | **Interactive Map: countries and contacts** |
 | ![Equal Earth world map with worked squares coloured by band and CQ zones numbered](docs/images/map-zones.png) | ![Europe with country outlines and names, and a pin at each contact](docs/images/map-europe.png) |
 | **QSO Details: who, and why it's worth it** | **Clocks: UTC, local time and the cities you choose** |
-| ![QSO Details for DL2XYZ: a new mode for Germany on 20m, the lookup's country, grid, distance and local time](docs/images/qso-details.png) | ![The Clocks panel: UTC, local time, Chicago, London and Tokyo](docs/images/clocks.png) |
+| ![QSO Details for DL2XYZ: a new mode for Germany on 20m, the lookup's country, grid, distance and local time](docs/images/qso-details.png) | ![The Clocks panel: UTC, local time in 12-hour time, Chicago, and London, Tokyo and Sydney as analog Studio, Dial and Minimal faces](docs/images/clocks.png) |
 
 *Screenshots from the test suite, with sample data.*
 
@@ -108,16 +109,21 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
   waiting to upload, today's activation).
 
 **Logging and activations**
-- **New QSO**: your station's fields carried over (or a **station profile**), UTC date and
+- **QSO**: your station's fields carried over (or a **station profile**), UTC date and
   time, live checks, duplicate warnings, and a callsign lookup whose facts (distance and
   bearing, local time, what your logs say about the park, LoTW users) show in **QSO Details**,
   with why the contact is worth having.
-- **The Operating Console**: the panels you operate with in one window: New QSO, the Map, the
-  Log Table, the spots, QSO Details, the **Contact Map** (both stations, and the spot's card),
+- **The Operating Console**: the panels you operate with in one window: QSO, the Interactive Map, the
+  Log Table, the spots, QSO Details, the **Static Map** (both stations, and the spot's card),
   **Operating Aids** and **Clocks** (UTC, local time and any city's). Split a frame's region in
   two, arrange frames side by side or one above the other, move one to an edge, tab panels, or
   drag a frame beside another; thirteen built-in layouts keep your changes until **Reset
   Layout**, and **Save Layout As** keeps your own.
+- **Operating Aids**, for the contact in the QSO panel in each operating style: your QSOs with the
+  call before; **scripts** for the mode (phone, CW, RTTY and PSK, FT8 and FT4), written out
+  with your station's facts, to read or copy, and yours to edit; and suggestions, from the
+  familiar exchange to good operating practice (listening first, the DX Code of Conduct,
+  contest and POTA practice), each saying where it comes from.
 - **Contests and Field Day**: ARRL Field Day, Winter Field Day or serial numbers, with the
   exchange asked for, duplicates warned by the contest's rule, and Cabrillo.
 - **Start Activation** and the **Activation Tracker** for POTA, WWFF and SOTA, each with
@@ -139,7 +145,7 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
 - **Log Summary**, **Worked Before** across a folder of logs, **Import CSV**, **Export
   CSV**, **Export Cabrillo**, and **QSL labels** on Avery sheets.
 
-**The Map**
+**The Interactive Map** (called "the Map" in this README)
 - Four ways of working, each keeping its own layers, colours, list and Quick View:
   **History** (the log), **Live** (the stations spotted now and which your log needs),
   **DX Chase** (the DXCC entities and bands you need) and **POTA** (parks to hunt).
@@ -189,7 +195,7 @@ not affiliated with or endorsed by the Nextpad++ or Notepad++ projects.
   **grey line**.
 - **Map Detail**: OpenStreetMap's streets, buildings and place names for a state, a country
   or the area in view, downloaded once from Protomaps' build and drawn offline.
-- **Map Style**: **Colour by** confirmation, band (PSKReporter's colours), mode, QSO
+- **Map Appearance**: **Colour by** confirmation, band (PSKReporter's colours), mode, QSO
   count or year, with a legend; palettes include **Colour-blind safe** (tested under
   simulated colour blindness), **Light** for printing and **Night (red)**; **terrain**,
   **country flags**, large map text and hatching for what isn't confirmed. **Export PNG**
@@ -265,7 +271,7 @@ To uninstall, quit Nextpad++ and delete the `ADIFLint` folder.
    to read it.
 2. **Plugins → ADIF Lint → Check Log…** lists every problem and repairs what it can;
    **Fix Field Lengths** repairs the data lengths.
-3. **Start Logging** opens the Operating Console with New QSO. The first time, Settings asks for
+3. **Start Logging** opens the Operating Console with the QSO panel. The first time, Settings asks for
    your callsign and grid.
 4. **Map & Explorer…** shows the log on a world map; choose **Globe** in the
    projection pop-up and drag to turn it.
@@ -286,9 +292,9 @@ management, analysis, integrations and preferences open from compact submenus.
 | Command | Does |
 |---|---|
 | **Logging & Operating** | |
-| Start Logging | Open the Operating Console: New QSO (with UTC and local clocks), the Map in Live (last 5 minutes' spots, plain DX, 2.5×) and the Log Table (with New File and Open File) |
+| Start Logging | Open the Operating Console: QSO (with UTC and local clocks), the Interactive Map in Live (last 5 minutes' spots, plain DX, 2.5×) and the Log Table (with New File and Open File) |
 | Start Activation… | Opens the activation layout, then its setup panel for a POTA, WWFF or SOTA activation. Start opens the activation log with its station profile and fields ready; Finish checks and exports |
-| Start Contest… | Opens the logging layout, then the Contest window: choose Field Day, serial numbers or a contest by its rules, give your exchange and Start; New QSO then asks for the exchange and warns of duplicates |
+| Start Contest… | Opens the logging layout, then the Contest window: choose Field Day, serial numbers or a contest by its rules, give your exchange and Start; the QSO panel then asks for the exchange and warns of duplicates |
 | New QSO… | Log one QSO in its own window, without the layout |
 | Console Layout Options | Choose the Operating Console's arrangement and which frames it shows |
 | **Map & Spots** | |
@@ -343,8 +349,8 @@ your Mac.
 
 | Service | Address | When | What is sent |
 |---|---|---|---|
-| QRZ.com XML | `xmldata.qrz.com` | Enrich (QRZ.com); New QSO lookup set to QRZ.com; Test Sign-In | Your username and password (POST), then the calls looked up |
-| HamQTH | `www.hamqth.com` | Enrich (HamQTH); New QSO lookup set to HamQTH; Upload (HamQTH); Test Sign-In | Your username and password, then the calls looked up or the QSOs you upload |
+| QRZ.com XML | `xmldata.qrz.com` | Enrich (QRZ.com); the QSO panel's lookup set to QRZ.com; Test Sign-In | Your username and password (POST), then the calls looked up |
+| HamQTH | `www.hamqth.com` | Enrich (HamQTH); the QSO panel's lookup set to HamQTH; Upload (HamQTH); Test Sign-In | Your username and password, then the calls looked up or the QSOs you upload |
 | HRDLog.net | `robot.hrdlog.net` | Upload (HRDLog.net) | Your callsign, upload code and the QSOs you upload |
 | LoTW | `lotw.arrl.org` | Import (LoTW); Test Sign-In | Your username and password and the log's date range |
 | QRZ.com Logbook | `logbook.qrz.com` | Upload and Import (QRZ.com Logbook); Test Sign-In | Your API key, the log's date range and the QSOs you upload |
@@ -355,7 +361,7 @@ your Mac.
 | WWFF | `spots.wwff.co` | The Spots window (WWFF), every minute while it is open | Nothing but the request |
 | Spothole | `spothole.app` | The Spots window (More programs), every 2 minutes while it is open | The programs asked for (never a login) |
 | Spothole, for the Map | `spothole.app` | Map → Spots → Show, with Spothole ticked in Settings → Spots (it is at first): every 2 minutes while the Map is open | The programs asked for and the time of the last spot received (never a login) |
-| A DX cluster | The node you choose in Settings → Spots (none at first) | Map → Spots → Show, with DX cluster ticked: one telnet connection while the Map is open | Your callsign as the login, then the commands you set; and, only when you log a QSO with New QSO's "The station, on the DX cluster" box ticked (off at first), a spot of the station you worked (unencrypted) |
+| A DX cluster | The node you choose in Settings → Spots (none at first) | Map → Spots → Show, with DX cluster ticked: one telnet connection while the Map is open | Your callsign as the login, then the commands you set; and, only when you log a QSO with the QSO panel's "The station, on the DX cluster" box ticked (off at first), a spot of the station you worked (unencrypted) |
 | PSKReporter | `retrieve.pskreporter.info` | Map → Spots → Show, with PSKReporter ticked: no more than every 5 minutes while the Map is open | Your callsign, or your 4-character grid square (Around my grid square), and your email if you give one |
 | Country files | `www.country-files.com` | Settings → Country Data → Update | Nothing but the request |
 | LoTW user list | `lotw.arrl.org` | Settings → LoTW Users → Update, and weekly while it is on | Nothing but the request |
@@ -372,10 +378,13 @@ your Mac.
   a file, and a saved password is never shown again. HamQTH's sign-in, LoTW's report API
   and eQSL's DownloadInBox take the login in the HTTPS address, as those services document
   it.
-- **TQSL** runs on your Mac for LoTW uploads. A certificate password you save is passed on
-  its command line, where other programs on your Mac could see it while TQSL runs. To offer
-  your certificates' callsigns, ADIF Lint reads TQSL's certificate file (`certs/user`, public
-  certificates only), never its private keys.
+- **TQSL** runs on your Mac for LoTW uploads. A certificate passphrase you save is kept in
+  your Keychain and passed on TQSL's command line, where other programs on your Mac could see
+  it while TQSL runs. To offer your certificates, ADIF Lint reads TQSL's certificate file
+  (`certs/user`, public certificates only). It reads a private key only when you press
+  **Test** or **Save** for a passphrase in Station Profiles' TQSL Certificate: that one
+  certificate's key, from TQSL's `keys/` folder, decrypted in memory to check the passphrase,
+  then erased; it is never stored, copied or sent.
 - **A DX cluster** is plain telnet, as DX clusters are: your callsign and everything the
   node sends travel unencrypted. ADIF Lint never logs in to one with a password, and closes
   the connection when the Map is closed or Show is unticked.
@@ -384,6 +393,9 @@ your Mac.
 - **Monitor** listens and never sends: on the UDP and TCP ports you tick, on `127.0.0.1`
   only unless you tick Accept from other computers. It writes only to the log you chose and
   to its queue file in the plugin config folder.
+- **Station Facts** (your name, QTH, age, weather and the rest, for Operating Aids' scripts)
+  stay with the profile in `ADIFLint-profiles.adi`, and the scripts in `ADIFLint-scripts.adi`,
+  both in the plugin config folder. Neither is written into a QSO or sent anywhere.
 - **Settings** are kept in `ADIFLint.ini` in Nextpad++'s plugin config folder
   (`~/Library/Application Support/Nextpad++/plugins/Config/`).
 
@@ -392,7 +404,8 @@ See [SECURITY.md](SECURITY.md) to report a security problem.
 ## Command line
 
 `build/adiflint` checks files from a terminal and prints `file:line:column: severity:
-message`; the exit status is 1 when there are errors.
+message`; the exit status is 1 when there are errors. An ADX file is checked against its
+version's schemas and ADIF Lint's rules, and the two are counted apart.
 
 ```bash
 build/adiflint examples/try-me.adi
@@ -410,7 +423,7 @@ cd build && ctest --output-on-failure
 ```
 
 The tests check every validation rule against the ADIF specification and the official
-ADIF test file, fuzz the parsers, and drive the built plugin through every window against
+ADIF test files (each rule, broken and kept, as ADI and as ADX: [the rules](docs/RULES.md)), fuzz the parsers, and drive the built plugin through every window against
 a simulated Nextpad++, with saved sample replies in place of the online services.
 [CONTRIBUTING.md](CONTRIBUTING.md) covers the build, the tests, the project layout
 and the release steps.
@@ -433,7 +446,8 @@ and the release steps.
   other programs, so ADIF Lint doesn't upload to it. eQSL documents only its InBox (the eQSLs others sent you), so Import
   from eQSL offers the QSOs your log lacks without ticking them: they are the other
   station's records.
-- ADX (XML) files are not handled.
+- ADX (XML) files are checked but not changed: Fix Field Lengths, Reformat, Check Log's
+  repairs, the QSO panel and the log tools work on ADI files.
 - The user guide, the ADIF specification's field descriptions and place names are in
   English in every language. Windows already open keep their language until Nextpad++
   restarts.

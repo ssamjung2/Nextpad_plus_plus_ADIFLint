@@ -46,11 +46,14 @@ cd build && ctest --output-on-failure
 | Test | What it checks |
 |---|---|
 | `adif_tests` | One case per validation rule, with the expected result taken from the specification; the document model, reformatting and edits; the log tools, uploads, imports, grids, country data, WWFF and SOTA, CSV and Cabrillo, spots (DX cluster lines captured from DXSpider's format, PSKReporter's sample reply), the map's worked areas, regions and projections, the sun, NOAA SWPC's space-weather files, the NCDXF beacon schedule and the DXCC flags. The official ADIF 3.1.7 test file (6,197 records) must give no errors or warnings, lengths broken at random in it must be repaired to the original bytes, and reformatting it must keep every field byte for byte. |
-| `fuzz_smoke` | Mutated logs, network replies, CSV and country files, the datagrams and TCP messages the Monitor reads, a DX cluster's byte stream, PSKReporter's replies, park outline sources, PMTiles and vector tiles and NOAA SWPC's files, must give in-bounds results and safe edits without crashing; 2 MB hostile inputs must stay fast. |
-| `adiflint_official`, `adiflint_tools` | The command-line checker and log tools on the official test file. |
+| `conformance` | Every rule in `src/core/adif_rules.cpp`, broken and kept, as ADI and as ADX, by the cases in `tests/conformance/rules.cases`; every finding has a catalogued code; and `docs/RULES.md` is what the catalogue and the cases make. |
+| `tqsl_tests` | TQSL's certificates read from `certs/user` (callsign, DXCC, QSO dates, validity, serial), and passphrases checked against keys in each form tqsllib writes, made in memory by the Security framework: right and wrong passphrases, keys without one, keys from another computer, mutated key files. |
+| `adx_tests` | ADX: every built-in schema compiles, the official ADX test file gives no errors or warnings from the schemas or the rules, one case per XML, §IV.B.1, schema and user-field rule, the version chosen for each ADIF_VER, CNTY_ALT's restated pattern against the published one, and 9,347 values from the spec tables judged by the 3.1.8 schemas and by the ADI rules, which must agree or differ for a reason `docs/ADIF_CONFORMANCE.md` lists. |
+| `fuzz_smoke` | Mutated logs, ADX files, network replies, CSV and country files, the datagrams and TCP messages the Monitor reads, a DX cluster's byte stream, PSKReporter's replies, park outline sources, PMTiles and vector tiles and NOAA SWPC's files, must give in-bounds results and safe edits without crashing; 2 MB hostile inputs must stay fast. |
+| `adiflint_official`, `adiflint_official_adx`, `adiflint_tools` | The command-line checker on the official ADI and ADX test files, and the log tools. |
 | `lang_check` | Each language table in `data/lang/` parses, has no key the sources no longer have, keeps every placeholder (`{name}` and printf ones, the latter in order unless numbered `%2$@`) and gives each count its plural forms. |
 | `lang_layout` | Every window in every language: no text cut short and no controls overlapping (label `slow`, about a minute; `ctest -LE slow` skips it). |
-| `host_harness` | Loads the built dylib through its plugin exports and drives every window against a simulated Nextpad++ and Scintilla: the menu, validation, colouring, autocomplete, the Record Panel, New QSO, Enrich, Import, Settings, the log tools, the Map (its layers, filters, list, selected panel, terrain, flags, space weather from fixtures in NOAA SWPC's layout, beacons; spots with a stand-in DX cluster node on a loopback port), uploads (a stand-in TQSL), the Monitor (real UDP and TCP messages to loopback ports from `ADIFLINT_TEST_PORTS`, and a watched file) and layout (no two controls may overlap). Network replies come from `tests/fixtures/lookup`; credentials are kept in memory, never in the Keychain. |
+| `host_harness` | Loads the built dylib through its plugin exports and drives every window against a simulated Nextpad++ and Scintilla: the menu, validation, colouring, autocomplete, the Record Panel, QSO, Enrich, Import, Settings, the log tools, the Interactive Map (its layers, filters, list, selected panel, terrain, flags, space weather from fixtures in NOAA SWPC's layout, beacons; spots with a stand-in DX cluster node on a loopback port), uploads (a stand-in TQSL), the Monitor (real UDP and TCP messages to loopback ports from `ADIFLINT_TEST_PORTS`, and a watched file) and layout (no two controls may overlap). Network replies come from `tests/fixtures/lookup`; credentials are kept in memory, never in the Keychain. |
 
 Also run, before a pull request that touches the plugin or the core:
 
@@ -82,23 +85,28 @@ Also run, before a pull request that touches the plugin or the core:
 | Path | Contents |
 |---|---|
 | `src/core/` | Everything about ADIF, in plain C++17 with no editor or AppKit code: the validator and length fixer (`adif_lint`), document model and edits (`adif_edit`), log tools (`adif_tools`), enrichment rules (`adif_enrich`), uploads (`adif_upload`), imports from LoTW, QRZ.com Logbook and eQSL (`adif_import`), WWFF, SOTA and Spothole (`adif_programs`), country data (`adif_country`), grid squares and ADIF Locations (`adif_geo`), CSV and Cabrillo (`adif_formats`), station profiles and activations (`adif_profiles`), QSOs captured from other programs and writing them into a log (`adif_capture`), comparing two logs (`adif_compare`), TQSL Station Locations, QSL Sync's summary and LoTW users (`adif_qsl`), contests and Field Day (`adif_contest`), QSL labels (`adif_labels`), the map's data and land outline, DXCC land and IOTA groups (`adif_world`, and `adif_world_data.cpp` generated by `tools/gen_world_outline.py`; the countries, map subunits, US states and counties and CQ and ITU zones in `adif_overlays_data.cpp`, by `tools/gen_map_overlays.py`), the map's 1:10m detail and cities, read from `data/map-detail.bin` (`adif_detail`; the file by `tools/gen_map_detail.py`), POTA's park list (`adif_parks`), a small bounded JSON reader (`adif_json`), POTA park outlines from Overpass, GeoJSON and PAD-US with name-and-place matching and their cache file (`adif_outlines`), spots in one form for the Spots window and the Map, with the DX cluster's telnet lines and `DX de` spots and PSKReporter's reports (`adif_spots`), the map's colours and their colour-blind check (`adif_palette`), the map's projections, the globe's horizon clipping and great circles (`adif_projection`), where a QSO counts on the area layers (`adif_worked`), US regions for the filters (`adif_regions`), what the log has worked and what a spot means for it, and the watch list (`adif_needs`), the sun's place, day and night and the grey line (`adif_sun`), Map Detail's PMTiles files and vector tiles (`adif_pmtiles`, `adif_mvt`), NOAA SWPC's space-weather files and the aurora grid (`adif_solar`), the NCDXF beacons' schedule (`adif_beacons`), the DXCC entities' flags (`adif_flags`), and the translator hook (`adif_i18n`) |
+| `src/core/adif_rules.h` | The rule catalogue: every diagnostic code with its section, formats, severity and requirement, and what the specification says that is not checked |
+| `src/core/adif_aids.h`, `adif_scripts.h` | Operating Aids: the suggestions and good-practice cues, each with its source (`adif_aids`), and the scripts, their variables and the scripts file (`adif_scripts`); the built-in scripts name their sources in `adif_scripts.cpp`, and are tested in `adif_tests` (`testScripts`) |
+| `src/core/adif_tqsl.h` | TQSL's certificates, and whether a passphrase unlocks one's private key (CommonCrypto; a library of its own, `adif_tqsl`) |
+| `src/core/adif_adx.h` | ADX: libxml2 and the published schemas, then `lint()` on each record restated as ADI; a library of its own (`adif_adx`), so that `adif_core` needs no platform library. `adif_adx_schemas.cpp` is generated by `tools/gen_adx_schemas.py`, do not edit it by hand |
 | `src/core/adif_spec.h`, `adif_spec_317.cpp` | The ADIF tables and their lookups; `adif_spec_317.cpp` is generated by `tools/gen_spec_tables.py`, do not edit it by hand |
-| `src/plugin/ADIFLint.mm`, `PluginHost.h` | The Nextpad++ glue: menu, indicators, colouring, hover, autocomplete, New QSO and Enrich logic; `PluginHost.h` is what it offers the other plugin files (the active document, settings, edits as one undo step, shared helpers) |
+| `src/plugin/ADIFLint.mm`, `PluginHost.h` | The Nextpad++ glue: menu, indicators, colouring, hover, autocomplete, the QSO panel and Enrich logic; `PluginHost.h` is what it offers the other plugin files (the active document, settings, edits as one undo step, shared helpers) |
 | `src/plugin/*Panel.mm`, `ToolWindow.mm` | The AppKit windows; `ToolWindow` is the general window the log tools are built from |
 | `src/plugin/LogTools.mm`, `Uploads.mm`, `Imports.mm` | The log tools, the upload windows (with the TQSL runner) and the import windows |
 | `src/plugin/CheckLog.mm`, `Families.mm` | Check Log; the Import…, Export… and upload families and the popup that switches between their windows |
 | `src/plugin/Station.mm`, `Monitor.mm` | Station profiles and Start Activation; the Monitor (sockets, file watching, the queue and its window) |
-| `src/plugin/Contest.mm`, `Labels.mm`, `Map.mm`, `LotwUsers.mm`, `PotaParks.mm`, `IotaGroups.mm` | The Contest window, Print QSL Labels, the Map, the LoTW user list, POTA's park list and IOTA's group list (both downloaded on request, never shipped) |
+| `src/plugin/Contest.mm`, `Labels.mm`, `Map.mm`, `LotwUsers.mm`, `PotaParks.mm`, `IotaGroups.mm` | The Contest window, Print QSL Labels, the Interactive Map, the LoTW user list, POTA's park list and IOTA's group list (both downloaded on request, never shipped) |
 | `src/plugin/Lookup.mm`, `Country.mm` | Network clients and Keychain storage, the country file |
 | `src/plugin/Spots.mm` | The Map's spot feeds: Spothole, the DX cluster connection (Network.framework) and PSKReporter, each started only while the Map's Spots layer shows, and posting a spot on the cluster |
 | `src/plugin/ParkOutlines.mm` | Park Outlines: the downloads per POTA location (Overpass, pota-map.info, PAD-US) and the cache the Map reads |
 | `src/plugin/MapView.mm`, `MapLayers.mm`, `MapRelief.mm`, `MapPropagation.mm`, `MapOsm.mm`, `MapDetail.mm` | The Map's view (`MapView.h` says what they share): the plane, pointer and legend; the layers, one method each, in drawing order; the terrain; the aurora, the spots' heat map and the NCDXF beacons; Map Detail's drawing and its downloads |
 | `src/plugin/Solar.mm` | Space weather from NOAA SWPC, fetched only while the Map shows it and the user turned it on |
 | `src/plugin/Network.mm`, `L10n.mm` | Offline Mode, opening web pages, and the plain downloads (Map Detail, park outlines, space weather); the language tables |
-| `src/plugin/LogSpot.mm`, `Night.mm` | Spot when logging (New QSO's two boxes); Night Mode (every ADIF Lint window red on black) |
+| `src/plugin/LogSpot.mm`, `Night.mm` | Spot when logging (the QSO panel's two boxes); Night Mode (every ADIF Lint window red on black) |
 | `src/plugin/Accordion.mm` | The cards and groups of the Map's sidebar and selected panel (Style Options and Settings among them), and the narrow panels' wrapping checkboxes and rows |
 | `src/cli/` | The `adiflint` command-line tool |
 | `spec/adif-3.1.8/` | ADIF's JSON export and HTML specification the tables are generated from (see `SOURCE.md`) |
+| `spec/adx/` | The ADX XML Schemas published with ADIF 3.0.3 to 3.1.8, unmodified, with their sources and hashes and the one change made when they are built in (`SOURCE.md`) |
 | `spec/adif-history.json` | Which ADIF versions (3.0.2 on) have each field, value, data type and band edge, read from their specifications by `tools/adif_history.py` (see `adif-history.md`) |
 | `data/` | AD1C's country file (see `SOURCE.md`), the Map's 1:10m detail (`map-detail.bin`) and terrain (`relief.jpg`), `toolbar/`, the toolbar icons, and `lang/`, the language tables, all installed beside the plugin |
 | `third_party/` | The Nextpad++ plugin header and Scintilla headers, unchanged (see `README.md` there) |
@@ -107,6 +115,10 @@ Also run, before a pull request that touches the plugin or the core:
 
 ## Guidelines for changes
 
+- **A new check is a rule**: give its diagnostic a new code, add the code to
+  `src/core/adif_rules.cpp` with its section, and add to `tests/conformance/rules.cases` a case
+  that breaks it and one that keeps it, in each format it applies to; then
+  `build/conformance_tests tests/conformance/rules.cases --write-doc docs/RULES.md`.
 - **ADIF logic goes in `src/core`** with a test in `tests/adif_tests.cpp`; the plugin
   files only connect it to the editor and windows.
 - **Cite your sources.** Every validation rule comes from the ADIF specification, and
@@ -161,8 +173,12 @@ pieces, so a language can reorder them. A word with two meanings gets a context 
 3. Add the version to `VERSIONS` in `tools/adif_history.py`, put its page beside the older ones
    (listed with their hashes in `spec/adif-history.md`), and run
    `python3 -I tools/adif_history.py PAGES spec/adif-history.json`.
-4. Run `cmake --build build --target regen-spec`, rebuild, replace the official test file in
-   `tests/fixtures/` (and `OFFICIAL_ADI` in `CMakeLists.txt`), and run the tests.
+4. Run `cmake --build build --target regen-spec`, rebuild, replace the official test files in
+   `tests/fixtures/` (and `OFFICIAL_ADI` and `OFFICIAL_ADX` in `CMakeLists.txt`), and run the tests.
+5. Download the version's two ADX schemas (`https://www.adif.org/NNN/adxNNN.xsd` and
+   `adxNNNgeneric.xsd`) into `spec/adx/`, add their SHA-256 to `spec/adx/SOURCE.md`, and run
+   `cmake --build build --target regen-adx`. The generator stops if the CNTY_ALT pattern it
+   restates has changed; then read the new one and update the generator and `SOURCE.md`.
 
 ## Updating the country data
 

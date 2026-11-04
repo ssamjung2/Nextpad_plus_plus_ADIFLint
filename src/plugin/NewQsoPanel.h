@@ -21,7 +21,7 @@ struct ADIFQsoRow {
     ADIFSuggestBlock suggest = nil;    // values to offer as you type (a search), in place of `choices`
 };
 
-// A line of the Operating Aids strip (the Social and Portable operating styles; ADIFLint.mm fills it).
+// A line of Operating Aids (the operating styles' facts, suggestions and scripts; ADIFLint.mm fills it).
 struct ADIFAidRow {
     std::string text, why;    // the line, and why it shows (its tooltip; "" none)
     NSString *symbol = nil;   // an SF Symbol before it
@@ -29,18 +29,30 @@ struct ADIFAidRow {
     bool suggestion = false;  // a suggestion (Note, Skip, Dismiss beside it), not a fact
     bool note = false;        // it has words Note puts in NOTES for you to finish
     bool next = false;        // Chasing's next opportunity: Next beside it chooses it on the map
+    bool heading = false;     // a group's heading ("Scripts · CW", "Before")
+    std::string title;        // a script: its name over its text (written out), Dismiss beside it; a
+                              // {VARIABLE} left in the text has no value yet, and is marked so
 };
 
-// The Operating Aids strip: a title (its options menu, Hide or Show) over the facts and the
-// suggestions (Note, Skip, Dismiss). New QSO shows one under the lookup's facts; the Operating
-// Aids panel another; ADIFLint.mm fills whichever shows. Its controls are named after `prefix`:
-// <prefix>.title, .menu, .hide, .show, .row.N, .note.N, .skip.N, .dismiss.N.
+// Operating Aids: a title (Hide or Show) over the facts, the suggestions (Note, Skip, Dismiss) and
+// the scripts (Dismiss); Control-click anywhere on it for its menu. The Operating Aids panel shows
+// it; ADIFLint.mm fills it. Its controls are named after `prefix`: <prefix>.title, .hide, .show,
+// .row.N, .name.N (a script's), .note.N, .skip.N, .dismiss.N, .next.N.
 @interface ADIFAidsView : NSStackView
 - (instancetype)initWithPrefix:(NSString *)prefix;
-// A nil title: nothing; hidden: the title alone, with Show.
+// A nil title: nothing; hidden: the title alone, with Show. `menu` is the view's Control-click menu.
 - (void)setTitle:(NSString *)title rows:(const std::vector<ADIFAidRow> &)rows menu:(NSMenu *)menu hidden:(BOOL)hidden;
-// A suggestion's button ("note", "skip", "dismiss", with its row), or "hide" / "show" (row -1).
+// A row's button ("note", "skip", "dismiss", "next", with its row), or "hide" / "show" (row -1).
 @property(nonatomic, copy) void (^onAid)(NSString *action, NSInteger row);
+// How it looks, from its menu (set before setTitle): text size 0 small, 1 medium, 2 large;
+// layoutStyle 0 a list, 1 message bubbles (the aids' on the left, grey; your scripts on the right,
+// in the tint), 2 minimal (only the prompts: the scripts' words, the suggestions, Chasing's next,
+// and warnings; no headings, symbols or facts); font 0 the system's, 1 rounded, 2 monospaced, 3
+// serif; a tint for the symbols, headings, scripts' names and your bubbles (nil: plain grey, and
+// the accent colour for your bubbles). (Not `layout`: a property of that name replaces NSView's
+// -layout, and the rows are never placed.)
+@property(nonatomic) NSInteger textSize, layoutStyle, fontFamily;
+@property(nonatomic, strong) NSColor *tint;
 @end
 
 @interface ADIFNewQsoPanel : NSObject <NSWindowDelegate, NSTextFieldDelegate, NSComboBoxDelegate>

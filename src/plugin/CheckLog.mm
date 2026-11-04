@@ -27,7 +27,8 @@ struct Row {
 
 struct Check {
     ADIFToolWindow *w = nil;
-    NSPopUpButton *show = nil;
+    NSPopUpButton *show = nil, *version = nil;  // version: the ADIF version the checks follow, as in Settings
+    NSTextField *versionNote = nil;             // which one they followed, and the log's own
     NSButton *group = nil, *repair = nil, *fixLengths = nil;
     intptr_t buffer = 0;
     std::vector<Row> rows;  // in table-row order
@@ -105,6 +106,15 @@ void plan(bool keepTicks) {
         const adif::LintResult &r = lint(h);
         std::string_view doc = text(h);
         [chk.w setTarget:TF(@"Log: {name}", @{@"name" : ADIFString(documentName())})];
+        NSInteger choice = [chk.version indexOfItemWithRepresentedObject:ADIFString(adifVersionChoice())];
+        [chk.version selectItemAtIndex:choice < 0 ? 0 : choice];
+        std::string note = r.declaredVersion.empty()
+                               ? trf("Checked against ADIF {version}; the log declares no version.", {{"version", r.checkedVersion}})
+                               : trf("Checked against ADIF {version}; the log declares ADIF {declared}.",
+                                     {{"version", r.checkedVersion}, {"declared", r.declaredVersion}});
+        if (!r.schemaVersion.empty() && r.schemaVersion != r.checkedVersion)
+            note += " " + trf("ADX schemas: ADIF {version}'s.", {{"version", r.schemaVersion}});
+        chk.versionNote.stringValue = ADIFString(note);
         chk.rows = rowsFor(r, doc, chk.show.indexOfSelectedItem, grouping());
         std::vector<std::vector<std::string>> rows;
         std::vector<int> severities;
@@ -134,6 +144,12 @@ void plan(bool keepTicks) {
         for (const adif::Diagnostic &d : r.diagnostics) repairable += !d.fixes.empty();
         if (r.diagnostics.empty()) {
             [chk.w setHeadline:@"No problems found." severity:3];
+        } else if (!r.schemaVersion.empty()) {  // ADX: the schemas' findings and ADIF Lint's own, apart
+            std::string head = trf("Schemas: {errors}, {warnings}  ·  ADIF Lint: {lintErrors}, {lintWarnings}",
+                                   {{"errors", plural(r.schemaErrors, "error")}, {"warnings", plural(r.schemaWarnings, "warning")},
+                                    {"lintErrors", plural(r.errors - r.schemaErrors, "error")},
+                                    {"lintWarnings", plural(r.warnings - r.schemaWarnings, "warning")}});
+            [chk.w setHeadline:ADIFString(head) severity:r.errors ? 2 : r.warnings ? 1 : 0];
         } else {
             std::string head = plural(r.errors, "error") + ", " + plural(r.warnings, "warning") + ", " + plural(r.infos, "note");
             if (repairable) head += "  ·  " + trf("{n} can be repaired", {{"n", std::to_string(repairable)}});
@@ -223,6 +239,23 @@ void cmdCheckLog() {
             plan(false);
         });
         [w addOptionRow:@[ ADIFLabel(@"Show:"), chk.show, filter, chk.group ]];
+        // The specification to check against: the same choice as Settings → Editor, so the marks agree.
+        chk.version = ADIFPopup(@[]);
+        chk.version.identifier = @"checklog.version";
+        for (const auto &[value, title] : adifVersionChoices()) {
+            [chk.version addItemWithTitle:ADIFString(title)];
+            chk.version.lastItem.representedObject = ADIFString(value);
+        }
+        ADIFOnAction(chk.version, ^{
+            try {
+                chooseAdifVersion(ADIFStd(chk.version.selectedItem.representedObject ?: @""));
+            } catch (...) {
+            }
+            plan(true);
+        });
+        chk.versionNote = ADIFLabel(@"");
+        chk.versionNote.textColor = NSColor.secondaryLabelColor;
+        [w addOptionRow:@[ ADIFLabel(@"Check against:"), chk.version, chk.versionNote ]];
         [w setColumns:std::vector<ADIFToolColumn>{{"record", "Record", 76}, {"line", "Line", 48}, {"severity", "Kind", 60},
                                                   {"field", "Field", 120}, {"problem", "Problem", 380}, {"repair", "Repair", 230}}
             checkboxes:YES

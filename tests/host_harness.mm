@@ -15,6 +15,7 @@
 
 #import <Cocoa/Cocoa.h>
 #import <QuartzCore/QuartzCore.h>
+#include "tqsl_fixture.h"
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -362,7 +363,7 @@ static NSTextField *qsoControl(NSWindow *w, NSString *name) {
 
 static NSWindow *qsoWindow() {
     for (NSWindow *w in NSApp.windows)
-        if ([w.title isEqualToString:@"New QSO"]) return w;
+        if ([w.title isEqualToString:@"QSO"]) return w;
     return nil;
 }
 
@@ -1008,7 +1009,7 @@ int main(int argc, char **argv) {
             CHECK(panelsAt > menuIndexWithIdentifier(operating) && panelsAt < menuIndexWithIdentifier(map) && panelsMenu.numberOfItems == 11 &&
                       [closedTitle isEqualToString:@"Show Log Table"] && table.visible == NO && [openTitle isEqualToString:@"Hide Log Table"] &&
                       [panelItem(@"logtable").title isEqualToString:@"Show Log Table"] &&
-                      [panelItem(@"map").title isEqualToString:windowIdentified(@"map.window").visible ? @"Hide Map" : @"Show Map"],  // the welcome's Settings is the Map's
+                      [panelItem(@"map").title isEqualToString:windowIdentified(@"map.window").visible ? @"Hide Interactive Map" : @"Show Interactive Map"],  // the welcome's Settings is the Map's
                   "the Panels menu in Logging & Operating: eleven panels, Show or Hide as each is (%s, then %s), the Log Table opened and closed",
                   closedTitle.UTF8String, openTitle.UTF8String);
             CHECK(tableNormal, "the Log Table: a normal window (its cells are typed in), which minimizes to the Dock");
@@ -1017,11 +1018,11 @@ int main(int argc, char **argv) {
                 [panelsMenu performActionForItemAtIndex:[panelsMenu indexOfItem:panelItem(@"mapstyle")]];
                 pump(0.3);
                 NSWindow *styleW = windowIdentified(@"map.style.window");
-                bool shown = styleW.visible && viewWithIdentifier(styleW.contentView, @"map.style") && [panelItem(@"mapstyle").title isEqualToString:@"Hide Map Style"];
+                bool shown = styleW.visible && viewWithIdentifier(styleW.contentView, @"map.style") && [panelItem(@"mapstyle").title isEqualToString:@"Hide Map Appearance"];
                 [panelsMenu performActionForItemAtIndex:[panelsMenu indexOfItem:panelItem(@"mapstyle")]];
                 pump(0.3);
                 NSWindow *setW = windowIdentified(@"settings.window"), *mapW = windowIdentified(@"map.window");
-                CHECK(shown && !styleW.visible && [panelItem(@"mapstyle").title isEqualToString:@"Show Map Style"] && setW &&
+                CHECK(shown && !styleW.visible && [panelItem(@"mapstyle").title isEqualToString:@"Show Map Appearance"] && setW &&
                           [setW.title isEqualToString:@"ADIF Lint Settings"] && viewWithIdentifier(setW.contentView, @"settings") &&
                           !viewWithIdentifier(mapW.contentView, @"map.group.settings") && !viewWithIdentifier(mapW.contentView, @"map.group.style"),
                       "Map Style: a panel, shown and hidden from the Panels menu; Settings: a window of its own; no card of either in the Map");
@@ -1034,7 +1035,7 @@ int main(int argc, char **argv) {
                 NSWindow *sourcesW = windowIdentified(@"settings.panel.spotsources"), *setW = windowIdentified(@"settings.window");
                 bool out = sourcesW.visible && viewWithIdentifier(sourcesW.contentView, @"settings.spots.spothole") &&
                            !viewWithIdentifier(setW.contentView, @"settings.spots.spothole") && viewWithIdentifier(setW.contentView, @"settings.spots.away") &&
-                           [panelItem(@"spotsources").title isEqualToString:@"Hide Spot Sources"] && ![sourcesW isKindOfClass:NSPanel.class];
+                           [panelItem(@"spotsources").title isEqualToString:@"Hide Spot Configuration"] && ![sourcesW isKindOfClass:NSPanel.class];
                 [sourcesW performClose:nil];
                 pump(0.3);
                 CHECK(out && !sourcesW.visible && viewWithIdentifier(setW.contentView, @"settings.spots.spothole") &&
@@ -1263,6 +1264,49 @@ int main(int argc, char **argv) {
         H.doc = saved;
         notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
         pump(0.5);
+
+        // ── An ADX file: checked against its schemas and the rules, never colored or changed ──
+        {
+            std::string adiPath = H.path, adiDoc = H.doc;
+            H.path = "/tmp/test.adx";
+            H.doc = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<ADX><HEADER><ADIF_VER>3.1.8</ADIF_VER></HEADER><RECORDS>\n"
+                    "<RECORD><QSO_DATE>20240115</QSO_DATE><TIME_ON>1830</TIME_ON><CALL>VE3AAA</CALL><BAND>21m</BAND><MODE>CW</MODE></RECORD>\n"
+                    "</RECORDS></ADX>\n";
+            notify(NPPN_BUFFERACTIVATED);
+            notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+            pump(0.5);
+            intptr_t band = (intptr_t)H.doc.find("21m");
+            CHECK(countFills(kError) == 2 && filledAt(kError, band) && filledAt(kError, band + 2) && !filledAt(kError, band + 3),
+                  "ADX: the schema's error and ADIF Lint's, both on 21m (%zu marks)", countFills(kError));
+            CHECK(countFills(kName) == 0 && countFills(kMarker) == 0, "ADX: no ADI colouring");
+            notify(SCN_DWELLSTART, 0, band + 1);
+            CHECK(H.tip.find("Schema: BAND '21m' is not allowed. (adx318generic.xsd)") != std::string::npos &&
+                      H.tip.find("not a valid BAND") != std::string::npos,
+                  "ADX hover: both findings: %s", H.tip.c_str());
+            notify(SCN_DWELLEND);
+            run("Record Panel");
+            pump(0.2);
+            CHECK(labelContaining(H.panelView, @"Schemas: 1 error, 0 warnings") && labelContaining(H.panelView, @"ADIF Lint: 1 error, 0 warnings") &&
+                      labelContaining(H.panelView, @"checked against the ADIF 3.1.8 schemas"),
+                  "ADX panel: the two checks apart");
+            run("Record Panel");
+            std::string before = H.doc;
+            int undo = H.undoActions;
+            run("Reformat: One Field per Line");
+            CHECK(H.doc == before && H.undoActions == undo && H.tip.find("this is an ADX file") != std::string::npos,
+                  "ADX: Reformat refuses and leaves it as it was: %s", H.tip.c_str());
+            run("Fix Field Lengths");
+            CHECK(H.doc == before && H.tip.find("this is an ADX file") != std::string::npos, "ADX: Fix Field Lengths refuses: %s", H.tip.c_str());
+            H.pos = 0;
+            run("Next Problem");
+            CHECK(H.pos == band, "ADX: Next Problem goes to 21m (%ld)", (long)H.pos);
+            H.path = adiPath;
+            H.doc = adiDoc;
+            notify(NPPN_BUFFERACTIVATED);
+            notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
+            pump(0.5);
+            CHECK(countFills(kName) > 0, "back in the ADI log, colouring returns");
+        }
 
         // ── Autocomplete: names, then values, with the length set ──
         H.pos = (intptr_t)H.doc.find("<EOR>");
@@ -1517,8 +1561,9 @@ int main(int argc, char **argv) {
                 [sw2.contentView layoutSubtreeIfNeeded];
                 CHECK(overlaps(sw2.contentView) == 0, "Settings with the Editor card open does not overlap (%d)", overlaps(sw2.contentView));
                 snapshot(sw2, "settings-editor");
-                CHECK(ver && ver.numberOfItems == 17 && [ver.titleOfSelectedItem hasPrefix:@"ADIF 3.1.8 (the newest"] &&
-                          [[ver itemAtIndex:16].title isEqualToString:@"ADIF 3.0.2 (2012-06-09)"],
+                CHECK(ver && ver.numberOfItems == 18 && [ver.titleOfSelectedItem hasPrefix:@"ADIF 3.1.8 (the newest"] &&
+                          [[ver itemAtIndex:1].title isEqualToString:@"The version each log declares (ADIF_VER)"] &&
+                          [[ver itemAtIndex:17].title isEqualToString:@"ADIF 3.0.2 (2012-06-09)"],
                       "the ADIF versions offered: %s", ver.titleOfSelectedItem.UTF8String);
                 std::string saved = H.doc;
                 H.doc = "log\n<ADIF_VER:5>3.1.3\n<EOH>\n<CALL:4>W1AW <QSO_DATE:8>20261006 <TIME_ON:4>2300 <BAND:3>20m <MODE:2>CW "
@@ -1540,6 +1585,29 @@ int main(int argc, char **argv) {
                 [ver sendAction:ver.action to:ver.target];
                 pump(0.3);
                 CHECK(noWarnings(&vh), "back to the newest: %s", vh.c_str());
+
+                // Check Log offers the same choice, kept in the same setting; "each log's own" reads its ADIF_VER (3.1.3 here).
+                run("Check Log...");
+                NSWindow *cw = windowTitled(@"Check Log");
+                NSPopUpButton *cv = cw ? (NSPopUpButton *)viewWithIdentifier(cw.contentView, @"checklog.version") : nil;
+                CHECK(cv && cv.numberOfItems == 18 && cv.indexOfSelectedItem == 0 &&
+                          [labelContaining(cw.contentView, @"Checked against") isEqualToString:@"Checked against ADIF 3.1.8; the log declares ADIF 3.1.3."],
+                      "Check Log's version menu and note: %s", labelContaining(cw.contentView, @"Checked against").UTF8String);
+                [cv selectItemAtIndex:[cv indexOfItemWithRepresentedObject:@"file"]];
+                [cv sendAction:cv.action to:cv.target];
+                pump(0.3);
+                CHECK([labelWithLines(cw.contentView, 2) hasPrefix:@"0 errors, 1 warning"] &&
+                          [labelContaining(cw.contentView, @"Checked against") hasPrefix:@"Checked against ADIF 3.1.3;"],
+                      "the log's own version: POTA_REF is too new for 3.1.3: %s", labelWithLines(cw.contentView, 2).UTF8String);
+                ini = [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint.ini"] encoding:NSUTF8StringEncoding error:nil];
+                CHECK([ini containsString:@"adifVersion=file\n"] && [[ver.selectedItem representedObject] isEqual:@"file"],
+                      "Check Log's choice is the setting, and Settings shows it");
+                [cv selectItemAtIndex:0];
+                [cv sendAction:cv.action to:cv.target];
+                pump(0.3);
+                CHECK([labelWithLines(cw.contentView, 2) isEqualToString:@"No problems found."] || [labelWithLines(cw.contentView, 2) hasPrefix:@"0 errors, 0 warnings"],
+                      "back to the newest from Check Log: %s", labelWithLines(cw.contentView, 2).UTF8String);
+                [cw orderOut:nil];
                 H.doc = saved;
                 notify(SCN_MODIFIED, 0, 0, SC_MOD_INSERTTEXT);
                 pump(0.2);
@@ -3113,7 +3181,7 @@ int main(int argc, char **argv) {
                     seekPanel(NSApp.mainMenu);
                     if (show) [show.menu performActionForItemAtIndex:[show.menu indexOfItem:show]];
                     pump(0.3);
-                    NSWindow *cm = windowTitled(@"Contact Map");
+                    NSWindow *cm = windowTitled(@"Static Map");
                     [cm setContentSize:NSMakeSize(520, 340)];
                     [cm.contentView display];  // drawn: its caption is its tooltip
                     snapshot(cm, "contact-map");
@@ -3714,6 +3782,79 @@ int main(int argc, char **argv) {
                 snapshot(pw, "station-profiles");
                 CHECK(overlaps(pw.contentView) == 0, "Station Profiles does not overlap");
             }
+
+            // TQSL Certificate...: TQSL's certificates listed, a passphrase tested against the chosen one's key, kept in the Keychain.
+            {
+                using namespace tqslfixture;
+                Key club = makeKey(), mine = makeKey();
+                NSFileManager *fm = NSFileManager.defaultManager;
+                for (NSString *d in @[ @"certs", @"keys" ])
+                    [fm createDirectoryAtPath:[tqslDir stringByAppendingPathComponent:d] withIntermediateDirectories:YES attributes:nil error:nil];
+                std::string user = pem("CERTIFICATE", certificate(club, "W9CLB", 4242, "2015-01-01", "", 291)) +
+                                   pem("CERTIFICATE", certificate(mine, "KW9D", 77, "2010-01-01", "", 291));
+                std::string keyFile = keyRecord(club, "W9CLB", privateKeyPem(club, "pkcs8", @"club pass"));  // KW9D's is not on this Mac
+                [[NSData dataWithBytes:user.data() length:user.size()] writeToFile:[tqslDir stringByAppendingPathComponent:@"certs/user"] atomically:YES];
+                [[NSData dataWithBytes:keyFile.data() length:keyFile.size()] writeToFile:[tqslDir stringByAppendingPathComponent:@"keys/W9CLB"]
+                                                                              atomically:YES];
+                [pt selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
+                [findButton(pw.contentView, @"TQSL Certificate...") performClick:nil];
+                pump(0.1);
+                NSWindow *cw = windowTitled(@"TQSL Certificate");
+                NSTableView *ct = cw ? findTable(cw.contentView) : nil;
+                NSSecureTextField *pf = cw ? (NSSecureTextField *)viewWithIdentifier(cw.contentView, @"tqslcert.passphrase") : nil;
+                auto said = [&] { return std::string(cw ? labelWithLines(cw.contentView, 4).UTF8String : ""); };
+                // A sheet on Station Profiles: a window would open behind that floating panel.
+                CHECK(cw && cw.sheetParent == pw && pw.attachedSheet == cw, "TQSL Certificate opens as a sheet on Station Profiles (parent %s)",
+                      cw.sheetParent.title.UTF8String ?: "none");
+                CHECK(ct &&[ct.dataSource numberOfRowsInTableView:ct] == 2 && [cell(ct, 0, @"0") isEqualToString:@"KW9D"] &&
+                          [cell(ct, 1, @"5") isEqualToString:@"4242"] && ct.selectedRow == 1 && [cell(ct, 1, @"1") isEqualToString:@"291 UNITED STATES OF AMERICA"],
+                      "TQSL's certificates listed, the profile's W9CLB chosen (%ld rows, row %ld, %s)",
+                      ct ? (long)[ct.dataSource numberOfRowsInTableView:ct] : -1L, ct ? (long)ct.selectedRow : -1L,
+                      ct ? cell(ct, 1, @"1").UTF8String : "");
+                pf.stringValue = @"wrong";
+                [findButton(cw.contentView, @"Test") performClick:nil];
+                CHECK(said().find("does not unlock") != std::string::npos, "a wrong passphrase: %s", said().c_str());
+                [findButton(cw.contentView, @"Save") performClick:nil];
+                CHECK(cw.visible && said().find("Nothing was saved") != std::string::npos, "and Save refuses it: %s", said().c_str());
+                pf.stringValue = @"club pass";
+                [findButton(cw.contentView, @"Test") performClick:nil];
+                CHECK(said().find("The passphrase unlocks the W9CLB certificate (serial 4242).") == 0, "the right one: %s", said().c_str());
+                [cw.contentView layoutSubtreeIfNeeded];
+                CHECK(overlaps(cw.contentView) == 0, "TQSL Certificate does not overlap (%d)", overlaps(cw.contentView));
+                snapshot(cw, "tqsl-certificate");
+                [findButton(cw.contentView, @"Save") performClick:nil];
+                pump(0.1);
+                NSString *profilesFile = [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint-profiles.adi"]
+                                                                   encoding:NSUTF8StringEncoding
+                                                                      error:nil];
+                CHECK(!cw.visible && !pw.attachedSheet && [profilesFile containsString:@"<APP_ADIFLINT_TQSL_CALL:5>W9CLB"] &&
+                          [profilesFile containsString:@"<APP_ADIFLINT_TQSL_SERIAL:4>4242"] && ![profilesFile containsString:@"club pass"],
+                      "saved: the certificate in the profile, never its passphrase: %s", profilesFile.UTF8String);
+                CHECK([labelWithLines(pw.contentView, 4) containsString:@"its passphrase in your Keychain"], "the profile says where the passphrase is: %s",
+                      labelWithLines(pw.contentView, 4).UTF8String);
+                // Again: the saved passphrase, tested without typing it; KW9D, whose key this Mac lacks; Forget.
+                [findButton(pw.contentView, @"TQSL Certificate...") performClick:nil];
+                pump(0.1);
+                CHECK(pw.attachedSheet == cw, "a sheet again");
+                CHECK([pf.placeholderString isEqualToString:@"Saved in your Keychain"] && pf.stringValue.length == 0, "the passphrase is saved: %s",
+                      pf.placeholderString.UTF8String);
+                [findButton(cw.contentView, @"Test") performClick:nil];
+                CHECK(said().find("The passphrase unlocks the W9CLB certificate") == 0, "the saved passphrase tested: %s", said().c_str());
+                [ct selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
+                pf.stringValue = @"anything";
+                [findButton(cw.contentView, @"Test") performClick:nil];
+                CHECK(said().find("This Mac has no key for the KW9D certificate (serial 77)") == 0, "no key on this Mac: %s", said().c_str());
+                [ct selectRowIndexes:[NSIndexSet indexSetWithIndex:1] byExtendingSelection:NO];
+                [findButton(cw.contentView, @"Forget Passphrase") performClick:nil];
+                CHECK([pf.placeholderString isEqualToString:@"Its passphrase, if it has one"], "forgotten");
+                [findButton(cw.contentView, @"Test") performClick:nil];
+                CHECK(said().find("The W9CLB certificate has a passphrase: enter it.") == 0, "and needed: %s", said().c_str());
+                [findButton(cw.contentView, @"Close") performClick:nil];
+                pump(0.1);
+                CHECK(!cw.visible && !pw.attachedSheet, "Close ends the sheet");
+                CFRelease(club.secKey);
+                CFRelease(mine.secKey);
+            }
             [pw orderOut:nil];
 
             // Start Activation: a two-fer into a new log, New QSO opening on it.
@@ -3758,7 +3899,7 @@ int main(int argc, char **argv) {
             std::string file = std::string(work.UTF8String) + "/" + name;
             CHECK(!H.opened.empty() && H.opened.back() == file && H.path == file && H.doc.find("<EOH>") != std::string::npos,
                   "the new log created and opened: %s", H.path.c_str());
-            NSWindow *qw5 = windowTitled(@"New QSO");
+            NSWindow *qw5 = windowTitled(@"QSO");
             CHECK(qw5.visible, "New QSO opened on the new log");
             NSString *note = qw5 ? labelContaining(qw5.contentView, @"activating") : nil;
             CHECK([note containsString:@"profile Portable, activating US-7929, US-1234"] &&
@@ -3829,7 +3970,7 @@ int main(int argc, char **argv) {
             } else {
                 CHECK(false, "Upload to LoTW opens");
             }
-            for (NSString *t in @[ @"Check Log", @"Export Activation Logs", @"Start Activation", @"New QSO" ]) [windowTitled(t) orderOut:nil];
+            for (NSString *t in @[ @"Check Log", @"Export Activation Logs", @"Start Activation", @"QSO" ]) [windowTitled(t) orderOut:nil];
         }
 
 
@@ -4849,7 +4990,7 @@ int main(int argc, char **argv) {
             NSButton *styleOpen = (NSButton *)viewWithIdentifier(mapw.contentView, @"map.style.open");
             NSPopUpButton *programsMenu = findPopupWith(mapw.contentView, @"Show All");
             NSPopUpButton *regionMenu = (NSPopUpButton *)viewWithIdentifier(mapw.contentView, @"map.region");
-            CHECK(proj && colour && [styleOpen.title isEqualToString:@"Map Style..."] && !findPopupWith(mapw.contentView, @"Legend") &&
+            CHECK(proj && colour && [styleOpen.title isEqualToString:@"Map Appearance..."] && !findPopupWith(mapw.contentView, @"Legend") &&
                       programsMenu && regionMenu && (NSButton *)viewWithIdentifier(mapw.contentView, @"map.lines") &&
                       [proj itemAtIndex:3].enabled &&
                       [[proj itemAtIndex:3].title isEqualToString:@"Globe from EN52WA"],
@@ -6964,7 +7105,7 @@ int main(int argc, char **argv) {
                 [useSpot performClick:nil];
                 pump(0.3);
                 if (getenv("ADIFLINT_SNAPSHOT_DIR"))  // the Contact Map of the spotted station, its Spot Info card on
-                    if (NSWindow *cm = showPanel(@"contactmap", @"Contact Map")) {
+                    if (NSWindow *cm = showPanel(@"contactmap", @"Static Map")) {
                         [cm setContentSize:NSMakeSize(560, 380)];
                         [cm.contentView display];
                         snapshot(cm, "contact-map-spot");
@@ -7059,8 +7200,8 @@ int main(int argc, char **argv) {
                         [program selectItemAtIndex:0];
                         [program sendAction:program.action to:program.target];
                     }
-                    {  // The Clocks panel (Panels menu): UTC and local time at first, ticking; Add Clock adds a city's, a clock's
-                       // own menu removes it; New QSO has none of its own.
+                    {  // The Clocks panel (Panels menu): UTC and local time at first, ticking. Control-click between the clocks adds
+                       // and removes them; a clock's own menu sets how it looks; dragged, a clock moves; New QSO has none of its own.
                         NSMenuItem *show = nil;
                         std::function<void(NSMenu *)> seekPanel = [&](NSMenu *m) {
                             for (NSMenuItem *mi in m.itemArray) {
@@ -7072,52 +7213,177 @@ int main(int argc, char **argv) {
                         if (show) [show.menu performActionForItemAtIndex:[show.menu indexOfItem:show]];
                         pump(0.3);
                         NSWindow *cw = windowIdentified(@"clocks.window");
-                        NSView *utcClock = cw ? viewWithIdentifier(cw.contentView, @"clock.utc") : nil, *localClock = cw ? viewWithIdentifier(cw.contentView, @"clock.local") : nil;
+                        NSView *shelf = cw ? viewWithIdentifier(cw.contentView, @"clocks.shelf") : nil;
+                        auto clockOf = [&](NSString *zone) {
+                            NSString *ident = [zone isEqualToString:@"UTC"]     ? @"clock.utc"
+                                              : [zone isEqualToString:@"local"] ? @"clock.local"
+                                                                                : [@"clock." stringByAppendingString:zone];
+                            return cw ? viewWithIdentifier(cw.contentView, ident) : nil;
+                        };
+                        NSView *utcClock = clockOf(@"UTC"), *localClock = clockOf(@"local");
                         NSString *utcSpoken = utcClock.accessibilityLabel;
-                        NSPopUpButton *add = cw ? (NSPopUpButton *)viewWithIdentifier(cw.contentView, @"clocks.add") : nil;
-                        NSInteger chicago = [add.menu indexOfItemWithTitle:[NSString stringWithFormat:@"Chicago (%@)",
-                                                                                                     [[NSTimeZone timeZoneWithName:@"America/Chicago"] abbreviationForDate:NSDate.date]]];
-                        if (chicago > 0) [add.menu performActionForItemAtIndex:chicago];
-                        pump(0.3);
-                        NSView *cityClock = cw ? viewWithIdentifier(cw.contentView, @"clock.America/Chicago") : nil;
-                        {  // London and Tokyo too, for the picture; then removed
-                            NSDate *now = NSDate.date;
-                            for (NSString *zone in @[ @"Europe/London", @"Asia/Tokyo" ]) {
-                                NSString *city = [[zone componentsSeparatedByString:@"/"].lastObject stringByReplacingOccurrencesOfString:@"_" withString:@" "];
-                                NSString *t = [NSString stringWithFormat:@"%@ (%@)", city, [[NSTimeZone timeZoneWithName:zone] abbreviationForDate:now]];
-                                NSInteger at = [add.menu indexOfItemWithTitle:t];
-                                if (at > 0) [add.menu performActionForItemAtIndex:at];
-                                pump(0.2);
-                            }
-                            [cw setContentSize:NSMakeSize(470, 200)];
-                            [cw.contentView layoutSubtreeIfNeeded];
-                            snapshot(cw, "clocks");
-                            for (NSString *zone in @[ @"Europe/London", @"Asia/Tokyo" ]) {
-                                NSView *c = viewWithIdentifier(cw.contentView, [@"clock." stringByAppendingString:zone]);
-                                NSInteger at = [c.menu indexOfItemWithTitle:@"Remove This Clock"];
-                                if (at >= 0) [c.menu performActionForItemAtIndex:at];
-                                pump(0.2);
-                            }
-                            cityClock = viewWithIdentifier(cw.contentView, @"clock.America/Chicago");
-                        }
-                        NSString *citySpoken = cityClock.accessibilityLabel;
-                        auto zonesSaved = [&]() {
+                        CHECK(show && cw.visible && utcClock && localClock && NSWidth(utcClock.frame) > 100 && [utcSpoken hasPrefix:@"UTC"] &&
+                                  [utcSpoken rangeOfString:@"^UTC .*\\d\\d:\\d\\d:\\d\\d$" options:NSRegularExpressionSearch].location != NSNotFound &&
+                                  !viewWithIdentifier(cw.contentView, @"clocks.add") && !viewWithIdentifier(qwL.contentView, @"clock.utc"),
+                              "Clocks: UTC and local time, ticking (%s); no Add Clock button; none in New QSO", utcSpoken.UTF8String);
+                        auto saved = [&](NSString *key) {
                             NSString *f = [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint.ini"] encoding:NSUTF8StringEncoding error:nil];
-                            NSRange at = [f rangeOfString:@"\nclockZones="];
+                            NSRange at = [f rangeOfString:[NSString stringWithFormat:@"\n%@=", key]];
                             if (at.location == NSNotFound) return std::string();
                             NSString *rest = [f substringFromIndex:NSMaxRange(at)];
                             return std::string([rest componentsSeparatedByString:@"\n"].firstObject.UTF8String);
                         };
-                        bool saved = zonesSaved() == "UTC,local,America/Chicago";
+                        // A menu's item by its titles (a submenu's, then its item's), chosen.
+                        auto choose = [&](NSMenu *m, NSArray<NSString *> *path) {
+                            for (NSUInteger i = 0; m && i + 1 < path.count; ++i) m = [m itemWithTitle:path[i]].submenu;
+                            NSInteger at = m ? [m indexOfItemWithTitle:path.lastObject] : -1;
+                            if (at < 0 || ![m itemAtIndex:at].enabled) return false;
+                            [m performActionForItemAtIndex:at];
+                            pump(0.1);
+                            return true;
+                        };
+                        auto state = [&](NSMenu *m, NSArray<NSString *> *path) {
+                            for (NSUInteger i = 0; m && i + 1 < path.count; ++i) m = [m itemWithTitle:path[i]].submenu;
+                            return [m itemWithTitle:path.lastObject].state == NSControlStateValueOn;
+                        };
+                        auto cityTitle = [&](NSString *zone) {
+                            NSString *city = [[zone componentsSeparatedByString:@"/"].lastObject stringByReplacingOccurrencesOfString:@"_" withString:@" "];
+                            return [NSString stringWithFormat:@"%@ (%@)", city, [[NSTimeZone timeZoneWithName:zone] abbreviationForDate:NSDate.date]];
+                        };
+                        // Add Clock, from the panel's own menu.
+                        bool added = choose(shelf.menu, @[ @"Add Clock", cityTitle(@"America/Chicago") ]);
+                        NSView *cityClock = clockOf(@"America/Chicago");
+                        NSString *citySpoken = cityClock.accessibilityLabel;
+                        NSMenu *others = [[shelf.menu itemWithTitle:@"Add Clock"].submenu itemWithTitle:@"Other Time Zones"].submenu;
+                        [others.delegate menuNeedsUpdate:others];  // made when it opens
+                        NSMenu *americas = [others itemWithTitle:@"America"].submenu;
+                        CHECK(added && [citySpoken hasPrefix:@"CHICAGO \u00B7 C"] && saved(@"clockZones") == "UTC,local,America/Chicago" &&
+                                  [americas itemWithTitle:cityTitle(@"America/Chicago")].state == NSControlStateValueOn &&
+                                  ![americas itemWithTitle:cityTitle(@"America/Chicago")].enabled && [americas itemWithTitle:cityTitle(@"America/Denver")].enabled,
+                              "Clocks: Chicago added from the panel's menu (%s), ticked in Other Time Zones", citySpoken.UTF8String);
+
+                        // How a clock looks, from its own menu: kept, and only what differs from the first look.
+                        NSString *chi = @"America/Chicago";
+                        bool looked = choose(clockOf(chi).menu, @[ @"Style", @"Dial" ]) && choose(clockOf(chi).menu, @[ @"Colour", @"Red" ]) &&
+                                      choose(clockOf(chi).menu, @[ @"Size", @"Large" ]) && choose(clockOf(chi).menu, @[ @"Label Size", @"Small" ]) &&
+                                      choose(clockOf(chi).menu, @[ @"Show Date" ]) && choose(clockOf(chi).menu, @[ @"Time Format", @"12-Hour" ]) &&
+                                      choose(clockOf(chi).menu, @[ @"Time Format", @"Show Seconds" ]);
+                        cityClock = clockOf(chi);
+                        citySpoken = cityClock.accessibilityLabel;
                         NSMenu *own = cityClock.menu;
-                        NSInteger remove = [own indexOfItemWithTitle:@"Remove This Clock"];
-                        if (remove >= 0) [own performActionForItemAtIndex:remove];
-                        pump(0.3);
-                        CHECK(show && cw.visible && utcClock && localClock && NSWidth(utcClock.frame) > 100 && [utcSpoken hasPrefix:@"UTC"] &&
-                                  [utcSpoken rangeOfString:@"^UTC .*\\d\\d:\\d\\d:\\d\\d$" options:NSRegularExpressionSearch].location != NSNotFound &&
-                                  chicago > 0 && [citySpoken hasPrefix:@"CHICAGO \u00B7 C"] && saved && remove >= 0 && zonesSaved() == "UTC,local" &&
-                                  !viewWithIdentifier(cw.contentView, @"clock.America/Chicago") && !viewWithIdentifier(qwL.contentView, @"clock.utc"),
-                              "Clocks: UTC and local time (%s); Chicago added (%s), then removed; none in New QSO", utcSpoken.UTF8String, citySpoken.UTF8String);
+                        CHECK(looked && viewWithIdentifier(cityClock, @"clock.face") && !viewWithIdentifier(cityClock, @"clock.digits") &&
+                                  !viewWithIdentifier(cityClock, @"clock.date") &&
+                                  [citySpoken rangeOfString:@"^CHICAGO \u00B7 C[SD]T \\d{1,2}:\\d\\d (AM|PM)$" options:NSRegularExpressionSearch].location !=
+                                      NSNotFound &&
+                                  saved(@"clockLooks") == "America/Chicago style=analog face=dial colour=red size=large label=small date=no hours=12 seconds=no" &&
+                                  state(own, @[ @"Style", @"Analog" ]) && state(own, @[ @"Style", @"Dial" ]) && !state(own, @[ @"Style", @"Studio" ]) &&
+                                  state(own, @[ @"Colour", @"Red" ]) && !state(own, @[ @"Colour", @"By Time Zone" ]) && state(own, @[ @"Size", @"Large" ]) &&
+                                  state(own, @[ @"Label Size", @"Small" ]) && !state(own, @[ @"Show Date" ]) && state(own, @[ @"Time Format", @"12-Hour" ]) &&
+                                  !state(own, @[ @"Time Format", @"Show Seconds" ]),
+                              "Clocks: Chicago's own look, an analog Dial, red, large, 12-hour without seconds or the date (%s; %s)", citySpoken.UTF8String,
+                              saved(@"clockLooks").c_str());
+                        [cw.contentView layoutSubtreeIfNeeded];
+                        NSRect seen = [cityClock convertRect:cityClock.bounds toView:cw.contentView];
+                        CHECK(NSHeight(seen) > 150 && NSContainsRect(cw.contentView.bounds, seen), "Clocks: the panel grew to show the large analog clock whole (%s in %s)",
+                              NSStringFromRect(seen).UTF8String, NSStringFromRect(cw.contentView.bounds).UTF8String);
+                        choose(clockOf(chi).menu, @[ @"Style", @"Digital" ]);
+                        cityClock = clockOf(chi);
+                        NSView *digits = viewWithIdentifier(cityClock, @"clock.digits");
+                        CHECK(digits && !viewWithIdentifier(cityClock, @"clock.face") && [[digits valueForKey:@"meridiem"] length] == 2 &&
+                                  [[digits valueForKey:@"text"] length] == 5 && state(cityClock.menu, @[ @"Style", @"Digital" ]) &&
+                                  !state(cityClock.menu, @[ @"Style", @"Dial" ]),
+                              "Clocks: digital again, 12-hour (%s %s)", [[digits valueForKey:@"text"] UTF8String], [[digits valueForKey:@"meridiem"] UTF8String]);
+
+                        // Dragged: a line shows where it will go, and it goes there; dropped where it is, nothing moves.
+                        FakeDrag *drag = [[FakeDrag alloc] init];
+                        drag.draggingPasteboard = [NSPasteboard pasteboardWithUniqueName];
+                        id<NSDraggingInfo> info = (id<NSDraggingInfo>)(id)drag;
+                        NSPasteboardType clockType = shelf.registeredDraggedTypes.firstObject;
+                        auto pickUp = [&](NSString *zone) {
+                            [drag.draggingPasteboard clearContents];
+                            [drag.draggingPasteboard setString:zone forType:clockType];
+                        };
+                        auto lineShown = [&]() {
+                            for (NSView *v in shelf.subviews)
+                                if ([NSStringFromClass(v.class) isEqualToString:@"ADIFDropLine"] && !v.hidden) return true;
+                            return false;
+                        };
+                        auto over = [&](NSString *zone, CGFloat across) {  // that far across a clock (0 to 1), in the window
+                            [cw.contentView layoutSubtreeIfNeeded];  // where it is seen after the last drop
+                            NSView *c = clockOf(zone);
+                            NSRect r = [c convertRect:c.bounds toView:nil];
+                            drag.draggingLocation = NSMakePoint(NSMinX(r) + NSWidth(r) * across, NSMidY(r));
+                            return [(id<NSDraggingDestination>)shelf draggingUpdated:info];
+                        };
+                        pickUp(@"UTC");
+                        NSDragOperation moving = over(chi, 0.9);
+                        bool showed = lineShown();
+                        bool dropped = [(id<NSDraggingDestination>)shelf performDragOperation:info];
+                        std::string afterDrop = saved(@"clockZones");
+                        pickUp(@"UTC");
+                        over(@"local", 0.1);
+                        bool back = [(id<NSDraggingDestination>)shelf performDragOperation:info];
+                        pickUp(@"local");
+                        over(@"local", 0.4);
+                        bool stayShowed = lineShown();
+                        bool stayed = [(id<NSDraggingDestination>)shelf performDragOperation:info];
+                        [drag.draggingPasteboard clearContents];
+                        [drag.draggingPasteboard setString:@"something else" forType:NSPasteboardTypeString];
+                        NSDragOperation foreign = over(@"local", 0.5);
+                        CHECK(moving == NSDragOperationMove && showed && dropped && afterDrop == "local,America/Chicago,UTC" && back &&
+                                  saved(@"clockZones") == "UTC,local,America/Chicago" && !stayShowed && !stayed && foreign == NSDragOperationNone &&
+                                  !lineShown(),
+                              "Clocks: UTC dragged to the end (%s) and back (%s); dropped where it was, nothing moves", afterDrop.c_str(),
+                              saved(@"clockZones").c_str());
+                        // Without a pointer: VoiceOver's Move Left and Move Right.
+                        NSArray<NSAccessibilityCustomAction *> *actions = clockOf(@"local").accessibilityCustomActions;
+                        bool movedLeft = actions.count == 2 && [actions[0].name isEqualToString:@"Move Left"] && actions[0].handler();
+                        std::string afterLeft = saved(@"clockZones");
+                        actions = clockOf(@"local").accessibilityCustomActions;
+                        if (actions.count == 2) actions[1].handler();
+                        CHECK(movedLeft && afterLeft == "local,UTC,America/Chicago" && saved(@"clockZones") == "UTC,local,America/Chicago",
+                              "Clocks: Move Left and Move Right as VoiceOver's actions (%s)", afterLeft.c_str());
+
+                        {  // London, Tokyo and Sydney too, each face, for the picture; then removed
+                            choose(clockOf(chi).menu, @[ @"Colour", @"By Time Zone" ]);
+                            choose(clockOf(chi).menu, @[ @"Size", @"Medium" ]);
+                            choose(clockOf(chi).menu, @[ @"Label Size", @"Medium" ]);
+                            choose(clockOf(chi).menu, @[ @"Show Date" ]);
+                            choose(clockOf(chi).menu, @[ @"Time Format", @"Show Seconds" ]);
+                            choose(clockOf(chi).menu, @[ @"Time Format", @"24-Hour" ]);
+                            choose(clockOf(@"local").menu, @[ @"Time Format", @"12-Hour" ]);
+                            NSArray<NSString *> *cities = @[ @"Europe/London", @"Asia/Tokyo", @"Australia/Sydney" ];
+                            NSArray<NSString *> *faces = @[ @"Studio", @"Dial", @"Minimal" ];
+                            for (NSUInteger i = 0; i < cities.count; ++i) {
+                                choose(shelf.menu, @[ @"Add Clock", cityTitle(cities[i]) ]);
+                                choose(clockOf(cities[i]).menu, @[ @"Style", faces[i] ]);
+                            }
+                            choose(clockOf(@"Asia/Tokyo").menu, @[ @"Colour", @"Amber" ]);
+                            choose(clockOf(@"Australia/Sydney").menu, @[ @"Colour", @"Violet" ]);
+                            [cw setContentSize:NSMakeSize(640, 380)];
+                            [cw.contentView layoutSubtreeIfNeeded];
+                            [cw setContentSize:NSMakeSize(640, std::ceil(shelf.intrinsicContentSize.height) + 28)];  // as tall as the clocks
+                            [cw.contentView layoutSubtreeIfNeeded];
+                            CHECK(overlaps(cw.contentView) == 0, "Clocks: nothing overlaps (%d)", overlaps(cw.contentView));
+                            snapshot(cw, "clocks");
+                            for (NSString *zone in cities) choose(shelf.menu, @[ @"Remove Clock", cityTitle(zone) ]);
+                            choose(clockOf(@"local").menu, @[ @"Time Format", @"24-Hour" ]);
+                        }
+                        // Removed from the panel's menu, its look goes with it; the last clock stays.
+                        bool removed = choose(shelf.menu, @[ @"Remove Clock", cityTitle(chi) ]);
+                        std::string zonesLeft = saved(@"clockZones"), looksLeft = saved(@"clockLooks");
+                        choose(shelf.menu, @[ @"Remove Clock", @"UTC" ]);
+                        bool lastStays = !choose(shelf.menu, @[ @"Remove Clock", [[shelf.menu itemWithTitle:@"Remove Clock"].submenu itemAtIndex:0].title ]) &&
+                                         ![clockOf(@"local").menu itemWithTitle:@"Remove This Clock"].enabled;
+                        std::string oneLeft = saved(@"clockZones");
+                        choose(shelf.menu, @[ @"Add Clock", @"UTC" ]);
+                        pickUp(@"UTC");
+                        over(@"local", 0.1);
+                        [(id<NSDraggingDestination>)shelf performDragOperation:info];
+                        CHECK(removed && zonesLeft == "UTC,local" && looksLeft.empty() && oneLeft == "local" && lastStays &&
+                                  saved(@"clockZones") == "UTC,local" && !clockOf(chi),
+                              "Clocks: Chicago removed from the panel's menu, its look too (%s; '%s'); the last clock stays (%s)", zonesLeft.c_str(),
+                              looksLeft.c_str(), oneLeft.c_str());
                         [cw performClose:nil];
                         pump(0.2);
                     }
@@ -7317,13 +7583,13 @@ int main(int argc, char **argv) {
                         if (tabs) {
                             NSInteger qsoTab = -1;
                             for (NSInteger k = 0; k < tabs.segmentCount; ++k)
-                                if ([[tabs labelForSegment:k] isEqualToString:@"New QSO"]) qsoTab = k;
+                                if ([[tabs labelForSegment:k] isEqualToString:@"QSO"]) qsoTab = k;
                             tabs.selectedSegment = qsoTab;
                             [tabs sendAction:tabs.action to:tabs.target];
                             pump(0.3);
                             NSView *front = frameShowing(qwL);
                             NSSegmentedControl *after = front ? (NSSegmentedControl *)viewWithIdentifier(front, @"frame.tabs") : nil;
-                            CHECK(qsoTab >= 0 && front && !frameShowing(tw) && after && [[after labelForSegment:after.selectedSegment] isEqualToString:@"New QSO"] &&
+                            CHECK(qsoTab >= 0 && front && !frameShowing(tw) && after && [[after labelForSegment:after.selectedSegment] isEqualToString:@"QSO"] &&
                                       [findButton(qwL.contentView, @"Log QSO") window] == host && tw.visible,
                                   "New QSO's tab: New QSO in front, the Log Table behind its tab and still open");
                         }
@@ -7504,7 +7770,7 @@ int main(int argc, char **argv) {
                                 for (NSView *k in v.subviews) seekChoice(k);
                             };
                             seekChoice(frameShowing(qdw));
-                            [contents selectItemWithTitle:@"Map"];
+                            [contents selectItemWithTitle:@"Interactive Map"];
                             [contents sendAction:contents.action to:contents.target];
                             pump(0.4);
                             [host.contentView layoutSubtreeIfNeeded];
@@ -7572,7 +7838,7 @@ int main(int argc, char **argv) {
                             NSMenuItem *addTab = nil;
                             for (NSMenuItem *mi in more.menu.itemArray)
                                 if ([mi.identifier isEqualToString:@"frame.actions.addTab"]) addTab = mi;
-                            NSInteger styleAt = [addTab.submenu indexOfItemWithTitle:@"Map Style"];
+                            NSInteger styleAt = [addTab.submenu indexOfItemWithTitle:@"Map Appearance"];
                             if (styleAt >= 0) [addTab.submenu performActionForItemAtIndex:styleAt];
                             pump(0.4);
                             NSWindow *styleW = windowIdentified(@"map.style.window");
@@ -8469,7 +8735,7 @@ int main(int argc, char **argv) {
                     };
                     auto rowsSaid = [&]() {
                         std::string all;
-                        for (int k = 0; k < 12; ++k)
+                        for (int k = 0; k < 40; ++k)
                             if (NSView *v = viewWithIdentifier(pw.contentView, [NSString stringWithFormat:@"aids.row.%d", k]))
                                 all += std::string(all.empty() ? "" : " | ") + ((NSTextField *)v).stringValue.UTF8String;
                         return all;
@@ -8480,18 +8746,29 @@ int main(int argc, char **argv) {
                         [[NSNotificationCenter defaultCenter] postNotificationName:NSControlTextDidChangeNotification object:f];
                         pump(0.5);
                     };
+                    // The aids' menu (Control-click them): an item by the start of its title, in any submenu.
                     auto optionsItem = [&](NSString *prefix) -> std::pair<NSMenu *, NSInteger> {
-                        NSPopUpButton *m = pw ? (NSPopUpButton *)viewWithIdentifier(pw.contentView, @"aids.menu") : nil;
+                        NSMenu *m = pw ? viewWithIdentifier(pw.contentView, @"aids").menu : nil;
                         std::function<std::pair<NSMenu *, NSInteger>(NSMenu *)> seek = [&](NSMenu *menu) -> std::pair<NSMenu *, NSInteger> {
                             for (NSInteger k = 0; k < menu.numberOfItems; ++k) {
                                 NSMenuItem *mi = [menu itemAtIndex:k];
-                                if (k > 0 && [mi.title hasPrefix:prefix]) return {menu, k};
+                                if (!mi.submenu && mi.enabled && [mi.title hasPrefix:prefix]) return {menu, k};
                                 if (mi.submenu)
                                     if (auto f = seek(mi.submenu); f.first) return f;
                             }
                             return {nil, -1};
                         };
-                        return m ? seek(m.menu) : std::pair<NSMenu *, NSInteger>{nil, -1};
+                        return m ? seek(m) : std::pair<NSMenu *, NSInteger>{nil, -1};
+                    };
+                    auto firstSuggestion = [&]() -> NSInteger {  // the row of the first suggestion (it has Skip)
+                        for (int k = 0; k < 40; ++k)
+                            if (viewWithIdentifier(pw.contentView, [NSString stringWithFormat:@"aids.skip.%d", k])) return k;
+                        return -1;
+                    };
+                    auto scriptRow = [&](NSString *name) -> NSInteger {  // the row of the script of that name
+                        for (int k = 0; k < 40; ++k)
+                            if (text([NSString stringWithFormat:@"aids.name.%d", k]) == name.UTF8String) return k;
+                        return -1;
                     };
                     auto option = [&](NSString *prefix) {
                         auto [menu, k] = optionsItem(prefix);
@@ -8503,33 +8780,43 @@ int main(int argc, char **argv) {
                     styleMenu(@"social");
                     typeCall(@"K1ABC");
                     snapshot(pw, "aids-social");
+                    [pw.contentView layoutSubtreeIfNeeded];
+                    CHECK(overlaps(pw.contentView) == 0, "Operating Aids: each line in a place of its own (%d overlap)", overlaps(pw.contentView));
                     std::string social = rowsSaid();
                     CHECK(text(@"aids.title") == "Operating Aids (Social)" && social.find("Before: 1 QSO with K1ABC, the last 2026-10-01 on 40m SSB") == 0 &&
                               social.find("Your notes then: talked about his 3-element yagi") != std::string::npos,
                           "Social: your QSO with K1ABC before, and what you noted (%s)", social.c_str());
-                    std::string first = text(@"aids.row.2"), second = text(@"aids.row.3");
-                    CHECK(!first.empty() && !second.empty() && social.find("rig and antenna") == std::string::npos &&
-                              [((NSTextField *)viewWithIdentifier(pw.contentView, @"aids.row.2")).accessibilityLabel hasPrefix:@"Suggestion: "],
-                          "Social: two suggestions, none about the antenna the notes have, each said to VoiceOver as a suggestion (%s; %s)", first.c_str(),
-                          second.c_str());
-                    press(@"aids.skip.2");
-                    CHECK(text(@"aids.row.2") == second, "Skip: the next suggestion moves up (%s)", text(@"aids.row.2").c_str());
+                    NSInteger s0 = firstSuggestion();
+                    NSString *(^row)(NSInteger) = ^(NSInteger k) { return [NSString stringWithFormat:@"aids.row.%ld", (long)k]; };
+                    NSString *(^named)(NSString *, NSInteger) = ^(NSString *what, NSInteger k) { return [NSString stringWithFormat:@"aids.%@.%ld", what, (long)k]; };
+                    std::string first = s0 >= 0 ? text(row(s0)) : "", second = s0 >= 0 ? text(row(s0 + 1)) : "";
+                    CHECK(s0 > 0 && !first.empty() && !second.empty() && social.find("rig and antenna") == std::string::npos &&
+                              [((NSTextField *)viewWithIdentifier(pw.contentView, row(s0))).accessibilityLabel hasPrefix:@"Suggestion: "] &&
+                              !viewWithIdentifier(pw.contentView, @"aids.menu") && viewWithIdentifier(pw.contentView, @"aids").menu &&
+                              [((NSTextField *)viewWithIdentifier(pw.contentView, @"aids.title")).toolTip hasPrefix:@"Control-click"],
+                          "Social: two suggestions, none about the antenna the notes have, each said to VoiceOver as a suggestion (%s; %s); "
+                          "the menu is the aids' Control-click menu, not a button",
+                          first.c_str(), second.c_str());
+                    press(named(@"skip", s0));
+                    CHECK(text(row(s0)) == second, "Skip: the next suggestion moves up (%s)", text(row(s0)).c_str());
                     // Note: a few words in NOTES, for you to finish; that topic isn't suggested again.
                     NSInteger noteRow = -1;
-                    for (int k = 2; k < 6 && noteRow < 0; ++k)
-                        if (viewWithIdentifier(pw.contentView, [NSString stringWithFormat:@"aids.note.%d", k])) noteRow = k;
-                    std::string noted = noteRow >= 0 ? text([NSString stringWithFormat:@"aids.row.%ld", (long)noteRow]) : "";
-                    press([NSString stringWithFormat:@"aids.note.%ld", (long)noteRow]);
+                    for (NSInteger k = s0; k < s0 + 4 && noteRow < 0; ++k)
+                        if (viewWithIdentifier(pw.contentView, named(@"note", k))) noteRow = k;
+                    std::string noted = noteRow >= 0 ? text(row(noteRow)) : "";
+                    press(named(@"note", noteRow));
                     std::string notes = qsoControl(aw, @"NOTES").stringValue.UTF8String;
                     CHECK(noteRow >= 0 && notes.size() > 2 && notes.back() == ' ' && notes.find(':') != std::string::npos && rowsSaid().find(noted) == std::string::npos &&
                               [aw.firstResponder isKindOfClass:NSTextView.class],
                           "Note: \"%s\" in NOTES to finish, the caret there; %s not suggested again", notes.c_str(), noted.c_str());
-                    std::string dismissedText = text(@"aids.row.2");
-                    press(@"aids.dismiss.2");
+                    s0 = firstSuggestion();
+                    std::string dismissedText = text(row(s0));
+                    press(named(@"dismiss", s0));
                     CHECK(!iniValue("aidsDismissed").empty() && rowsSaid().find(dismissedText) == std::string::npos,
                           "Dismiss: %s gone, and kept gone (%s)", dismissedText.c_str(), iniValue("aidsDismissed").c_str());
                     option(@"Minimal");
-                    bool minimal = text(@"aids.row.2").size() && text(@"aids.row.3").empty();
+                    s0 = firstSuggestion();
+                    bool minimal = s0 >= 0 && !viewWithIdentifier(pw.contentView, named(@"skip", s0 + 1));
                     option(@"Off");
                     bool offTitle = text(@"aids.title") == "Operating Aids (Social): off" && rowsSaid().empty();
                     option(@"Standard");
@@ -8539,8 +8826,9 @@ int main(int argc, char **argv) {
                     CHECK(minimal && offTitle && topicOff && iniValue("aidsLevelSocial") == "standard",
                           "Options: one suggestion, none (the title says off), two again; a topic turned off and on (%s)", iniValue("aidsTopicsOffSocial").c_str());
                     CHECK(optionsItem(@"Work and projects").first && [optionsItem(@"Work and projects").first itemAtIndex:optionsItem(@"Work and projects").second].state ==
-                                                                          NSControlStateValueOff,
-                          "Options: work and projects (and stage of life) off until turned on");
+                                                                          NSControlStateValueOff &&
+                              optionsItem(@"Good practice").first,
+                          "Options: work and projects (and stage of life) off until turned on; good practice a topic");
                     option(@"Bring Back Dismissed");
                     CHECK(iniValue("aidsDismissed").empty(), "Options: the dismissed suggestions brought back");
                     {  // The aids are in their panel only: closed and opened again, as they were (kept while it is closed); none in New QSO
@@ -8554,9 +8842,128 @@ int main(int argc, char **argv) {
                               "Operating Aids in their own panel: closed and opened again as they were (%s); none in New QSO", rowsSaid().c_str());
                     }
                     press(@"aids.hide");
-                    bool hid = text(@"aids.title") == "Operating Aids (Social): hidden" && rowsSaid().empty() && viewWithIdentifier(pw.contentView, @"aids.show");
+                    bool hid = text(@"aids.title") == "Operating Aids (Social): hidden" && rowsSaid().empty() && viewWithIdentifier(pw.contentView, @"aids.show") &&
+                               viewWithIdentifier(pw.contentView, @"aids").menu;
                     press(@"aids.show");
-                    CHECK(hid && text(@"aids.title") == "Operating Aids (Social)" && !rowsSaid().empty(), "Hide for the session, then Show");
+                    CHECK(hid && text(@"aids.title") == "Operating Aids (Social)" && !rowsSaid().empty(), "Hide for the session, then Show (the menu there all along)");
+                    {  // Before: the earlier QSOs listed, with their name, QTH and reports; as many as the menu says
+                        std::string said = rowsSaid();
+                        bool listed = said.find("2026-10-01 12:00  ·  40m SSB  ·  Bob, Boston  ·  59/57") != std::string::npos;
+                        option(@"None");
+                        bool none = rowsSaid().find("Before:") == std::string::npos && iniValue("aidsHistorySocial") == "0";
+                        option(@"The Last Three");
+                        CHECK(listed && none && rowsSaid().find("Before:") != std::string::npos && iniValue("aidsHistorySocial") == "3",
+                              "Previous QSOs: K1ABC's, with name, QTH and reports; none; three again (%s)", said.c_str());
+                    }
+                    {  // Scripts: for the mode (CW, chosen in the menu), written out with New QSO's fields, the station's and its Station Facts
+                        NSPopUpButton *stationPopup = (NSPopUpButton *)viewWithIdentifier(aw.contentView, @"qso.station");
+                        [stationPopup selectItemWithTitle:@"Portable"];
+                        [stationPopup sendAction:stationPopup.action to:stationPopup.target];
+                        pump(0.3);
+                        option(@"CW");
+                        NSInteger report = scriptRow(@"Report, name and QTH");
+                        std::string said = report >= 0 ? text(row(report)) : "";
+                        CHECK(iniValue("aidsScriptsMode") == "cw" && rowsSaid().find("Scripts · CW") != std::string::npos &&
+                                  said.find("K1ABC DE KW9D R TNX FER CALL RST ") == 0 && said.find("NAME {MYNAME} {MYNAME}") != std::string::npos &&
+                                  [viewWithIdentifier(pw.contentView, row(report)).toolTip containsString:@"{MYNAME}"],
+                              "Scripts: CW's, K1ABC and KW9D written out; {MYNAME} not known yet, and said so (%s)", said.c_str());
+                        // Station Facts, from the menu: on a sheet over Station Profiles, for New QSO's profile.
+                        option(@"Station Facts");
+                        NSWindow *sheet = windowIdentified(@"facts.sheet");
+                        auto fact = [&](NSString *key, NSString *value) {
+                            if (NSTextField *f = sheet ? (NSTextField *)viewWithIdentifier(sheet.contentView, [@"facts." stringByAppendingString:key]) : nil)
+                                f.stringValue = value;
+                        };
+                        auto saveFacts = [&]() {
+                            [(NSButton *)viewWithIdentifier(sheet.contentView, @"facts.save") performClick:nil];
+                            pump(0.3);
+                        };
+                        bool forPortable = sheet && sheet.sheetParent && [sheet.sheetParent.title isEqualToString:@"Station Profiles"] &&
+                                           [((NSTextField *)viewWithIdentifier(sheet.contentView, @"facts.MY_RIG")).stringValue isEqualToString:@"Elecraft T1"];
+                        fact(@"NAME", @"Andy");
+                        fact(@"QTH", @"Indianapolis");
+                        fact(@"WEATHER", @"sunny");
+                        fact(@"TX_PWR", @"lots");
+                        saveFacts();
+                        bool refused = sheet.sheetParent && [((NSTextField *)viewWithIdentifier(sheet.contentView, @"facts.problem")).stringValue hasPrefix:@"Power is a number"];
+                        fact(@"TX_PWR", @"5");
+                        saveFacts();
+                        NSString *profilesFile = [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint-profiles.adi"]
+                                                                           encoding:NSUTF8StringEncoding
+                                                                              error:nil];
+                        report = scriptRow(@"Report, name and QTH");
+                        said = report >= 0 ? text(row(report)) : "";
+                        NSInteger weather = scriptRow(@"Your weather");
+                        CHECK(forPortable && refused && !sheet.sheetParent && [profilesFile containsString:@"<APP_ADIFLINT_FACT_NAME:4>Andy"] &&
+                                  [profilesFile containsString:@"<APP_ADIFLINT_FACT_WEATHER:5>sunny"] && ![profilesFile containsString:@"<MY_NAME"] &&
+                                  said.find("NAME Andy Andy QTH Indianapolis Indianapolis HW CPY? K1ABC DE KW9D KN") != std::string::npos &&
+                                  weather >= 0 && text(row(weather)) == "WEATHER sunny",
+                              "Station Facts: a power that isn't a number refused; kept with the profile, never as a QSO's field; the scripts say them (%s)",
+                              said.c_str());
+                        if (NSWindow *profiles = windowTitled(@"Station Profiles")) [profiles orderOut:nil];
+                        // Copy: the script as written out (the clipboard as it was afterwards).
+                        NSString *savedClipboard = [NSPasteboard.generalPasteboard stringForType:NSPasteboardTypeString];
+                        press(named(@"copy", report));
+                        NSString *copied = [NSPasteboard.generalPasteboard stringForType:NSPasteboardTypeString];
+                        [NSPasteboard.generalPasteboard clearContents];
+                        if (savedClipboard) [NSPasteboard.generalPasteboard setString:savedClipboard forType:NSPasteboardTypeString];
+                        CHECK(copied && said == copied.UTF8String, "Copy: the script as written out (%s)", copied.UTF8String);
+                        // A script hidden from the menu, and shown again: kept in the scripts file.
+                        option(@"Report, name and QTH");
+                        NSString *scriptsFile = [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint-scripts.adi"]
+                                                                          encoding:NSUTF8StringEncoding
+                                                                             error:nil];
+                        bool hidden = scriptRow(@"Report, name and QTH") < 0 && [scriptsFile containsString:@"<APP_ADIFLINT_SCRIPT:16>social.cw.report"] &&
+                                      [scriptsFile containsString:@"<APP_ADIFLINT_SCRIPT_SHOWN:1>N"];
+                        option(@"Report, name and QTH");
+                        CHECK(hidden && scriptRow(@"Report, name and QTH") >= 0, "Scripts: hidden from the menu, and shown again (kept in ADIFLint-scripts.adi)");
+                    }
+                    {  // How the aids look: text size, layout, font, colour; kept
+                        NSView *av = viewWithIdentifier(pw.contentView, @"aids");
+                        auto titleFont = [&]() { return ((NSTextField *)viewWithIdentifier(pw.contentView, @"aids.title")).font; };
+                        std::function<bool(NSView *, NSString *)> has = [&](NSView *v, NSString *cls) {
+                            for (NSView *k in v.subviews)
+                                if ([NSStringFromClass(k.class) isEqualToString:cls] || has(k, cls)) return true;
+                            return false;
+                        };
+                        option(@"Large");
+                        bool large = titleFont().pointSize == 16 && iniValue("aidsTextSize") == "large";
+                        option(@"Cards");
+                        bool cards = has(av, @"ADIFAidCard");
+                        [pw.contentView layoutSubtreeIfNeeded];
+                        cards = cards && overlaps(pw.contentView) == 0;
+                        option(@"Monospaced");
+                        bool mono = titleFont().isFixedPitch;
+                        option(@"The Operating Style's");
+                        [pw setContentSize:NSMakeSize(440, 520)];
+                        [pw.contentView layoutSubtreeIfNeeded];
+                        snapshot(pw, "aids-scripts");
+                        option(@"Medium");
+                        option(@"Status Display");
+                        [pw.contentView layoutSubtreeIfNeeded];
+                        bool display = ((NSStackView *)av).edgeInsets.top == 8 && !has(av, @"ADIFAidCard") && overlaps(pw.contentView) == 0;  // the block drawn round them
+                        option(@"Green");
+                        snapshot(pw, "aids-display");
+                        CHECK(large && cards && mono && display && iniValue("aidsLayout") == "display" && iniValue("aidsFont") == "monospaced" &&
+                                  iniValue("aidsColour") == "green",
+                              "Prompt Style: large text, cards, monospaced, the style's colour, a status display in green; kept");
+                        option(@"Small");
+                        option(@"List");
+                        option(@"System");
+                        option(@"Plain");
+                        CHECK(((NSStackView *)av).edgeInsets.top == 0 && !has(av, @"ADIFAidCard") && titleFont().pointSize == NSFont.smallSystemFontSize,
+                              "Prompt Style: back to a plain list");
+                        option(@"From New QSO's Mode");
+                    }
+                    {  // Contest: the contest and its exchange (or that none is running), and contest practice
+                        styleMenu(@"contest");
+                        std::string contestSaid = rowsSaid();
+                        NSInteger c0 = firstSuggestion();
+                        CHECK(text(@"aids.title") == "Operating Aids (Contest)" &&
+                                  (contestSaid.find("No contest is running") != std::string::npos || contestSaid.find("Copy their exchange") != std::string::npos) &&
+                                  c0 >= 0 && !text(row(c0)).empty(),
+                              "Contest: the contest, or that none is running, then practice (%s)", contestSaid.c_str());
+                    }
                     // Portable: the station's state as facts, then a brief suggestion.
                     styleMenu(@"portable");
                     typeCall(@"N0NEW");

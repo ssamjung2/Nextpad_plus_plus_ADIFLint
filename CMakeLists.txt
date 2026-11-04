@@ -38,6 +38,7 @@ add_library(adif_core STATIC
     src/core/adif_outlines.cpp
     src/core/adif_spec_tables.cpp
     src/core/adif_lint.cpp
+    src/core/adif_rules.cpp
     src/core/adif_edit.cpp
     src/core/adif_enrich.cpp
     src/core/adif_tools.cpp
@@ -73,6 +74,7 @@ add_library(adif_core STATIC
     src/core/adif_mvt.cpp
     src/core/adif_i18n.cpp
     src/core/adif_aids.cpp
+    src/core/adif_scripts.cpp
     src/core/adif_styles.cpp
     src/core/adif_spots.cpp)
 target_include_directories(adif_core PUBLIC src/core)
@@ -81,13 +83,31 @@ target_link_libraries(adif_core PUBLIC ZLIB::ZLIB)
 target_compile_options(adif_core PRIVATE ${WARNINGS})
 set_target_properties(adif_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-# Regenerate the tables after replacing spec/adif-3.1.8/all.json or spec/adif-history.json.
+# ── ADX: XML well-formedness and the published XML Schemas (libxml2, which macOS ships) ──
+add_library(adif_adx STATIC src/core/adif_adx.cpp src/core/adif_adx_schemas.cpp)
+find_package(LibXml2 REQUIRED)
+target_link_libraries(adif_adx PUBLIC adif_core PRIVATE LibXml2::LibXml2)
+target_compile_options(adif_adx PRIVATE ${WARNINGS})
+set_target_properties(adif_adx PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+# ── TQSL: its certificates, and whether a passphrase unlocks one's key (CommonCrypto, in libSystem) ──
+add_library(adif_tqsl STATIC src/core/adif_tqsl.cpp)
+target_link_libraries(adif_tqsl PUBLIC adif_core)
+target_compile_options(adif_tqsl PRIVATE ${WARNINGS})
+set_target_properties(adif_tqsl PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+# Regenerate the tables after replacing spec/adif-3.1.8/all.json or spec/adif-history.json,
+# and the built-in schemas after adding one to spec/adx/ (and its hash to spec/adx/SOURCE.md).
 find_package(Python3 COMPONENTS Interpreter)
 if(Python3_FOUND)
     add_custom_target(regen-spec
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/gen_spec_tables.py
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         COMMENT "Generating src/core/adif_spec_tables.cpp from the ADIF JSON export and history")
+    add_custom_target(regen-adx
+        COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_SOURCE_DIR}/tools/gen_adx_schemas.py
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT "Generating src/core/adif_adx_schemas.cpp from spec/adx")
 endif()
 
 # ── Command-line checker ─────────────────────────────────────────────────────
@@ -95,7 +115,7 @@ endif()
 # volumes are usually case-insensitive and CMake's per-target dirs would collide.
 add_executable(adiflint_cli src/cli/adiflint_main.cpp)
 set_target_properties(adiflint_cli PROPERTIES OUTPUT_NAME adiflint)
-target_link_libraries(adiflint_cli PRIVATE adif_core)
+target_link_libraries(adiflint_cli PRIVATE adif_adx)  # and adif_core, through it
 target_compile_options(adiflint_cli PRIVATE ${WARNINGS})
 
 # ── Tests ────────────────────────────────────────────────────────────────────
@@ -106,10 +126,29 @@ target_link_libraries(adif_tests PRIVATE adif_core)
 target_compile_options(adif_tests PRIVATE ${WARNINGS})
 add_test(NAME adif_tests COMMAND adif_tests ${OFFICIAL_ADI} ${CMAKE_SOURCE_DIR}/data/cty.csv ${CMAKE_SOURCE_DIR}/data/map-detail.bin)
 
+# ADX: the official ADX test file, every built-in schema, and the schemas against the ADI rules.
+set(OFFICIAL_ADX ${CMAKE_SOURCE_DIR}/tests/fixtures/ADIF_318_test_QSOs_2026_10_12.adx)
+add_executable(adx_tests tests/adx_tests.cpp)
+target_link_libraries(adx_tests PRIVATE adif_adx)
+target_compile_options(adx_tests PRIVATE ${WARNINGS})
+add_test(NAME adx_tests COMMAND adx_tests ${OFFICIAL_ADX})
+
+# Every rule in src/core/adif_rules.cpp, broken and kept, as ADI and as ADX; and docs/RULES.md, made from them.
+add_executable(conformance_tests tests/conformance_tests.cpp)
+target_link_libraries(conformance_tests PRIVATE adif_adx)
+target_compile_options(conformance_tests PRIVATE ${WARNINGS})
+add_test(NAME conformance COMMAND conformance_tests ${CMAKE_SOURCE_DIR}/tests/conformance/rules.cases --doc ${CMAKE_SOURCE_DIR}/docs/RULES.md)
+
+# TQSL certificates and passphrases, with keys made in memory by the Security framework.
+add_executable(tqsl_tests tests/tqsl_tests.mm)
+target_link_libraries(tqsl_tests PRIVATE adif_tqsl "-framework Foundation" "-framework Security")
+target_compile_options(tqsl_tests PRIVATE ${WARNINGS} -fobjc-arc)
+add_test(NAME tqsl_tests COMMAND tqsl_tests)
+
 add_executable(fuzz_smoke tests/fuzz_smoke.cpp)
-target_link_libraries(fuzz_smoke PRIVATE adif_core)
+target_link_libraries(fuzz_smoke PRIVATE adif_adx)  # and adif_core, through it
 target_compile_options(fuzz_smoke PRIVATE ${WARNINGS})
-add_test(NAME fuzz_smoke COMMAND fuzz_smoke ${OFFICIAL_ADI} 1000)
+add_test(NAME fuzz_smoke COMMAND fuzz_smoke ${OFFICIAL_ADI} 1000 ${OFFICIAL_ADX})
 
 # A developer's tool for the Map's PMTiles code: show a file, or extract a box from a remote archive.
 add_executable(pmtiles_dev tools/pmtiles_dev.cpp)
@@ -117,6 +156,7 @@ target_link_libraries(pmtiles_dev PRIVATE adif_core)
 target_compile_options(pmtiles_dev PRIVATE ${WARNINGS})
 
 add_test(NAME adiflint_official COMMAND adiflint_cli --quiet ${OFFICIAL_ADI})
+add_test(NAME adiflint_official_adx COMMAND adiflint_cli --quiet ${OFFICIAL_ADX})
 # The language tables parse, every key is still in the sources, and placeholders and plurals match.
 find_program(PYTHON3 python3)
 if(PYTHON3)
@@ -130,11 +170,11 @@ if(NOT ADIF_SANITIZE)
     add_library(ADIFLint SHARED src/plugin/ADIFLint.mm src/plugin/RecordPanel.mm src/plugin/NewQsoPanel.mm
         src/plugin/EnrichPanel.mm src/plugin/Lookup.mm src/plugin/SettingsPanel.mm src/plugin/QsoFieldsPanel.mm
         src/plugin/ToolWindow.mm src/plugin/LogTools.mm src/plugin/CheckLog.mm src/plugin/Families.mm src/plugin/Station.mm src/plugin/Monitor.mm src/plugin/Contest.mm src/plugin/Labels.mm src/plugin/LotwUsers.mm src/plugin/IotaGroups.mm src/plugin/PotaParks.mm src/plugin/Map.mm src/plugin/Panels.mm src/plugin/MapView.mm src/plugin/MapLayers.mm src/plugin/MapRelief.mm src/plugin/MapPropagation.mm src/plugin/MapOsm.mm src/plugin/MapDetail.mm src/plugin/Network.mm src/plugin/L10n.mm src/plugin/Spots.mm src/plugin/Solar.mm src/plugin/Night.mm src/plugin/Theme.mm src/plugin/Clocks.mm src/plugin/LogSpot.mm src/plugin/Accordion.mm src/plugin/Charts.mm src/plugin/ParkOutlines.mm
-        src/plugin/Uploads.mm src/plugin/Imports.mm src/plugin/Country.mm src/plugin/Workspace.mm)
+        src/plugin/Uploads.mm src/plugin/TqslCertificate.mm src/plugin/Scripts.mm src/plugin/Imports.mm src/plugin/Country.mm src/plugin/Workspace.mm)
     target_include_directories(ADIFLint PRIVATE
         third_party/nextpad
         third_party/scintilla/include)
-    target_link_libraries(ADIFLint PRIVATE adif_core "-framework Cocoa" "-framework Security"
+    target_link_libraries(ADIFLint PRIVATE adif_adx adif_tqsl "-framework Cocoa" "-framework Security"
         "-framework UniformTypeIdentifiers" "-framework Network" "-framework CoreImage" "-framework QuartzCore")
     target_compile_definitions(ADIFLint PRIVATE ADIFLINT_VERSION="${PROJECT_VERSION}")
     target_compile_options(ADIFLint PRIVATE ${WARNINGS} $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
@@ -174,7 +214,7 @@ if(NOT ADIF_SANITIZE)
     # Drives the built dylib through a simulated host and Scintilla.
     add_executable(host_harness tests/host_harness.mm)
     target_include_directories(host_harness PRIVATE third_party/nextpad third_party/scintilla/include)
-    target_link_libraries(host_harness PRIVATE "-framework Cocoa")
+    target_link_libraries(host_harness PRIVATE "-framework Cocoa" "-framework Security")
     target_compile_options(host_harness PRIVATE ${WARNINGS} -fobjc-arc)
     add_dependencies(host_harness ADIFLint)
     add_test(NAME host_harness COMMAND host_harness $<TARGET_FILE:ADIFLint> ${CMAKE_SOURCE_DIR}/tests/fixtures/lookup)

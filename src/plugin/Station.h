@@ -14,6 +14,9 @@ namespace station {
 
 std::vector<adif::StationProfile> profiles();  // from ADIFLint-profiles.adi in the config folder
 void cmdStationProfiles();                     // the editor
+// Station Facts (what Operating Aids' scripts say of your station: name, QTH, rig, antenna, power,
+// licensed, age, weather, club, a line about it) for New QSO's profile, on a sheet over the editor.
+void cmdStationFacts();
 void cmdStartActivation();                     // the Start Activation window
 
 // New QSO's Station popup: 0 the log's own fields, 1... the profiles.

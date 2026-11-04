@@ -77,25 +77,25 @@ namespace panels {
 
 const std::vector<Spec> &all() {
     static const std::vector<Spec> specs = {
-        {adif::layout::kNewQso, N(@"New QSO"), @"square.and.pencil", N(@"New QSO: log a contact (on while it shows; click again to close it)"), @"map.newqso",
+        {adif::layout::kNewQso, N(@"QSO"), @"square.and.pencil", N(@"QSO: log a contact (on while it shows; click again to close it)"), @"map.newqso",
          true},
         {adif::layout::kLogTable, N(@"Log Table"), @"tablecells",
          N(@"The log as a table: sort, search and edit its QSOs (on while it shows; click again to close it)"), @"map.logtable", true},
-        {adif::layout::kMap, N(@"Map"), @"map", nil, nil, false},
+        {adif::layout::kMap, N(@"Interactive Map"), @"map", nil, nil, false},
         {adif::layout::kSpots, N(@"Activations & Spots"), @"antenna.radiowaves.left.and.right",
          N(@"Activations & Spots: the activators and stations spotted now, as a table (on while it shows; click again to close it)"), @"map.spotstable", true},
-        {adif::layout::kContactMap, N(@"Contact Map"), @"mappin.and.ellipse",
-         N(@"Contact Map: where New QSO's contact is, from your station (on while it shows; click again to close it)"), @"map.contactmap", true},
+        {adif::layout::kContactMap, N(@"Static Map"), @"mappin.and.ellipse",
+         N(@"Static Map: where the QSO panel's contact is, from your station (on while it shows; click again to close it)"), @"map.contactmap", true},
         {adif::layout::kQsoDetails, N(@"QSO Details"), @"person.text.rectangle",
-         N(@"QSO Details: who New QSO's contact is, why it's worth having, and your QSOs with the call (on while it shows; click again to close it)"),
+         N(@"QSO Details: who the QSO panel's contact is, why it's worth having, and your QSOs with the call (on while it shows; click again to close it)"),
          @"map.qsodetails", true},
-        {adif::layout::kMapStyle, N(@"Map Style"), @"paintpalette", nil, nil, false},  // the Map's own button opens it
+        {adif::layout::kMapStyle, N(@"Map Appearance"), @"paintpalette", nil, nil, false},  // the Interactive Map's own button opens it
         {adif::layout::kAids, N(@"Operating Aids"), @"text.bubble",
-         N(@"Operating Aids: the operating style's facts and suggestions for the contact in New QSO (on while it shows; click again to close it)"),
+         N(@"Operating Aids: the operating style's facts and suggestions for the contact in the QSO panel (on while it shows; click again to close it)"),
          @"map.aids", true},
         {adif::layout::kClocks, N(@"Clocks"), @"clock",
          N(@"Clocks: UTC, your local time and the time zones you choose (on while it shows; click again to close it)"), @"map.clocks", true},
-        {adif::layout::kSpotSources, N(@"Spot Sources"), @"dot.radiowaves.left.and.right", nil, nil, false},  // Settings' sections
+        {adif::layout::kSpotSources, N(@"Spot Configuration"), @"dot.radiowaves.left.and.right", nil, nil, false},  // Settings' sections
         {adif::layout::kStation, N(@"Your Station"), @"house", nil, nil, false},
     };
     return specs;

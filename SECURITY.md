@@ -18,7 +18,7 @@ supported.
   written to `ADIFLint.ini`, to logs or to any other file, and a saved password is never
   shown again. Settings → Remove deletes them.
 - **Network requests** use HTTPS and go only to the service you chose, when you ask:
-  Enrich, Import, Upload, Test Sign-In, a callbook lookup you turned on in New QSO, an open
+  Enrich, Import, Upload, Test Sign-In, a callbook lookup you turned on in the QSO panel, an open
   Spots window, the Map's Spots layer while its Show is ticked, the Map's space weather and
   Aurora once you turn them on (NOAA SWPC), Settings → POTA Parks (the park list, and Park
   Outlines from Overpass, pota-map.info and PAD-US), Settings → IOTA Groups, Settings → Map
@@ -30,7 +30,7 @@ supported.
 - **A DX cluster** (Settings → Spots, off at first) is the one connection that isn't
   HTTPS: plain telnet to the node you choose, as DX clusters work, logged in with your
   callsign and never a password. It posts a spot (`dx`, of the station you worked, never your
-  own callsign) only when you log a QSO in New QSO with its "The station, on the DX cluster" box
+  own callsign) only when you log a QSO in the QSO panel with its "The station, on the DX cluster" box
   ticked (off at first). It is open only while the Map's
   Spots layer shows. Every
   telnet option the node offers is refused, lines are cut at 1,024 characters, at most

@@ -81,7 +81,7 @@ std::string tqslPath() {
 
 // TQSL's folder: $TQSLDIR, else ~/.tqsl (tqsllib's tqsl_init, see adif_qsl.h); older Mac builds
 // used Application Support. The first of these holding `file` gives it.
-NSData *tqslFile(const char *file, std::string *path = nullptr) {
+std::vector<std::string> tqslFolders() {
     std::vector<std::string> dirs;
     if (const char *test = getenv("ADIFLINT_TEST_TQSL_DIR")) dirs.push_back(test);
     else {
@@ -89,7 +89,11 @@ NSData *tqslFile(const char *file, std::string *path = nullptr) {
         dirs.push_back(ADIFStd(NSHomeDirectory()) + "/.tqsl");
         dirs.push_back(ADIFStd(NSHomeDirectory()) + "/Library/Application Support/TrustedQSL");
     }
-    for (const std::string &d : dirs)
+    return dirs;
+}
+
+NSData *tqslFile(const char *file, std::string *path = nullptr) {
+    for (const std::string &d : tqslFolders())
         if (NSData *data = [NSData dataWithContentsOfFile:ADIFString(d + "/" + file)]) {
             if (path) *path = d + "/" + file;
             return data;
@@ -104,7 +108,7 @@ std::vector<adif::TqslLocation> tqslStationData(std::string *file = nullptr) {
 }
 
 // The callsigns of TQSL's certificates, from certs/user in its folder (certificates only: the
-// private keys are in keys/, which is never read).
+// private keys in keys/ are read only by Station Profiles' passphrase test, TqslCertificate.mm).
 std::vector<std::string> tqslCertificates(std::string *file = nullptr) {
     NSData *data = tqslFile("certs/user", file);
     return data ? adif::tqslCertificateCalls(std::string_view((const char *)data.bytes, data.length)) : std::vector<std::string>();
@@ -779,7 +783,13 @@ void startUpload(Upload &u) {
                 NSMutableArray *args = [@[ @"-x", @"-d", @"-u", @"-a", @"compliant", @"-l", ADIFString(loc) ] mutableCopy];
                 // -c: sign with this callsign's certificate (and the location's DXCC entity) in place of the location's callsign.
                 if (!call.empty()) [args addObjectsFromArray:@[ @"-c", ADIFString(call) ]];
-                if (NSString *pw = ADIFTqslPassword()) [args addObjectsFromArray:@[ @"-p", pw ]];  // TQSL's documented -p
+                // TQSL's documented -p: the certificate's own passphrase (Station Profiles), else the one in Settings.
+                std::string signer = call;
+                if (signer.empty())
+                    for (const adif::TqslLocation &l : tqslStationData())
+                        if (l.name == loc) signer = l.get("CALL");
+                NSString *pw = ADIFTqslPassphrase(ADIFString(signer)) ?: ADIFTqslPassword();
+                if (pw) [args addObjectsFromArray:@[ @"-p", pw ]];
                 [args addObject:tmp];
                 runTqsl(tq, args, &u,
                         ^(int code, NSString *output) {
@@ -1035,6 +1045,14 @@ void syncOpen(bool download) {
 }  // namespace
 
 namespace uploads {
+
+std::string tqslFolder() {
+    for (const std::string &d : tqslFolders())
+        if (access((d + "/certs/user").c_str(), R_OK) == 0) return d;
+    return "";
+}
+
+std::string tqslApplication() { return tqslPath(); }
 
 void cmdUploadQrz() { openUpload(adif::UploadService::QRZ); }
 void cmdUploadLotw() { openUpload(adif::UploadService::LoTW); }

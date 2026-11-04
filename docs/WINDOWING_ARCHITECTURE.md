@@ -5,8 +5,8 @@ built (2026-11-01, see Progress). "Where we are" describes the starting point.
 
 ## Purpose
 
-ADIF Lint is growing into a set of purpose-built panels (New QSO, Log Table, Map, Activations &
-Spots, Contact Map, QSO Details, and more to come) that people arrange to suit how they operate.
+ADIF Lint is growing into a set of purpose-built panels (QSO, Log Table, Interactive Map, Activations &
+Spots, Static Map, QSO Details, and more to come) that people arrange to suit how they operate.
 Some content will move between homes: the Map's Settings and Style Options cards, for example,
 may become Settings sections or panels of their own. Operating styles and layouts should be
 nothing more than **which panels show, where, and how they are set up**.
@@ -55,13 +55,13 @@ Pieces of this model exist, but each grew separately:
 | Panel identity | `ADIFDockItem` enum (6 items), openers registered in `ADIFLint.mm`, `kPanels` table in `Map.mm`, item names in `Workspace.mm` | Four lists to keep in step for each new panel |
 | Hosting | `ADIF_DOCKABLE_WINDOW` macro: a window answers show/close/visible for its console frame | Works; the host is implicit, and only windows can be hosted |
 | Layout | 9 presets as hard-coded split trees with shares; split sizes in `NSSplitView Subview Frames adif.layoutN…`; frames chosen per preset | Presets are code, not data; no user-saved layouts; Map panes saved separately (`mapSidebar`, `mapList`, `mapSelected`) |
-| Show/hide | Map pane buttons, the new panel buttons, the console's Frames menu, the frame header's popup, menu commands, Focus Map | Five mechanisms; each control keeps its own state (the stale New QSO button found today) |
+| Show/hide | Map pane buttons, the new panel buttons, the console's Frames menu, the frame header's popup, menu commands, Focus Map | Five mechanisms; each control keeps its own state (the stale QSO button found today) |
 | State sync | `ADIFPanelShownNotification`, `ADIFOperatingStyleChangedNotification`, offline and night notifications, window-close observers | Added one at a time |
 | Styles | Map settings only (`adif_styles`); Start Logging / Activation / Contest choose a console preset in their own code | A style can't say which panels it wants |
 | Theming | Night Mode as a filter each window opts into (`ADIFNightTrack`, 8 windows); `kADIFMargin` (11 uses); small fonts set by hand (~75 places); colours per call site | Easy to miss a window; no shared type ramp or semantic colours |
 
 There are about 30 surfaces: 6 dockable panels; 20 tool windows (Bulk Edit, Sort, Contest,
-Monitor, Log Summary, QSL Sync…); the Map; Settings; the Record panel; Enrich; the upload,
+Monitor, Log Summary, QSL Sync…); the Interactive Map; Settings; the Record panel; Enrich; the upload,
 import and export windows; popovers and alerts.
 
 ## The model
@@ -72,7 +72,7 @@ Every surface is one of these kinds, each with its own rules:
 
 | Kind | What it is | Hosts | Examples |
 |---|---|---|---|
-| **Operating panel** | Something you keep open while operating | A console frame, or its own window | New QSO, Log Table, Map, Activations & Spots, Contact Map, QSO Details, Contest, Activation Tracker, Monitor (future panels go here) |
+| **Operating panel** | Something you keep open while operating | A console frame, or its own window | QSO, Log Table, Interactive Map, Activations & Spots, Static Map, QSO Details, Contest, Activation Tracker, Monitor (future panels go here) |
 | **Pane** | A part of one panel that can be hidden | Inside its panel (sidebar, inspector, list) | The Map's sidebar, list, selected panel |
 | **Task window** | Does one job, then closes (HIG "auxiliary window … presents a specific task") | Its own window | Bulk Edit, Sort, Remove Duplicates, imports and exports, uploads |
 | **Settings** | Preferences that persist across the app | The Settings window, by section | Station, accounts, spot sources, Map data; and (moving) the Map's Settings card |
@@ -81,8 +81,8 @@ Every surface is one of these kinds, each with its own rules:
 | **Alert / sheet** | Needs an answer | Modal, attached to its window | About, confirmations |
 
 Rules that follow (HIG):
-- Typing-heavy panels (New QSO, Log Table) are operating panels in a frame or a normal window,
-  not floating `NSPanel`s that hide when the app is inactive. **New QSO becomes a normal
+- Typing-heavy panels (QSO, Log Table) are operating panels in a frame or a normal window,
+  not floating `NSPanel`s that hide when the app is inactive. **The QSO panel becomes a normal
   window** (decided 2026-10-31).
 - Settings that apply app-wide belong in Settings; settings of what is in view belong in an
   inspector; a quick one-off choice belongs in a popover.
@@ -96,7 +96,7 @@ One table describes every operating panel and pane:
 PanelSpec
   id            "newqso", "logtable", "map", "spots", "contactmap", "qsodetails", "map.sidebar"…
   kind          operating panel | pane
-  title         "New QSO"            (translated; menu titles "Show New QSO" / "Hide New QSO")
+  title         "QSO"                (translated; menu titles "Show QSO" / "Hide QSO")
   symbol        "square.and.pencil"  (toolbar and menu image)
   hosts         console frame, window; or the panel it belongs to (panes)
   size          least and ideal, for frames and windows
@@ -126,7 +126,7 @@ Arrangement (version 1)
   sizes       divider positions by node
 ```
 
-- **Stacks (tabs)**: a frame can hold several panels as tabs: the Map with its Map Style
+- **Stacks (tabs)**: a frame can hold several panels as tabs: the Map with its Map Appearance
   panel, say, or Settings sections beside a panel. A panel moves between stacks by dragging
   its tab (or its frame header, as today's swap). A stack of one shows no tab bar.
 - It lives in the core (`src/core/adif_layout`) as plain data with parse, write, validate and
@@ -225,9 +225,9 @@ A small set of **tokens**, defined once (`src/plugin/Theme.{h,mm}`), used by eve
 | Content | Today | Proposed home | Why |
 |---|---|---|---|
 | Map → Settings card | A card in the Map's selected panel | Settings window sections (Map data, spot sources, park data) | App-wide preferences |
-| Map → Style Options | A card in the selected panel | A **Map Style** panel (decided 2026-10-31), stackable with the Map as a tab | Settings of what's in view |
+| Map → Style Options | A card in the selected panel | A **Map Appearance** panel (decided 2026-10-31), stackable with the Map as a tab | Settings of what's in view |
 | Spots → Sources and Filters popover | Popover from the Map's sidebar | Stays a popover; its settings also in Settings | Quick choice next to its control |
-| Operating Aids | A strip in New QSO | Stays in New QSO, and available as a panel of its own | Some will want it beside the map |
+| Operating Aids | A strip in the QSO panel | Stays in the QSO panel, and available as a panel of its own | Some will want it beside the map |
 
 Each move is a registry entry and a view controller; the controller doesn't change hosts' code.
 
@@ -268,7 +268,7 @@ alone doesn't express); panes inside a panel may use `NSSplitViewItem` where it 
 
 - **Phase A** (2026-10-31): `src/core/adif_layout` with `testLayouts`.
 - **Phase B, first part** (2026-10-31): the registry and controller (`src/plugin/Panels`), the
-  Panels menu with Show/Hide titles, the Map's panel buttons through it, New QSO a normal window.
+  Panels menu with Show/Hide titles, the Map's panel buttons through it, the QSO panel a normal window.
 - **Phase B, second part** (2026-10-31): the Operating Console is built from the arrangement
   (`consoleLayout`, with `consoleLayoutPreset`; the settings before it migrated once): a split
   view per row or column, a frame per stack, tabs in the header when a stack holds more than
@@ -305,21 +305,21 @@ alone doesn't express); panes inside a panel may use `NSSplitViewItem` where it 
   before). The older call sites followed (2026-11-01): statuses use `fine`, `warning`, `error`
   and `severity`; secondary text `faint` and `fainter` (160 places); a reason's mark and colour
   `interestSymbol` and `markColour`, so the Map and QSO Details agree. Colours that name a kind
-  of thing rather than a state (the map's markers, its badges, the Contact Map's drawing) keep
+  of thing rather than a state (the map's markers, its badges, the Static Map's drawing) keep
   their own.
-- **After Phase F** (2026-11-01): **Settings sections as panels**: Spot Sources (`spotsources`,
+- **After Phase F** (2026-11-01): **Settings sections as panels**: Spot Configuration (`spotsources`,
   Settings' Spots) and Your Station (`station`), normal windows that dock. Opened, the
   section's controls move into the panel (`ADIFSettingsPanel takeSection:`), and Settings says
   where they are; closed, `returnSection:` puts them back. Another section is one entry in
   `gSectionPanels` and the registry.
 - **After Phase F** (2026-11-01): **Operating Aids** is also a panel (registry id `aids`, dock
-  item `kDockAids`; section 8): the strip is one view class, `ADIFAidsView`, that New QSO and the
+  item `kDockAids`; section 8): the strip is one view class, `ADIFAidsView`, that the QSO panel and the Operating Aids
   panel both use, and ADIFLint.mm fills whichever shows.
 - **After Phase F** (2026-11-01): the Log Table and Activations & Spots are normal windows
   (`ADIFToolWindow initWithTitle:size:headline:normal:`), as section 1's rule for typing-heavy
   panels has it; the task windows stay floating panels.
 - **Phase F** (2026-11-01): Settings is a window of its own (`settings.window`, "ADIF Lint
-  Settings"), no longer a card in the Map; Settings... no longer opens the Map. **Map Style** (the
+  Settings"), no longer a card in the Map; Settings... no longer opens the Map. **Map Appearance** (the
   Style Options card) is an operating panel: registry id `mapstyle`, dock item `kDockMapStyle`,
   an `ADIFDockPanel` made with the Map, opened by the Map's palette button and the Panels menu,
   dockable as a tab beside the Map. Not yet: Settings' sections as panels of their own, and
@@ -340,11 +340,11 @@ alone doesn't express); panes inside a panel may use `NSSplitViewItem` where it 
   rebuild (`fitFrames`: those short of it grown from the others' room, the window grown first
   if it must), not only when the tree's shape changes, so a panel chosen into a small frame
   gets the room it needs; the fitted sizes aren't saved as shares.
-- **After Phase G** (2026-11-01): New QSO keeps to logging. Its clocks are the **Clocks** panel
+- **After Phase G** (2026-11-01): The QSO panel keeps to logging. Its clocks are the **Clocks** panel
   (`src/plugin/Clocks.{h,mm}`, registry id `clocks`, dock item `kDockClocks`; the zones chosen
   kept as `clockZones`), Operating Aids are only ever their panel (the Social, Chasing and
-  Portable layouts hold it under New QSO; In Its Own Panel is gone), and the lookup's facts are
-  QSO Details' (New QSO links to it). The Aids and Clocks panels have buttons in the Map's
+  Portable layouts hold it under the QSO panel; In Its Own Panel is gone), and the lookup's facts are
+  QSO Details' (the QSO panel links to it). The Aids and Clocks panels have buttons in the Map's
   toolbar (`mapToolbar` in the registry).
 
 ## Plan
@@ -366,11 +366,11 @@ Made 2026-10-31:
 
 1. **Styles arrange the panels by default**, with a setting to turn it off and "keep my layout"
    per style.
-2. **New QSO is a normal window** when it isn't in the console.
+2. **The QSO panel is a normal window** when it isn't in the console.
 3. **Tabs (stacked panels) are in scope now**: a console frame can hold several panels as tabs,
-   first for the Map Style panel and Settings sections. Phase A's arrangement includes stacks;
+   first for the Map Appearance panel and Settings sections. Phase A's arrangement includes stacks;
    Phase B's console frame host shows a tab bar when a stack holds more than one panel.
-4. **A Map Style panel** replaces the Style Options card.
+4. **A Map Appearance panel** replaces the Style Options card.
 
 5. **Toolbar order follows Apple's**: the sidebar button at the far left, the panel buttons at
    the right, the list and selected-panel (inspector) buttons at the far right.

@@ -1,10 +1,11 @@
-// Mutation fuzz and worst-case timing for the ADI validator.
+// Mutation fuzz and worst-case timing for the ADI and ADX validators.
 //
 // Build with -fsanitize=address,undefined. Every input is untrusted text from
 // the editor, so lint() must never crash, must return in-bounds ranges and
 // non-overlapping fixes, and must stay near-linear on hostile inputs.
 //
-//   fuzz_smoke SEED_FILE [ITERATIONS]
+//   fuzz_smoke SEED_FILE [ITERATIONS [ADX_SEED_FILE]]
+#include "adif_adx.h"
 #include "adif_capture.h"
 #include "adif_qsl.h"
 #include "adif_country.h"
@@ -208,17 +209,53 @@ static void checkModel(const std::string &text, const LintResult &r, std::mt1993
     }
 }
 
-static double lintMs(const std::string &text, LintOptions opt = {}) {
+static double lintMs(const std::string &text, LintOptions opt = {}, bool adx = false) {
     auto t0 = std::chrono::steady_clock::now();
-    LintResult r = lint(text, opt);
+    LintResult r = adx ? lintAdx(text, opt) : lint(text, opt);
     double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
     checkInvariants(text, r, "timing input");
     return ms;
 }
 
+// ADX is XML from anywhere: libxml2 reads it, so every mutation must come back with
+// in-bounds ranges, no length fixes, and no time to speak of.
+static void fuzzAdx(const std::string &official, int iterations, std::mt19937 &rng) {
+    size_t cut = 0;
+    for (int n = 0; n < 60 && cut != std::string::npos; ++n) cut = official.find("</RECORD>", cut + 1);
+    std::string seed = official.substr(0, cut == std::string::npos ? official.size() : cut + 9) + "\n</RECORDS>\n</ADX>\n";
+    static const char kAlphabet[] = "<>/&;=\"' ![]-?xADXRECOHUSFPL0123456789\xC3\xA9\x80\r\n";
+    static const char *const kPieces[] = {"<!DOCTYPE ADX [<!ENTITY e \"x\">]>", "&e;", "&amp;", "&#233;", "&#0;", "<![CDATA[", "]]>", "<!--", "-->",
+                                          "<?pi x?>", " xmlns=\"u\"", " xmlns:a=\"u\"", "<a:CALL>", "</RECORD>", "<RECORD>", "<HEADER>",
+                                          "<USERDEF FIELDNAME=\"X\">", "<USERDEF FIELDID=\"1\" TYPE=\"N\" ENUM=\"{A}\" RANGE=\"{1:2}\">X</USERDEF>",
+                                          "<APP PROGRAMID=\"P\" FIELDNAME=\"F\" TYPE=\"N\">", "</APP>", "<BAND>99m</BAND>", "<AGE/>"};
+    for (int i = 0; i < iterations; ++i) {
+        std::string t = seed;
+        int edits = 1 + (int)(rng() % 12);
+        for (int k = 0; k < edits && !t.empty(); ++k) {
+            size_t at = rng() % t.size();
+            switch (rng() % 5) {
+                case 0: t[at] = kAlphabet[rng() % (sizeof kAlphabet - 1)]; break;
+                case 1: t.insert(at, kPieces[rng() % (sizeof kPieces / sizeof kPieces[0])]); break;
+                case 2: t.erase(at, 1 + rng() % 12); break;
+                case 3: t.insert(at, 1, kAlphabet[rng() % (sizeof kAlphabet - 1)]); break;
+                case 4:
+                    if (rng() % 8 == 0) t = t.substr(0, at);  // truncation, now and then
+                    break;
+            }
+        }
+        LintResult r = lintAdx(t);
+        checkInvariants(t, r, "ADX mutation");
+        if (!r.fixes.empty()) {
+            std::printf("FAIL ADX mutation: length fixes\n");
+            ++gFailures;
+        }
+        if (gFailures) break;
+    }
+}
+
 int main(int argc, char **argv) {
     if (argc < 2) {
-        std::fprintf(stderr, "usage: fuzz_smoke SEED_FILE [ITERATIONS]\n");
+        std::fprintf(stderr, "usage: fuzz_smoke SEED_FILE [ITERATIONS [ADX_SEED_FILE]]\n");
         return 2;
     }
     std::ifstream in(argv[1], std::ios::binary);
@@ -814,6 +851,38 @@ int main(int argc, char **argv) {
         if (ms > limitMs) {
             std::printf("FAIL %s: %.0f ms is too slow\n", c.name, ms);
             ++gFailures;
+        }
+    }
+
+    if (argc > 3) {
+        std::ifstream adxIn(argv[3], std::ios::binary);
+        std::ostringstream adxText;
+        adxText << adxIn.rdbuf();
+        fuzzAdx(adxText.str(), iterations, rng);
+        // Entities must never expand: §IV.B.1 allows none, and ADIF Lint never asks libxml2 to.
+        std::string bomb = "<?xml version=\"1.0\"?>\n<!DOCTYPE ADX [<!ENTITY a \"aaaaaaaaaa\">";
+        for (char c = 'b'; c <= 'j'; ++c) {
+            bomb += std::string("<!ENTITY ") + c + " \"";
+            for (int k = 0; k < 10; ++k) bomb += std::string("&") + char(c - 1) + ";";
+            bomb += "\">";
+        }
+        bomb += "]>\n<ADX><HEADER/><RECORDS><RECORD><COMMENT>&j;</COMMENT><APP PROGRAMID=\"&j;\" FIELDNAME=\"X\">1</APP></RECORD></RECORDS></ADX>\n";
+        std::string records = "<?xml version=\"1.0\"?>\n<ADX><HEADER><ADIF_VER>3.1.8</ADIF_VER></HEADER><RECORDS>\n";
+        while (records.size() < big) records += "<RECORD><CALL>W1AW</CALL><BAND>99m</BAND><AGE>x</AGE></RECORD>\n";
+        records += "</RECORDS></ADX>\n";
+        Case adxCases[] = {
+            {"ADX entity bomb", bomb, {}},
+            {"ADX deep nesting", "<?xml version=\"1.0\"?>" + [&] { std::string s; for (int k = 0; k < 100000; ++k) s += "<A>"; return s; }(), {}},
+            {"ADX diagnostic flood", records, {}},
+            {"ADX one huge value", "<?xml version=\"1.0\"?><ADX><HEADER/><RECORDS><RECORD><NOTES>" + std::string(big, 'a') + "</NOTES></RECORD></RECORDS></ADX>", {}},
+        };
+        for (Case &c : adxCases) {
+            double ms = lintMs(c.text, c.opt, true);
+            std::printf("%-26s %6.1f ms\n", c.name, ms);
+            if (ms > limitMs) {
+                std::printf("FAIL %s: %.0f ms is too slow\n", c.name, ms);
+                ++gFailures;
+            }
         }
     }
 

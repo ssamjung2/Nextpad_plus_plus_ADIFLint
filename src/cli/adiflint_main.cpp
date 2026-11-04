@@ -1,5 +1,5 @@
-// adiflint — check ADIF .adi files from the command line with the same rules
-// as the Nextpad++ plugin.
+// adiflint — check ADIF .adi and .adx files from the command line with the same
+// rules as the Nextpad++ plugin.
 //
 //   adiflint [--adif VERSION] [--chars] [--quiet] [--fix OUT] [--reformat records|fields OUT] FILE...
 //   adiflint [--sort OUT | --sort-by KEYS OUT | --field-order FIELDS OUT | --dedupe OUT
@@ -8,7 +8,10 @@
 //
 // Prints FILE:LINE:COLUMN: severity: message for each problem. Exit status is
 // 1 when any file has errors, 2 on a usage or I/O failure, 0 otherwise. The
-// log tools write a new file and never change FILE.
+// log tools write a new file and never change FILE. An ADX file (.adx, or XML
+// whatever its name) is checked against its version's published schemas as well
+// as ADIF Lint's rules; the tools work on ADI only.
+#include "adif_adx.h"
 #include "adif_edit.h"
 #include "adif_formats.h"
 #include "adif_lint.h"
@@ -32,7 +35,8 @@ namespace {
 void usage() {
     std::fprintf(stderr,
                  "usage: adiflint [--adif VERSION] [--chars] [--quiet] [--fix OUT] [--reformat records|fields OUT] FILE...\n"
-                 "  --adif VERSION  check against an older ADIF version, 3.0.2 to %s (and write it as ADIF_VER)\n"
+                 "  --adif VERSION  check against an older ADIF version, 3.0.2 to %s (and write it as ADIF_VER);\n"
+                 "                  --adif file: each file against the version its ADIF_VER declares\n"
                  "  --chars     data lengths count UTF-8 characters, not bytes\n"
                  "  --quiet     errors only\n"
                  "  --fix OUT   write FILE with corrected data lengths to OUT (one FILE only)\n"
@@ -57,7 +61,8 @@ void usage() {
                  "                       one upload file per park (reference, summit) and UTC day into DIR\n"
                  "                       (--call CALL for records without STATION_CALLSIGN or OPERATOR)\n"
                  "  --from-csv OUT       FILE is a CSV file: write it as an ADIF log to OUT\n"
-                 "Checks against ADIF %s (%s) unless --adif says otherwise.\n",
+                 "Checks against ADIF %s (%s) unless --adif says otherwise. An ADX file (.adx, or any XML) is\n"
+                 "also checked against the schemas published for that version.\n",
                  adif::specVersion(), adif::specVersion(), adif::specDate());
 }
 
@@ -81,6 +86,11 @@ std::string utcNow(const char *format) {
     return buf;
 }
 
+bool isAdxPath(const std::string &path) {
+    size_t dot = path.find_last_of('.');
+    return dot != std::string::npos && path.find('/', dot) == std::string::npos && adif::equalsNoCase(path.substr(dot + 1), "adx");
+}
+
 bool readFile(const char *path, std::string *out) {
     std::ifstream in(path, std::ios::binary);
     if (!in) return false;
@@ -100,7 +110,10 @@ int main(int argc, char **argv) {
     adif::Layout layout = adif::Layout::RecordPerLine;
     std::vector<const char *> files;
     for (int i = 1; i < argc; ++i) {
-        if (!std::strcmp(argv[i], "--adif") && i + 1 < argc) {
+        if (!std::strcmp(argv[i], "--adif") && i + 1 < argc && !std::strcmp(argv[i + 1], "file")) {
+            opt.fileVersion = true;  // each file against the version it declares
+            ++i;
+        } else if (!std::strcmp(argv[i], "--adif") && i + 1 < argc) {
             size_t v = adif::findSpecVersion(argv[++i]);
             if (v == SIZE_MAX) {
                 std::fprintf(stderr, "adiflint: ADIF %s is not a version this build knows (3.0.2 to %s)\n", argv[i], adif::specVersion());
@@ -173,8 +186,13 @@ int main(int argc, char **argv) {
             std::fprintf(stderr, "adiflint: cannot read %s\n", path);
             return 2;
         }
+        bool adx = isAdxPath(path) || adif::isAdx(text);
+        if (adx && (fixOut || reformatOut || !tool.empty())) {
+            std::fprintf(stderr, "adiflint: %s is an ADX file; the log tools and fixes work on ADI files\n", path);
+            return 2;
+        }
         opt.buildModel = reformatOut != nullptr || !tool.empty();
-        adif::LintResult r = adif::lint(text, opt);
+        adif::LintResult r = adx ? adif::lintAdx(text, opt) : adif::lint(text, opt);
 
         // Byte offset -> 1-based line and column (column in bytes).
         size_t line = 1, lineStart = 0, scanned = 0;
@@ -188,9 +206,18 @@ int main(int argc, char **argv) {
             std::printf("%s:%zu:%zu: %s: %s%s%s%s\n", path, line, d.start - lineStart + 1, adif::severityName(d.severity),
                         d.message.c_str(), d.code.empty() ? "" : " [", d.code.c_str(), d.code.empty() ? "" : "]");
         }
-        std::fprintf(stderr, "%s: %zu record(s), %zu error(s), %zu warning(s), %zu note(s)%s; %zu length fix(es) available\n",
-                     path, r.records, r.errors, r.warnings, r.infos, r.truncated ? " (list truncated)" : "",
-                     r.fixes.size());
+        if (adx) {
+            // The two checks apart: the published schemas (and the XML), then ADIF Lint's own rules.
+            std::string schemas = r.schemaVersion.empty() ? std::string("not read as XML") : "ADIF " + r.schemaVersion + " schemas";
+            std::fprintf(stderr, "%s: ADX, %zu record(s) (ADIF %s); %s: %zu error(s), %zu warning(s), %zu note(s); ADIF Lint: %zu error(s), "
+                                 "%zu warning(s), %zu note(s)%s\n",
+                         path, r.records, r.checkedVersion.c_str(), schemas.c_str(), r.schemaErrors, r.schemaWarnings, r.schemaInfos, r.errors - r.schemaErrors,
+                         r.warnings - r.schemaWarnings, r.infos - r.schemaInfos, r.truncated ? " (list truncated)" : "");
+        } else {
+            std::fprintf(stderr, "%s: %zu record(s) (ADIF %s), %zu error(s), %zu warning(s), %zu note(s)%s; %zu length fix(es) available\n",
+                         path, r.records, r.checkedVersion.c_str(), r.errors, r.warnings, r.infos, r.truncated ? " (list truncated)" : "",
+                         r.fixes.size());
+        }
         if (r.errors) status = 1;
 
         if (!tool.empty()) {

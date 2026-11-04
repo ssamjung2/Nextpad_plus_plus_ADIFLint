@@ -25,38 +25,134 @@ static NSColor *severityColor(int severity) { return severity < 0 ? theme::faint
 
 // ── The Operating Aids strip (New QSO's, and the Operating Aids panel's) ──
 
+// A line of Operating Aids as a message bubble (the Cards layout): rounded, with a tail at its foot
+// on the side it comes from: the aids' on the left (what they tell you), yours on the right (what
+// you say or send). Drawn, not a layer's, so a snapshot of the panel has it as the screen does.
+@interface ADIFAidBubble : NSView
+- (instancetype)initWithContent:(NSView *)content fill:(NSColor *)fill outgoing:(BOOL)outgoing;
+@end
+
+static const CGFloat kAidTail = 6;  // the tail's width beside the bubble
+
+@implementation ADIFAidBubble {
+    NSColor *_fill;
+    BOOL _outgoing;
+}
+- (instancetype)initWithContent:(NSView *)content fill:(NSColor *)fill outgoing:(BOOL)outgoing {
+    if (!(self = [super initWithFrame:NSZeroRect])) return nil;
+    self.translatesAutoresizingMaskIntoConstraints = NO;
+    _fill = fill;
+    _outgoing = outgoing;
+    content.translatesAutoresizingMaskIntoConstraints = NO;
+    [self addSubview:content];
+    [NSLayoutConstraint activateConstraints:@[
+        [content.topAnchor constraintEqualToAnchor:self.topAnchor constant:6],
+        [content.bottomAnchor constraintEqualToAnchor:self.bottomAnchor constant:-7],
+        [content.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:outgoing ? 11 : 11 + kAidTail],
+        [content.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:outgoing ? -(11 + kAidTail) : -11],
+    ]];
+    return self;
+}
+- (void)drawRect:(NSRect)dirty {
+    NSRect body = self.bounds;
+    body.size.width -= kAidTail;
+    if (!_outgoing) body.origin.x += kAidTail;
+    CGFloat r = std::min<CGFloat>(14, NSHeight(body) / 2);
+    NSBezierPath *bubble = [NSBezierPath bezierPathWithRoundedRect:body xRadius:r yRadius:r];
+    // The tail: from the side, near the foot, curving out to a point level with the foot.
+    CGFloat side = _outgoing ? NSMaxX(body) : NSMinX(body), out = _outgoing ? 1 : -1, y = NSMinY(body);
+    NSBezierPath *tail = [NSBezierPath bezierPath];
+    [tail moveToPoint:NSMakePoint(side, y + std::min<CGFloat>(14, NSHeight(body) - 2))];
+    [tail curveToPoint:NSMakePoint(side + out * kAidTail, y) controlPoint1:NSMakePoint(side, y + 4) controlPoint2:NSMakePoint(side + out * kAidTail * 0.5, y)];
+    [tail curveToPoint:NSMakePoint(side - out * 10, y + 1) controlPoint1:NSMakePoint(side + out * 1, y) controlPoint2:NSMakePoint(side - out * 4, y)];
+    [tail closePath];
+    // One fill for both, through a transparency layer: a translucent colour isn't doubled where they meet.
+    CGContextRef cg = NSGraphicsContext.currentContext.CGContext;
+    NSColor *fill = [_fill colorUsingColorSpace:NSColorSpace.sRGBColorSpace] ?: _fill;
+    CGContextSetAlpha(cg, fill.alphaComponent);
+    CGContextBeginTransparencyLayer(cg, NULL);
+    [[fill colorWithAlphaComponent:1] setFill];
+    [bubble fill];
+    [tail fill];
+    CGContextEndTransparencyLayer(cg);
+}
+@end
+
 @implementation ADIFAidsView {
-    NSString *_prefix;  // its controls' names: <prefix>.title, .menu, .row.N, .note.N, .skip.N...
+    NSString *_prefix;  // its controls' names: <prefix>.title, .row.N, .note.N, .skip.N...
+    NSTextField *_head;
+    NSMutableArray<NSTextField *> *_bubbleText;  // the bubbles' text: wraps at most of the view's width
 }
 
 - (instancetype)initWithPrefix:(NSString *)prefix {
     if (!(self = [super initWithFrame:NSZeroRect])) return nil;
     _prefix = [prefix copy];
+    _bubbleText = [NSMutableArray array];
     self.orientation = NSUserInterfaceLayoutOrientationVertical;
     self.alignment = NSLayoutAttributeLeading;
-    self.spacing = 3;
+    self.spacing = 8;
     self.identifier = prefix;
     self.translatesAutoresizingMaskIntoConstraints = NO;
     return self;
 }
 
+- (CGFloat)baseSize {
+    return _textSize >= 2 ? 16 : _textSize == 1 ? NSFont.systemFontSize : NSFont.smallSystemFontSize;
+}
+
+// The font chosen, at a size and weight: the system's, rounded, monospaced or serif.
+- (NSFont *)fontOfSize:(CGFloat)size weight:(NSFontWeight)weight {
+    NSFont *f = _fontFamily == 2 ? [NSFont monospacedSystemFontOfSize:size weight:weight] : [NSFont systemFontOfSize:size weight:weight];
+    NSFontDescriptorSystemDesign design = _fontFamily == 1 ? NSFontDescriptorSystemDesignRounded : _fontFamily == 3 ? NSFontDescriptorSystemDesignSerif : nil;
+    if (design)
+        if (NSFontDescriptor *d = [f.fontDescriptor fontDescriptorWithDesign:design]) f = [NSFont fontWithDescriptor:d size:size] ?: f;
+    return f;
+}
+
+// A bubble is at most this wide; its text wraps inside it.
+- (CGFloat)bubbleTextWidth {
+    CGFloat w = NSWidth(self.bounds) > 0 ? NSWidth(self.bounds) : 300;
+    return std::max<CGFloat>(80, std::floor(w * 0.85) - 22 - kAidTail - 24);  // its padding, tail and a symbol
+}
+
+- (void)setFrameSize:(NSSize)size {
+    BOOL wider = std::fabs(size.width - NSWidth(self.bounds)) >= 0.5;
+    [super setFrameSize:size];
+    if (!wider) return;
+    CGFloat w = self.bubbleTextWidth;
+    for (NSTextField *t in _bubbleText) {
+        t.preferredMaxLayoutWidth = w;
+        [t invalidateIntrinsicContentSize];
+    }
+}
+
 - (void)setTitle:(NSString *)title rows:(const std::vector<ADIFAidRow> &)rows menu:(NSMenu *)menu hidden:(BOOL)hidden {
     for (NSView *v in [self.arrangedSubviews copy]) [self removeView:v];
+    [_bubbleText removeAllObjects];
+    self.menu = menu;  // Control-click anywhere on the aids
+    const BOOL bubbles = _layoutStyle == 1, minimal = _layoutStyle == 2;
+    self.spacing = bubbles ? 6 : minimal ? 6 : 8;
     if (!title) return;
-    NSFont *small = theme::small();
-    auto symbolView = [](NSString *name, NSColor *tint) {
+    const CGFloat size = self.baseSize;
+    NSFont *plain = [self fontOfSize:size weight:NSFontWeightRegular], *italic = [[NSFontManager sharedFontManager] convertFont:plain toHaveTrait:NSItalicFontMask];
+    NSFont *caption = [self fontOfSize:std::max<CGFloat>(9, size - 1) weight:NSFontWeightSemibold];
+    NSColor *accent = _tint ?: theme::faint();  // symbols, headings, scripts' names
+    // Your bubbles: the tint, else the accent colour, with white or black text, whichever reads on it.
+    NSColor *mine = [(_tint ?: NSColor.controlAccentColor) colorUsingColorSpace:NSColorSpace.sRGBColorSpace] ?: NSColor.systemBlueColor;
+    CGFloat luminance = 0.2126 * mine.redComponent + 0.7152 * mine.greenComponent + 0.0722 * mine.blueComponent;
+    NSColor *onMine = luminance > 0.55 ? NSColor.blackColor : NSColor.whiteColor;
+    auto symbolView = [&](NSString *name, NSColor *tint) {
         NSImageView *i = [NSImageView imageViewWithImage:[NSImage imageWithSystemSymbolName:name accessibilityDescription:nil] ?: [[NSImage alloc] init]];
-        i.symbolConfiguration = [NSImageSymbolConfiguration configurationWithPointSize:NSFont.smallSystemFontSize weight:NSFontWeightRegular];
+        i.symbolConfiguration = [NSImageSymbolConfiguration configurationWithPointSize:size weight:NSFontWeightRegular];
         i.contentTintColor = tint;
         [i setContentHuggingPriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
         [i setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
         return i;
     };
-    auto link = [&](NSString *name, NSString *ident, NSString *tip, NSInteger row) {  // its action is in its identifier
-
+    auto link = [&](NSString *name, NSString *ident, NSString *tip, NSInteger row, NSFont *font) {  // its action is in its identifier
         NSButton *b = [NSButton buttonWithTitle:name target:self action:@selector(aidPressed:)];
         b.bordered = NO;
-        b.font = small;
+        b.font = font;
         b.contentTintColor = NSColor.linkColor;
         b.identifier = ident;
         b.toolTip = tip;
@@ -65,68 +161,160 @@ static NSColor *severityColor(int severity) { return severity < 0 ? theme::faint
         [b setContentHuggingPriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
         return b;
     };
-    // The title: what it is and for which style, its menu, Hide or Show.
-    NSTextField *head = [NSTextField labelWithString:title];
-    head.font = theme::small(NSFontWeightSemibold);
-    head.textColor = theme::faint();
-    head.lineBreakMode = NSLineBreakByTruncatingTail;
-    head.identifier = [_prefix stringByAppendingString:@".title"];
-    [head setContentCompressionResistancePriority:1 forOrientation:NSLayoutConstraintOrientationHorizontal];
-    NSMutableArray<NSView *> *top = [NSMutableArray arrayWithObjects:symbolView(@"text.bubble", theme::faint()), head, nil];
-    if (menu && !hidden) {
-        NSPopUpButton *m = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:YES];
-        m.bordered = NO;
-        m.controlSize = NSControlSizeSmall;
-        m.font = small;
-        NSMenuItem *face = [[NSMenuItem alloc] initWithTitle:T(@"Options") action:nil keyEquivalent:@""];
-        [menu insertItem:face atIndex:0];  // a pull-down's title
-        m.menu = menu;
-        m.identifier = [_prefix stringByAppendingString:@".menu"];
-        m.toolTip = T(@"Operating Aids: how many suggestions, when they change, which topics, and the prompts you dismissed");
-        m.accessibilityLabel = T(@"Operating Aids options");
-        [m setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
-        [top addObject:m];
-    }
-    [top addObject:hidden ? link(T(@"Show"), [_prefix stringByAppendingString:@".show"], T(@"Show Operating Aids again"), -1)
-                          : link(T(@"Hide"), [_prefix stringByAppendingString:@".hide"], T(@"Hide Operating Aids until ADIF Lint starts again (Options turns them off for good)"), -1)];
+    auto fullWidth = [&](NSView *v) {
+        [self addArrangedSubview:v];
+        [v.widthAnchor constraintEqualToAnchor:self.widthAnchor].active = YES;
+    };
+    // The title: what it is and for which style, Hide or Show. Its menu is the whole view's.
+    _head = [NSTextField labelWithString:title];
+    _head.font = [self fontOfSize:size weight:NSFontWeightSemibold];
+    _head.textColor = theme::faint();
+    _head.lineBreakMode = NSLineBreakByTruncatingTail;
+    _head.identifier = [_prefix stringByAppendingString:@".title"];
+    _head.toolTip = menu ? T(@"Control-click for Operating Aids' menu: suggestions, scripts, previous QSOs, text size and style") : nil;
+    [_head setContentCompressionResistancePriority:1 forOrientation:NSLayoutConstraintOrientationHorizontal];
+    NSMutableArray<NSView *> *top = [NSMutableArray array];
+    if (!minimal) [top addObject:symbolView(@"text.bubble", accent)];
+    [top addObject:_head];
+    [top addObject:hidden ? link(T(@"Show"), [_prefix stringByAppendingString:@".show"], T(@"Show Operating Aids again"), -1, plain)
+                          : link(T(@"Hide"), [_prefix stringByAppendingString:@".hide"],
+                                 T(@"Hide Operating Aids until ADIF Lint starts again (Suggestions at Once, in their menu, turns them off for good)"), -1, plain)];
     NSStackView *topRow = [NSStackView stackViewWithViews:top];
     topRow.spacing = 6;
     topRow.alignment = NSLayoutAttributeCenterY;
-    [self addArrangedSubview:topRow];
-    [topRow.widthAnchor constraintEqualToAnchor:self.widthAnchor].active = YES;
+    fullWidth(topRow);
     if (hidden) return;
+    NSRegularExpression *gap = [NSRegularExpression regularExpressionWithPattern:@"\\{[A-Z0-9_]+\\}" options:0 error:nil];
     NSInteger i = 0;
     for (const ADIFAidRow &r : rows) {
-        NSTextField *t = ADIFWrappingLabel();
-        t.stringValue = ADIFString(r.text);
-        t.font = r.suggestion ? [[NSFontManager sharedFontManager] convertFont:small toHaveTrait:NSItalicFontMask] : small;
-        t.textColor = r.suggestion ? theme::faint() : r.severity == 1 || r.severity == 2 ? theme::severity(r.severity) : NSColor.labelColor;
-        t.maximumNumberOfLines = 3;
-        t.toolTip = r.why.empty() ? nil : ADIFString(r.why);
-        t.identifier = [NSString stringWithFormat:@"%@.row.%ld", _prefix, (long)i];
-        t.accessibilityLabel = r.suggestion ? TF(@"Suggestion: {text}", @{@"text" : t.stringValue}) : nil;
-        [t setContentCompressionResistancePriority:1 forOrientation:NSLayoutConstraintOrientationHorizontal];
-        [t setContentHuggingPriority:1 forOrientation:NSLayoutConstraintOrientationHorizontal];
-        NSColor *tint = r.suggestion ? theme::faint()
-                                     : theme::severity(r.severity == 1 || r.severity == 2 ? r.severity : 3);
-        NSMutableArray<NSView *> *parts = [NSMutableArray arrayWithObjects:symbolView(r.symbol ?: (r.suggestion ? @"bubble.left" : @"circle.fill"), tint), t, nil];
+        const NSInteger row = i++;
+        auto named = [&](NSString *what) { return [NSString stringWithFormat:@"%@.%@.%ld", _prefix, what, (long)row]; };
+        const bool script = !r.title.empty();
+        // Minimal: only what to say or do (the scripts, the suggestions, Chasing's next), and warnings.
+        if (minimal && (r.heading || (!script && !r.suggestion && !r.next && r.severity != 2))) continue;
+        if (r.heading) {  // a group's heading: in the list, a line; among bubbles, a caption between them
+            NSTextField *h = [NSTextField labelWithString:ADIFString(r.text)];
+            h.font = caption;
+            h.textColor = bubbles ? theme::faint() : accent;
+            h.identifier = named(@"row");
+            h.toolTip = r.why.empty() ? nil : ADIFString(r.why);
+            NSView *before = self.arrangedSubviews.lastObject;
+            if (bubbles) {
+                h.alignment = NSTextAlignmentCenter;
+                h.lineBreakMode = NSLineBreakByTruncatingTail;
+                [h setContentCompressionResistancePriority:1 forOrientation:NSLayoutConstraintOrientationHorizontal];
+                fullWidth(h);
+                [self setCustomSpacing:4 afterView:h];
+            } else {
+                NSStackView *line = [NSStackView stackViewWithViews:@[ symbolView(r.symbol ?: @"list.bullet", accent), h ]];
+                line.spacing = 6;
+                line.alignment = NSLayoutAttributeCenterY;
+                [self addArrangedSubview:line];
+                [self setCustomSpacing:4 afterView:line];
+            }
+            if (before) [self setCustomSpacing:14 afterView:before];  // room above each group
+            continue;
+        }
+        // The links: a suggestion's Note, Skip and Dismiss; a script's Dismiss; Chasing's Next.
+        NSFont *linkFont = bubbles ? caption : plain;
+        NSMutableArray<NSView *> *links = [NSMutableArray array];
         if (r.suggestion) {
             if (r.note)
-                [parts addObject:link(T(@"Note"), [NSString stringWithFormat:@"%@.note.%ld", _prefix, (long)i],
-                                      T(@"Start a note on this topic in NOTES, for you to finish (nothing is sent anywhere)"), i)];
-            [parts addObject:link(T(@"Skip"), [NSString stringWithFormat:@"%@.skip.%ld", _prefix, (long)i], T(@"Another suggestion in its place"), i)];
-            [parts addObject:link(T(@"Dismiss"), [NSString stringWithFormat:@"%@.dismiss.%ld", _prefix, (long)i],
-                                  T(@"Don't suggest this again (Options brings dismissed suggestions back)"), i)];
+                [links addObject:link(T(@"Note"), named(@"note"), T(@"Start a note on this topic in NOTES, for you to finish (nothing is sent anywhere)"), row, linkFont)];
+            [links addObject:link(T(@"Skip"), named(@"skip"), T(@"Another suggestion in its place"), row, linkFont)];
+            [links addObject:link(T(@"Dismiss"), named(@"dismiss"), T(@"Don't suggest this again (the menu brings dismissed suggestions back)"), row, linkFont)];
         } else if (r.next) {
-            [parts addObject:link(T(@"Next"), [NSString stringWithFormat:@"%@.next.%ld", _prefix, (long)i],
-                                  T(@"Choose it on the map: the next opportunity (\u2318G in the Map)"), i)];
+            [links addObject:link(T(@"Next"), named(@"next"), T(@"Choose it on the map: the next opportunity (⌘G in the Map)"), row, linkFont)];
+        } else if (script) {
+            [links addObject:link(T(@"Dismiss"), named(@"dismiss"), T(@"Don't show this script (the menu's Scripts shows it again)"), row, linkFont)];
         }
+        // The words: a script's written out, a {VARIABLE} still in it marked as not known yet.
+        NSColor *textColour = bubbles && script ? onMine
+                              : r.suggestion    ? theme::faint()
+                              : r.severity == 1 || r.severity == 2 ? theme::severity(r.severity)
+                                                                    : NSColor.labelColor;
+        NSTextField *t = bubbles ? [NSTextField wrappingLabelWithString:@""] : ADIFWrappingLabel();
+        NSFont *font = r.suggestion ? italic : plain;
+        NSMutableAttributedString *s = [[NSMutableAttributedString alloc] initWithString:ADIFString(r.text)
+                                                                              attributes:@{NSFontAttributeName : font, NSForegroundColorAttributeName : textColour}];
+        if (script)
+            for (NSTextCheckingResult *m in [gap matchesInString:s.string options:0 range:NSMakeRange(0, s.length)]) {
+                if (bubbles) {  // bold and underlined: it reads on any bubble colour
+                    [s addAttribute:NSFontAttributeName value:[self fontOfSize:size weight:NSFontWeightBold] range:m.range];
+                    [s addAttribute:NSUnderlineStyleAttributeName value:@(NSUnderlineStyleSingle) range:m.range];
+                } else {
+                    [s addAttribute:NSForegroundColorAttributeName value:theme::warning() range:m.range];
+                }
+            }
+        t.attributedStringValue = s;
+        t.maximumNumberOfLines = script ? 0 : 3;
+        std::string tip = minimal && script ? r.title + (r.why.empty() ? "" : "\n" + r.why) : r.why;  // Minimal: a script's name in its tooltip
+        t.toolTip = tip.empty() ? nil : ADIFString(tip);
+        t.identifier = named(@"row");
+        t.accessibilityLabel = r.suggestion ? TF(@"Suggestion: {text}", @{@"text" : t.stringValue}) : script ? [NSString stringWithFormat:@"%@: %@", ADIFString(r.title), t.stringValue] : nil;
+        NSView *words = t;
+        if (script && !minimal) {  // its name over it
+            NSTextField *name = [NSTextField labelWithString:ADIFString(r.title)];
+            name.font = caption;
+            name.textColor = bubbles ? [onMine colorWithAlphaComponent:0.8] : accent;
+            name.identifier = named(@"name");
+            name.lineBreakMode = NSLineBreakByTruncatingTail;
+            [name setContentCompressionResistancePriority:1 forOrientation:NSLayoutConstraintOrientationHorizontal];
+            NSStackView *both = [NSStackView stackViewWithViews:@[ name, t ]];
+            both.orientation = NSUserInterfaceLayoutOrientationVertical;
+            both.alignment = NSLayoutAttributeLeading;
+            both.spacing = 2;
+            if (!bubbles) {  // as wide as the line lets it: the text wraps there
+                [both setContentHuggingPriority:1 forOrientation:NSLayoutConstraintOrientationHorizontal];
+                [both setHuggingPriority:1 forOrientation:NSLayoutConstraintOrientationHorizontal];
+                [both setContentCompressionResistancePriority:1 forOrientation:NSLayoutConstraintOrientationHorizontal];
+                [t.widthAnchor constraintEqualToAnchor:both.widthAnchor].active = YES;
+            }
+            words = both;
+        }
+        NSString *symbol = r.symbol ?: (r.suggestion ? @"bubble.left" : script ? @"text.quote" : @"circle.fill");
+        NSColor *symbolTint = r.suggestion ? theme::faint() : script ? accent : theme::severity(r.severity == 1 || r.severity == 2 ? r.severity : 3);
+        if (bubbles) {
+            // The bubble: yours (a script) on the right, in your colour; the aids' on the left, grey.
+            t.preferredMaxLayoutWidth = self.bubbleTextWidth;
+            [t setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+            [_bubbleText addObject:t];
+            NSView *inside = words;
+            if (!script) {
+                NSStackView *withSymbol = [NSStackView stackViewWithViews:@[ symbolView(symbol, symbolTint), words ]];
+                withSymbol.spacing = 6;
+                withSymbol.alignment = NSLayoutAttributeFirstBaseline;
+                inside = withSymbol;
+            }
+            ADIFAidBubble *bubble = [[ADIFAidBubble alloc] initWithContent:inside
+                                                                      fill:script ? mine : [NSColor.labelColor colorWithAlphaComponent:0.1]
+                                                                  outgoing:script];
+            NSMutableArray<NSView *> *parts = [NSMutableArray arrayWithObject:bubble];
+            if (links.count) {  // under it, small, as a message's status is
+                NSStackView *under = [NSStackView stackViewWithViews:links];
+                under.spacing = 10;
+                [parts addObject:under];
+            }
+            NSStackView *message = [NSStackView stackViewWithViews:parts];
+            message.orientation = NSUserInterfaceLayoutOrientationVertical;
+            message.alignment = script ? NSLayoutAttributeTrailing : NSLayoutAttributeLeading;
+            message.spacing = 2;
+            if (links.count) message.edgeInsets = NSEdgeInsetsMake(0, script ? 0 : kAidTail + 4, 0, script ? kAidTail + 4 : 0);
+            fullWidth(message);
+            [bubble.widthAnchor constraintLessThanOrEqualToAnchor:self.widthAnchor multiplier:0.85].active = YES;
+            continue;
+        }
+        [t setContentCompressionResistancePriority:1 forOrientation:NSLayoutConstraintOrientationHorizontal];
+        [t setContentHuggingPriority:1 forOrientation:NSLayoutConstraintOrientationHorizontal];
+        NSMutableArray<NSView *> *parts = [NSMutableArray array];
+        if (!minimal) [parts addObject:symbolView(symbol, symbolTint)];
+        [parts addObject:words];
+        [parts addObjectsFromArray:links];
         NSStackView *line = [NSStackView stackViewWithViews:parts];
         line.spacing = 6;
         line.alignment = NSLayoutAttributeFirstBaseline;
-        [self addArrangedSubview:line];
-        [line.widthAnchor constraintEqualToAnchor:self.widthAnchor].active = YES;
-        ++i;
+        for (NSUInteger k = 0; k + 1 < links.count; ++k) [line setCustomSpacing:10 afterView:links[k]];  // each link's own label is wider than it
+        fullWidth(line);
     }
 }
 
@@ -135,6 +323,13 @@ static NSColor *severityColor(int severity) { return severity < 0 ? theme::faint
     NSString *rest = [sender.identifier substringFromIndex:MIN(_prefix.length + 1, sender.identifier.length)];
     NSString *action = [rest componentsSeparatedByString:@"."].firstObject;
     if (self.onAid && action.length) self.onAid(action, sender.tag);
+}
+
+// VoiceOver's Show Menu: the aids' menu, under the title.
+- (BOOL)accessibilityPerformShowMenu {
+    if (!self.menu || !_head) return NO;
+    [self.menu popUpMenuPositioningItem:nil atLocation:NSMakePoint(0, NSHeight(_head.bounds) + 2) inView:_head];
+    return YES;
 }
 
 @end
@@ -177,7 +372,7 @@ static NSColor *severityColor(int severity) { return severity < 0 ? theme::faint
                                             backing:NSBackingStoreBuffered
                                               defer:YES];
     ((ADIFDockWindow *)_window).dockItem = kDockNewQso;
-    _window.title = T(@"New QSO");
+    _window.title = T(@"QSO");
     _window.releasedWhenClosed = NO;
     _window.tabbingMode = NSWindowTabbingModeDisallowed;
     _window.delegate = self;

@@ -769,6 +769,75 @@ void ADIFEqslUpload(NSString *agent, NSString *adiFile, NSString *fileName, void
 
 NSString *ADIFTqslPassword(void) { return ADIFHasSecret(ADIFSourceTqsl) ? savedSecret(ADIFSourceTqsl) : nil; }
 
+// One Keychain item per certificate callsign: the service names the use, the account the callsign.
+static NSString *const kTqslPassphraseService = @"ADIF Lint: TQSL certificate passphrase";
+
+static NSMutableDictionary<NSString *, NSString *> *fakePassphrases() {
+    static NSMutableDictionary *store;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ store = [NSMutableDictionary dictionary]; });
+    return store;
+}
+
+NSString *ADIFTqslPassphrase(NSString *call) {
+    call = call.uppercaseString;
+    if (!call.length) return nil;
+    if (ADIFLookupFakeMode()) return fakePassphrases()[call];
+    NSDictionary *query = @{
+        (__bridge id)kSecClass : (__bridge id)kSecClassGenericPassword,
+        (__bridge id)kSecAttrService : kTqslPassphraseService,
+        (__bridge id)kSecAttrAccount : call,
+        (__bridge id)kSecReturnData : @YES,
+        (__bridge id)kSecMatchLimit : (__bridge id)kSecMatchLimitOne,
+    };
+    CFTypeRef result = NULL;
+    if (SecItemCopyMatching((__bridge CFDictionaryRef)query, &result) != errSecSuccess || !result) return nil;
+    NSData *data = CFBridgingRelease(result);
+    NSString *s = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    return s.length ? s : nil;
+}
+
+BOOL ADIFForgetTqslPassphrase(NSString *call) {
+    call = call.uppercaseString;
+    if (ADIFLookupFakeMode()) {
+        [fakePassphrases() removeObjectForKey:call];
+        return YES;
+    }
+    NSDictionary *match = @{
+        (__bridge id)kSecClass : (__bridge id)kSecClassGenericPassword,
+        (__bridge id)kSecAttrService : kTqslPassphraseService,
+        (__bridge id)kSecAttrAccount : call,
+    };
+    OSStatus st = SecItemDelete((__bridge CFDictionaryRef)match);
+    return st == errSecSuccess || st == errSecItemNotFound;
+}
+
+BOOL ADIFSaveTqslPassphrase(NSString *call, NSString *passphrase, NSString **error) {
+    call = call.uppercaseString;
+    if (!call.length || !passphrase.length) {
+        if (error) *error = T(@"Choose a certificate and enter its passphrase.");
+        return NO;
+    }
+    if (ADIFLookupFakeMode()) {
+        fakePassphrases()[call] = passphrase;
+        return YES;
+    }
+    ADIFForgetTqslPassphrase(call);  // one passphrase per callsign
+    NSDictionary *item = @{
+        (__bridge id)kSecClass : (__bridge id)kSecClassGenericPassword,
+        (__bridge id)kSecAttrService : kTqslPassphraseService,
+        (__bridge id)kSecAttrAccount : call,
+        (__bridge id)kSecAttrLabel : [kTqslPassphraseService stringByAppendingFormat:@" (%@)", call],
+        (__bridge id)kSecValueData : [passphrase dataUsingEncoding:NSUTF8StringEncoding],
+    };
+    OSStatus st = SecItemAdd((__bridge CFDictionaryRef)item, NULL);
+    if (st != errSecSuccess && error) {
+        NSString *msg = CFBridgingRelease(SecCopyErrorMessageString(st, NULL));
+        *error = msg ?: [NSString stringWithFormat:T(@"Keychain error %d"), (int)st];
+    }
+    return st == errSecSuccess;
+}
+
 // ── Your QSOs from LoTW, QRZ.com Logbook and eQSL (Import) ──────────────────
 
 static NSString *fakeText(NSString *relative) {

@@ -377,7 +377,7 @@ static NSPasteboardType const kFramePasteboardType = @"org.nextpad.adiflint.fram
 - (void)showItems:(NSArray<NSNumber *> *)items front:(int)item title:(NSString *)title content:(NSView *)content {
     _items = [items copy] ?: @[];
     _item = item;
-    // The window's title less the frame's name: "Map — test.adi" shows "— test.adi" beside the menu.
+    // The window's title less the frame's name: "Interactive Map — test.adi" shows "— test.adi" beside the menu.
     NSString *name = itemName(item), *extra = title ?: @"";
     if ([extra hasPrefix:name]) extra = [[extra substringFromIndex:name.length] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
     _title.stringValue = extra;
@@ -1023,7 +1023,7 @@ void openAuxWindow(int item) {
         window.releasedWhenClosed = NO;
         window.contentMinSize = NSMakeSize(240, 160);
         window.dockItem = item;
-        window.title = item == kDockContactMap ? T(@"Contact Map") : T(@"QSO Details");
+        window.title = item == kDockContactMap ? T(@"Static Map") : T(@"QSO Details");
         window.contentView = item == kDockContactMap ? [[ADIFContactMapView alloc] initWithFrame:NSMakeRect(0, 0, 360, 250)]
                                                      : [[ADIFQsoDetailsView alloc] initWithFrame:NSMakeRect(0, 0, 360, 250)];
         [[NSNotificationCenter defaultCenter] addObserverForName:NSWindowWillCloseNotification  // closed (or its frame): the Map's button follows
@@ -2005,7 +2005,7 @@ void openAuxWindow(int item) {
 
 - (void)retitleMenu {
     if (_host) _host.title = T(@"Operating Console");
-    if (gContactMapWindow) gContactMapWindow.title = T(@"Contact Map");
+    if (gContactMapWindow) gContactMapWindow.title = T(@"Static Map");
     if (gQsoInfoWindow) gQsoInfoWindow.title = T(@"QSO Details");
     if (!_optionsMenuItem) return;
     _optionsMenuItem.title = T(@"Console Layout Options");

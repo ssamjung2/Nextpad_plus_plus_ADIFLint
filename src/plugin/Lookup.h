@@ -79,6 +79,11 @@ void ADIFFetchPotaSpots(NSString *agent, void (^done)(NSArray<NSDictionary *> *s
 void ADIFQrzLogbookInsert(NSString *agent, NSString *adi, BOOL replace, void (^done)(NSString *reply, NSString *error));
 // TQSL's certificate password, or nil (for tqsl -p).
 NSString *ADIFTqslPassword(void);
+// A callsign certificate's own passphrase (Station Profiles' TQSL Certificate), kept in the
+// Keychain by callsign, or nil. Upload to LoTW uses it before the one in Settings.
+NSString *ADIFTqslPassphrase(NSString *call);
+BOOL ADIFSaveTqslPassphrase(NSString *call, NSString *passphrase, NSString **error);
+BOOL ADIFForgetTqslPassphrase(NSString *call);
 
 // Club Log putlogs.php: the saved email, Application Password and API key; `status` is the HTTP code.
 void ADIFClubLogUpload(NSString *agent, NSString *callsign, NSString *adiFile, NSString *fileName,

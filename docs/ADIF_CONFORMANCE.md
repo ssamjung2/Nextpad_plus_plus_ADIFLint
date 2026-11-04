@@ -1,16 +1,41 @@
 # ADIF conformance
 
-What ADIF Lint checks, the source of each rule, and how conformance is verified. ADI and
-ADX are different serializations and use different validation sources: the ADI checks below
-are based on the ADIF specification and its exported tables; ADX documents are defined by
-the version-specific ADX XML Schema (XSD). Section numbers below are those of ADIF 3.1.7,
-which 3.1.8 keeps; "Resources" means the ADIF 3.1.7 Resources document.
+How ADIF Lint's rules were drawn from the ADIF specification, and how conformance is
+verified. The rules themselves, each with its section, the file formats it applies to and a
+case that breaks it, are in [RULES.md](RULES.md), generated from the rule catalogue. ADI and
+ADX are different serializations with different validation sources: the rules are based on
+the ADIF specification and its exported tables; ADX files are also checked against the XML
+Schemas published with each ADIF version (see [ADX](#adx)). Section numbers are those of
+ADIF 3.1.7, which 3.1.8 keeps; "Resources" means the ADIF 3.1.7 Resources document.
 
 ADIF 3.1.8 (2026-10-12) changed only enumeration values: submode JTTY (of MFSK), contest IDs
 SKCC-SKS, SKCC-SKSA, SKCC-SKSE and SKCC-WES, and WAE for European Turkey's region (its section
 1.F). The tables are now generated from 3.1.8's export, so the rules below hold as verified,
-with 3.1.8's values. Checks against an older version (Settings, `--adif`) use what that
-version's specification holds, read as `spec/adif-history.md` describes.
+with 3.1.8's values. Checks against an older version (Settings, Check Log, `--adif`) use
+what that version's specification holds, read as `spec/adif-history.md` describes; so do
+checks against the version each file declares (`--adif file`).
+
+## The rule catalogue and the conformance tests (2026-11-02)
+
+The specification's normative text (sections I to IV, and the tables of III.A, III.B and
+III.C) was read for statements a file can break, and each became a rule in
+`src/core/adif_rules.cpp`: a code, the section, the formats (ADI, ADX or both), the
+severity, and what a conforming file does. What the specification says that no file can be
+checked for is listed there too, with the reason (RULES.md, "What ADIF Lint does not check").
+
+- **Every finding names its rule.** The checks cannot report without a code: it is a
+  required argument of every diagnostic in `adif_lint.cpp`, so the compiler rejects one
+  without, and `conformance_tests` fails on a code the catalogue lacks.
+- **Every rule is broken and kept.** `tests/conformance/rules.cases` holds, for each rule
+  and each format it applies to, a case that breaks it and one that keeps it (233 cases for
+  97 rules). A case is written once, as fields with their lengths left out, and built as an
+  ADI file, an ADX file or both, so ADI and ADX are held to the same rules; it can name the
+  ADIF version to check against, or the file's own.
+- **The documentation is made from them.** `docs/RULES.md` is generated from the
+  catalogue and the cases, and the `conformance` test fails when it is out of date.
+
+Three rules have no case, as no file can break them: the Character and Digit data types
+(no field or type indicator has them) and ADIF Lint's own failure to read the XML.
 
 ## Sources
 
@@ -18,40 +43,12 @@ version's specification holds, read as `spec/adif-history.md` describes.
 |---|---|---|
 | ADIF 3.1.7 specification (released 2026-03-22), the rules' text | <https://www.adif.org/317/ADIF_317.htm> (SHA-256 `b7667032…c5c97`) | 2026-10-10 |
 | ADIF 3.1.8 specification (released 2026-10-12) | `spec/adif-3.1.8/ADIF_318.htm`, from <https://adif.org.uk/318/ADIF_318.htm> | 2026-10-26: SHA-256 `9d130f55…7fe6`; adif.org lists 3.1.8 as current |
-| ADX 3.1.8 XML Schema (schema version 3.1.8.0) | <https://www.adif.org/318/adx318.xsd> | 2026-10-30: SHA-256 `306f9bc6…1d812c`; schema annotation dated 2026-09-26 |
+| ADX XML Schemas, 3.0.3 to 3.1.8, export and generic (32 files; 3.1.8's are schema version 3.1.8.0, dated 2026-09-26) | `spec/adx/`, from `https://www.adif.org/NNN/adxNNN.xsd` and `adxNNNgeneric.xsd` (each URL and SHA-256 in `spec/adx/SOURCE.md`) | 2026-11-01: `tools/gen_adx_schemas.py` checks every hash; 3.0.2 and earlier publish none (404) |
 | Exported tables (`all.json`) | `spec/adif-3.1.8/all.json`, from <https://adif.org.uk/318/ADIF_318_resources_2026_10_12.zip> | 2026-10-26: `tools/gen_spec_tables.py` regenerates `src/core/adif_spec_tables.cpp` byte for byte |
 | ADIF 3.0.2 to 3.1.8, what each holds | `spec/adif-history.json`, from each version's specification (`spec/adif-history.md`) | 2026-10-26: the reader matches the 3.1.5 to 3.1.8 exports |
 | ADIF 3.1.7 Resources (implementation notes) | <https://adif.org.uk/317/ADIF_317_resources.htm> (the spec's relative link 404s on adif.org) | 2026-10-10 |
 | Official test QSOs | `tests/fixtures/ADIF_318_test_QSOs_2026_10_12.adi` (6,202 QSOs, every field and value) | lints with 0 errors and 0 warnings |
-
-For ADX, use the XSD published for the document's ADIF specification version. The schema
-version may have an extra component: ADIF 3.1.8 uses schema version 3.1.8.0. Do not infer
-that a schema version label is itself the ADIF `ADIF_VER` value. Since `ADIF_VER` is
-optional in the 3.1.8 schema, a validator that selects a schema automatically must require
-an explicit version choice when the document does not identify one; it should not silently
-validate against the newest version.
-
-The 3.1.8 XSD describes the ADX structure and the field types, patterns, ranges, and
-enumerations that can be represented in XML Schema 1.0. It is specifically an export
-schema and disallows deprecated features. For importing an ADX document when its ADIF
-version is not known in advance, the schema documentation points to the corresponding
-generic schema, which permits deprecated features. Follow the schema published for each
-specification version rather than applying the newest XSD to every ADX document.
-
-The schema is not a complete substitute for every ADIF rule. Its own annotation documents
-XML Schema 1.0 limitations and omitted checks. For 3.1.8, examples include not checking
-duplicate fields across data specifiers; not validating some long administrative-subdivision
-enumerations and user-defined field relationships; and treating CONTEST_ID, SUBMODE, and
-some externally maintained county codes as advisory or out of scope. Any ADX validator
-should report its XSD result separately from additional semantic or service-specific checks.
-
-ADX schema reference in this document does not mean ADIF Lint currently parses or validates
-ADX files. The plugin and CLI currently validate ADI; schema-based ADX support would be a
-separate implementation change.
-
-The 3.1.8 XSD source and its documented scope were checked on 2026-10-30 (SHA-256 recorded
-above). This verifies the reference used here, not an ADIF Lint ADX validator or a corpus of
-ADX files.
+| Official test QSOs, ADX | `tests/fixtures/ADIF_318_test_QSOs_2026_10_12.adx`, from the same archive (SHA-256 in `spec/adx/SOURCE.md`) | 0 errors and 0 warnings, from the schemas and from ADIF Lint's rules |
 
 ## How ADI rules were verified (2026-10-10)
 
@@ -67,56 +64,12 @@ ADX files.
 
 ## Rules
 
-| Rule | Section | Severity |
-|---|---|---|
-| `<F:L:T>` syntax: name, unsigned decimal length, one-letter type indicator, all case-insensitive | IV.A.1 | error |
-| Data length matches the data (too short, too long, past the end) | IV.A.1 | error, Fix Lengths |
-| Leading zeros in a length are import-only | IV.A.1, Resources III.B | warning, Fix Lengths |
-| A header starts with any character but `<` and ends with `<EOH>`; one header, before the records | IV.A.2, IV.A.3 | error / warning |
-| Every record ends with `<EOR>`; an empty record | IV.A.6 | error / warning |
-| A file has one or more records (*added 2026-10-10*) | IV.A.2 | note |
-| No field twice in a header or a record | III.C.1.a, III.C.1.b | error |
-| An empty value takes the field's default | III.C.1.b | (not reported) |
-| Unknown field; header field in a record and the reverse; import-only fields (GUEST_OP, VE_PROV) | III.C, II.B | warning |
-| `_INTL` fields (IntlString, IntlMultilineString) cannot be used in ADI | IV.A.1 | error |
-| Type indicator: one of B N D T S I M G E L; one that contradicts the field | III.A | error / warning |
-| Date: 8 digits, year 1930 or later, real month and day | III.A | error |
-| Time: HHMM or HHMMSS, in range | III.A | error |
-| Number: optional `-`, digits, at most one `.` (no `+`, `,`, exponent) | III.A, Resources III.A | error |
-| Integer, PositiveInteger (> 0, leading zeros allowed) | III.A | error |
-| Minimum and maximum values from the field table (CQZ 1-40, AGE 0-120, K_INDEX 0-9…) | III.C.1.b | error |
-| ANT_AZ, ANT_EL outside their ranges are import-only, normalized on export (*corrected 2026-10-10*) | ANT_AZ, ANT_EL definitions | warning, repair |
-| Boolean: Y, y, N, n | III.A | error |
-| String: ASCII 32-126; MultilineString: plus CR LF line breaks | III.A | error (controls) |
-| GridSquare: 2, 4, 6 or 8 characters (A-R, 0-9, A-X, 0-9) | III.A, III.A.1 | error |
-| GridSquareExt: 2 or 4 characters (A-X, 0-9) | III.A | error |
-| GRIDSQUARE_EXT longer than 4: importers ignore the rest (*added*) | GRIDSQUARE_EXT definition | warning, repair |
-| GRIDSQUARE_EXT needs an 8-character GRIDSQUARE (*added*) | GRIDSQUARE_EXT definition | warning |
-| GridSquareList; VUCC_GRIDS two or four adjacent locators of 4 or 6 characters (*added*) | III.A, III.A.1, VUCC_GRIDS definition | error (length) / warning |
-| GRIDSQUARE should agree with VUCC_GRIDS (*added*) | III.A.1 | warning |
-| Location: `XDDD MM.MMM`, DDD 0-180, minutes below 60 | III.A | error |
-| LAT, MY_LAT north or south; LON, MY_LON east or west; at most 90 and 180 degrees (*added*) | field meaning (inference) | error |
-| IOTARefNo `CC-XXX`, CC a continent, 001-999 | III.A | error |
-| POTARef `xxxx-nnnnn[@yyyyyy]`, 6-17 characters; POTARefList | III.A | error |
-| WWFFRef `xxFF-nnnn`, 8-11 characters | III.A | error |
-| SOTARef `prefix[/subdivision]/number` (loosely worded in the spec) | III.A | warning |
-| CreditList `CREDIT[:MEDIUM&MEDIUM]`; Award values are import-only | III.A, III.B.7 | error / warning |
-| SponsoredAwardList: `SPONSOR_PROGRAM_AWARD` with a listed sponsor | III.B.24 | warning |
-| SecondarySubdivisionList: two or more `state,county` separated by `:` (*added*) | III.A, III.B.22 | error / warning |
-| SecondaryAdministrativeSubdivisionListAlt: `name:code` items, each name once, codes from ADIF's table (*added*) | III.A, III.B.23 | error / warning |
-| Enumeration values, case-insensitive; import-only values with the spec's advice | III.B, II.B | error / warning |
-| Deleted codes valid only for QSOs in their dates: ARRL sections, REGION KO, Russian and Austrian districts (*added*) | II.C, III.B.2, III.B.12, III.B.21 | warning, repair when one replacement is named |
-| REGION belongs to the record's DXCC entity (*added*) | III.B.21 | warning |
-| STATE and CNTY codes of the record's DXCC entity (66 entities have lists) | III.B.12, III.B.22 | warning |
-| SUBMODE belongs to MODE | III.B.25 | error |
-| FREQ inside BAND, FREQ_RX inside BAND_RX (edges included) | III.B.4 | warning |
-| QSL dates only with a status that allows them; statuses default to N (*added*) | QSLRDATE, QSLSDATE… definitions | warning |
-| STATE, CNTY, MY_STATE, MY_CNTY without their DXCC: one note per file (*added*) | I.E | note |
-| Guideline minimum fields (QSO_DATE, TIME_ON, CALL, BAND or FREQ, MODE) | I.E, Resources III.C | note |
-| CONTEST_ID, SUBMODE values not in ADIF's lists (the fields are Strings) | III.C.1.b | note |
-| Header fields ADIF_VER (`X.Y.Z`, Y and Z 0-9) and CREATED_TIMESTAMP (`YYYYMMDD HHMMSS`) | III.C.1.a | warning / error |
-| USERDEFn: n a positive integer; name not an ADIF field, no `, : < > { }`, no outer spaces; `{A,B}` or `{low:high}` with low < high; values checked in records | IV.A.5 | error / warning |
-| APP_PROGRAMID_FIELDNAME; untyped means MultilineString; later occurrences keep the first type (*untyped case added*) | IV.A.4 | warning / error |
+[RULES.md](RULES.md) lists them, grouped as ADI structure, ADX structure, header, fields,
+data types, enumerations, field definitions, rules between fields, user-defined and
+application-defined fields, the ADX schemas, versions, and practice beyond the
+specification. Rules added on 2026-10-10 were missing before the review above; on
+2026-11-01 the comparison with the ADX schemas tightened SponsoredAwardList, SOTARef and
+VUCC_GRIDS (see [the schemas and the ADI rules](#the-schemas-and-the-adi-rules-2026-11-01)).
 
 ## Where ADIF Lint is gentler than the specification
 
@@ -127,22 +80,123 @@ These are deliberate, so that common real-world logs stay readable:
 - **A bare CR or LF** in a MultilineString is a warning; the specification asks for CR LF.
 - **A STATE or CNTY not on its entity's list** is a warning: callbooks fill these from
   profiles (QRZ.com writes `H` for Hungary).
-- **A header with no records** is a note: Start Activation and New QSO create such a log
+- **A header with no records** is a note: Start Activation and the QSO panel create such a log
   before its first QSO.
 - **A type indicator that contradicts the field** is a warning.
 - **A USERDEFn without a type indicator** is a warning. The specification's grammar
   (§IV.A.5) includes it, while its sample header (§IV.A.3) leaves one out.
 - **A DXCC code with leading zeros** (`0291`) is read as the number.
 
-## What the current ADI validator cannot check
+## What ADIF Lint cannot check
+
+RULES.md lists each such statement of the specification with the reason; in short:
 
 - Values from lists the specification refers to but does not include: DARC_DOK, CNTY
   for most entities (US counties, Japanese cities…), Country names.
 - Deleted DXCC entities and deleted Alaska boroughs: the specification marks them deleted
   but gives no dates.
 - Contest IDs' end dates, which are only in their descriptions.
-- ADX (XML) files: ADIF Lint reads ADI. For ADX, use the version-specific XSD described
-  above; ADIF Lint does not currently perform that schema validation.
+
+## ADX
+
+ADIF Lint checks ADX files (§IV.B) in two parts and reports them apart: each finding's code
+says which part found it, and the CLI, the Record Panel and Check Log count them apart.
+
+### The schema check
+
+`src/core/adif_adx.cpp`, with libxml2 (2.9.13, as macOS ships it):
+
+| Rule | Section | Code, severity |
+|---|---|---|
+| Well-formed XML. Only the first error is reported; what follows mostly follows from it | XML 1.0 | `xml`, error |
+| UTF-8: a declared encoding other than UTF-8 | IV.B | `adx-encoding`, error |
+| No `<!DOCTYPE ...>`; no entities but XML's predefined ones; no CDATA section in a field | IV.B.1 | `adx-doctype`, `adx-entity`, `adx-cdata`, error |
+| Namespaces and processing instructions are ignored: namespaces are taken off before validation | IV.B.1 | (not reported) |
+| What the version's generic schema rejects | IV.B.5, V.A | `schema`, error |
+| What only the export schema rejects: an error, unless the spec makes it import-only (a deprecated field or value, ANT_AZ or ANT_EL outside their range) | IV.B.5, II.B | `schema` error / `schema-export` warning |
+| TYPE on a record's USERDEF: the schemas reject it; §IV.B.3 says it is ignored | IV.B.3 | `schema-strict`, warning |
+| A record's USERDEF FIELDNAME in mixed case: the schemas want upper case; field names are case-insensitive (§III.C.1) and §IV.B.3's own example writes `SweaterSize` | IV.B.3 | `schema-strict`, warning |
+
+The generic schema is looser than the export schema for two reasons: it allows deprecated
+features, and, covering every version from 3.0.2, it leaves out what changed between
+versions (ranges; CQZ was a Number before 3.0.6). Only the first is fine to read, so only
+that is a warning; ADIF Lint tells the two apart by the spec tables (its own `import-only`,
+`normalize` and deprecated `mode-is-submode` findings on the same element).
+
+The schemas are those of the version checked against, the same one the rules follow: the
+version chosen in Settings or Check Log (`--adif` on the command line), the newest unless
+another is chosen, or with "the version each log declares" (`--adif file`) the file's own
+`ADIF_VER`, with a note when it names none ADIF Lint knows. ADIF 3.0.2 published no ADX
+schemas, so it and older use 3.0.3's, with a note (`schema-version`).
+
+libxml2 never uses the network, never loads a DTD or an external entity, and is never asked
+to expand an entity; ADIF Lint reads field data from text nodes only. libxml2 refuses an
+entity bomb by itself ("Detected an entity reference loop"); `fuzz_smoke` checks that it
+takes no time, along with 3,000 mutated ADX files.
+
+### ADIF Lint's own checks on ADX
+
+Each record is restated in ADI and `lint()` runs on it: `APP` becomes
+`APP_PROGRAMID_FIELDNAME` with its TYPE as indicator, a header's `USERDEF` becomes
+`USERDEFn` with its ENUM or RANGE, a record's `USERDEF` its FIELDNAME. Each finding goes back
+to the ADX element: its value, its tag or attribute, or the record's end tag. So ADI and ADX
+follow the same verified rules. Of `lint()`'s findings:
+
+- Left out, as they are about ADI's syntax: lengths, `_INTL` fields and Intl types, bare LF
+  (XML reads CR LF as LF), a header without records, a byte order mark, a missing `<EOR>`,
+  and a header USERDEF without a type indicator (the schemas require TYPE).
+- Worded for ADX: FIELDID 0 (`xs:unsignedInt` allows it, §IV.B.3 does not), unknown
+  fields, user fields not defined in the header, and non-ASCII text, which is an error in
+  ADX and reported where the schemas do not look (a record's USERDEF).
+- Added: ENUM together with RANGE (§IV.B.3), an IntlString user field with a line break
+  (§III.A), and an APP name that ADI cannot carry (§IV.A.4).
+
+There are no length fixes or repairs, and the editing tools (Reformat, Check Log repairs,
+the QSO panel, Enrich, the log tools) refuse an ADX file: they work on ADI records.
+
+### What the schemas leave out
+
+Their annotation lists it: duplicate fields; a record's USERDEF against its definition;
+ENUM with RANGE; APP values against their TYPE; STATE and MY_STATE codes; CNTY_ALT beyond its
+format; CNTY, SUBMODE and CONTEST_ID values (advisory). ADIF Lint's own checks cover each.
+Also, once an element is not where the content model allows it, libxml2 skips the rest of
+that record, so ADIF Lint alone checks the fields after it.
+
+### The built-in schemas
+
+`spec/adx/` holds the 32 published schemas, unmodified. `tools/gen_adx_schemas.py` checks
+each against its SHA-256 in `spec/adx/SOURCE.md` and builds them into
+`src/core/adif_adx_schemas.cpp`, restating the one pattern XML Schema 1.0 cannot read: in
+3.1.5 to 3.1.8, CNTY_ALT's pattern uses a look-ahead, `(?=[a-zA-Z])`, which .NET's regular
+expressions have and XML Schema 1.0's do not (Part 2, Appendix F), so libxml2 refuses the
+whole schema. The restatement, two restriction steps whose patterns must both match, was
+compared with the original on every region and district shape up to past both length
+limits (17,825,799 values, no difference; `spec/adx/SOURCE.md`), and `adx_tests` compares
+them again on 3,000 values, with the published pattern run by `std::regex` as the judge.
+The generator stops if the pattern is not exactly where it expects.
+
+### The schemas and the ADI rules (2026-11-01)
+
+`adx_tests` builds every ADIF 3.1.8 record field with values from its data type and
+enumeration: every enumeration value in upper and lower case, and boundary and malformed
+values (9,347 in all, Intl fields aside). Each is judged twice, by the 3.1.8 schemas as ADX
+and by `lint()` as ADI. 8,644 agree; each of the other 703 must have one of these reasons,
+or the test fails:
+
+| Reason | Values | Which is right |
+|---|---|---|
+| SUBMODE of another MODE | 374 | ADIF Lint: the schemas do not relate fields |
+| An empty element of a typed field | 115 | Both: ADX's `<AGE/>` is a value, and no Number; ADI's `<AGE:0>` is no value (§III.C.1.b) |
+| ADIF Lint warns where the schema reports an error: non-ASCII in ADI, GRIDSQUARE_EXT over 4, VUCC_GRIDS count or sizes, SOTARef, SponsoredAwardList, CNTY_ALT codes, placeholders such as `-` | 121 | Both, by design (see "gentler" above); in ADX the schema's error stands |
+| A real day of the month | 32 | ADIF Lint: a pattern cannot count days |
+| Spaces around a number (` 1`) | 30 | ADIF Lint: ADIF's Number has none; `xs:decimal` drops them |
+| LAT north or south, LON east or west, at most 90 and 180 degrees | 20 | ADIF Lint: the schemas have one Location type |
+| SUBMODE under 3 characters; DARC_DOK not letters and digits | 7 | ADIF Lint: SUBMODE is a String with an advisory list (the schemas' own annotation), and DOKs are DARC's |
+| USACA_COUNTIES with one county | 4 | ADIF Lint: the field is two counties |
+
+It found three ADI rules weaker than the specification, now fixed: SponsoredAwardList
+checked only the sponsor, not the rest of `SPONSOR_PROGRAM_AWARD` (`ARRL_DXCC` passed);
+SOTARef took any number of digits; and VUCC_GRIDS mixing 4- and 6-character locators passed.
 
 ## Checks beyond the specification
 
@@ -156,8 +210,12 @@ SAT_NAME, placeholders such as IOTA `none`, and a Field Day class written in ARR
 ```sh
 cmake --build build && ctest --test-dir build
 build/adiflint tests/fixtures/ADIF_318_test_QSOs_2026_10_12.adi
+build/adiflint tests/fixtures/ADIF_318_test_QSOs_2026_10_12.adx
 python3 tools/gen_spec_tables.py spec/adif-3.1.8/all.json /tmp/regen.cpp && cmp /tmp/regen.cpp src/core/adif_spec_tables.cpp
+python3 -I tools/gen_adx_schemas.py spec/adx /tmp/adx.cpp && cmp /tmp/adx.cpp src/core/adif_adx_schemas.cpp
+build/conformance_tests tests/conformance/rules.cases --doc docs/RULES.md
 ```
 
-A pass is all tests passing, `0 error(s), 0 warning(s)` for the official file, and no
-output from `cmp`.
+A pass is all tests passing, `0 error(s), 0 warning(s)` for the official ADI file, 0 errors
+and 0 warnings from both checks for the ADX one, no output from either `cmp`, and
+`conformance_tests` reporting every check passed (RULES.md up to date included).

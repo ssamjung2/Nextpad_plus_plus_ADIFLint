@@ -41,6 +41,7 @@
 #include "adif_facts.h"
 #include "adif_stats.h"
 #include "adif_aids.h"
+#include "adif_scripts.h"
 #include "adif_layout.h"
 #include "adif_chase.h"
 #include "adif_styles.h"
@@ -4254,9 +4255,23 @@ static void testTqslCertificates() {
           "the certificates' callsigns (%zu)", calls.size());
     // A profile's certificate callsign is kept; -c is checked in place of the location's CALL.
     StationProfile prof;
-    prof.name = "Club", prof.tqslLocation = "Club station", prof.tqslCall = "W9CLB";
+    prof.name = "Club", prof.tqslLocation = "Club station", prof.tqslCall = "W9CLB", prof.tqslSerial = "1234567";
     std::vector<StationProfile> back = parseProfiles(profilesText({prof}, "1.5", "20261025 120000"));
-    CHECK(back.size() == 1 && back[0].tqslCall == "W9CLB" && back[0].tqslLocation == "Club station", "a profile's certificate callsign is kept");
+    CHECK(back.size() == 1 && back[0].tqslCall == "W9CLB" && back[0].tqslLocation == "Club station" && back[0].tqslSerial == "1234567",
+          "a profile's certificate callsign and serial are kept");
+    CHECK(profilesText({prof}, "1.5", "20261025 120000").find("ASS") == std::string::npos, "and no passphrase");
+    // Station Facts: kept with the profile, apart from the fields a QSO is written with.
+    prof.set("MY_RIG", "KX2");
+    prof.setFact("name", "Andy");
+    prof.setFact("WEATHER", "  sunny, 15 C ");
+    prof.setFact("AGE", "");
+    back = parseProfiles(profilesText({prof}, "1.5", "20261025 120000"));
+    CHECK(back.size() == 1 && back[0].fact("NAME") == "Andy" && back[0].fact("weather") == "sunny, 15 C" && back[0].fact("AGE").empty() &&
+              back[0].facts.size() == 2 && back[0].get("MY_RIG") == "KX2" && back[0].fields.size() == 1,
+          "Station Facts kept, never among the fields written with a QSO (%zu facts, %zu fields)", back.empty() ? 0 : back[0].facts.size(),
+          back.empty() ? 0 : back[0].fields.size());
+    back[0].setFact("NAME", "");
+    CHECK(back[0].fact("NAME").empty() && back[0].facts.size() == 1, "a fact emptied is gone");
     TqslLocation loc;
     loc.name = "Home", loc.fields = {{"CALL", "KW9D"}, {"DXCC", "291"}};
     Record q;
@@ -4264,7 +4279,7 @@ static void testTqslCertificates() {
     CHECK(!lotwLocationProblem(q, loc).empty() && lotwLocationProblem(q, loc, "W9CLB").empty() &&
               lotwLocationProblem(q, loc, "k9xyz") == "STATION_CALLSIGN W9CLB (the certificate: K9XYZ)",
           "the QSO's call against -c's certificate, not the location's CALL: %s", lotwLocationProblem(q, loc, "k9xyz").c_str());
-    CHECK(tqslExitMeaning(15) == "wrong certificate password" && tqslExitMeaning(13).find("busy") != std::string::npos, "TQSL's exit codes 12 to 15");
+    CHECK(tqslExitMeaning(15).find(".p12") != std::string::npos && tqslExitMeaning(13).find("busy") != std::string::npos, "TQSL's exit codes 12 to 15");
 }
 
 static void testSpecVersions() {
@@ -4902,12 +4917,95 @@ static void testLayouts() {
     CHECK(removeNamed(mine, "EVENING").size() == 1 && removeNamed(mine, "nope").size() == 2, "your layouts: one removed by name");
 }
 
+static void testScripts() {
+    using namespace adif::scripts;
+    namespace aids = adif::aids;
+    CHECK(modeGroupOf("SSB", "USB") == ModeGroup::Phone && modeGroupOf("fm", "") == ModeGroup::Phone && modeGroupOf("CW", "") == ModeGroup::Cw &&
+              modeGroupOf("FT8", "") == ModeGroup::Wsjt && modeGroupOf("MFSK", "FT4") == ModeGroup::Wsjt && modeGroupOf("MFSK", "OLIVIA 8/500") == ModeGroup::Digital &&
+              modeGroupOf("RTTY", "") == ModeGroup::Digital && modeGroupOf("PSK", "PSK31") == ModeGroup::Digital && !modeGroupOf(" ", ""),
+          "scripts: a QSO's mode as phone, CW, keyboard digital or WSJT-X");
+    std::vector<std::string> missing;
+    Values v = {{"CALL", "K1ABC"}, {"MYCALL", "KW9D"}, {"MYAGE", ""}};
+    std::string filled = adif::scripts::fill("{CALL} DE {MYCALL} {MYAGE} {MYAGE} {call} {NOPE} {CALL", v, &missing);
+    CHECK(filled == "K1ABC DE KW9D {MYAGE} {MYAGE} {call} {NOPE} {CALL" && missing == std::vector<std::string>({"MYAGE", "NOPE"}),
+          "scripts: variables written out; one without a value (or not one) left, and listed once: %s", filled.c_str());
+    CHECK(phonetic("kw9d/p") == "Kilo Whiskey 9 Delta / Papa" && phonetic("J5X") == "Juliett 5 X-ray", "scripts: ITU phonetics: %s", phonetic("kw9d/p").c_str());
+
+    // The built-ins: unique ids, only variables there are, words (translated) only on phone.
+    std::set<std::string> ids, names;
+    for (const Variable &x : variables()) names.insert(x.name);
+    for (const Script &s : builtIns()) {
+        CHECK(ids.insert(s.id).second, "scripts: %s once", s.id.c_str());
+        std::vector<std::string> unknown;
+        adif::scripts::fill(s.text, {}, &unknown);
+        for (const std::string &u : unknown) CHECK(names.count(u), "scripts: %s's {%s} is a variable", s.id.c_str(), u.c_str());
+        CHECK(!s.words || s.modes == modeBit(ModeGroup::Phone), "scripts: %s is translated only if spoken", s.id.c_str());
+        CHECK(s.styles && s.modes && s.builtIn && !s.changed, "scripts: %s has styles and modes", s.id.c_str());
+    }
+    std::vector<Script> all = load("");
+    CHECK(all.size() == builtIns().size(), "scripts: with no file, the built-ins");
+    auto ids_of = [](const std::vector<const Script *> &list) {
+        std::vector<std::string> out;
+        for (const Script *s : list) out.push_back(s->id);
+        return out;
+    };
+    std::vector<std::string> socialCw = ids_of(applicable(all, aids::kSocial, ModeGroup::Cw, false));
+    CHECK(socialCw.size() >= 4 && socialCw[0] == "social.cw.answer" && socialCw[1] == "social.cw.report" &&
+              std::find(socialCw.begin(), socialCw.end(), "social.cw.cq") == socialCw.end() &&
+              std::find(socialCw.begin(), socialCw.end(), "social.cw.age") == socialCw.end(),
+          "scripts: Social on CW in a contact: answer, report... (not CQ, which comes before; not age, hidden at first)");
+    std::vector<std::string> potaPhone = ids_of(applicable(all, aids::kPortable, ModeGroup::Phone, true));
+    CHECK(potaPhone == std::vector<std::string>({"social.phone.qrl", "portable.phone.cq"}), "scripts: Portable on phone, before: ask, then CQ POTA");
+    CHECK(ids_of(applicable(all, aids::kContest, ModeGroup::Digital, false)) ==
+              std::vector<std::string>({"contest.digital.exchange", "contest.digital.tu"}),
+          "scripts: a keyboard contest: the exchange, then TU");
+
+    // Changed, hidden, removed and yours: kept, and only those in the file.
+    all[1].text = "QRL? QRL? DE {MYCALL}";  // a built-in changed
+    std::string changedId = all[1].id;
+    std::string hiddenId = all[2].id;
+    all[2].shown = false;
+    std::string removedId = all[3].id;
+    all.erase(all.begin() + 3);
+    Script mine;
+    mine.id = newId(all);
+    mine.title = "Rig and key";
+    mine.styles = aids::kSocial;
+    mine.modes = modeBit(ModeGroup::Cw);
+    mine.text = "RIG {MYRIG} KEY BUG";
+    mine.shown = false;
+    all.push_back(mine);
+    std::string file = fileText(all, "1.11", "20261103 120000");
+    std::vector<Script> back = load(file);
+    auto find = [&](const std::string &id) -> const Script * {
+        for (const Script &s : back)
+            if (s.id == id) return &s;
+        return nullptr;
+    };
+    CHECK(mine.id == "mine.1" && back.size() == builtIns().size() && find(changedId) && find(changedId)->changed &&
+              find(changedId)->text == "QRL? QRL? DE {MYCALL}" && find(hiddenId) && !find(hiddenId)->shown && !find(hiddenId)->changed &&
+              !find(removedId) && find("mine.1") && find("mine.1")->title == "Rig and key" && !find("mine.1")->shown &&
+              find("mine.1")->modes == modeBit(ModeGroup::Cw) && back.back().id == "mine.1",
+          "scripts: a built-in changed, one hidden, one removed, and yours, all as they were");
+    size_t records = 0;
+    for (size_t at = file.find("<EOR>"); at != std::string::npos; at = file.find("<EOR>", at + 1)) ++records;
+    CHECK(records == 4 && file.find(builtIns()[0].id) == std::string::npos, "scripts: the file has only the four that differ (%zu)", records);
+    all = load(fileText(builtIns(), "1.11", ""));
+    CHECK(all.size() == builtIns().size() && std::none_of(all.begin(), all.end(), [](const Script &s) { return s.changed; }),
+          "scripts: the built-ins restored");
+}
+
 static void testOperatingAids() {
     using namespace adif::aids;
     using adif::styles::OperatingStyle;
     Context c;
     c.style = OperatingStyle::Social;
-    CHECK(suggest(c).empty(), "aids: nothing without a call");
+    std::vector<Suggestion> before = suggest(c);
+    CHECK(before.size() == 1 && std::string(before[0].prompt->id) == "listen-first" && before[0].why.find("12.5.2") != std::string::npos,
+          "aids: without a call, only what comes before a contact: listen first, saying where it comes from (%zu)", before.size());
+    c.modes = adif::scripts::modeBit(adif::scripts::ModeGroup::Wsjt);
+    CHECK(suggest(c).empty(), "aids: not on WSJT-X modes, which have no frequency to ask about");
+    c.modes = 0;
     c.call = "K1ABC";
     std::vector<Suggestion> s = suggest(c);
     CHECK(s.size() == 2 && std::string(s[0].prompt->id) == "name-qth" && std::string(s[1].prompt->id) == "report" && !s[0].why.empty(),
@@ -4964,7 +5062,27 @@ static void testOperatingAids() {
     s = suggest(c);
     CHECK(s.size() == 2 && std::string(s[0].prompt->id) == "portable-quick", "aids: Portable's are brief and fewer: its quick exchange first (%zu)", s.size());
     c.style = OperatingStyle::Chasing;
-    CHECK(suggest(c).empty(), "aids: none for Chasing (its aids come with its own stage)");
+    s = suggest(c);
+    CHECK(s.size() == 2 && std::string(s[0].prompt->id) == "phonetics" && std::string(s[1].prompt->id) == "dx-listen" &&
+              s[1].why == "The DX Code of Conduct, points 1 to 3",
+          "aids: Chasing's are good practice: phonetics (no mode known), then the DX Code of Conduct, with its source (%zu)", s.size());
+    c.modes = adif::scripts::modeBit(adif::scripts::ModeGroup::Cw);
+    CHECK(std::string(suggest(c)[0].prompt->id) == "dx-listen", "aids: phonetics only on phone");
+    c.style = OperatingStyle::Contest;
+    c.modes = adif::scripts::modeBit(adif::scripts::ModeGroup::Digital);
+    c.level = Level::Off;
+    CHECK(suggest(c).empty(), "aids: Contest's off too");
+    c.level = Level::More;
+    std::vector<std::string> contestIds;
+    for (c.skip = 0; c.skip < 5; ++c.skip) contestIds.push_back(suggest(c)[0].prompt->id);
+    c.skip = 0;
+    CHECK(std::find(contestIds.begin(), contestIds.end(), "contest-exchange") != contestIds.end() &&
+              std::find(contestIds.begin(), contestIds.end(), "rtty-serial") != contestIds.end() &&
+              std::find(contestIds.begin(), contestIds.end(), "friendly") == contestIds.end(),
+          "aids: Contest's: only the exchange asked for, the serial twice on RTTY; no conversation");
+    for (const Prompt &x : library())
+        if (x.category == Category::Practice) CHECK(*x.source, "aids: %s says where the practice comes from", x.id);
+    c.modes = 0;
     CHECK(parseLevel("minimal") == Level::Minimal && parseLevel("") == Level::Standard && levelId(Level::More) == "more" &&
               parseTiming("after") == Timing::AfterQso && parseTiming("x") == Timing::Pauses && timingId(Timing::Manual) == "manual",
           "aids: levels and timings by id");
@@ -5148,6 +5266,7 @@ int main(int argc, char **argv) {
     testPalettes();
     testOperatingStyles();
     testOperatingAids();
+    testScripts();
     testLayouts();
     for (int i = 1; i < argc; ++i)
         if (std::string(argv[i]).size() > 4 && std::string(argv[i]).substr(std::string(argv[i]).size() - 4) == ".bin") testDetail(argv[i]);

@@ -21,15 +21,21 @@ enum class Severity : unsigned char { Info, Warning, Error };
 // so the unit is a user choice.
 enum class LengthUnit : unsigned char { Bytes, Characters };
 
+constexpr size_t kNoPos = SIZE_MAX;
+
 struct LintOptions {
     LengthUnit lengthUnit = LengthUnit::Bytes;
     bool utf8 = true;               // text is UTF-8 (Characters mode counts code points)
     size_t maxDiagnostics = 10000;  // stop storing (but keep counting) beyond this
     bool buildModel = false;        // fill LintResult::model
     std::string today;              // UTC YYYYMMDD: QSO dates after it are flagged; empty: not checked
+    // The ADIF version the rules follow, an index into specVersions() (adif_spec.h):
+    // kNoPos for the version in use (useSpecVersion). With fileVersion, the version the
+    // file declares in ADIF_VER instead, when this build knows it (else specVersion's,
+    // with a note saying so).
+    size_t specVersion = kNoPos;
+    bool fileVersion = false;
 };
-
-constexpr size_t kNoPos = SIZE_MAX;
 
 // A suggested repair, applied by quickFixEdits() (adif_tools.h).
 enum class FixKind : unsigned char {
@@ -51,21 +57,14 @@ struct Diagnostic {
     Severity severity = Severity::Error;
     bool structural = false;  // the file's structure is unclear here (wrong length, malformed tag...)
     std::string message;
-    std::string code;              // stable kind ("length", "freq-band"...); empty for the rest
+    std::string code;              // the rule it breaks: a code in the catalogue, adif_rules.h
     std::string field;             // the field it is about (upper case), when known
     std::vector<FieldFix> fixes;   // the repair, applied together; empty when there is none
     std::string fixLabel;          // what the repair does, e.g. "MODE SSB, SUBMODE USB"
     bool dropsData = false;        // the repair removes a value: offered, never applied unasked
 };
-// The kinds that have codes: length (Fix Lengths repairs them), mode-is-submode,
-// submode-mode, mode-missing, date-format, time-format, freq-band, band-missing,
-// case, future-date, sat-name, sat-prop, pota-station, dup-field, no-eor, bom,
-// minimum-fields, subdivision (a STATE or CNTY not on the entity's list),
-// power-unit (TX_PWR 30W), placeholder ("none" for IOTA), import-only (a code
-// the spec says was replaced), field-day-class (1D in ARRL_SECT), deleted-code (a
-// code used outside its dates, §II.C), region-dxcc (REGION of another entity),
-// normalize (ANT_AZ 370), grid-ext-length (GRIDSQUARE_EXT over 4 characters),
-// qsl-date (a QSL date its status rules out), depends (STATE without DXCC).
+// Every diagnostic has a code; adif_rules.h lists them, with where in the specification each
+// rule comes from (docs/RULES.md).
 
 // One data specifier, <NAME:LENGTH[:T]>DATA, as byte offsets.
 struct ModelField {
@@ -120,6 +119,14 @@ struct LintResult {
     DocModel model;                              // when LintOptions::buildModel
     bool hasHeader = false;
     bool truncated = false;  // more diagnostics than maxDiagnostics
+    std::string checkedVersion;   // the ADIF version the rules followed: "3.1.8"
+    std::string declaredVersion;  // the file's ADIF_VER as written, trimmed; empty when it has none
+    // ADX documents only (lintAdx, adif_adx.h): the ADIF version whose published
+    // schemas checked it ("3.1.8"; empty when the XML could not be read), and how
+    // many of the totals above are the schema check's (codes xml, adx, schema and
+    // schema-export) rather than ADIF Lint's own.
+    std::string schemaVersion;
+    size_t schemaErrors = 0, schemaWarnings = 0, schemaInfos = 0;
 };
 
 LintResult lint(std::string_view text, const LintOptions &options = {});

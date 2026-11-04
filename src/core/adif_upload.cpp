@@ -335,7 +335,7 @@ std::string tqslExitMeaning(int code) {
         case 12: return tr("unknown TQSL error");
         case 13: return tr("TQSL is busy: its uploads database is in use");
         case 14: return tr("the QSOs were already signed and uploaded");
-        case 15: return tr("wrong certificate password");
+        case 15: return tr("wrong passphrase for the certificate file (.p12) being loaded");  // TQSL_EXIT_BAD_PASSPHRASE, -i only
         default: return trf("TQSL exit code {code}", {{"code", std::to_string(code)}});
     }
 }

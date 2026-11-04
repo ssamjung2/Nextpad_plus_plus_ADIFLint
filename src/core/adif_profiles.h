@@ -23,9 +23,21 @@ struct StationProfile {
     FieldList fields;          // upper-case names, in the order given
     std::string tqslLocation;  // the TQSL Station Location its LoTW uploads use, or empty
     std::string tqslCall;      // the callsign certificate they sign with (TQSL -c), or empty: the location's own
+    std::string tqslSerial;    // which of that callsign's certificates was chosen (its serial), or empty;
+                               // its passphrase, if any, is in the Keychain, never here
+    // Station Facts: what Operating Aids' scripts say of the station (adif_scripts.h) that ADIF has
+    // no field for, so never written with a QSO: kStationFacts' keys ("NAME", "QTH"...), upper case.
+    FieldList facts;
     std::string get(std::string_view field) const;
     void set(std::string_view field, std::string value);  // an empty value removes the field
+    std::string fact(std::string_view key) const;
+    void setFact(std::string_view key, std::string value);  // an empty value removes it
 };
+
+// The Station Facts a profile can have, in the order they are asked for: the name and QTH as you
+// give them on the air, the year licensed, age, weather, club, and a line about the station.
+// Kept in the profiles file as APP_ADIFLINT_FACT_<KEY>.
+inline constexpr const char *kStationFacts[] = {"NAME", "QTH", "LICENSED", "AGE", "WEATHER", "CLUB", "ABOUT"};
 
 // Profiles from the profiles file (ADIF records with APP_ADIFLINT_PROFILE); records
 // without a name are skipped.

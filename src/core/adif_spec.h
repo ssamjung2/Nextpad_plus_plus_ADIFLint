@@ -127,6 +127,18 @@ size_t newestSpecVersion();
 void useSpecVersion(size_t index);
 size_t specVersionIndex();
 const char *specVersion();  // its name: "3.1.8"
+// While it lives, the version this thread's checks follow, whatever useSpecVersion says
+// (lint() with LintOptions::specVersion). Other threads are not affected.
+class SpecVersionScope {
+public:
+    explicit SpecVersionScope(size_t index);  // SIZE_MAX: the version in use
+    ~SpecVersionScope();
+    SpecVersionScope(const SpecVersionScope &) = delete;
+    SpecVersionScope &operator=(const SpecVersionScope &) = delete;
+
+private:
+    size_t saved_;
+};
 const char *specDate();     // its date, or ""
 // The index of a version by name ("3.0.9"), or SIZE_MAX.
 size_t findSpecVersion(std::string_view name);

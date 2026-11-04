@@ -5,6 +5,7 @@
 #include "NppPluginInterfaceMac.h"
 #include "adif_edit.h"
 #include "adif_lint.h"
+#include "adif_scripts.h"
 
 #include <string>
 #include <string_view>
@@ -31,6 +32,12 @@ std::string structureProblem(const adif::LintResult &r);
 
 // The lint result (with model) for the active document, re-linted if it changed.
 const adif::LintResult &lint(NppHandle h);
+// The ADIF version the checks follow (Settings, Check Log): "" the newest, "file" the version
+// each log declares, or one version ("3.1.4"). The choices are kept value and shown title,
+// newest first; choosing one keeps it and checks the active log again.
+std::vector<std::pair<std::string, std::string>> adifVersionChoices();
+std::string adifVersionChoice();
+void chooseAdifVersion(const std::string &choice);
 // Treat the active buffer as ADIF (any extension) and re-check it now.
 void validate(NppHandle h);
 // Apply sorted, non-overlapping edits as one undo step, then re-check.
@@ -62,6 +69,10 @@ void openQsoDetails();  // QSO Details, worked out for New QSO's contact as it o
 bool aidsPanelShown();
 void openAidsPanel();
 void closeAidsPanel();
+// The scripts' variables now (adif_scripts.h): New QSO's fields, your station's and its profile's
+// Station Facts, the running contest's exchange. Scripts changed: Operating Aids follow.
+adif::scripts::Values scriptValues();
+void scriptsChanged();
 // Settings sections as panels of their own: Spot Sources (its Spots section) and Your Station.
 bool spotSourcesShown();
 void openSpotSources();

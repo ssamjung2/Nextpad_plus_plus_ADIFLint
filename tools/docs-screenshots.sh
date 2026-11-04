@@ -64,6 +64,7 @@ clocks clocks
 qso-details qso-details
 contact-map-spot contact-map
 aids-social operating-aids
+aids-scripts operating-aids-scripts
 map-filters-spots more-filters-spots
 map-spots map-spots
 map-style-chasing map-chasing

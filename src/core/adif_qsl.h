@@ -48,7 +48,7 @@ std::vector<TqslLocation> parseStationData(std::string_view xml);
 std::string lotwLocationProblem(const Record &qso, const TqslLocation &loc, std::string_view certificateCall = "");
 
 // The callsigns of the certificates in TQSL's certificate file (certs/user under its folder: PEM
-// X.509 certificates only, the private keys being kept apart in keys/). Each certificate's
+// X.509 certificates only, the private keys being kept apart in keys/; adif_tqsl.h). Each certificate's
 // callsign is its subject's AROcallsign attribute, OID 1.3.6.1.4.1.12348.1.1 (tqsllib's
 // tqsllib.cpp, read 2026-10-25), sorted, without repeats.
 std::vector<std::string> tqslCertificateCalls(std::string_view pem);

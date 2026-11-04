@@ -5,8 +5,11 @@
 #import "LogTools.h"
 #import "Network.h"
 #import "PluginHost.h"
+#import "Theme.h"
 #import "ToolWindow.h"
+#import "TqslCertificate.h"
 #import "PotaParks.h"
+#import "Lookup.h"
 #import "Workspace.h"
 #include "adif_lint.h"
 #include "adif_programs.h"
@@ -114,7 +117,7 @@ void editorEdit(NSInteger row, size_t column, NSString *typed) {
         for (char &c : v) c = (char)std::toupper((unsigned char)c);
         if (v.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/") != std::string::npos)
             problem = tr("A certificate is named by its callsign, such as KW9D.");
-        else p.tqslCall = v;
+        else if (v != p.tqslCall) p.tqslCall = v, p.tqslSerial.clear();  // typed: TQSL Certificate... chose no serial
     } else {
         std::string field = kProfileColumns[column - 1];
         if (field == "STATION_CALLSIGN" || field == "OPERATOR" || field == "MY_STATE")
@@ -140,6 +143,110 @@ void editorEdit(NSInteger row, size_t column, NSString *typed) {
     editorShow();
     [ed.w setStatus:ADIFString("Saved " + name + ".") severity:-1];
     stationChanged();
+}
+
+// ── Station Facts: what Operating Aids' scripts say of the station, on a sheet over the editor ──
+
+// Its facts: the profile's own (ADIF has no field for them, so a QSO never gets them), and three of
+// its fields, which every QSO is written with.
+struct FactRow {
+    const char *key;
+    bool field;  // a profile field (MY_RIG...), not a fact
+    const char *label, *placeholder;
+};
+const FactRow kFactRows[] = {
+    {"NAME", false, N_("Name:"), N_("As you give it on the air, such as Andy")},
+    {"QTH", false, N_("QTH:"), N_("As you give it, such as Indianapolis, Indiana")},
+    {"MY_RIG", true, N_("Rig:"), N_("Such as KX2 (MY_RIG, written with each QSO)")},
+    {"MY_ANTENNA", true, N_("Antenna:"), N_("Such as an end-fed half-wave (MY_ANTENNA, written with each QSO)")},
+    {"TX_PWR", true, N_("Power (W):"), N_("Such as 5 (TX_PWR, written with each QSO)")},
+    {"LICENSED", false, N_("Licensed:"), N_("The year, such as 1998")},
+    {"AGE", false, N_("Age:"), N_("Only if you like to give it")},
+    {"WEATHER", false, N_("Weather:"), N_("Such as sunny, 15 C: change it as it changes")},
+    {"CLUB", false, N_("Club:"), N_("Such as the Indianapolis DX Club")},
+    {"ABOUT", false, N_("About:"), N_("A line about your station, for the About script")},
+};
+
+void factsSheet(size_t index) {
+    if (!ed.w || index >= ed.list.size() || ed.w.window.attachedSheet) return;
+    std::string profile = ed.list[index].name;
+    NSWindow *sheet = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 520, 420) styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
+    sheet.identifier = @"facts.sheet";
+    NSTextField *title = [NSTextField labelWithString:TF(@"Station Facts: {profile}", @{@"profile" : ADIFString(profile)})];
+    title.font = [NSFont boldSystemFontOfSize:NSFont.systemFontSize];
+    NSTextField *help = [NSTextField wrappingLabelWithString:T(@"What Operating Aids' scripts say of your station, as {MYNAME}, {MYQTH}, {MYRIG} "
+                                                               @"and the rest. Name, QTH, licensed, age, weather, club and about stay here, "
+                                                               @"never written into a QSO; leave any empty.")];
+    help.font = theme::small();
+    help.textColor = theme::faint();
+    NSMutableArray<NSArray<NSView *> *> *gridRows = [NSMutableArray array];
+    NSMutableArray<NSTextField *> *fields = [NSMutableArray array];
+    const adif::StationProfile &p = ed.list[index];
+    for (const FactRow &r : kFactRows) {
+        NSTextField *f = ADIFTextField(T(ADIFString(r.placeholder)), 340);
+        f.stringValue = ADIFString(r.field ? p.get(r.key) : p.fact(r.key));
+        f.identifier = [@"facts." stringByAppendingString:ADIFString(r.key)];
+        [fields addObject:f];
+        [gridRows addObject:@[ ADIFLabel(T(ADIFString(r.label))), f ]];
+    }
+    NSGridView *grid = [NSGridView gridViewWithViews:gridRows];
+    grid.rowSpacing = 6;
+    grid.columnSpacing = 8;
+    [grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
+    NSTextField *problem = [NSTextField labelWithString:@""];
+    problem.textColor = theme::severity(2);
+    problem.identifier = @"facts.problem";
+    NSButton *cancel = [NSButton buttonWithTitle:T(@"Cancel") target:nil action:nil];
+    cancel.keyEquivalent = @"\033";
+    cancel.identifier = @"facts.cancel";
+    NSButton *saveButton = [NSButton buttonWithTitle:T(@"Save") target:nil action:nil];
+    saveButton.keyEquivalent = @"\r";
+    saveButton.identifier = @"facts.save";
+    __weak NSWindow *weakSheet = sheet;
+    ADIFOnAction(cancel, ^{ [weakSheet.sheetParent endSheet:weakSheet returnCode:NSModalResponseCancel]; });
+    ADIFOnAction(saveButton, ^{
+        std::vector<adif::StationProfile> list = profiles();
+        auto it = std::find_if(list.begin(), list.end(), [&](const adif::StationProfile &q) { return q.name == profile; });
+        if (it == list.end()) return [weakSheet.sheetParent endSheet:weakSheet returnCode:NSModalResponseCancel];
+        for (size_t i = 0; i < std::size(kFactRows); ++i) {
+            const FactRow &r = kFactRows[i];
+            std::string v = ADIFStd(fields[i].stringValue);
+            double watts = 0;
+            std::string trimmedV = v;
+            while (!trimmedV.empty() && (trimmedV.back() == ' ' || trimmedV.back() == '\t')) trimmedV.pop_back();
+            while (!trimmedV.empty() && (trimmedV.front() == ' ' || trimmedV.front() == '\t')) trimmedV.erase(trimmedV.begin());
+            if (std::string(r.key) == "TX_PWR" && !trimmedV.empty() && !adif::parseAdifNumber(trimmedV, &watts)) {
+                problem.stringValue = T(@"Power is a number of watts, such as 5 or 100.");
+                [weakSheet makeFirstResponder:fields[i]];
+                return;
+            }
+            if (r.field) it->set(r.key, trimmedV);
+            else it->setFact(r.key, trimmedV);
+        }
+        save(list);
+        editorShow();
+        [ed.w setStatus:ADIFString(trf("Saved the Station Facts of {name}.", {{"name", profile}})) severity:-1];
+        stationChanged();
+        scriptsChanged();
+        [weakSheet.sheetParent endSheet:weakSheet returnCode:NSModalResponseOK];
+    });
+    NSStackView *buttons = [NSStackView stackViewWithViews:@[ problem, cancel, saveButton ]];
+    buttons.spacing = kADIFSpacing;
+    NSStackView *stack = [NSStackView stackViewWithViews:@[ title, help, grid, buttons ]];
+    stack.orientation = NSUserInterfaceLayoutOrientationVertical;
+    stack.alignment = NSLayoutAttributeLeading;
+    stack.spacing = 10;
+    stack.edgeInsets = NSEdgeInsetsMake(16, 18, 16, 18);
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    [sheet.contentView addSubview:stack];
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.topAnchor constraintEqualToAnchor:sheet.contentView.topAnchor], [stack.leadingAnchor constraintEqualToAnchor:sheet.contentView.leadingAnchor],
+        [stack.trailingAnchor constraintEqualToAnchor:sheet.contentView.trailingAnchor], [stack.bottomAnchor constraintEqualToAnchor:sheet.contentView.bottomAnchor],
+        [help.widthAnchor constraintEqualToAnchor:grid.widthAnchor], [buttons.trailingAnchor constraintEqualToAnchor:grid.trailingAnchor],
+    ]];
+    sheet.initialFirstResponder = fields.firstObject;
+    theme::host(sheet);
+    [ed.w.window beginSheet:sheet completionHandler:nil];
 }
 
 }  // namespace
@@ -207,6 +314,37 @@ void cmdStationProfiles() {
             editorShow();
             stationChanged();
         }];
+        [w addButton:@"TQSL Certificate..." trailing:NO action:^{
+            std::vector<NSInteger> sel = [ed.w selectedRows];
+            if (sel.size() != 1 || (size_t)sel[0] >= ed.list.size()) {
+                [ed.w setStatus:@"Select the profile to choose a TQSL certificate for." severity:1];
+                return;
+            }
+            const adif::StationProfile &p = ed.list[(size_t)sel[0]];
+            std::string name = p.name;
+            tqslcert::choose(ed.w.window, name, p.tqslCall, p.tqslSerial, ^(const std::string &call, const std::string &serial) {
+                ed.list = profiles();
+                for (adif::StationProfile &q : ed.list)
+                    if (q.name == name) q.tqslCall = call, q.tqslSerial = serial;
+                save(ed.list);
+                editorShow();
+                bool kept = !call.empty() && ADIFTqslPassphrase(ADIFString(call));
+                [ed.w setStatus:ADIFString(call.empty() ? trf("Saved {name}: its uploads sign with the Station Location's own certificate.", {{"name", name}})
+                                           : kept       ? trf("Saved {name}: its uploads sign with the {call} certificate, its passphrase in your Keychain.",
+                                                              {{"name", name}, {"call", call}})
+                                                        : trf("Saved {name}: its uploads sign with the {call} certificate.", {{"name", name}, {"call", call}}))
+                        severity:-1];
+                stationChanged();
+            });
+        }];
+        [w addButton:@"Station Facts..." trailing:NO action:^{
+            std::vector<NSInteger> sel = [ed.w selectedRows];
+            if (sel.size() != 1 || (size_t)sel[0] >= ed.list.size()) {
+                [ed.w setStatus:@"Select the profile whose Station Facts to fill in." severity:1];
+                return;
+            }
+            factsSheet((size_t)sel[0]);
+        }];
         [w addButton:@"Remove" trailing:NO action:^{
             std::vector<NSInteger> sel = [ed.w selectedRows];
             if (sel.empty()) {
@@ -228,6 +366,18 @@ void cmdStationProfiles() {
     }
     editorShow();
     [ed.w show];
+}
+
+void cmdStationFacts() {
+    cmdStationProfiles();
+    if (ed.list.empty()) {
+        [ed.w setStatus:@"Add a profile first: Station Facts belong to a station profile." severity:1];
+        return;
+    }
+    NSInteger chosen = chosenProfile();  // New QSO's, else the first
+    size_t index = chosen > 0 && (size_t)chosen <= ed.list.size() ? (size_t)chosen - 1 : 0;
+    [ed.w selectRow:(NSInteger)index];
+    factsSheet(index);
 }
 
 // ── New QSO's station ──

@@ -252,21 +252,16 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     // The ADIF version the checks follow: the newest (which moves on as ADIF Lint learns newer ones), or a fixed older one.
     _adifVersion = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     _adifVersion.identifier = @"settings.adifversion";
-    size_t n = 0;
-    const adif::SpecVersion *versions = adif::specVersions(&n);
-    for (size_t i = n; i-- > 0;) {
-        NSString *date = versions[i].date ? @(versions[i].date) : nil;
-        NSString *title = i + 1 == n ? TF(@"ADIF {version} (the newest)", @{@"version" : @(versions[i].name)})
-                          : date     ? TF(@"ADIF {version} ({date})", @{@"version" : @(versions[i].name), @"date" : date})
-                                     : TF(@"ADIF {version}", @{@"version" : @(versions[i].name)});
-        [_adifVersion addItemWithTitle:title];
-        _adifVersion.lastItem.representedObject = i + 1 == n ? @"" : @(versions[i].name);
+    for (const auto &[value, title] : adifhost::adifVersionChoices()) {
+        [_adifVersion addItemWithTitle:ADIFString(title)];
+        _adifVersion.lastItem.representedObject = ADIFString(value);
     }
     _adifVersion.target = self;
     _adifVersion.action = @selector(adifVersionChosen:);
     NSTextField *help = wrapping(@"The ADIF version the problem marks, Check Log and autocomplete follow, and the one the logs ADIF Lint "
                                  @"writes declare. Choose an older one when your logs must suit a program that reads it: fields and "
-                                 @"values that came later are marked, with the version that brought them.",
+                                 @"values that came later are marked, with the version that brought them. The version each log "
+                                 @"declares checks every log against its own ADIF_VER. Check Log offers the same choice.",
                                  NSFont.smallSystemFontSize, theme::faint());
     NSMutableArray *views = [boxes mutableCopy];
     [views addObjectsFromArray:@[ field(T(@"Check against:"), _adifVersion), help ]];
@@ -864,8 +859,10 @@ static NSTextField *wrapping(NSString *text, CGFloat size, NSColor *color) {
     say(@"settings.station", station.count ? [station componentsJoinedByString:@" \u00B7 "] : T(@"not set"));
     NSInteger on = 0;
     for (NSButton *b in _editorBoxes) on += b.state == NSControlStateValueOn;
-    say(@"settings.editor", TF(@"{on} of {all} on \u00B7 ADIF {version}", @{@"on" : @(on), @"all" : @(_editorBoxes.count),
-                                                                         @"version" : @(adif::specVersion())}));
+    say(@"settings.editor", [_adifVersion.selectedItem.representedObject isEqual:@"file"]
+                                ? TF(@"{on} of {all} on \u00B7 each log's ADIF_VER", @{@"on" : @(on), @"all" : @(_editorBoxes.count)})
+                                : TF(@"{on} of {all} on \u00B7 ADIF {version}", @{@"on" : @(on), @"all" : @(_editorBoxes.count),
+                                                                               @"version" : @(adif::specVersion())}));
     say(@"settings.language", _language.titleOfSelectedItem);
     say(@"settings.offline", onOff(_offline));
     say(@"settings.lotwusers", onOff(_lotwOn));

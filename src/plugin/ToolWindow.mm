@@ -1176,7 +1176,8 @@ static NSSize sizeOf(NSView *v, CGFloat width) {
 }
 
 - (void)closePressed:(id)sender {
-    [_window performClose:nil];
+    if (NSWindow *parent = _window.sheetParent) [parent endSheet:_window];  // shown on a sheet (TQSL Certificate)
+    else [_window performClose:nil];
 }
 
 - (void)windowWillClose:(NSNotification *)notification {
