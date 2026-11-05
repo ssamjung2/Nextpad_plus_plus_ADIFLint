@@ -104,7 +104,7 @@ See [Logging with the QSO panel](#logging-with-the-qso-panel) and [The Operating
 5. Drag the dividers to size the frames. Close what you don't need: it comes back in the same
    place when you open it again.
 6. The layout keeps all of it. Choose another layout and come back: it's as you left it.
-   **Reset Layout** brings back the original; **Save Layout As…** keeps yours under a name.
+   **Restore Default Layout** brings back the original; **Save Layout As…** keeps yours under a name.
 
 See [Frames, tabs and regions](#frames-tabs-and-regions).
 
@@ -760,33 +760,33 @@ opens there again in the same place.
 
 ### Layouts
 
-**Console Layout Options** (in the ADIF Lint menu) lists the built-in layouts, each a starting
-point made for a way of operating:
+**Console Layout Options** (in the ADIF Lint menu) groups the standard and operating layouts.
+The short names are shown in the menu; each preset's description is available as a tooltip:
 
 | Layout | Made for |
 |---|---|
-| QSO, log and spots with map and details below | Everyday logging with spots in view |
-| QSO on the left, operating panels on the right | A tall QSO panel, everything else beside it |
-| Log and QSO across the top, operating panels below | A wide screen, the log first |
-| Map and details on the right | Logging with the map and details beside it |
-| Spots on the left, QSO and log on the right | Hunting from the spots |
-| QSO and log only | Paper logs and quick entry |
-| QSO, spots and details | Chasing without the map |
-| Activation | A park, reference or summit activation |
-| Map over the log, QSO on the right | Start Logging's |
-| Social, Chasing, Contest, Portable | The operating styles' (each with its Operating Aids where it has them) |
+| All-in-One | QSO, log and spots with map and details below |
+| Split Console | QSO on the left, operating panels on the right |
+| Stacked Console | Log and QSO across the top, operating panels below |
+| Map Focus | Map and details on the right |
+| Spot Hunting | Spots on the left, QSO and log on the right |
+| Logging | QSO and log only |
+| QSO + Spots | QSO, spots and details |
+| POTA Activation | Activation: QSO on the left, details, log and spots on the right |
+| Map + Log | Map over the log, QSO on the right |
+| Social, DX Chasing, Contest, Portable | Operating-style arrangements |
 
 **Each layout keeps your changes.** The panels you add or close (and where a closed one goes
 back), the tabs, splits and frame sizes are kept for the layout you changed, so choosing another
-and coming back finds it as you left it. **Reset Layout** (on while the layout chosen has
-changes) brings it back as it comes; **Reset Frame Sizes** keeps its panels and only evens out
-their sizes.
+and coming back finds it as you left it. **Restore Default Layout** (on while the selected layout
+has changes) restores its original or saved arrangement; **Reset Panel Sizes** keeps its panels
+and only evens out their sizes.
 
 **Save Layout As…** keeps the console as it is now (its panels, tabs and frame sizes, and whether
-the Map's sidebar, list and selected panel show) as a layout of your own, under a name; yours are
-listed after the built-in ones, and **Delete Layout** removes one. Saving under a name you have
-used replaces that layout. Console Layout Options also lists every panel, ticked while it is in
-the console, to put it in or take it out.
+the Map's sidebar, list and selected panel show) as a layout of your own, under a name. Choose
+**Delete Saved Layout...** to remove a saved layout; it is available when a saved layout is
+selected. Saving under a name you have used replaces that layout. **Visible Panels** lists every
+panel, checked while it is in the console, to put it in or take it out.
 
 ### Frames, tabs and regions
 
@@ -1986,8 +1986,8 @@ the names of towns and neighbourhoods. Download a region in **Settings → Map D
 
 1. Choose the region: **The area shown on the Map** (open the Map and show it first), a US
    state, or a country.
-2. Choose how much detail: **Streets and buildings** (zoom 15), **Roads and towns** (zoom
-   13) or **Main roads** (zoom 11).
+2. Choose how much detail with the **Detail** control: **Detailed** is streets and buildings (zoom
+   15), **Normal** is roads and towns (zoom 13) and **Basic** is main roads (zoom 11).
 3. **Check Size** reads the newest build's index for that region (for a city, under a
    megabyte) and says what the download would take: about 12 MB for 25 by 17 km around
    Madison, Wisconsin, with streets and buildings, hundreds of megabytes for a state. A region too large for
@@ -2425,16 +2425,21 @@ Rules for every source:
 
 Settings is a window of its own, **ADIF Lint Settings** (it was a card in the Map's selected
 panel): **Settings…** in the ADIF Lint menu, the gear in the Map's header, and every "add one in
-Settings" open it, at the section that needs you. Each section is a
-card of its own, closed until you open it, its heading saying what is set in it (your call
-and grid, "3 of 4 on", **Saved** or **not set** for an account), so the one you want is quick
-to find. The first time ADIF Lint runs, it opens with a welcome and Your Station open.
+Settings" open it, at the section that needs you. A sidebar, as in macOS System Settings, lists six
+categories, each with its icon: **Station** (with your callsign and grid under it), **Editor**,
+**Data & Awards**, **Map**, **Spot Sources** and **Application**. Select one to see its settings
+alone, under its name, with a hairline between sections. The search field, at the top right of the
+window, navigates to the matching setting, including account credentials and provider options.
+Online-service credentials are in **Data & Awards → Service Accounts** and remain in the macOS
+Keychain. The first time ADIF Lint runs, it opens with a welcome in **Station**.
 
 **Spots** and **Your Station** can each be a panel of their own while you operate: the button at
 the right of the section's heading (or **Panels → Show Spot Configuration**, **Show Your Station**)
 moves the section into its own window, which can sit as a tab in the Operating Console (beside
 the spots, say). Settings then says where it is, with **Show It**; close the panel and the
-section is back in Settings.
+section is back in Settings. **Spot Sources** lists SpotHole, DX Cluster and PSKReporter, each with
+a switch to turn it on or off. **Configure...** opens that provider's settings on a page of their
+own; **Back** returns to the list.
 
 - **Your Station:** your callsign and grid, used where a log doesn't say: the QSO panel fills
   STATION_CALLSIGN and MY_GRIDSQUARE from them in a new log, distances are measured from the

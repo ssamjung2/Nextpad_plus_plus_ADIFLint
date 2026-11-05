@@ -2080,6 +2080,9 @@ static void showQsoRows(NppHandle h, const adif::LintResult &r) {
             g.lookup.call.clear();  // look the current call up again
             runLookup();
         };
+        g.qso.onEditLookupSettings = ^(NSInteger source) {
+            openSettings(source == 2 ? ADIFSourceQRZ : source == 3 ? ADIFSourceHamQTH : source == 1 ? -3 : -1);
+        };
         {
             std::string s = adifhost::setting("qsoLookup");
             g.qso.lookupSource = s == "off" ? 0 : s == "qrz" ? 2 : s == "hamqth" ? 3 : 1;  // country data by default
@@ -3432,10 +3435,8 @@ static void ensureSettings() {
 }
 
 // Settings: the Map's Settings card, with that source's group open (-1 none in particular).
-// Settings: app-wide preferences in a window of their own (HIG Settings; they were a card in the
-// Map's selected panel), the groups scrolling in it. The menu's Settings..., the Map's gear and
-// every "add it in Settings" open it.
-@interface ADIFSettingsPage : NSView  // the Settings window's page: its groups from the top
+// Settings' window host and dockable sections use simple top-aligned documents.
+@interface ADIFSettingsPage : NSView
 @end
 @implementation ADIFSettingsPage
 - (BOOL)isFlipped { return YES; }
@@ -3445,38 +3446,47 @@ static NSWindow *settingsWindow() {
     static NSWindow *w;
     if (w) return w;
     ensureSettings();
-    w = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 560, 700)
+    w = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 720, 700)
                                     styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable
                                       backing:NSBackingStoreBuffered
                                         defer:NO];
     w.title = T(@"ADIF Lint Settings");
     w.identifier = @"settings.window";
     w.releasedWhenClosed = NO;
-    w.contentMinSize = NSMakeSize(480, 320);
+    w.contentMinSize = NSMakeSize(640, 420);
     w.tabbingMode = NSWindowTabbingModeDisallowed;
-    NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:w.contentView.bounds];
-    scroll.hasVerticalScroller = YES;
-    scroll.autohidesScrollers = YES;
-    scroll.drawsBackground = NO;
-    scroll.borderType = NSNoBorder;
+    NSScrollView *host = [[NSScrollView alloc] initWithFrame:w.contentView.bounds];
+    host.hasVerticalScroller = NO;
+    host.hasHorizontalScroller = NO;
+    host.drawsBackground = NO;
+    host.borderType = NSNoBorder;
+    host.frame = NSMakeRect(0, 0, 720, 700);
+    host.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     ADIFSettingsPage *page = [[ADIFSettingsPage alloc] initWithFrame:NSZeroRect];
     page.translatesAutoresizingMaskIntoConstraints = NO;
-    scroll.documentView = page;
-    NSView *groups = g.settings.view;
-    [groups removeFromSuperview];
-    groups.translatesAutoresizingMaskIntoConstraints = NO;
-    [page addSubview:groups];
-    NSClipView *clip = scroll.contentView;
+    NSView *settings = g.settings.view;
+    settings.translatesAutoresizingMaskIntoConstraints = NO;
+    [page addSubview:settings];
+    host.documentView = page;
+    NSClipView *clip = host.contentView;
     [NSLayoutConstraint activateConstraints:@[
-        [page.leadingAnchor constraintEqualToAnchor:clip.leadingAnchor], [page.topAnchor constraintEqualToAnchor:clip.topAnchor],
+        [page.leadingAnchor constraintEqualToAnchor:clip.leadingAnchor],
+        [page.topAnchor constraintEqualToAnchor:clip.topAnchor],
         [page.widthAnchor constraintEqualToAnchor:clip.widthAnchor],
-        [groups.topAnchor constraintEqualToAnchor:page.topAnchor constant:kADIFMargin],
-        [groups.leadingAnchor constraintEqualToAnchor:page.leadingAnchor constant:kADIFMargin],
-        [groups.trailingAnchor constraintEqualToAnchor:page.trailingAnchor constant:-kADIFMargin],
-        [page.bottomAnchor constraintEqualToAnchor:groups.bottomAnchor constant:kADIFMargin],
+        [page.heightAnchor constraintEqualToAnchor:clip.heightAnchor],
+        [settings.leadingAnchor constraintEqualToAnchor:page.leadingAnchor],
+        [settings.trailingAnchor constraintEqualToAnchor:page.trailingAnchor],
+        [settings.topAnchor constraintEqualToAnchor:page.topAnchor],
+        [settings.bottomAnchor constraintEqualToAnchor:page.bottomAnchor],
     ]];
-    w.contentView = scroll;
+    w.contentView = host;
+    [w setContentSize:NSMakeSize(720, 700)];
     [w center];
+    // The search field sits in the title bar, at the top right, as in System Settings.
+    NSTitlebarAccessoryViewController *search = [[NSTitlebarAccessoryViewController alloc] init];
+    search.view = g.settings.searchField;
+    search.layoutAttribute = NSLayoutAttributeTrailing;
+    [w addTitlebarAccessoryViewController:search];
     theme::host(w);
     return w;
 }

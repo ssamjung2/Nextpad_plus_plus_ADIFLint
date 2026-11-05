@@ -228,7 +228,7 @@ bool readNode(const json::Value &v, Node *out, int depth, std::string *why) {
 // each place shows to begin with (a dock item: 0 none, 1 Map, 2 Log Table, 3 New QSO, 4 Spots,
 // 5 Contact Map, 6 QSO Details).
 struct LegacyPreset {
-    const char *id, *name;
+    const char *id, *name, *description;
     Node tree;
     std::array<int, 5> items;
 };
@@ -236,18 +236,23 @@ Node P(int place, double share = 0) { return stack({std::to_string(place)}, shar
 
 const std::vector<LegacyPreset> &legacyPresets() {
     static const std::vector<LegacyPreset> all = {
-        {"qso-log-spots", N_("QSO, log and spots with map and details below"), row({column({P(0), P(1)}), column({P(2), row({P(3), P(4)})})}),
+        {"qso-log-spots", N_("All-in-One"), N_("QSO, log and spots with map and details below"),
+         row({column({P(0), P(1)}), column({P(2), row({P(3), P(4)})})}),
          {3, 2, 4, 5, 6}},
-        {"qso-left", N_("QSO on the left, operating panels on the right"), row({P(0), column({P(1), row({P(2), P(3), P(4)})})}), {3, 2, 4, 5, 6}},
-        {"log-qso-top", N_("Log and QSO across the top, operating panels below"), column({row({P(0), P(1)}), row({P(2), P(3), P(4)})}),
+        {"qso-left", N_("Split Console"), N_("QSO on the left, operating panels on the right"),
+         row({P(0), column({P(1), row({P(2), P(3), P(4)})})}), {3, 2, 4, 5, 6}},
+        {"log-qso-top", N_("Stacked Console"), N_("Log and QSO across the top, operating panels below"),
+         column({row({P(0), P(1)}), row({P(2), P(3), P(4)})}),
          {2, 3, 4, 5, 6}},
-        {"map-details-right", N_("Map and details on the right"), row({column({P(0), P(1)}), column({P(2), row({P(3), P(4)})})}), {3, 2, 4, 5, 6}},
-        {"spots-left", N_("Spots on the left, QSO and log on the right"), row({P(0), column({P(1), row({P(2), P(3), P(4)})})}), {4, 3, 2, 5, 6}},
-        {"qso-log", N_("QSO and log only"), row({P(0), P(1), P(2), P(3), P(4)}), {3, 2, 0, 0, 0}},
-        {"qso-spots-details", N_("QSO, spots and details"), row({P(0), P(1), P(2), P(3), P(4)}), {3, 4, 6, 0, 0}},
-        {"activation", N_("Activation: QSO on the left, details, log and spots on the right"),
+        {"map-details-right", N_("Map Focus"), N_("Map and details on the right"),
+         row({column({P(0), P(1)}), column({P(2), row({P(3), P(4)})})}), {3, 2, 4, 5, 6}},
+        {"spots-left", N_("Spot Hunting"), N_("Spots on the left, QSO and log on the right"),
+         row({P(0), column({P(1), row({P(2), P(3), P(4)})})}), {4, 3, 2, 5, 6}},
+        {"qso-log", N_("Logging"), N_("QSO and log only"), row({P(0), P(1), P(2), P(3), P(4)}), {3, 2, 0, 0, 0}},
+        {"qso-spots-details", N_("QSO + Spots"), N_("QSO, spots and details"), row({P(0), P(1), P(2), P(3), P(4)}), {3, 4, 6, 0, 0}},
+        {"activation", N_("POTA Activation"), N_("Activation: QSO on the left, details, log and spots on the right"),
          row({P(0, 0.34), column({row({P(1, 0.6), P(2, 0.4)}, 0.29), P(3, 0.27), P(4, 0.44)}, 0.66)}), {3, 6, 5, 2, 4}},
-        {"logging", N_("Map over the log, QSO on the right"), row({column({P(0), P(1)}), P(2)}), {1, 2, 3, 0, 0}},
+        {"logging", N_("Map + Log"), N_("Map over the log, QSO on the right"), row({column({P(0), P(1)}), P(2)}), {1, 2, 3, 0, 0}},
     };
     return all;
 }
@@ -783,20 +788,20 @@ std::vector<Named> removeNamed(std::vector<Named> list, std::string_view name) {
 const std::vector<Preset> &presets() {
     static const std::vector<Preset> all = [] {
         std::vector<Preset> out;
-        for (const LegacyPreset &l : legacyPresets()) out.push_back({l.id, l.name, fill(l.tree, l.items)});
+        for (const LegacyPreset &l : legacyPresets()) out.push_back({l.id, l.name, l.description, fill(l.tree, l.items)});
         // The operating styles' layouts (OPERATING_STYLES_PLAN.md, Stage 6), by the styles' ids.
-        auto add = [&](const char *id, const char *name, Node console) {
+        auto add = [&](const char *id, const char *name, const char *description, Node console) {
             Arrangement a;
             a.console = std::move(console);
-            out.push_back({id, name, tidy(a)});
+            out.push_back({id, name, description, tidy(a)});
         };
-        add("social", N_("Social: the Map, with New QSO, Operating Aids and QSO Details beside it"),
+        add("social", N_("Social"), N_("Social: the Map, with New QSO, Operating Aids and QSO Details beside it"),
             row({stack({kMap}, 0.6), column({stack({kNewQso}, 0.5), stack({kAids}, 0.2), stack({kQsoDetails}, 0.3)}, 0.4)}));
-        add("chasing", N_("Chasing: the Map over the spots, New QSO and Operating Aids beside them"),
+        add("chasing", N_("DX Chasing"), N_("Chasing: the Map over the spots, New QSO and Operating Aids beside them"),
             row({column({stack({kMap}, 0.62), stack({kSpots}, 0.38)}, 0.64), column({stack({kNewQso}, 0.7), stack({kAids}, 0.3)}, 0.36)}));
-        add("contest", N_("Contest: New QSO over the log, the Map beside them"),
+        add("contest", N_("Contest"), N_("Contest: New QSO over the log, the Map beside them"),
             row({column({stack({kNewQso}, 0.55), stack({kLogTable}, 0.45)}, 0.4), stack({kMap}, 0.6)}));
-        add("portable", N_("Portable: New QSO over Operating Aids, with the Map over the log beside them"),
+        add("portable", N_("Portable"), N_("Portable: New QSO over Operating Aids, with the Map over the log beside them"),
             row({column({stack({kNewQso}, 0.7), stack({kAids}, 0.3)}, 0.36), column({stack({kMap}, 0.6), stack({kLogTable}, 0.4)}, 0.64)}));
         return out;
     }();

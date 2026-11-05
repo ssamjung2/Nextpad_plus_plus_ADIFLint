@@ -543,10 +543,19 @@ static NSWindow *settingsWindow() {
 }
 static void doneWithSettings() { [settingsWindow() orderOut:nil]; }
 static void closeSettings() { doneWithSettings(); }
-// A Settings group open ("settings.station", "settings.source.7"...), laid out.
+// Select the sidebar category containing a settings group ("settings.station", "settings.source.7"...).
 static void openSettingsGroup(NSWindow *w, NSString *ident) {
-    NSControl *h = w ? (NSControl *)viewWithIdentifier(w.contentView, [ident stringByAppendingString:@".header"]) : nil;
-    if (h && ![[h valueForKey:@"open"] boolValue]) [h performClick:nil];
+    NSString *category = [ident hasPrefix:@"settings.station"] ? @"station"
+                         : [ident hasPrefix:@"settings.editor"] ? @"editor"
+                         : [ident hasPrefix:@"settings.country"] || [ident hasPrefix:@"settings.lotwusers"] ||
+                                   [ident hasPrefix:@"settings.pota"] || [ident hasPrefix:@"settings.iota"] ||
+                                   [ident hasPrefix:@"settings.accounts"] || [ident hasPrefix:@"settings.source."]
+                               ? @"data-awards"
+                         : [ident hasPrefix:@"settings.mapdetail"] ? @"map"
+                         : [ident hasPrefix:@"settings.spots"] ? @"spot-sources"
+                                                                  : @"application";
+    NSButton *button = w ? (NSButton *)viewWithIdentifier(w.contentView, [@"settings.nav." stringByAppendingString:category]) : nil;
+    [button performClick:nil];
     [w.contentView layoutSubtreeIfNeeded];
 }
 static SettingsRow settingsRow(NSWindow *w, NSInteger source) {
@@ -1042,6 +1051,37 @@ int main(int argc, char **argv) {
                           !viewWithIdentifier(setW.contentView, @"settings.spots.away") && viewWithIdentifier(setW.contentView, @"settings.spots.openPanel"),
                       "Spot Sources: Settings' Spots section in a window of its own, Settings saying where; closed, back in Settings");
             }
+            {
+                NSWindow *setW = windowIdentified(@"settings.window");
+                NSSearchField *search = (NSSearchField *)viewWithIdentifier(setW.contentView.superview, @"settings.search");
+                search.stringValue = @"ADIF version";
+                [search sendAction:search.action to:search.target];
+                NSView *editorPage = viewWithIdentifier(setW.contentView, @"settings.page.editor");
+                bool editorFound = !editorPage.hidden && viewWithIdentifier(editorPage, @"settings.adifversion") != nil;
+                search.stringValue = @"PSKReporter";
+                [search sendAction:search.action to:search.target];
+                NSView *spotsPage = viewWithIdentifier(setW.contentView, @"settings.page.spot-sources");
+                bool spotsFound = !spotsPage.hidden && viewWithIdentifier(spotsPage, @"settings.spots.psk") != nil;
+                NSArray<NSString *> *categories = @[ @"station", @"editor", @"data-awards", @"map", @"spot-sources", @"application" ];
+                bool sidebarComplete = true;
+                bool sidebarSized = true;
+                for (NSString *category in categories) {
+                    NSButton *button = (NSButton *)viewWithIdentifier(setW.contentView, [@"settings.nav." stringByAppendingString:category]);
+                    sidebarComplete &= button != nil && viewWithIdentifier(setW.contentView, [@"settings.page." stringByAppendingString:category]) != nil;
+                    sidebarSized &= button && NSWidth(button.frame) > 0;
+                }
+                CHECK(sidebarComplete && editorFound && spotsFound,
+                      "Settings sidebar: six dedicated categories and search navigates to matching editor and spot-source settings");
+                NSView *settingsRoot = viewWithIdentifier(setW.contentView, @"settings");
+                NSView *sidebar = viewWithIdentifier(setW.contentView, @"settings.sidebar");
+                NSButton *stationNav = (NSButton *)viewWithIdentifier(setW.contentView, @"settings.nav.station");
+                NSButton *editorNav = (NSButton *)viewWithIdentifier(setW.contentView, @"settings.nav.editor");
+                CHECK(sidebarSized, "Settings sidebar category labels have visible widths (content %.1f, root %.1f, sidebar %.1f, Station %.1f, Editor %.1f)",
+                      NSWidth(setW.contentView.bounds), NSWidth(settingsRoot.frame), NSWidth(sidebar.frame),
+                      NSWidth(stationNav.frame), NSWidth(editorNav.frame));
+                search.stringValue = @"";
+                [search sendAction:search.action to:search.target];
+            }
         }
         NSMenuItem *preferencesMenu = menuIndexWithIdentifier(@"org.nextpad.adiflint.section.preferences") >= 0
                                           ? [pluginMenu itemAtIndex:menuIndexWithIdentifier(@"org.nextpad.adiflint.section.preferences")]
@@ -1165,8 +1205,14 @@ int main(int argc, char **argv) {
         {   // The welcome: Settings, with Your Station at the top.
             pump(0.2);
             NSWindow *sw = settingsWindow();
+            NSButton *stationNav = sw ? (NSButton *)viewWithIdentifier(sw.contentView, @"settings.nav.station") : nil;
+            [stationNav performClick:nil];
             NSString *welcome = sw ? labelContaining(sw.contentView, @"Welcome to ADIF Lint") : nil;
-            CHECK(sw.visible && welcome != nil, "first run: Settings opens with a welcome");
+            NSView *welcomeView = sw ? viewWithIdentifier(sw.contentView, @"settings.welcome") : nil;
+            NSView *stationPage = sw ? viewWithIdentifier(sw.contentView, @"settings.page.station") : nil;
+            CHECK(sw.visible && welcome != nil && welcomeView && !welcomeView.hidden && stationPage && !stationPage.hidden,
+                  "first run: Settings opens with a welcome (window=%d, page=%d, welcome=%d)",
+                  sw.visible, stationPage && !stationPage.hidden, welcomeView && !welcomeView.hidden);
             if (sw) {
                 [sw.contentView layoutSubtreeIfNeeded];
                 snapshot(sw, "settings-welcome");
@@ -1184,7 +1230,9 @@ int main(int argc, char **argv) {
             callField.stringValue = @"kw9d";
             gridField.stringValue = @"EN5";
             [save performClick:nil];
-            CHECK(labelContaining(sw.contentView, @"Maidenhead locator") != nil, "a bad grid is refused");
+            NSTextField *stationStatus = (NSTextField *)viewWithIdentifier(sw.contentView, @"settings.station.status");
+            CHECK(labelContaining(sw.contentView, @"Maidenhead locator") != nil,
+                  "a bad grid is refused (status=%s hidden=%d)", stationStatus.stringValue.UTF8String, stationStatus.hidden);
             gridField.stringValue = @"en52";
             [save performClick:nil];
             NSString *ini = [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint.ini"]
@@ -1854,11 +1902,14 @@ int main(int argc, char **argv) {
             openSettingsGroup(sw, @"settings.source.7");
             SettingsRow last = settingsRow(sw, 7);
             [last.status scrollRectToVisible:last.status.bounds];
+            [sw.contentView layoutSubtreeIfNeeded];
             NSRect lastRect = visibleInWindow(last.status);
-            CHECK(last.status && NSHeight(lastRect) > 0 && NSMaxY(lastRect) <= NSHeight(sw.contentView.bounds) && NSMinY(lastRect) >= 0,
-                  "the last section scrolls into the window");
             NSMutableArray *scrolls = [NSMutableArray array];
             collect(sw.contentView, NSScrollView.class, scrolls);
+            CHECK(last.status && NSHeight(lastRect) > 0 && NSMaxY(lastRect) <= NSHeight(sw.contentView.bounds) && NSMinY(lastRect) >= 0,
+                  "the last section scrolls into the window (rect=%.1f,%.1f %.1fx%.1f, content=%.1f, doc=%.1f)",
+                  lastRect.origin.x, lastRect.origin.y, lastRect.size.width, lastRect.size.height,
+                  NSHeight(sw.contentView.bounds), NSHeight(((NSScrollView *)scrolls.firstObject).documentView.bounds));
             [((NSScrollView *)scrolls.firstObject).documentView scrollPoint:NSZeroPoint];
             snapshot(sw, "settings");
             CHECK([qrz.user.stringValue isEqualToString:@"TEST"] && qrz.secret.stringValue.length == 0 &&
@@ -3143,6 +3194,17 @@ int main(int argc, char **argv) {
                 NSStackView *row = lookupRow(qw);
                 NSPopUpButton *pop = row ? (NSPopUpButton *)row.arrangedSubviews[1] : nil;
                 CHECK(pop && [pop.titleOfSelectedItem isEqualToString:@"Country data"], "Look up: country data by default");
+                CHECK(pop.itemArray.count == 6 && pop.itemArray[4].isSeparatorItem &&
+                          [[pop itemTitleAtIndex:5] isEqualToString:@"Edit Settings"],
+                      "Look up menu has a divider and Edit Settings");
+                if (pop && pop.itemArray.count == 6) {
+                    [pop selectItemAtIndex:5];
+                    [pop sendAction:pop.action to:pop.target];
+                    pump(0.2);
+                    NSWindow *settings = windowTitled(@"ADIF Lint Settings");
+                    CHECK(settings.visible && pop.indexOfSelectedItem == 1, "Edit Settings opens settings and keeps the lookup source");
+                    [settings orderOut:nil];
+                }
                 qsoControl(qw, @"GRIDSQUARE").stringValue = @"JO62";
                 qsoControl(qw, @"CALL").stringValue = @"DL2XYZ";
                 [[NSNotificationCenter defaultCenter] postNotificationName:NSControlTextDidChangeNotification object:qsoControl(qw, @"CALL")];
@@ -3152,7 +3214,8 @@ int main(int argc, char **argv) {
                 pump(0.2);
                 NSButton *detailsLink = (NSButton *)viewWithIdentifier(qw.contentView, @"qso.lookup.details");
                 for (int i = 0; i < 40 && detailsLink.hidden; ++i) pump(0.05);
-                bool linked = detailsLink && !detailsLink.hidden;
+                bool linked = detailsLink && !detailsLink.hidden && [detailsLink.title isEqualToString:@"View Contact Details"] &&
+                              detailsLink.bezelStyle != NSBezelStyleInline;
                 [detailsLink performClick:nil];
                 pump(0.3);
                 NSWindow *dw = windowTitled(@"QSO Details");
@@ -3162,7 +3225,7 @@ int main(int argc, char **argv) {
                           info.find("Country: FEDERAL REPUBLIC OF GERMANY \u00B7 EU \u00B7 CQ 14 \u00B7 ITU 28 \u00B7 DXCC 230") != std::string::npos &&
                           info.find("Distance: ") != std::string::npos && info.find(" km at ") != std::string::npos &&
                           info.find("(long path ") != std::string::npos && info.find("Local time: ") != std::string::npos && info.find("(UTC+1)") != std::string::npos,
-                      "the lookup's facts in QSO Details, not New QSO (Show in QSO Details %d, then hidden): %s", linked, info.c_str());
+                      "the lookup's facts in QSO Details, not New QSO (View Contact Details %d, then hidden): %s", linked, info.c_str());
                 if (dw) {
                     [dw setContentSize:NSMakeSize(420, 420)];
                     snapshot(dw, "qso-details");
@@ -3919,10 +3982,10 @@ int main(int argc, char **argv) {
                 CHECK([call.stringValue isEqualToString:@"K1PRK"] && fresh, "QSO Details: the call, and new for this activation (%s)", call.stringValue.UTF8String);
                 NSRect was = console.frame;  // its own size again after: the tests after expect it
                 [console setFrame:NSMakeRect(0, 0, 1440, 900) display:YES];
-                if (getenv("ADIFLINT_SNAPSHOT_DIR")) {  // the layout as it starts at this size (Reset Frame Sizes)
+                if (getenv("ADIFLINT_SNAPSHOT_DIR")) {  // the layout as it starts at this size (Reset Panel Sizes)
                     std::function<NSMenuItem *(NSMenu *)> seek = [&](NSMenu *m) -> NSMenuItem * {
                         for (NSMenuItem *mi in m.itemArray) {
-                            if ([mi.title isEqualToString:@"Reset Frame Sizes"]) return mi;
+                            if ([mi.title isEqualToString:@"Reset Panel Sizes"]) return mi;
                             if (mi.submenu)
                                 if (NSMenuItem *f = seek(mi.submenu)) return f;
                         }
@@ -6436,7 +6499,7 @@ int main(int argc, char **argv) {
                 run("Settings...");
                 NSWindow *setw = settingsWindow();
                 NSPopUpButton *region = (NSPopUpButton *)viewWithIdentifier(setw.contentView, @"settings.mapdetail.region");
-                NSPopUpButton *level = (NSPopUpButton *)viewWithIdentifier(setw.contentView, @"settings.mapdetail.level");
+                NSSegmentedControl *level = (NSSegmentedControl *)viewWithIdentifier(setw.contentView, @"settings.mapdetail.level");
                 NSPopUpButton *have = (NSPopUpButton *)viewWithIdentifier(setw.contentView, @"settings.mapdetail.installed");
                 NSTextField *detailStatus = (NSTextField *)viewWithIdentifier(setw.contentView, @"settings.mapdetail.status");
                 NSView *section = viewWithIdentifier(setw.contentView, @"settings.mapdetail");
@@ -6445,11 +6508,11 @@ int main(int argc, char **argv) {
                     return (bool)[detailStatus.stringValue containsString:text];
                 };
                 NSInteger wi = [region indexOfItemWithRepresentedObject:@"state:WI"];
-                CHECK(region && wi >= 0 && [[region itemAtIndex:wi].title isEqualToString:@"Wisconsin (US)"] && level.numberOfItems == 3 &&
+                CHECK(region && wi >= 0 && [[region itemAtIndex:wi].title isEqualToString:@"Wisconsin (US)"] && level.segmentCount == 3 &&
                           [region indexOfItemWithRepresentedObject:@"country:Italy"] > wi && [have.titleOfSelectedItem isEqualToString:@"(none)"],
                       "Map Detail: states, then countries; three levels; nothing downloaded yet");
                 [region selectItemAtIndex:wi];
-                [level selectItemAtIndex:0];
+                level.selectedSegment = 2;  // Detailed: zoom 15, streets and buildings
                 [findButton(section, @"Check Size") performClick:nil];
                 CHECK(waitFor(@"Press Download") && [detailStatus.stringValue hasPrefix:@"Wisconsin, Streets and buildings (zoom 15): "] &&
                           [detailStatus.stringValue containsString:@"build of 2026-10-18"] && findButton(section, @"Download").enabled,
@@ -6983,12 +7046,13 @@ int main(int argc, char **argv) {
                 // Settings → Spots: PSKReporter around the grid square; switching doesn't ask again within five minutes.
                 run("Settings...");
                 openSettingsGroup(setw, @"settings.spots");  // its status line, in Settings' own window
+                [(NSButton *)viewWithIdentifier(setw.contentView, @"settings.spots.configure.psk") performClick:nil];  // PSKReporter's page
                 NSPopUpButton *pskQuery = (NSPopUpButton *)viewWithIdentifier(setw.contentView, @"settings.spots.pskQuery");
                 CHECK(pskQuery.numberOfItems == 4, "Settings offers PSKReporter by callsign, around the grid square, the ARRL section's region or the state");
                 [pskQuery selectItemAtIndex:1];
                 [pskQuery sendAction:pskQuery.action to:pskQuery.target];
                 pump(0.5);
-                NSString *pskSaid = labelContaining(setw.contentView, @"PSKReporter: ");
+                NSString *pskSaid = labelContaining(setw.contentView, @"asked at most once");
                 CHECK([pskSaid containsString:@"PSKReporter: asked at most once in 5 minutes; next at "] && count(requests(), "PSKREPORTER ") == 1,
                       "around the grid: no new question within five minutes (%s)", pskSaid.UTF8String);
                 [pskQuery selectItemAtIndex:0];
@@ -7133,10 +7197,13 @@ int main(int argc, char **argv) {
                 };
                 pump(0.6);  // the spots' change notice: the cluster is connected
                 CHECK(spotCluster && spotPota && spotCluster.state == NSControlStateValueOff && spotPota.state == NSControlStateValueOff &&
-                          spotCluster.enabled && [spotCluster.toolTip containsString:@"(127.0.0.1:"] && !spotPota.enabled &&
+                          spotCluster.enabled && [spotCluster.toolTip containsString:@"(127.0.0.1:"] && spotPota.enabled &&
                           [spotPota.toolTip containsString:@"POTA activation"] && spotLine.hidden,
-                      "New QSO's spot boxes: off at first; the cluster's can (connected), pota.app's can't (not activating): '%s'",
+                      "New QSO's spot boxes: both editable; the cluster can (connected), pota.app can't (not activating): '%s'",
                       spotPota.toolTip.UTF8String);
+                setBox(spotPota, true);
+                CHECK(spotPota.state == NSControlStateValueOn, "an unavailable spot option can still be selected");
+                setBox(spotPota, false);
                 NSTextField *stationLine = (NSTextField *)viewWithIdentifier(qwLog.contentView, @"qso.station.summary");
                 NSView *stationPopup = viewWithIdentifier(qwLog.contentView, @"qso.station");
                 CHECK([stationLine.stringValue isEqualToString:@"KW9D \u00B7 EN52wa \u00B7 5 W \u00B7 Elecraft T1"] &&
@@ -7428,7 +7495,7 @@ int main(int argc, char **argv) {
                         }
                     };
                     findLayouts(NSApp.mainMenu);
-                    auto resetLayout = [&](NSMenu *options) {  // Reset Layout, when the layout chosen was changed
+                    auto resetLayout = [&](NSMenu *options) {  // Restore Default Layout, when the chosen layout was changed
                         [options.delegate menuNeedsUpdate:options];
                         for (NSMenuItem *r in options.itemArray)
                             if ([r.identifier isEqualToString:@"org.nextpad.adiflint.layouts.reset"] && r.enabled)
@@ -7444,7 +7511,25 @@ int main(int argc, char **argv) {
                         resetLayout(layouts[(NSUInteger)i].menu);
                     };
                     NSInteger count = (NSInteger)layouts.count;
-                    CHECK(count >= 9, "Start Logging: layouts to choose (%ld)", (long)count);
+                    CHECK(count == 13, "Start Logging: all 13 layouts to choose (%ld)", (long)count);
+                    NSMenu *layoutMenu = layouts.firstObject.menu;
+                    auto menuItem = [&](NSString *identifier) -> NSMenuItem * {
+                        for (NSMenuItem *mi in layoutMenu.itemArray)
+                            if ([mi.identifier isEqualToString:identifier]) return mi;
+                        return nil;
+                    };
+                    NSInteger standard = [layoutMenu indexOfItem:menuItem(@"org.nextpad.adiflint.layouts.standard")];
+                    NSInteger operating = [layoutMenu indexOfItem:menuItem(@"org.nextpad.adiflint.layouts.operating")];
+                    NSInteger visible = [layoutMenu indexOfItem:menuItem(@"org.nextpad.adiflint.layouts.visible")];
+                    NSMenuItem *removeLayout = menuItem(@"org.nextpad.adiflint.layouts.delete");
+                    CHECK(standard >= 0 && operating > standard && visible > operating &&
+                              [layoutMenu itemAtIndex:standard].title.length && [layoutMenu itemAtIndex:operating].title.length &&
+                              [layoutMenu itemAtIndex:visible].title.length &&
+                              [[layouts.firstObject title] isEqualToString:@"All-in-One"] &&
+                              [[layouts.lastObject title] isEqualToString:@"Portable"] &&
+                              [layouts.firstObject.toolTip isEqualToString:@"QSO, log and spots with map and details below"],
+                          "Console Layout Options groups short preset names and retains descriptions as tooltips");
+                    CHECK(removeLayout && !removeLayout.enabled, "Delete Saved Layout is disabled for a built-in layout");
                     for (NSInteger i = 0; i < count; ++i) {
                         chooseLayout(i);
                         pump(0.3);
@@ -7695,7 +7780,7 @@ int main(int argc, char **argv) {
                         }
                         {  // Regions: a frame's region split in two (Split Down), its frames side by side, a frame to the console's edge,
                            // one dropped near another's edge; a panel chosen into a frame too small for it gets the room it needs; and
-                           // the layout keeps all of it (a closed panel's place too) until Reset Layout.
+                           // the layout keeps all of it (a closed panel's place too) until Restore Default Layout.
                             auto menuOf = [&](NSWindow *w) -> NSMenu * {
                                 NSView *f = frameShowing(w);
                                 NSPopUpButton *more = f ? (NSPopUpButton *)viewWithIdentifier(f, @"frame.actions") : nil;
@@ -7799,7 +7884,7 @@ int main(int argc, char **argv) {
                             [options.delegate menuNeedsUpdate:options];
                             CHECK(kept && resettable && logButton && placed && reset && !frameShowing(qdw) && frameShowing(tw) && frameShowing(mapw0) &&
                                       framesOf().size() == frames && !item(options, @"org.nextpad.adiflint.layouts.reset").enabled,
-                                  "Another layout and back: the changes kept, the Log Table opening in its place (%d %d); Reset Layout: as the layout comes", kept,
+                                  "Another layout and back: the changes kept, the Log Table opening in its place (%d %d); Restore Default Layout: as the layout comes", kept,
                                   placed);
                             chooseLayout(0);
                             pump(0.3);
@@ -7891,7 +7976,7 @@ int main(int argc, char **argv) {
                             NSString *saved = ini();
                             CHECK(sideHidden && canSave && sheet && name && [okTitle isEqualToString:@"Save"] && !host.attachedSheet && mine &&
                                       mine.state == NSControlStateValueOn && [saved containsString:@"consoleLayouts={\"v\":1,\"layouts\":[{\"name\":\"Test Evening\""] &&
-                                      [saved containsString:@"\"selected\":true,\"sidebar\":false}}}}]}"],
+                                      [saved containsString:@"\"selected\":true,\"sidebar\":false}}}}]}"] && removeLayout.enabled,
                                   "Save Layout As...: a sheet for its name; the console and the Map's hidden sidebar kept as \"Test Evening\", listed and ticked");
                             chooseLayout(0);
                             pump(0.3);
@@ -7899,9 +7984,10 @@ int main(int argc, char **argv) {
                             pump(0.2);
                             mine = item(@"org.nextpad.adiflint.layouts.mine.Test Evening");
                             bool unticked = mine.state == NSControlStateValueOff && !mapw0.visible;
+                            bool deleteDisabled = !removeLayout.enabled;
                             if (mine) [options performActionForItemAtIndex:[options indexOfItem:mine]];
                             pump(0.5);
-                            CHECK(unticked && mapw0.visible && frameShowing(mapw0) && frameShowing(tw) && frameShowing(qwL) && sidebar.hidden &&
+                            CHECK(unticked && deleteDisabled && mapw0.visible && frameShowing(mapw0) && frameShowing(tw) && frameShowing(qwL) && sidebar.hidden &&
                                       item(@"org.nextpad.adiflint.layouts.mine.Test Evening").state == NSControlStateValueOn,
                                   "Your layout chosen: the Map, the log and New QSO back in their frames, the Map's sidebar hidden as it was saved");
                             if (saveAs) [options performActionForItemAtIndex:[options indexOfItem:saveAs]];
@@ -7920,9 +8006,10 @@ int main(int argc, char **argv) {
                             NSMenuItem *gone = remove.submenu.itemArray.firstObject;
                             if (gone) [remove.submenu performActionForItemAtIndex:0];
                             pump(0.2);
-                            CHECK(remove.enabled && [gone.title isEqualToString:@"Test Evening"] && !item(@"org.nextpad.adiflint.layouts.mine.Test Evening") &&
+                            CHECK(remove.enabled && [remove.title isEqualToString:@"Delete Saved Layout..."] &&
+                                      [gone.title isEqualToString:@"Test Evening"] && !item(@"org.nextpad.adiflint.layouts.mine.Test Evening") &&
                                       !item(@"org.nextpad.adiflint.layouts.delete").enabled && ![ini() containsString:@"Test Evening"] && !sidebar.hidden,
-                                  "Delete Layout: your layout gone from the menu and the settings; the console stays as it is");
+                                  "Delete Saved Layout: your layout gone from the menu and settings; the console stays as it is");
                             chooseLayout(0);
                             pump(0.3);
                         }
@@ -9128,7 +9215,7 @@ int main(int argc, char **argv) {
                     CHECK(console.visible && dockedIn(mapw) == console && dockedIn(spotsW) == console && dockedIn(qsoW) == console &&
                               chasingPanels == "Its panels: Chasing: the Map over the spots, New QSO and Operating Aids beside them",
                           "Arrange Panels: Chasing opens the console with the Map over the spots and New QSO beside them (%s)", chasingPanels.c_str());
-                    chooseConsoleLayout(@"Map over the log, QSO on the right");
+                    chooseConsoleLayout(@"Map + Log");
                     NSWindow *logW = windowTitled(@"Log Table");
                     bool saveOn = [styleActions.menu itemAtIndex:styleItem(@"Save")].enabled;
                     styleMenu(@"Save");

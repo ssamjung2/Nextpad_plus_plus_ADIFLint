@@ -1082,7 +1082,7 @@ void openAuxWindow(int item) {
 // arrangement that hasn't opened yet (New QSO before an activation's log exists) takes its place
 // when it docks. A panel not in the arrangement opens as a window of its own, unless it was closed
 // from the console: then it goes back to its place there (kept in the arrangement). Each layout
-// keeps your changes to it (Reset Layout forgets them), and the frames are kept at least as big
+// keeps your changes to it (Restore Default Layout forgets them), and the frames are kept at least as big
 // as their panels need.
 @implementation ADIFWorkspace {
     ADIFWorkspaceWindow *_host;
@@ -1225,7 +1225,7 @@ void openAuxWindow(int item) {
     adifhost::setSetting("consoleLayoutsAdjusted", layout::writeAdjusted(_adjusted));
 }
 
-// Reset Layout: the layout chosen as it comes, your changes to it forgotten.
+// Restore Default Layout: the chosen layout's original or saved arrangement, with changes forgotten.
 - (void)resetLayout:(id)sender {
     [self loadSettings];
     if (!_adjusted.erase(_presetId)) return;
@@ -1764,24 +1764,30 @@ void openAuxWindow(int item) {
         } else if (mi.action == @selector(saveLayoutAs:)) {
             mi.enabled = _active;  // the console as it is
         } else if ([mi.identifier isEqualToString:@"org.nextpad.adiflint.layouts.delete"]) {
-            mi.enabled = !_mine.empty();
+            mi.enabled = _presetId.rfind("mine:", 0) == 0 &&
+                         layout::findNamed(_mine, _presetId.substr(5)) != nullptr;
         } else if (mi.action == @selector(resetLayout:)) {
             mi.enabled = _adjusted.count(_presetId) > 0;  // the layout chosen, changed since
         }
     }
 }
 
-// Your layouts in the menu: after the built-in ones, and in Delete Layout.
+// Your layouts in the menu: after the save/delete commands.
 - (void)fillMine {
     for (NSMenuItem *mi in [_optionsMenu.itemArray copy])
         if ([mi.identifier hasPrefix:@"org.nextpad.adiflint.layouts.mine"]) [_optionsMenu removeItem:mi];
-    NSInteger at = (NSInteger)layout::presets().size();
+    NSInteger at = 0;
+    for (NSUInteger i = 0; i < _optionsMenu.itemArray.count; ++i)
+        if ([_optionsMenu.itemArray[i].identifier isEqualToString:@"org.nextpad.adiflint.layouts.delete"]) {
+            at = (NSInteger)i + 1;
+            break;
+        }
     if (!_mine.empty()) {
         NSMenuItem *rule = NSMenuItem.separatorItem;
         rule.identifier = @"org.nextpad.adiflint.layouts.mine.rule";
         [_optionsMenu insertItem:rule atIndex:at++];
     }
-    NSMenu *remove = [[NSMenu alloc] initWithTitle:T(@"Delete Layout")];
+    NSMenu *remove = [[NSMenu alloc] initWithTitle:T(@"Delete Saved Layout...")];
     for (const layout::Named &n : _mine) {
         NSMenuItem *mi = [[NSMenuItem alloc] initWithTitle:ADIFString(n.name) action:@selector(mineChosen:) keyEquivalent:@""];
         mi.target = self;
@@ -1972,31 +1978,46 @@ void openAuxWindow(int item) {
     [self loadSettings];
     _optionsMenu = [[NSMenu alloc] initWithTitle:T(@"Console Layout Options")];
     _optionsMenu.delegate = self;
+    NSMenuItem *standard = [_optionsMenu addItemWithTitle:T(@"STANDARD LAYOUTS") action:nil keyEquivalent:@""];
+    standard.identifier = @"org.nextpad.adiflint.layouts.standard";
+    standard.enabled = NO;
     for (size_t i = 0; i < layout::presets().size(); ++i) {
+        if (i == 9) {
+            [_optionsMenu addItem:NSMenuItem.separatorItem];
+            NSMenuItem *operating = [_optionsMenu addItemWithTitle:T(@"OPERATING LAYOUTS") action:nil keyEquivalent:@""];
+            operating.identifier = @"org.nextpad.adiflint.layouts.operating";
+            operating.enabled = NO;
+        }
         NSMenuItem *mi = [_optionsMenu addItemWithTitle:T(@(layout::presets()[i].name)) action:@selector(presetChosen:) keyEquivalent:@""];
         mi.target = self;
         mi.tag = (NSInteger)i;
+        mi.toolTip = T(@(layout::presets()[i].description));
     }
     [_optionsMenu addItem:NSMenuItem.separatorItem];
     NSMenuItem *saveAs = [_optionsMenu addItemWithTitle:T(@"Save Layout As...") action:@selector(saveLayoutAs:) keyEquivalent:@""];
     saveAs.target = self;
     saveAs.identifier = @"org.nextpad.adiflint.layouts.save";
-    NSMenuItem *remove = [_optionsMenu addItemWithTitle:T(@"Delete Layout") action:nil keyEquivalent:@""];
+    NSMenuItem *remove = [_optionsMenu addItemWithTitle:T(@"Delete Saved Layout...") action:nil keyEquivalent:@""];
     remove.identifier = @"org.nextpad.adiflint.layouts.delete";
-    remove.submenu = [[NSMenu alloc] initWithTitle:T(@"Delete Layout")];
-    _optionsMenu.autoenablesItems = NO;  // Save Layout As... and Delete Layout as menuNeedsUpdate sets them
+    remove.submenu = [[NSMenu alloc] initWithTitle:T(@"Delete Saved Layout...")];
+    _optionsMenu.autoenablesItems = NO;  // Save and Delete Saved Layout as menuNeedsUpdate sets them
     [_optionsMenu addItem:NSMenuItem.separatorItem];
+    NSMenuItem *visible = [_optionsMenu addItemWithTitle:T(@"VISIBLE PANELS") action:nil keyEquivalent:@""];
+    visible.identifier = @"org.nextpad.adiflint.layouts.visible";
+    visible.enabled = NO;
     for (int item : {kDockNewQso, kDockLog, kDockSpots, kDockContactMap, kDockQsoInfo, kDockMap, kDockMapStyle, kDockAids, kDockClocks, kDockSpotSources, kDockStation}) {
+        if (item == kDockLog || item == kDockSpots || item == kDockContactMap || item == kDockMap || item == kDockMapStyle || item == kDockClocks)
+            [_optionsMenu addItem:NSMenuItem.separatorItem];
         NSMenuItem *mi = [_optionsMenu addItemWithTitle:itemName(item) action:@selector(frameToggled:) keyEquivalent:@""];
         mi.target = self;
         mi.tag = item;
     }
     [_optionsMenu addItem:NSMenuItem.separatorItem];
-    NSMenuItem *resetLayout = [_optionsMenu addItemWithTitle:T(@"Reset Layout") action:@selector(resetLayout:) keyEquivalent:@""];
+    NSMenuItem *resetLayout = [_optionsMenu addItemWithTitle:T(@"Restore Default Layout") action:@selector(resetLayout:) keyEquivalent:@""];
     resetLayout.target = self;
     resetLayout.identifier = @"org.nextpad.adiflint.layouts.reset";
     resetLayout.toolTip = T(@"The layout chosen as it comes: your changes to it (its panels, tabs, splits and frame sizes) forgotten");
-    NSMenuItem *reset = [_optionsMenu addItemWithTitle:T(@"Reset Frame Sizes") action:@selector(resetSizes:) keyEquivalent:@""];
+    NSMenuItem *reset = [_optionsMenu addItemWithTitle:T(@"Reset Panel Sizes") action:@selector(resetSizes:) keyEquivalent:@""];
     reset.target = self;
     _optionsMenuItem = [[NSMenuItem alloc] initWithTitle:T(@"Console Layout Options") action:nil keyEquivalent:@""];
     _optionsMenuItem.submenu = _optionsMenu;
@@ -2011,19 +2032,29 @@ void openAuxWindow(int item) {
     _optionsMenuItem.title = T(@"Console Layout Options");
     _optionsMenu.title = _optionsMenuItem.title;
     for (NSMenuItem *mi in _optionsMenu.itemArray) {
-        if (mi.action == @selector(presetChosen:) && [self presetOf:mi.tag])
+        if (mi.action == @selector(presetChosen:) && [self presetOf:mi.tag]) {
             mi.title = T(@([self presetOf:mi.tag]->name));
-        else if (mi.action == @selector(frameToggled:))
+            mi.toolTip = T(@([self presetOf:mi.tag]->description));
+        } else if (mi.action == @selector(frameToggled:))
             mi.title = itemName((int)mi.tag);
         else if (mi.action == @selector(resetSizes:))
-            mi.title = T(@"Reset Frame Sizes");
+            mi.title = T(@"Reset Panel Sizes");
         else if (mi.action == @selector(resetLayout:))
-            mi.title = T(@"Reset Layout");
+            mi.title = T(@"Restore Default Layout");
         else if (mi.action == @selector(saveLayoutAs:))
             mi.title = T(@"Save Layout As...");
         else if ([mi.identifier isEqualToString:@"org.nextpad.adiflint.layouts.delete"])
-            mi.title = T(@"Delete Layout");
+            mi.title = T(@"Delete Saved Layout...");
+        else if ([mi.identifier isEqualToString:@"org.nextpad.adiflint.layouts.standard"])
+            mi.title = T(@"STANDARD LAYOUTS");
+        else if ([mi.identifier isEqualToString:@"org.nextpad.adiflint.layouts.operating"])
+            mi.title = T(@"OPERATING LAYOUTS");
+        else if ([mi.identifier isEqualToString:@"org.nextpad.adiflint.layouts.visible"])
+            mi.title = T(@"VISIBLE PANELS");
     }
+    for (NSMenuItem *mi in _optionsMenu.itemArray)
+        if ([mi.identifier isEqualToString:@"org.nextpad.adiflint.layouts.delete"] && mi.submenu)
+            mi.submenu.title = T(@"Delete Saved Layout...");
 }
 
 // ── The frames' tree ──
@@ -2360,7 +2391,7 @@ std::string styleLayoutName(const std::string &style) {
     if (!stylesArrange()) return tr("Not arranged: Arrange Panels is off");
     if ([ADIFWorkspace.shared styleLayoutIsOwn:style]) return tr("Yours, kept with Save");
     const adif::layout::Preset *p = adif::layout::preset(style);
-    return p ? tr(p->name) : std::string();
+    return p ? tr(p->description) : std::string();
 }
 
 void setPane(const char *panel, const char *pane, bool shown) { [ADIFWorkspace.shared setPane:panel pane:pane shown:shown]; }

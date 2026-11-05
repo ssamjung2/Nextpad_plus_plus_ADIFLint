@@ -1,7 +1,6 @@
-// ADIF Lint Settings: your station, editor options, keyboard shortcuts, the
-// country data, and accounts and API keys for the online services, stored in
-// the macOS Keychain (see Lookup.h). A group each, opening and closing, in the
-// Map's Settings card (`view`).
+// ADIF Lint Settings: a persistent category sidebar, searchable settings, and
+// dedicated Station, Editor, Data & Awards, Map, Spot Sources and Application pages.
+// Online-service credentials remain in the macOS Keychain (see Lookup.h).
 // AppKit and Foundation only.
 #pragma once
 
@@ -9,7 +8,9 @@
 
 @interface ADIFSettingsPanel : NSObject
 
-@property(nonatomic, readonly) NSView *view;  // the groups, for the Settings window
+@property(nonatomic, readonly) NSView *view;  // the category sidebar and the selected settings page
+// The search field: the window's title bar holds it (ADIFLint.mm), and it finds settings and navigates to them.
+@property(nonatomic, readonly) NSSearchField *searchField;
 // A credential was saved or removed for this source.
 @property(nonatomic, copy) void (^onChanged)(NSInteger source);
 
@@ -75,8 +76,8 @@
 - (void)returnSection:(NSString *)ident;
 - (void)offerPanel:(NSString *)ident tip:(NSString *)tip;
 @property(nonatomic, copy) void (^onShowSection)(NSString *ident);
-- (void)showSource:(NSInteger)source;  // that source's group open, its first field focused (-3: country data, -4: spots)
-- (void)openGroup:(NSString *)ident;   // "settings.station", "settings.source.0"...
+- (void)showSource:(NSInteger)source;  // navigates to that setting and focuses its first field (-3: country data, -4: spots)
+- (void)openGroup:(NSString *)ident;   // navigates to the category containing "settings.station", "settings.source.0"...
 - (void)refresh;                       // reload what is saved
 
 @end

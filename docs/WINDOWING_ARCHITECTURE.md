@@ -159,7 +159,9 @@ Every control is bound to it, not to the panels:
   app's View and Window menus; the plugin's menu is where its commands can live.
 - **Map toolbar**: the panel buttons call `toggle(id)` and take their state from the controller
   on its notification, as they do now, without keeping their own.
-- **Console**: the Frames menu, the frame header's popup and drag-to-swap all call the
+- **Console**: Console Layout Options groups its standard and operating layouts, provides panel
+  visibility toggles and saved-layout commands, and offers layout and panel-size resets. The
+  frame header's popup and drag-to-swap also call the
   controller.
 - **Shortcuts**: assigned to the commands (Nextpad++'s Shortcut Mapper, as today).
 
@@ -332,7 +334,7 @@ alone doesn't express); panes inside a panel may use `NSSplitViewItem` where it 
   (`consoleLayoutsAdjusted`, `readAdjusted`/`writeAdjusted`, by the console's id for it:
   `logging`, `mine:<name>`, `style:<style>`), recorded with every save and forgotten when the
   console is as the layout comes; choosing a layout, Start Logging and the styles use your
-  version, and **Reset Layout** forgets it (a style's Use Recommended Defaults forgets its
+  version, and **Restore Default Layout** forgets it (a style's Use Recommended Defaults forgets its
   layouts' too). Regions: `splitBeside` (Split Right, Split Down: a region in two),
   `moveFrame` (beside another frame's edge, or along the console's), `alignSplit` (Side by
   Side, One Above the Other) and `splitOf`; a frame dropped near another's edge (its outer

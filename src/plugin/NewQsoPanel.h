@@ -66,6 +66,7 @@ struct ADIFAidRow {
 // Look up the call as you type: 0 off, 1 country data (offline), 2 QRZ.com, 3 HamQTH.
 @property(nonatomic) NSInteger lookupSource;
 @property(nonatomic, copy) void (^onLookupChanged)(NSInteger source);
+@property(nonatomic, copy) void (^onEditLookupSettings)(NSInteger source);
 // The Station popup: index 0 is the log's own station fields, then the profiles,
 // then "Edit Profiles..." (onStationChosen gets -1 for that).
 @property(nonatomic, copy) void (^onStationChosen)(NSInteger index);
@@ -77,7 +78,7 @@ struct ADIFAidRow {
 @property(nonatomic) BOOL spotCluster;
 @property(nonatomic) BOOL spotPota;
 @property(nonatomic, copy) void (^onSpotChanged)(void);
-// Whether each box can spot now (dimmed when not), and what its tooltip says.
+// Whether each box can spot now, and what its tooltip says. Unavailable boxes remain editable.
 - (void)setSpotReady:(BOOL)cluster clusterTip:(NSString *)clusterTip pota:(BOOL)pota potaTip:(NSString *)potaTip;
 @property(nonatomic, readonly) BOOL spotClusterReady;
 @property(nonatomic, readonly) BOOL spotPotaReady;

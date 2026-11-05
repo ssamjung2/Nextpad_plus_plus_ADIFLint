@@ -347,11 +347,13 @@ static const CGFloat kAidTail = 6;  // the tail's width beside the bubble
     NSGridView *_spotGrid;
     NSLayoutConstraint *_logAfterGrid, *_logAfterStatus;  // one is active: the status line shown or not
     NSGridView *_facts;  // what the lookup says of itself (found, failed); its facts are in QSO Details
-    NSButton *_detailsLink;  // Show in QSO Details, while the lookup has facts and QSO Details is closed
+    NSButton *_detailsButton;  // View Contact Details, while the lookup has facts and QSO Details is closed
     BOOL _hasFacts;
+    BOOL _spotClusterReady, _spotPotaReady;
     NSStackView *_lookupRow, *_stationRow;
     NSTextField *_stationSummary;
     NSPopUpButton *_lookup, *_station;
+    NSInteger _lookupSource;
     NSTimer *_timer;
     std::vector<ADIFQsoRow> _rows;
     NSMutableArray<NSTextField *> *_controls;  // NSTextField or NSComboBox, per row
@@ -428,6 +430,8 @@ static const CGFloat kAidTail = 6;  // the tail's width beside the bubble
 
     _lookup = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [_lookup addItemsWithTitles:@[ T(@"Off"), T(@"Country data"), @"QRZ.com", @"HamQTH" ]];  // chosen by index
+    [_lookup.menu addItem:NSMenuItem.separatorItem];
+    [_lookup addItemWithTitle:T(@"Edit Settings")];
     _lookup.target = self;
     _lookup.action = @selector(lookupChanged:);
     _lookup.toolTip = T(@"Look the call up as you type and fill the fields that are still empty: country and zones from the "
@@ -459,15 +463,14 @@ static const CGFloat kAidTail = 6;  // the tail's width beside the bubble
     _stationRow.alignment = NSLayoutAttributeCenterY;
     _stationRow.translatesAutoresizingMaskIntoConstraints = NO;
     // The lookup's facts (the operator, country and zones, grid, distance, local time...) are in QSO Details.
-    _detailsLink = [NSButton buttonWithTitle:T(@"Show in QSO Details") target:self action:@selector(showDetails:)];
-    _detailsLink.bezelStyle = NSBezelStyleInline;
-    _detailsLink.controlSize = NSControlSizeSmall;
-    _detailsLink.font = theme::small();
-    _detailsLink.identifier = @"qso.lookup.details";
-    _detailsLink.toolTip = T(@"What the lookup found (the operator, country and zones, grid, distance and bearing, local time, LoTW, worked "
-                             @"before) is in QSO Details");
-    _detailsLink.hidden = YES;
-    _lookupRow = [NSStackView stackViewWithViews:@[ [NSTextField labelWithString:T(@"Look up:")], _lookup, _detailsLink ]];
+    _detailsButton = [NSButton buttonWithTitle:T(@"View Contact Details") target:self action:@selector(showDetails:)];
+    _detailsButton.bezelStyle = NSBezelStyleRounded;
+    _detailsButton.controlSize = NSControlSizeSmall;
+    _detailsButton.identifier = @"qso.lookup.details";
+    _detailsButton.toolTip = T(@"What the lookup found (the operator, country and zones, grid, distance and bearing, local time, LoTW, worked "
+                               @"before) is in QSO Details");
+    _detailsButton.hidden = YES;
+    _lookupRow = [NSStackView stackViewWithViews:@[ [NSTextField labelWithString:T(@"Look up:")], _lookup, _detailsButton ]];
     _lookupRow.spacing = 8;
     _lookupRow.alignment = NSLayoutAttributeCenterY;
     _lookupRow.translatesAutoresizingMaskIntoConstraints = NO;
@@ -710,18 +713,20 @@ static const CGFloat kAidTail = 6;  // the tail's width beside the bubble
 }
 
 - (void)setSpotReady:(BOOL)cluster clusterTip:(NSString *)clusterTip pota:(BOOL)pota potaTip:(NSString *)potaTip {
-    _spotCluster.enabled = cluster;
+    _spotClusterReady = cluster;
+    _spotPotaReady = pota;
+    _spotCluster.enabled = YES;
     _spotCluster.toolTip = clusterTip;
-    _spotPota.enabled = pota;
+    _spotPota.enabled = YES;
     _spotPota.toolTip = potaTip;
 }
 
 - (BOOL)spotClusterReady {
-    return _spotCluster.enabled;
+    return _spotClusterReady;
 }
 
 - (BOOL)spotPotaReady {
-    return _spotPota.enabled;
+    return _spotPotaReady;
 }
 
 - (void)setSpotStatus:(NSString *)text {
@@ -754,15 +759,27 @@ static const CGFloat kAidTail = 6;  // the tail's width beside the bubble
 }
 
 - (void)lookupChanged:(id)sender {
-    if (self.onLookupChanged) self.onLookupChanged(self.lookupSource);
+    NSInteger selected = _lookup.indexOfSelectedItem;
+    if (selected == 5) {
+        [_lookup selectItemAtIndex:_lookupSource];
+        if (self.onEditLookupSettings) self.onEditLookupSettings(_lookupSource);
+        return;
+    }
+    if (selected < 0 || selected > 3) {
+        [_lookup selectItemAtIndex:_lookupSource];
+        return;
+    }
+    _lookupSource = selected;
+    if (self.onLookupChanged) self.onLookupChanged(_lookupSource);
 }
 
 - (NSInteger)lookupSource {
-    return _lookup.indexOfSelectedItem;
+    return _lookupSource;
 }
 
 - (void)setLookupSource:(NSInteger)source {
-    [_lookup selectItemAtIndex:source >= 0 && source < 4 ? source : 0];
+    _lookupSource = source >= 0 && source < 4 ? source : 0;
+    [_lookup selectItemAtIndex:_lookupSource];
 }
 
 - (void)setLookupFacts:(NSArray<NSArray<NSString *> *> *)facts message:(NSString *)message severity:(int)severity {
@@ -787,7 +804,7 @@ static const CGFloat kAidTail = 6;  // the tail's width beside the bubble
 }
 
 - (void)showDetailsLink {
-    _detailsLink.hidden = !_hasFacts || workspace::qsoDetailsShown();
+    _detailsButton.hidden = !_hasFacts || workspace::qsoDetailsShown();
 }
 
 - (void)showDetails:(id)sender {

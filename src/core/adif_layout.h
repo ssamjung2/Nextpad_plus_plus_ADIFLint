@@ -139,6 +139,7 @@ std::optional<Arrangement> read(std::string_view json, std::string *why = nullpt
 struct Preset {
     std::string id;    // kept in settings
     const char *name;  // English, for tr(): as the console's Layouts menu shows it
+    const char *description;  // English, for tr(): the menu item's tooltip
     Arrangement arrangement;
 };
 // The console's built-in layouts: the nine it has had, then the operating styles' (their ids the
