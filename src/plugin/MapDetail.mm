@@ -289,6 +289,28 @@ void pump() {
 
 }  // namespace
 
+// A downloaded region's outline for its Settings card: the state's or country's rings, north up, the longitude narrowed by
+// the latitude; nil when it has none (the area shown on the Map).
+NSBezierPath *outlinePath(const Region &region) {
+    std::string choice;
+    for (const auto &[code, name] : stateNames())
+        if (region.name == name) choice = "state:" + code;
+    if (choice.empty()) choice = "country:" + region.name;
+    Area a;
+    if (!area(choice, &a)) return nil;
+    double lonScale = std::cos((a.bounds[1] + a.bounds[3]) / 2 * M_PI / 180);
+    NSBezierPath *path = [NSBezierPath bezierPath];
+    for (const auto &ring : a.rings) {
+        for (size_t i = 0; i < ring.size(); ++i) {
+            NSPoint p = NSMakePoint(ring[i].first * lonScale, ring[i].second);
+            if (i == 0) [path moveToPoint:p];
+            else [path lineToPoint:p];
+        }
+        if (!ring.empty()) [path closePath];
+    }
+    return path;
+}
+
 std::vector<Choice> choices(bool mapOpen) {
     std::vector<Choice> out;
     if (mapOpen) out.push_back({"view", tr("The area shown on the Map")});
@@ -310,8 +332,23 @@ std::vector<Choice> choices(bool mapOpen) {
 }
 
 const std::vector<Level> &levels() {
-    static const std::vector<Level> l = {{15, N_("Streets and buildings (zoom 15)")}, {13, N_("Roads and towns (zoom 13)")}, {11, N_("Main roads (zoom 11)")}};
+    static const std::vector<Level> l = {
+        {15, N_("Detailed"), N_("Streets and buildings (zoom 15)"), N_("streets and buildings"),
+         N_("Streets and roads with their names, each building on its own, parks, land use, water and rail, and the names of towns "
+            "and neighbourhoods. The largest download.")},
+        {13, N_("Normal"), N_("Roads and towns (zoom 13)"), N_("roads and towns"),
+         N_("More roads and the names of more towns. Buildings are drawn as merged blocks, not one by one. A middle-sized download.")},
+        {11, N_("Basic"), N_("Main roads (zoom 11)"), N_("main roads"),
+         N_("The main roads, the names of towns and cities, and water and large parks. Buildings are merged blocks. The smallest "
+            "download.")},
+    };
     return l;
+}
+
+const Level *levelAt(int zoom) {
+    for (const Level &l : levels())
+        if (l.zoom == zoom) return &l;
+    return nullptr;
 }
 
 const std::vector<Region> &regions() {

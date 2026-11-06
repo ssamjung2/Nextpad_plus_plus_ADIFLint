@@ -72,6 +72,7 @@ static struct Host {
     std::vector<std::pair<uintptr_t, std::string>> toolbar;  // NPPM_ADDTOOLBARICON_FORDARKMODE: command, icon hint
     std::vector<std::string> opened;     // NPPM_DOOPEN requests
     std::vector<std::string> openFiles;  // what NPPM_GETOPENFILENAMES lists besides the active document
+    intptr_t bufferId = 1;               // NPPM_GETCURRENTBUFFERID: the active document's (a test may open another)
     std::vector<uint32_t> unknown;
 } H;
 
@@ -106,7 +107,7 @@ static intptr_t sendMessage(uintptr_t handle, uint32_t msg, uintptr_t w, intptr_
     if (handle == kNpp) {
         switch (msg) {
             case NPPM_GETCURRENTSCINTILLA: *(int *)l = 0; return 0;
-            case NPPM_GETCURRENTBUFFERID: return 1;
+            case NPPM_GETCURRENTBUFFERID: return H.bufferId;
             case NPPM_GETFULLCURRENTPATH: std::strncpy((char *)l, H.path.c_str(), 1023); return 0;
             case NPPM_GETPLUGINSCONFIGDIR: std::strncpy((char *)l, H.configDir.c_str(), 1023); return (intptr_t)H.configDir.size();
             case NPPM_ALLOCATEINDICATOR: *(int *)l = 9; return w == 7;
@@ -478,6 +479,24 @@ static NSPopUpButton *findPopup(NSView *v) {
 }
 
 // A visible label containing `text`, or nil.
+// The switch in the row of the setting named `title` (a toggle row: its name, then its switch).
+static NSSwitch *toggleBeside(NSView *v, NSString *title) {
+    if ([v isKindOfClass:NSTextField.class] && [((NSTextField *)v).stringValue isEqualToString:title])
+        for (NSView *sibling in v.superview.subviews)
+            if ([sibling isKindOfClass:NSSwitch.class]) return (NSSwitch *)sibling;
+    for (NSView *child in v.subviews)
+        if (NSSwitch *found = toggleBeside(child, title)) return found;
+    return nil;
+}
+
+// The ? beside a card's explanation (its details are in a popover).
+static NSButton *infoButtonIn(NSView *v) {
+    if ([v isKindOfClass:NSButton.class] && [v.accessibilityLabel isEqualToString:@"More information"]) return (NSButton *)v;
+    for (NSView *child in v.subviews)
+        if (NSButton *found = infoButtonIn(child)) return found;
+    return nil;
+}
+
 static NSString *labelContaining(NSView *v, NSString *text) {
     if (v.hidden || [v isKindOfClass:NSTableView.class]) return nil;  // a table's cells aren't labels
     if ([v.identifier isEqualToString:@"map.contact.title"]) return nil;  // the Map's contact title repeats its description's subject
@@ -521,11 +540,11 @@ static void collect(NSView *v, Class cls, NSMutableArray *out) {
     for (NSView *s in v.subviews) collect(s, cls, out);
 }
 
-// The Settings window's controls for a source (sections are identified "settings.source.N").
+// An account's card in the Accounts list: its username and password fields, its status pill and its title.
 struct SettingsRow {
     NSTextField *user = nil;
     NSSecureTextField *secret = nil;
-    NSTextField *status = nil;
+    NSTextField *pill = nil;  // the group's status pill, in its heading
     NSTextField *title = nil;
     NSView *box = nil;
 };
@@ -547,10 +566,9 @@ static void closeSettings() { doneWithSettings(); }
 static void openSettingsGroup(NSWindow *w, NSString *ident) {
     NSString *category = [ident hasPrefix:@"settings.station"] ? @"station"
                          : [ident hasPrefix:@"settings.editor"] ? @"editor"
-                         : [ident hasPrefix:@"settings.country"] || [ident hasPrefix:@"settings.lotwusers"] ||
-                                   [ident hasPrefix:@"settings.pota"] || [ident hasPrefix:@"settings.iota"] ||
-                                   [ident hasPrefix:@"settings.accounts"] || [ident hasPrefix:@"settings.source."]
-                               ? @"data-awards"
+                         : [ident hasPrefix:@"settings.accounts"] || [ident hasPrefix:@"settings.source."] ? @"accounts"
+                         : [ident hasPrefix:@"settings.country"] || [ident hasPrefix:@"settings.lotwusers"] || [ident hasPrefix:@"settings.iota"] ? @"data"
+                         : [ident hasPrefix:@"settings.pota"] || [ident hasPrefix:@"settings.outlines"] ? @"pota"
                          : [ident hasPrefix:@"settings.mapdetail"] ? @"map"
                          : [ident hasPrefix:@"settings.spots"] ? @"spot-sources"
                                                                   : @"application";
@@ -558,19 +576,24 @@ static void openSettingsGroup(NSWindow *w, NSString *ident) {
     [button performClick:nil];
     [w.contentView layoutSubtreeIfNeeded];
 }
-static SettingsRow settingsRow(NSWindow *w, NSInteger source) {
+// An account's card in the Accounts list, by its identifier ("settings.source.N", or "settings.source.N.LABEL" for a log's).
+static SettingsRow accountRow(NSWindow *w, NSString *ident) {
     SettingsRow r;
-    r.box = viewWithIdentifier(w.contentView, [NSString stringWithFormat:@"settings.source.%ld", (long)source]);
+    r.box = viewWithIdentifier(w.contentView, ident);
     if (!r.box) return r;
-    NSMutableArray *fields = [NSMutableArray array];
-    collect(r.box, NSTextField.class, fields);
-    for (NSTextField *f in fields) {
-        if ([f isKindOfClass:NSSecureTextField.class]) r.secret = (NSSecureTextField *)f;
-        else if (f.editable && !r.user) r.user = f;
-        else if (!f.editable && !r.title) r.title = f;  // the first label is the section title
-        else if (!f.editable) r.status = f;             // the last label is the status
-    }
+    r.user = (NSTextField *)viewWithIdentifier(r.box, @"account.user");
+    r.secret = (NSSecureTextField *)viewWithIdentifier(r.box, @"account.secret");
+    r.pill = (NSTextField *)viewWithIdentifier(r.box, @"account.pill");
+    r.title = (NSTextField *)viewWithIdentifier(r.box, @"account.title");
     return r;
+}
+static SettingsRow settingsRow(NSWindow *w, NSInteger source) {
+    return accountRow(w, [NSString stringWithFormat:@"settings.source.%ld", (long)source]);
+}
+// Opens a card as a click on its chevron does, if it is closed.
+static void openAccount(const SettingsRow &r) {
+    NSView *body = viewWithIdentifier(r.box, @"account.body");
+    if (body && body.hidden) [(NSButton *)viewWithIdentifier(r.box, @"account.chevron") performClick:nil];
 }
 
 // With ADIFLINT_SNAPSHOT_DIR set, save a window as a PNG (dark appearance, like
@@ -1054,6 +1077,10 @@ int main(int argc, char **argv) {
             {
                 NSWindow *setW = windowIdentified(@"settings.window");
                 NSSearchField *search = (NSSearchField *)viewWithIdentifier(setW.contentView.superview, @"settings.search");
+                NSRect searchRect = [search convertRect:search.bounds toView:nil];
+                CHECK(setW.titlebarAccessoryViewControllers.count > 0 && NSWidth(searchRect) > 120 && NSHeight(searchRect) > 10 &&
+                          NSMinY(searchRect) >= NSMaxY(setW.contentView.frame) - 1,
+                      "the search field is in the title bar at the top right, with room to type (%s)", NSStringFromRect(searchRect).UTF8String);
                 search.stringValue = @"ADIF version";
                 [search sendAction:search.action to:search.target];
                 NSView *editorPage = viewWithIdentifier(setW.contentView, @"settings.page.editor");
@@ -1062,7 +1089,7 @@ int main(int argc, char **argv) {
                 [search sendAction:search.action to:search.target];
                 NSView *spotsPage = viewWithIdentifier(setW.contentView, @"settings.page.spot-sources");
                 bool spotsFound = !spotsPage.hidden && viewWithIdentifier(spotsPage, @"settings.spots.psk") != nil;
-                NSArray<NSString *> *categories = @[ @"station", @"editor", @"data-awards", @"map", @"spot-sources", @"application" ];
+                NSArray<NSString *> *categories = @[ @"station", @"editor", @"accounts", @"data", @"pota", @"map", @"spot-sources", @"application" ];
                 bool sidebarComplete = true;
                 bool sidebarSized = true;
                 for (NSString *category in categories) {
@@ -1071,7 +1098,9 @@ int main(int argc, char **argv) {
                     sidebarSized &= button && NSWidth(button.frame) > 0;
                 }
                 CHECK(sidebarComplete && editorFound && spotsFound,
-                      "Settings sidebar: six dedicated categories and search navigates to matching editor and spot-source settings");
+                      "Settings sidebar: six dedicated categories and search navigates to matching editor and spot-source settings (complete %d, editor %d, spots %d; card anywhere %d, editor hidden %d, feedback '%s')",
+                      sidebarComplete, editorFound, spotsFound, viewWithIdentifier(setW.contentView, @"settings.adifversion") != nil, editorPage.hidden,
+                      ((NSTextField *)viewWithIdentifier(setW.contentView, @"settings.search.feedback")).stringValue.UTF8String);
                 NSView *settingsRoot = viewWithIdentifier(setW.contentView, @"settings");
                 NSView *sidebar = viewWithIdentifier(setW.contentView, @"settings.sidebar");
                 NSButton *stationNav = (NSButton *)viewWithIdentifier(setW.contentView, @"settings.nav.station");
@@ -1510,12 +1539,14 @@ int main(int argc, char **argv) {
         {
             run("Settings...");
             NSWindow *sw = settingsWindow();
-            NSButton *countBox = sw ? findButton(sw.contentView, @"Count lengths in characters, not bytes (for UTF-8 logs)") : nil;
-            NSButton *colourBox = sw ? findButton(sw.contentView, @"Colour ADIF syntax") : nil;
+            NSSwitch *countBox = sw ? toggleBeside(sw.contentView, @"Count lengths in characters, not bytes (for UTF-8 logs)") : nil;
+            NSSwitch *colourBox = sw ? toggleBeside(sw.contentView, @"Colour ADIF syntax") : nil;
             CHECK(countBox && colourBox && countBox.state == NSControlStateValueOff && colourBox.state == NSControlStateValueOn,
                   "Settings > Editor shows the options");
-            [countBox performClick:nil];
-            [colourBox performClick:nil];
+            for (NSSwitch *s in @[ countBox, colourBox ]) {
+                s.state = s.state == NSControlStateValueOn ? NSControlStateValueOff : NSControlStateValueOn;
+                [s sendAction:s.action to:s.target];
+            }
             CHECK(countFills(kName) == 0, "colours cleared when switched off");
             closeSettings();
         }
@@ -1600,12 +1631,66 @@ int main(int argc, char **argv) {
                 std::string hl;
                 CHECK(noWarnings(&hl), "new log lints clean: %s", hl.c_str());
             }
+            // ── Check Log when a file opens (Settings, Editor): an ADI file's first activation opens it, when the switch asks;
+            // a later activation of the same file, and a text file, don't ──
+            {
+                NSString *adi = [tmp stringByAppendingPathComponent:@"opened.adi"];
+                NSString *txt = [tmp stringByAppendingPathComponent:@"opened.txt"];
+                [@"log\n<ADIF_VER:5>3.1.8\n<EOH>\n" writeToFile:adi atomically:YES encoding:NSUTF8StringEncoding error:nil];
+                [@"just notes\n" writeToFile:txt atomically:YES encoding:NSUTF8StringEncoding error:nil];
+                std::string keepPath = H.path, keepDoc = H.doc;
+                auto activate = [&](intptr_t buffer, NSString *file) {
+                    H.bufferId = buffer;
+                    H.path = file.UTF8String;
+                    H.doc = ([NSString stringWithContentsOfFile:file encoding:NSUTF8StringEncoding error:nil] ?: @"").UTF8String;
+                    notify(NPPN_BUFFERACTIVATED);
+                    pump(0.3);
+                };
+                auto checkLogShown = []() -> BOOL {
+                    NSWindow *cw = windowTitled(@"Check Log");
+                    return cw && cw.visible;
+                };
+                auto setOnOpen = [&](BOOL on) {
+                    run("Settings...");
+                    NSWindow *ow = settingsWindow();
+                    openSettingsGroup(ow, @"settings.editor");
+                    NSSwitch *s = ow ? (NSSwitch *)viewWithIdentifier(ow.contentView, @"settings.checkonopen.switch") : nil;
+                    if (s) {
+                        s.state = on ? NSControlStateValueOn : NSControlStateValueOff;
+                        [s sendAction:s.action to:s.target];
+                    }
+                    closeSettings();
+                };
+                run("Settings...");
+                NSWindow *ow = settingsWindow();
+                openSettingsGroup(ow, @"settings.editor");
+                NSSwitch *onOpen = ow ? (NSSwitch *)viewWithIdentifier(ow.contentView, @"settings.checkonopen.switch") : nil;
+                CHECK(onOpen && onOpen.state == NSControlStateValueOff, "Check Log when a file opens: off at first");
+                closeSettings();
+                activate(9001, adi);
+                CHECK(!checkLogShown(), "off: an ADI file's opening doesn't open Check Log");
+                setOnOpen(YES);
+                NSString *ini = [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint.ini"] encoding:NSUTF8StringEncoding error:nil];
+                CHECK([ini containsString:@"checkLogOnOpen=1"], "the switch is saved in ADIFLint.ini");
+                activate(9002, adi);
+                CHECK(checkLogShown(), "on: an ADI file's opening opens Check Log");
+                [windowTitled(@"Check Log") orderOut:nil];
+                activate(9002, adi);
+                CHECK(!checkLogShown(), "a later activation of the same file doesn't open Check Log again");
+                activate(9003, txt);
+                CHECK(!checkLogShown(), "a text file doesn't open Check Log");
+                setOnOpen(NO);
+                [windowTitled(@"Check Log") orderOut:nil];
+                H.bufferId = 1;
+                H.path = keepPath;
+                H.doc = keepDoc;
+            }
             // ── The ADIF version the checks follow (Settings, Editor) ──
             {
                 run("Settings...");
                 NSWindow *sw2 = settingsWindow();
                 openSettingsGroup(sw2, @"settings.editor");
-                NSPopUpButton *ver = (NSPopUpButton *)viewWithIdentifier(sw2.contentView, @"settings.adifversion");
+                NSPopUpButton *ver = (NSPopUpButton *)viewWithIdentifier(sw2.contentView, @"settings.adifversion.popup");
                 [sw2.contentView layoutSubtreeIfNeeded];
                 CHECK(overlaps(sw2.contentView) == 0, "Settings with the Editor card open does not overlap (%d)", overlaps(sw2.contentView));
                 snapshot(sw2, "settings-editor");
@@ -1627,7 +1712,7 @@ int main(int argc, char **argv) {
                       "checked against ADIF 3.1.3, POTA_REF is too new: %s", vh.c_str());
                 NSString *ini = [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint.ini"] encoding:NSUTF8StringEncoding error:nil];
                 CHECK([ini containsString:@"adifVersion=3.1.3\n"] &&
-                          [labelContaining(sw2.contentView, @"of 4 on") containsString:@"ADIF 3.1.3"],
+                          [labelContaining(sw2.contentView, @"of 5 on") containsString:@"ADIF 3.1.3"],
                       "the version is kept, and the Editor card says it");
                 [ver selectItemAtIndex:0];
                 [ver sendAction:ver.action to:ver.target];
@@ -1886,38 +1971,52 @@ int main(int argc, char **argv) {
             CHECK(bx != std::string::npos && H.doc.substr(bx, H.doc.find("<EOR>", bx) - bx).find("<CONT:") == std::string::npos,
                   "nothing written to the changed record");
 
-        // ── Settings: accounts in the (test) Keychain ──
+        // ── Settings: accounts, one card each in the Accounts list ──
         run("Settings...");
         NSWindow *sw = settingsWindow();
         CHECK(sw != nil, "Settings window created");
         if (sw) {
+            openSettingsGroup(sw, @"settings.accounts");
+            NSString *(^iniText)(void) = ^{
+                return [NSString stringWithContentsOfFile:[tmp stringByAppendingPathComponent:@"ADIFLint.ini"] encoding:NSUTF8StringEncoding error:nil] ?: @"";
+            };
             SettingsRow qrz = settingsRow(sw, 0), lotw = settingsRow(sw, 2);
-            CHECK(qrz.user && qrz.secret && qrz.status && lotw.secret, "a section per source with username, password, status");
+            CHECK(qrz.user && qrz.secret && qrz.pill && lotw.secret, "a card per account, with username, password and status pill");
             CHECK([qrz.title.stringValue isEqualToString:@"QRZ.com"] && [settingsRow(sw, 1).title.stringValue isEqualToString:@"HamQTH"] &&
                       [lotw.title.stringValue isEqualToString:@"LoTW"],
-                  "sections titled by source");
+                  "cards titled by account, in the list's order");
+            snapshot(sw, "settings-accounts");
             [sw.contentView layoutSubtreeIfNeeded];
             CHECK(overlaps(sw.contentView) == 0, "Settings controls do not overlap (%d overlaps)", overlaps(sw.contentView));
-            // The sections scroll when the screen is short: the last one can be scrolled into view.
-            openSettingsGroup(sw, @"settings.source.7");
-            SettingsRow last = settingsRow(sw, 7);
-            [last.status scrollRectToVisible:last.status.bounds];
+            // The list scrolls when the screen is short: the last card's Remove can be scrolled into view.
+            SettingsRow last = settingsRow(sw, 9);
+            openAccount(last);
+            NSButton *lastRemove = last.box ? findButton(last.box, @"Remove") : nil;
+            [lastRemove scrollRectToVisible:lastRemove.bounds];
             [sw.contentView layoutSubtreeIfNeeded];
-            NSRect lastRect = visibleInWindow(last.status);
+            NSRect lastRect = visibleInWindow(lastRemove);
             NSMutableArray *scrolls = [NSMutableArray array];
             collect(sw.contentView, NSScrollView.class, scrolls);
-            CHECK(last.status && NSHeight(lastRect) > 0 && NSMaxY(lastRect) <= NSHeight(sw.contentView.bounds) && NSMinY(lastRect) >= 0,
-                  "the last section scrolls into the window (rect=%.1f,%.1f %.1fx%.1f, content=%.1f, doc=%.1f)",
+            CHECK(lastRemove && NSHeight(lastRect) > 0 && NSMaxY(lastRect) <= NSHeight(sw.contentView.bounds) && NSMinY(lastRect) >= 0,
+                  "the last section's Remove scrolls into the window (rect=%.1f,%.1f %.1fx%.1f, content=%.1f, doc=%.1f)",
                   lastRect.origin.x, lastRect.origin.y, lastRect.size.width, lastRect.size.height,
                   NSHeight(sw.contentView.bounds), NSHeight(((NSScrollView *)scrolls.firstObject).documentView.bounds));
             [((NSScrollView *)scrolls.firstObject).documentView scrollPoint:NSZeroPoint];
             snapshot(sw, "settings");
             CHECK([qrz.user.stringValue isEqualToString:@"TEST"] && qrz.secret.stringValue.length == 0 &&
-                      [qrz.secret.placeholderString hasPrefix:@"Saved in your Keychain"],
+                      [qrz.secret.placeholderString hasPrefix:@"Saved (type to replace)"],
                   "saved username shown, saved password never shown");
+            CHECK([qrz.pill.stringValue isEqualToString:@"Saved"], "a saved account's pill says Saved: %s", qrz.pill.stringValue.UTF8String);
+            // Off keeps the credential and says so; On brings it back.
+            NSSwitch *qrzOn = (NSSwitch *)viewWithIdentifier(qrz.box, @"account.switch");
+            [qrzOn performClick:nil];
+            CHECK([qrz.pill.stringValue isEqualToString:@"Off"] && [iniText() containsString:@"accountOn0=0"],
+                  "switched off: the pill says Off, and the setting is kept: %s", qrz.pill.stringValue.UTF8String);
+            [qrzOn performClick:nil];
+            CHECK([qrz.pill.stringValue isEqualToString:@"Saved"], "switched on again: %s", qrz.pill.stringValue.UTF8String);
+            openAccount(qrz);
             [findButton(qrz.box, @"Remove") performClick:nil];
-            CHECK([qrz.status.stringValue hasPrefix:@"Removed"] && qrz.user.stringValue.length == 0, "removed: %s",
-                  qrz.status.stringValue.UTF8String);
+            CHECK(!accountRow(sw, @"settings.source.0").box, "removed: its card leaves the list");
 
             // Without an account, Find Data says where to add one.
             choose(0);
@@ -1926,24 +2025,97 @@ int main(int argc, char **argv) {
             CHECK([labelWithLines(ew.contentView, 3) containsString:@"No QRZ.com account yet. Add one in Settings"],
                   "no account: %s", labelWithLines(ew.contentView, 3).UTF8String);
 
-            run("Settings...");
-            qrz.user.stringValue = @"KW9D";
-            qrz.secret.stringValue = @"not-a-real-password";
-            [findButton(qrz.box, @"Save") performClick:nil];
-            CHECK([qrz.status.stringValue hasPrefix:@"Saved in your Keychain"] && qrz.secret.stringValue.length == 0,
-                  "saved, and the password field cleared: %s", qrz.status.stringValue.UTF8String);
-            [findButton(qrz.box, @"Test Sign-In") performClick:nil];
+            sw = settingsWindow();
+            [sw orderFront:nil];  // a popover opens from a button in a window that is in front
+            // Add offers the integrations not set up yet, and a log's own account for QRZ.com Logbook and LoTW.
+            NSButton *add = (NSButton *)viewWithIdentifier(sw.contentView, @"settings.accounts.add");
+            [add scrollRectToVisible:add.bounds];  // a popover needs its button in view: the list was scrolled to its last card
+            [add performClick:nil];
             pump(0.1);
-            CHECK([qrz.status.stringValue hasPrefix:@"Signed in. QRZ.com XML subscription until"], "test sign-in: %s",
-                  qrz.status.stringValue.UTF8String);
-            [findButton(lotw.box, @"Test Sign-In") performClick:nil];
+            auto addRow = [&](NSInteger s) -> NSButton * {
+                for (NSWindow *pw in NSApp.windows)
+                    if (NSButton *b = (NSButton *)viewWithIdentifier(pw.contentView, [NSString stringWithFormat:@"accounts.add.%ld", (long)s]))
+                        return b;
+                return nil;
+            };
+            CHECK(addRow(0) && addRow(2) && addRow(3) && !addRow(4) && !addRow(9),
+                  "Add offers the removed QRZ.com, and the logs of QRZ.com Logbook and LoTW, but not the set-up ones");
+            if (addRow(0)) snapshot(addRow(0).window, "accounts-add");
+            [addRow(0) performClick:nil];
             pump(0.1);
-            CHECK([lotw.status.stringValue hasPrefix:@"LoTW accepted the login"], "LoTW test: %s", lotw.status.stringValue.UTF8String);
-            qrz.user.stringValue = @"KW9D";
-            qrz.secret.stringValue = @"";
-            [findButton(qrz.box, @"Save") performClick:nil];
-            CHECK([qrz.status.stringValue isEqualToString:@"Enter both fields."], "both fields required: %s",
-                  qrz.status.stringValue.UTF8String);
+            SettingsRow fresh = accountRow(sw, @"settings.source.0.new");
+            CHECK(fresh.box && [fresh.pill.stringValue isEqualToString:@"Not signed in"] && [fresh.title.stringValue isEqualToString:@"QRZ.com"],
+                  "a new account opens as a card: %s", fresh.pill.stringValue.UTF8String);
+            snapshot(sw, "accounts-new");
+            NSButton *saveNew = findButton(fresh.box, @"Save");
+            CHECK(saveNew && !saveNew.enabled, "Save stays off until a sign-in works");
+            fresh.user.stringValue = @"KW9D";
+            fresh.secret.stringValue = @"not-a-real-password";
+            [findButton(fresh.box, @"Test Sign-In") performClick:nil];
+            pump(0.1);
+            CHECK([fresh.pill.stringValue isEqualToString:@"Signed in"] && [fresh.pill.toolTip hasPrefix:@"Signed in. QRZ.com XML subscription until"] &&
+                      saveNew.enabled,
+                  "test sign-in: the pill follows, its detail in the tooltip, and Save is on: %s", fresh.pill.stringValue.UTF8String);
+            [saveNew performClick:nil];
+            pump(0.05);
+            SettingsRow qrzAgain = settingsRow(sw, 0);
+            CHECK(qrzAgain.box && !accountRow(sw, @"settings.source.0.new").box && [qrzAgain.pill.stringValue isEqualToString:@"Saved"] &&
+                      qrzAgain.secret.stringValue.length == 0,
+                  "saved after the sign-in: listed, password cleared: %s", qrzAgain.pill.stringValue.UTF8String);
+
+            openAccount(qrzAgain);
+            [findButton(qrzAgain.box, @"Make Default") performClick:nil];
+            pump(0.05);
+            NSView *defaultPill = viewWithIdentifier(qrzAgain.box, @"account.default");
+            CHECK(!defaultPill.hidden && findButton(qrzAgain.box, @"Make Default").hidden && [iniText() containsString:@"lookupDefault=0"],
+                  "Make Default: the card says so, and the setting is kept");
+
+            SettingsRow lotwNow = settingsRow(sw, 2);
+            openAccount(lotwNow);
+            [findButton(lotwNow.box, @"Test Sign-In") performClick:nil];
+            pump(0.1);
+            CHECK([lotwNow.pill.stringValue isEqualToString:@"Signed in"] && [lotwNow.pill.toolTip hasPrefix:@"LoTW accepted the login"],
+                  "LoTW test: %s", lotwNow.pill.toolTip.UTF8String);
+
+            // A second QRZ.com Logbook key is for one log: its callsign is asked for, and Save waits for it.
+            [add scrollRectToVisible:add.bounds];
+            [add performClick:nil];
+            pump(0.1);
+            [addRow(3) performClick:nil];
+            pump(0.1);
+            SettingsRow logKey = accountRow(sw, @"settings.source.3.new");
+            NSView *logRow = viewWithIdentifier(logKey.box, @"account.logrow");
+            CHECK(logKey.box && logRow && !logRow.hidden, "a second QRZ.com Logbook key asks for its log's callsign");
+            logKey.secret.stringValue = @"not-a-real-key";
+            [findButton(logKey.box, @"Test Sign-In") performClick:nil];
+            pump(0.1);
+            [findButton(logKey.box, @"Save") performClick:nil];
+            pump(0.05);
+            SettingsRow logKeyNow = accountRow(sw, @"settings.source.3.new");
+            CHECK([logKeyNow.pill.stringValue isEqualToString:@"Not saved"] && [logKeyNow.pill.toolTip isEqualToString:@"Enter the callsign of the log this key is for."],
+                  "no callsign, no save: %s", logKeyNow.pill.toolTip.UTF8String);
+            ((NSTextField *)viewWithIdentifier(logKeyNow.box, @"account.log")).stringValue = @"w1aw";
+            [findButton(logKeyNow.box, @"Save") performClick:nil];
+            pump(0.05);
+            SettingsRow w1aw = accountRow(sw, @"settings.source.3.W1AW");
+            CHECK(w1aw.box && [w1aw.pill.stringValue isEqualToString:@"Saved"] && !accountRow(sw, @"settings.source.3.new").box,
+                  "listed as the log W1AW's account: %s", w1aw.pill.stringValue.UTF8String);
+
+            // The handle's menu moves a card a step, and the list keeps the order.
+            NSStackView *list = (NSStackView *)viewWithIdentifier(sw.contentView, @"settings.accounts.list");
+            NSString *firstId = ((NSView *)list.arrangedSubviews[0]).identifier;
+            NSString *secondId = ((NSView *)list.arrangedSubviews[1]).identifier;
+            NSMutableArray *handles = [NSMutableArray array];
+            collect(viewWithIdentifier(list, firstId), NSClassFromString(@"ADIFAccountGrip"), handles);
+            [handles.firstObject performSelector:@selector(moveDown:) withObject:nil];
+            pump(0.05);
+            CHECK([((NSView *)list.arrangedSubviews[0]).identifier isEqualToString:secondId] &&
+                      [((NSView *)list.arrangedSubviews[1]).identifier isEqualToString:firstId],
+                  "Move Down: %s steps down below %s", firstId.UTF8String, secondId.UTF8String);
+            [handles.firstObject performSelector:@selector(moveUp:) withObject:nil];
+            pump(0.05);
+            CHECK([((NSView *)list.arrangedSubviews[0]).identifier isEqualToString:firstId],
+                  "Move Up: %s is first again", firstId.UTF8String);
             closeSettings();
 
             // With the account back, lookups work again.
@@ -2606,6 +2778,7 @@ int main(int argc, char **argv) {
             run("Settings...");
             NSWindow *setw = settingsWindow();
             if (setw) {
+                openSettingsGroup(setw, @"settings.accounts");
                 SettingsRow club = settingsRow(setw, 4);
                 CHECK(club.title && [club.title.stringValue isEqualToString:@"Club Log"] &&
                           [club.user.placeholderString isEqualToString:@"Email"],
@@ -2618,14 +2791,15 @@ int main(int argc, char **argv) {
                 SettingsRow hrd = settingsRow(setw, 9);
                 CHECK(hrd.title && [hrd.title.stringValue isEqualToString:@"HRDLog.net"] && [hrd.user.placeholderString isEqualToString:@"Callsign"],
                       "HRDLog asks for a callsign and upload code");
-                openSettingsGroup(setw, @"settings.source.8");
-                NSView *wrl = viewWithIdentifier(setw.contentView, @"settings.source.8");
-                NSButton *wtest = wrl ? findButton(wrl, @"Test Sign-In") : nil;
+                SettingsRow wrlRow = settingsRow(setw, 8);
+                openAccount(wrlRow);
+                NSButton *wtest = wrlRow.box ? findButton(wrlRow.box, @"Test Sign-In") : nil;
                 [wtest performClick:nil];
-                for (int i = 0; i < 40 && !labelContaining(wrl, @"accepted the key"); ++i) pump(0.05);
-                NSString *said = labelContaining(wrl, @"accepted the key");
-                CHECK(wtest && !wtest.hidden && [said containsString:@"World Radio League accepted the key (membership: premium). Uploads of up to 50000 QSOs a day. Uploads go to your default logbook."],
-                      "the WRL key test reads /v1/me: %s", said.UTF8String);
+                for (int i = 0; i < 40 && ![wrlRow.pill.toolTip containsString:@"accepted the key"]; ++i) pump(0.05);
+                NSString *said = wrlRow.pill.toolTip ?: @"";
+                CHECK(wtest && !wtest.hidden && [wrlRow.pill.stringValue isEqualToString:@"Signed in"] &&
+                          [said containsString:@"World Radio League accepted the key (membership: premium). Uploads of up to 50000 QSOs a day. Uploads go to your default logbook."],
+                      "the WRL key test: the pill says Signed in, its detail in the tooltip: %s", said.UTF8String);
                 closeSettings();
             }
 
@@ -3193,7 +3367,7 @@ int main(int argc, char **argv) {
             if (qw) {
                 NSStackView *row = lookupRow(qw);
                 NSPopUpButton *pop = row ? (NSPopUpButton *)row.arrangedSubviews[1] : nil;
-                CHECK(pop && [pop.titleOfSelectedItem isEqualToString:@"Country data"], "Look up: country data by default");
+                CHECK(pop && [pop.titleOfSelectedItem isEqualToString:@"QRZ.com (default)"], "Look up starts with the default account");
                 CHECK(pop.itemArray.count == 6 && pop.itemArray[4].isSeparatorItem &&
                           [[pop itemTitleAtIndex:5] isEqualToString:@"Edit Settings"],
                       "Look up menu has a divider and Edit Settings");
@@ -3202,7 +3376,7 @@ int main(int argc, char **argv) {
                     [pop sendAction:pop.action to:pop.target];
                     pump(0.2);
                     NSWindow *settings = windowTitled(@"ADIF Lint Settings");
-                    CHECK(settings.visible && pop.indexOfSelectedItem == 1, "Edit Settings opens settings and keeps the lookup source");
+                    CHECK(settings.visible && pop.selectedItem.tag == 2, "Edit Settings opens settings and keeps the lookup source");
                     [settings orderOut:nil];
                 }
                 qsoControl(qw, @"GRIDSQUARE").stringValue = @"JO62";
@@ -4438,16 +4612,15 @@ int main(int argc, char **argv) {
         }
 
 
-        // ── LoTW users: off until asked, then in New QSO's lookup line ──
+        // ── LoTW users: downloaded with Download, then in New QSO's lookup line ──
         {
             run("Settings...");
             NSWindow *sw = settingsWindow();
             openSettingsGroup(sw, @"settings.lotwusers");
             NSView *section = sw ? viewWithIdentifier(sw.contentView, @"settings.lotwusers") : nil;
-            NSButton *on = section ? findButton(section, @"Show LoTW users") : nil;
-            CHECK(on && on.state == NSControlStateValueOff, "LoTW users are off at first");
-            [on performClick:nil];
-            [findButton(section, @"Update") performClick:nil];
+            NSButton *update = section ? (NSButton *)viewWithIdentifier(section, @"settings.lotwusers.update") : nil;
+            CHECK(update && [update.title isEqualToString:@"Download"], "LoTW users: not downloaded at first, with Download");
+            [update performClick:nil];
             for (int i = 0; i < 30 && ![labelContaining(section, @"calls") length]; ++i) pump(0.05);
             CHECK([labelContaining(section, @"5 calls, downloaded") length] > 0, "the list downloaded: %s",
                   labelContaining(section, @"calls").UTF8String);
@@ -5528,8 +5701,8 @@ int main(int argc, char **argv) {
             NSWindow *isw = settingsWindow();
             openSettingsGroup(isw, @"settings.iota");
             NSView *iotaSection = isw ? viewWithIdentifier(isw.contentView, @"settings.iota") : nil;
-            CHECK(iotaSection && [labelContaining(iotaSection, @"Not downloaded") length] && [labelContaining(iotaSection, @"RSGB and IOTA Ltd") length],
-                  "Settings: IOTA Groups, not downloaded, with IOTA's terms");
+            CHECK(iotaSection && [labelContaining(iotaSection, @"Not installed") length] && infoButtonIn(iotaSection) != nil,
+                  "Settings: IOTA Groups, not installed, explained with an i");
             [findButton(iotaSection, @"Download") performClick:nil];
             for (int i = 0; i < 30 && ![labelContaining(iotaSection, @"groups,") length]; ++i) pump(0.05);
             CHECK([labelContaining(iotaSection, @"4 groups, downloaded") length] > 0 &&
@@ -5587,10 +5760,10 @@ int main(int argc, char **argv) {
             NSWindow *psw = settingsWindow();
             openSettingsGroup(psw, @"settings.pota");
             NSView *potaSection = psw ? viewWithIdentifier(psw.contentView, @"settings.pota") : nil;
-            CHECK(potaSection && [labelContaining(potaSection, @"Not downloaded") length] && [labelContaining(potaSection, @"isn't affiliated") length],
-                  "Settings: POTA Parks, not downloaded");
+            CHECK(potaSection && [labelContaining(potaSection, @"Not installed") length] && infoButtonIn(potaSection) != nil,
+                  "Settings: POTA Parks, not installed, explained with an i");
             auto downloadParks = [&](NSString *expect) {
-                [findButton(potaSection, @"Download") performClick:nil];
+                [(findButton(potaSection, @"Download") ?: findButton(potaSection, @"Update")) performClick:nil];
                 for (int i = 0; i < 40 && ![labelContaining(potaSection, expect) length]; ++i) pump(0.05);
                 NSString *status = labelContaining(potaSection, @"active)");
                 return std::string(status ? status.UTF8String : "");
@@ -5939,9 +6112,9 @@ int main(int argc, char **argv) {
                 NSComboBox *where = (NSComboBox *)viewWithIdentifier(psw.contentView, @"settings.outlines.location");
                 NSTextField *outlinesStatus = (NSTextField *)viewWithIdentifier(psw.contentView, @"settings.outlines.status");
                 NSTextField *outlinesSummary = (NSTextField *)viewWithIdentifier(psw.contentView, @"settings.outlines.summary");
-                NSPopUpButton *installed = (NSPopUpButton *)viewWithIdentifier(psw.contentView, @"settings.outlines.installed");
                 CHECK(where && [where indexOfItemWithObjectValue:@"US-NJ"] != NSNotFound && [where indexOfItemWithObjectValue:@"US-IL"] != NSNotFound &&
-                          [outlinesSummary.stringValue isEqualToString:@"None downloaded."] && !installed.enabled,
+                          [outlinesSummary.stringValue isEqualToString:@"None downloaded."] &&
+                          labelContaining(psw.contentView, @"No park outlines downloaded yet") != nil,
                       "Settings: Park Outlines offers the park list's locations; none downloaded (%s)", outlinesSummary.stringValue.UTF8String);
                 where.stringValue = @"US-IL";
                 [where sendAction:where.action to:where.target];
@@ -5958,11 +6131,11 @@ int main(int argc, char **argv) {
                           [log containsString:@"where=State_Nm%3D%27NJ%27%20AND%20%28UPPER%28Unit_Nm%29%20LIKE%20%27%25TEST%25HUNTED%25%27"] &&
                           [[NSFileManager defaultManager] fileExistsAtPath:[tmp stringByAppendingPathComponent:@"parks/US-NJ.outlines"]],
                       "US-NJ's outlines: OSM's for US-2001, PAD-US's matched for US-1234, saved (%s)", outlinesStatus.stringValue.UTF8String);
-                CHECK(installed.enabled && installed.numberOfItems == 1 && [installed.titleOfSelectedItem hasPrefix:@"US-NJ: 2 of 3 parks, "] &&
+                CHECK([labelContaining(psw.contentView, @"2 of 3 parks have an outline") length] > 0 &&
+                          viewWithIdentifier(psw.contentView, @"settings.outlines.remove") != nil &&
                           [outlinesSummary.stringValue hasPrefix:@"1 location, "] &&
                           [outlinesSummary.stringValue hasSuffix:@": 2 of 3 parks have an outline (67%)."],
-                      "what is downloaded, a location each and summed up: %s; %s", installed.titleOfSelectedItem.UTF8String,
-                      outlinesSummary.stringValue.UTF8String);
+                      "a card for the location, summed up: %s", outlinesSummary.stringValue.UTF8String);
                 [where sendAction:where.action to:where.target];
                 CHECK([outlinesStatus.stringValue hasPrefix:@"US-NJ: 2 of 3 parks have an outline (OSM 1, PAD-US 1), downloaded 20"] &&
                           [where.stringValue isEqualToString:@"US-NJ"] &&
@@ -6014,8 +6187,8 @@ int main(int argc, char **argv) {
                 run("Settings...");
                 [(NSButton *)viewWithIdentifier(psw.contentView, @"settings.outlines.remove") performClick:nil];
                 CHECK(![[NSFileManager defaultManager] fileExistsAtPath:[tmp stringByAppendingPathComponent:@"parks/US-NJ.outlines"]] &&
-                          [outlinesSummary.stringValue isEqualToString:@"None downloaded."] && !installed.enabled,
-                      "Remove: the location chosen in Downloaded gone");
+                          [outlinesSummary.stringValue isEqualToString:@"None downloaded."],
+                      "Remove: the location's card is gone");
                 doneWithSettings();
                 [mapView mouseMoved:mouse(NSEventTypeMouseMoved, pointFor(-74.585, 41.072), 0)];
                 CHECK(![labelContaining(mapw.contentView, @"Outline: OSM") length], "no outline once removed");
@@ -6500,7 +6673,7 @@ int main(int argc, char **argv) {
                 NSWindow *setw = settingsWindow();
                 NSPopUpButton *region = (NSPopUpButton *)viewWithIdentifier(setw.contentView, @"settings.mapdetail.region");
                 NSSegmentedControl *level = (NSSegmentedControl *)viewWithIdentifier(setw.contentView, @"settings.mapdetail.level");
-                NSPopUpButton *have = (NSPopUpButton *)viewWithIdentifier(setw.contentView, @"settings.mapdetail.installed");
+                NSView *regionCards = viewWithIdentifier(setw.contentView, @"settings.mapdetail.regions");
                 NSTextField *detailStatus = (NSTextField *)viewWithIdentifier(setw.contentView, @"settings.mapdetail.status");
                 NSView *section = viewWithIdentifier(setw.contentView, @"settings.mapdetail");
                 auto waitFor = [&](NSString *text) {
@@ -6509,7 +6682,7 @@ int main(int argc, char **argv) {
                 };
                 NSInteger wi = [region indexOfItemWithRepresentedObject:@"state:WI"];
                 CHECK(region && wi >= 0 && [[region itemAtIndex:wi].title isEqualToString:@"Wisconsin (US)"] && level.segmentCount == 3 &&
-                          [region indexOfItemWithRepresentedObject:@"country:Italy"] > wi && [have.titleOfSelectedItem isEqualToString:@"(none)"],
+                          [region indexOfItemWithRepresentedObject:@"country:Italy"] > wi && [labelContaining(regionCards, @"None downloaded yet.") containsString:@"None"],
                       "Map Detail: states, then countries; three levels; nothing downloaded yet");
                 [region selectItemAtIndex:wi];
                 level.selectedSegment = 2;  // Detailed: zoom 15, streets and buildings
@@ -6520,9 +6693,11 @@ int main(int argc, char **argv) {
                 [findButton(section, @"Download") performClick:nil];
                 CHECK(waitFor(@"Downloaded Wisconsin"), "Download: %s", detailStatus.stringValue.UTF8String);
                 NSString *kept = [tmp stringByAppendingPathComponent:@"maps/Wisconsin z15 20261018.pmtiles"];
-                CHECK([[NSFileManager defaultManager] fileExistsAtPath:kept] && [have.titleOfSelectedItem hasPrefix:@"Wisconsin (zoom 15, "],
-                      "the region kept in the settings folder's maps: %s", have.titleOfSelectedItem.UTF8String);
+                CHECK([[NSFileManager defaultManager] fileExistsAtPath:kept] && labelContaining(regionCards, @"Wisconsin") != nil &&
+                          labelContaining(regionCards, @"Detailed: streets and buildings") != nil,
+                      "the region kept in the settings folder's maps (a card in Map Detail)");
                 if (setw) {
+                    openSettingsGroup(setw, @"settings.mapdetail");
                     [section scrollRectToVisible:section.bounds];
                     [setw.contentView layoutSubtreeIfNeeded];
                     CHECK(overlaps(setw.contentView) == 0, "Settings with Map Detail does not overlap (%d)", overlaps(setw.contentView));
@@ -6555,8 +6730,8 @@ int main(int argc, char **argv) {
                 [findButton(section, @"Check Size") performClick:nil];
                 CHECK(waitFor(@"Offline mode is on"), "offline: Map Detail asks for nothing: %s", detailStatus.stringValue.UTF8String);
                 runItem("Offline Mode");
-                [findButton(section, @"Remove") performClick:nil];
-                CHECK(![[NSFileManager defaultManager] fileExistsAtPath:kept] && [have.titleOfSelectedItem isEqualToString:@"(none)"] &&
+                [findButton(regionCards, @"Remove") performClick:nil];
+                CHECK(![[NSFileManager defaultManager] fileExistsAtPath:kept] && [labelContaining(regionCards, @"None downloaded yet.") containsString:@"None"] &&
                           [detailStatus.stringValue isEqualToString:@"Removed."],
                       "Remove deletes the region: %s", detailStatus.stringValue.UTF8String);
                 showBox(-89.395, 43.066, -89.372, 43.079);
@@ -8138,7 +8313,7 @@ int main(int argc, char **argv) {
                         NSWindow *qwName = qsoWindow();
                         NSStackView *lr = qwName ? lookupRow(qwName) : nil;
                         NSPopUpButton *lookupPop = lr ? (NSPopUpButton *)lr.arrangedSubviews[1] : nil;
-                        [lookupPop selectItemWithTitle:@"QRZ.com"];
+                        [lookupPop selectItemWithTag:2];
                         [lookupPop sendAction:lookupPop.action to:lookupPop.target];
                         auto nameFact = [&]() -> std::string {
                             NSMutableArray *labels = [NSMutableArray array];
@@ -8150,7 +8325,8 @@ int main(int argc, char **argv) {
                         [rowsTable.delegate tableViewSelectionDidChange:[NSNotification notificationWithName:NSTableViewSelectionDidChangeNotification object:rowsTable]];
                         std::string first = nameFact();
                         for (int k = 0; k < 30 && nameFact().find("asking") != std::string::npos; ++k) pump(0.1);
-                        CHECK(lookupPop && first == "asking QRZ.com..." && nameFact() == "not in your log or QRZ.com",
+                        CHECK(lookupPop && (first == "asking QRZ.com..." || first == "not in your log or QRZ.com") &&
+                                  nameFact() == "not in your log or QRZ.com",
                               "a spot's name from QRZ.com: '%s', then '%s'", first.c_str(), nameFact().c_str());
                         [lookupPop selectItemWithTitle:@"Country data"];
                         [lookupPop sendAction:lookupPop.action to:lookupPop.target];
@@ -9601,7 +9777,7 @@ int main(int argc, char **argv) {
             CHECK([urls isEqualToString:@"refused https://pota.app/#/user/logs\n"], "offline: pota.app not opened: %s", urls.UTF8String);
             run("Settings...");
             NSWindow *setw = settingsWindow();
-            NSButton *box = (NSButton *)viewWithIdentifier(setw.contentView, @"settings.offline.box");
+            NSSwitch *box = (NSSwitch *)viewWithIdentifier(setw.contentView, @"settings.offline.switch");
             CHECK(box.state == NSControlStateValueOn, "Settings shows Offline Mode on");
             if (setw) {
                 [setw.contentView layoutSubtreeIfNeeded];

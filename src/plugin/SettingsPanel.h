@@ -13,15 +13,16 @@
 @property(nonatomic, readonly) NSSearchField *searchField;
 // A credential was saved or removed for this source.
 @property(nonatomic, copy) void (^onChanged)(NSInteger source);
+// The accounts' list, its order, their on/off switches or the default for lookup changed; lookupDefaultChanged when the default did.
+@property(nonatomic, copy) void (^onAccountsChanged)(BOOL lookupDefaultChanged);
 
 // The country data section: Update downloads AD1C's newest country file.
 @property(nonatomic, copy) void (^onCountryUpdate)(void);
 - (void)setCountryStatus:(NSString *)text ok:(BOOL)ok;
 
 // LoTW Users: show who uploads to LoTW (a checkbox), Update, and a status line.
-@property(nonatomic, copy) void (^onLotwUsersToggled)(BOOL on);
 @property(nonatomic, copy) void (^onLotwUsersUpdate)(void);
-- (void)setLotwUsersOn:(BOOL)on status:(NSString *)text ok:(BOOL)ok;
+- (void)setLotwUsersStatus:(NSString *)text ok:(BOOL)ok;
 
 // IOTA Groups: Download fetches IOTA's group list for the Map's IOTA overlay, and a status line.
 @property(nonatomic, copy) void (^onIotaUpdate)(void);
@@ -39,20 +40,22 @@
 - (void)setStationCall:(NSString *)call grid:(NSString *)grid logsFolder:(NSString *)folder;
 - (void)setStationStatus:(NSString *)text ok:(BOOL)ok;
 
-// Editor options, by index: 0 validate while typing, 1 colour, 2 autocomplete, 3 count characters.
+// Editor options, by index: 0 validate while typing, 1 colour, 2 autocomplete, 3 count characters, 4 ADX files, 5 check the
+// log when a file opens.
 @property(nonatomic, copy) void (^onEditorOption)(NSInteger option, BOOL on);
 - (void)setEditorValidate:(BOOL)validate colour:(BOOL)colour autocomplete:(BOOL)autocomplete characters:(BOOL)characters;
+- (void)setAdxCheck:(BOOL)on;
+- (void)setCheckLogOnOpen:(BOOL)on;
 
 // Map Detail (MapDetail.h): a region and how much detail, Check Size, Download and Stop; what
-// is downloaded, with Remove. Choices and levels are [id, title] and [zoom, title].
+// is downloaded, with Remove. Choices are [id, title]; levels are [zoom, title, word, what], from the most detail down.
 @property(nonatomic, copy) void (^onMapDetailCheck)(NSString *choice, NSInteger zoom);
 @property(nonatomic, copy) void (^onMapDetailDownload)(void);
 @property(nonatomic, copy) void (^onMapDetailStop)(void);
 @property(nonatomic, copy) void (^onMapDetailRemove)(NSString *path);
 - (void)setMapDetailChoices:(NSArray<NSArray *> *)choices
                      levels:(NSArray<NSArray *> *)levels
-                  installed:(NSArray<NSArray<NSString *> *> *)installed
-                    summary:(NSString *)summary;
+                  installed:(NSArray<NSArray *> *)installed;  // a card for each: [path, name, summary, footnote, outline or NSNull]
 // After a check, while downloading, and when done: what to say, and which buttons work.
 - (void)setMapDetailState:(NSString *)message ok:(BOOL)ok checked:(BOOL)checked busy:(BOOL)busy;
 
@@ -77,7 +80,7 @@
 - (void)offerPanel:(NSString *)ident tip:(NSString *)tip;
 @property(nonatomic, copy) void (^onShowSection)(NSString *ident);
 - (void)showSource:(NSInteger)source;  // navigates to that setting and focuses its first field (-3: country data, -4: spots)
-- (void)openGroup:(NSString *)ident;   // navigates to the category containing "settings.station", "settings.source.0"...
+- (void)openGroup:(NSString *)ident;   // navigates to the category containing "settings.station", "settings.accounts"...
 - (void)refresh;                       // reload what is saved
 
 @end

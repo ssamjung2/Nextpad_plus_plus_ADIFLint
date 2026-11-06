@@ -180,6 +180,9 @@ static struct {
     bool colour = true;
     bool autocomplete = true;
     bool countCharacters = false;
+    bool checkAdx = true;  // ADX (XML) files are checked against the ADX schemas (Settings, Editor)
+    bool checkLogOnOpen = false;  // an ADI file's Check Log opens when the file does (Settings, Editor)
+    std::set<intptr_t> openedBuffers;  // the buffers activated so far: a buffer's first activation is its opening
     bool fileVersion = false;  // check each log against the ADIF version it declares (Settings, Check Log)
     bool panelWanted = false;
     std::string qsoTargetLine;  // what New QSO says it is logging to, for the layout's status bar
@@ -381,7 +384,7 @@ static void loadSettings() {
         if (eq != std::string::npos && eq > 0) {
             std::string key = line.substr(0, eq);
             static const std::set<std::string> kOwn = {"autoValidate", "colour", "autocomplete", "countCharacters",
-                                                       "recordPanel", "qsoCarryHidden", "qsoFields"};
+                                                       "recordPanel", "qsoCarryHidden", "qsoFields", "checkAdx", "checkLogOnOpen"};
             // Radio settings from earlier versions (the radio connection was removed): dropped on the next save.
             static const std::set<std::string> kGone = {"radioKind", "radioHost", "radioPort", "radioFollow"};
             if (!kOwn.count(key) && !kGone.count(key)) g.extra[key] = line.substr(eq + 1);
@@ -390,6 +393,8 @@ static void loadSettings() {
         flag("colour", g.colour);
         flag("autocomplete", g.autocomplete);
         flag("countCharacters", g.countCharacters);
+        flag("checkAdx", g.checkAdx);
+        flag("checkLogOnOpen", g.checkLogOnOpen);
         flag("recordPanel", g.panelWanted);
         flag("qsoCarryHidden", g.qsoCarryHidden);
         if (line.rfind("qsoFields=", 0) == 0) {
@@ -416,6 +421,8 @@ static void saveSettings() {
         << "colour=" << g.colour << "\n"
         << "autocomplete=" << g.autocomplete << "\n"
         << "countCharacters=" << g.countCharacters << "\n"
+        << "checkAdx=" << g.checkAdx << "\n"
+        << "checkLogOnOpen=" << g.checkLogOnOpen << "\n"
         << "recordPanel=" << g.panelWanted << "\n"
         << "qsoCarryHidden=" << g.qsoCarryHidden << "\n"
         << "qsoFields=";
@@ -739,7 +746,9 @@ static const adif::LintResult &lintNow(NppHandle h) {
     opt.buildModel = true;
     opt.today = adifhost::utcNow("%Y%m%d");
     opt.fileVersion = g.fileVersion;
-    g.last = isAdxBuffer(currentBuffer()) ? adif::lintAdx(docText(h), opt) : adif::lint(docText(h), opt);
+    if (!isAdxBuffer(currentBuffer())) g.last = adif::lint(docText(h), opt);
+    else if (g.checkAdx) g.last = adif::lintAdx(docText(h), opt);
+    else g.last = adif::LintResult();
     g.lastBuffer = currentBuffer();
     g.lastEdit = g.editCount;
     g.lastLength = sci(h, SCI_GETLENGTH);
@@ -1990,6 +1999,7 @@ static void openQsoFields();
 static void showQsoRows(NppHandle h, const adif::LintResult &r);
 static void runLookup();
 static void scheduleLookup();
+static void refreshLookupAccounts(bool startWithDefault);
 
 // (Re)build the New QSO rows from the field list (or the log's own fields).
 // With keepValues, what the user has typed into fields that remain is kept.
@@ -2086,6 +2096,7 @@ static void showQsoRows(NppHandle h, const adif::LintResult &r) {
         {
             std::string s = adifhost::setting("qsoLookup");
             g.qso.lookupSource = s == "off" ? 0 : s == "qrz" ? 2 : s == "hamqth" ? 3 : 1;  // country data by default
+            refreshLookupAccounts(true);
         }
         g.qso.onLog = ^{ logQso(); };
         [[NSNotificationCenter defaultCenter] addObserverForName:NSWindowWillCloseNotification  // closed (or its frame): the Map's button follows
@@ -3314,6 +3325,8 @@ static void setAutoValidate(bool on);
 static void setColour(bool on);
 static void setAutocomplete(bool on);
 static void setCountCharacters(bool on);
+static void setCheckAdx(bool on);
+static void setCheckLogOnOpen(bool on);
 static void refreshSettingsOptions();
 static void refreshMapDetail();
 
@@ -3321,12 +3334,8 @@ static void refreshMapDetail();
 static void ensureSettings() {
     if (!g.settings) {
         g.settings = [[ADIFSettingsPanel alloc] init];
-        g.settings.onLotwUsersToggled = ^(BOOL on) {
-            ADIFSetLotwUsersOn(on);
-            [g.settings setLotwUsersOn:on status:ADIFLotwUsersStatus() ok:YES];
-        };
         g.settings.onLotwUsersUpdate = ^{
-            ADIFUpdateLotwUsers(^(BOOL ok, NSString *message) { [g.settings setLotwUsersOn:ADIFLotwUsersOn() status:message ok:ok]; });
+            ADIFUpdateLotwUsers(^(BOOL ok, NSString *message) { [g.settings setLotwUsersStatus:message ok:ok]; });
         };
         g.settings.onPotaUpdate = ^{
             ADIFUpdatePotaParks(^(BOOL ok, NSString *message) {
@@ -3411,18 +3420,21 @@ static void ensureSettings() {
             [g.settings setMapDetailState:ok ? @"Removed." : @(why.c_str()) ok:ok checked:NO busy:mapdetail::busy()];
             refreshMapDetail();
         };
+        g.settings.onAccountsChanged = ^(BOOL lookupDefaultChanged) { refreshLookupAccounts(lookupDefaultChanged); };
         g.settings.onEditorOption = ^(NSInteger option, BOOL on) {
             switch (option) {
                 case 0: setAutoValidate(on); break;
                 case 1: setColour(on); break;
                 case 2: setAutocomplete(on); break;
                 case 3: setCountCharacters(on); break;
+                case 4: setCheckAdx(on); break;
+                case 5: setCheckLogOnOpen(on); break;
                 default: break;
             }
         };
     }
     [g.settings setCountryStatus:ADIFCountryDataStatus() ok:YES];
-    [g.settings setLotwUsersOn:ADIFLotwUsersOn() status:ADIFLotwUsersStatus() ok:YES];
+    [g.settings setLotwUsersStatus:ADIFLotwUsersStatus() ok:YES];
     [g.settings setIotaStatus:ADIFIotaGroupsStatus() ok:YES];
     [g.settings setPotaStatus:ADIFPotaParksStatus() ok:YES];
     [g.settings setStationCall:ADIFString(adifhost::setting("stationCall")) grid:ADIFString(adifhost::setting("stationGrid"))
@@ -3482,9 +3494,19 @@ static NSWindow *settingsWindow() {
     w.contentView = host;
     [w setContentSize:NSMakeSize(720, 700)];
     [w center];
-    // The search field sits in the title bar, at the top right, as in System Settings.
+    // The search field sits in the title bar, at the top right, as in System Settings. An accessory's view needs a frame
+    // of its own, or it is never shown: the field goes in a box that has one.
+    NSView *searchBox = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 240, 30)];
+    NSSearchField *searchField = g.settings.searchField;
+    searchField.translatesAutoresizingMaskIntoConstraints = NO;
+    [searchBox addSubview:searchField];
+    [NSLayoutConstraint activateConstraints:@[
+        [searchField.leadingAnchor constraintEqualToAnchor:searchBox.leadingAnchor constant:8],
+        [searchField.trailingAnchor constraintEqualToAnchor:searchBox.trailingAnchor constant:-12],
+        [searchField.centerYAnchor constraintEqualToAnchor:searchBox.centerYAnchor],
+    ]];
     NSTitlebarAccessoryViewController *search = [[NSTitlebarAccessoryViewController alloc] init];
-    search.view = g.settings.searchField;
+    search.view = searchBox;
     search.layoutAttribute = NSLayoutAttributeTrailing;
     [w addTitlebarAccessoryViewController:search];
     theme::host(w);
@@ -3582,6 +3604,8 @@ static void openSettings(NSInteger source) {
 
 static void refreshSettingsOptions() {
     [g.settings setEditorValidate:g.autoValidate colour:g.colour autocomplete:g.autocomplete characters:g.countCharacters];
+    [g.settings setAdxCheck:g.checkAdx];
+    [g.settings setCheckLogOnOpen:g.checkLogOnOpen];
 }
 
 static void cmdSettings() { openSettings(-1); }
@@ -3911,6 +3935,19 @@ static void cmdEnrich() {
 
 // ── Commands: settings and about ────────────────────────────────────────────
 
+static void setCheckAdx(bool on) {
+    g.checkAdx = on;
+    saveSettings();
+    schedule(0.05);
+    refreshSettingsOptions();
+}
+
+static void setCheckLogOnOpen(bool on) {
+    g.checkLogOnOpen = on;
+    saveSettings();
+    refreshSettingsOptions();
+}
+
 static void setAutoValidate(bool on) {
     g.autoValidate = on;
     setCheck(kCmdAutoValidate, on);
@@ -4076,18 +4113,41 @@ static void installPluginMenuStructure() {
 static void cmdToggleOffline() { ADIFSetOffline(!ADIFOffline()); }
 
 // Settings → Map Detail: the regions to choose from, and the ones downloaded.
+// Look up's callbooks in the order of Accounts, with the default marked. The default is what Look up starts with.
+static void refreshLookupAccounts(bool startWithDefault) {
+    if (!g.qso) return;
+    NSMutableArray<NSNumber *> *order = [NSMutableArray array];
+    for (const ADIFAccountRef &a : ADIFAccounts())
+        if (a.label.empty() && (a.source == ADIFSourceQRZ || a.source == ADIFSourceHamQTH))
+            [order addObject:@(a.source == ADIFSourceQRZ ? 2 : 3)];
+    for (NSNumber *tag in @[ @2, @3 ])
+        if (![order containsObject:tag]) [order addObject:tag];
+    int source = ADIFLookupDefault();
+    NSInteger tag = source == ADIFSourceQRZ ? 2 : source == ADIFSourceHamQTH ? 3 : -1;
+    [g.qso setLookupOrder:order default:tag];
+    if (startWithDefault && tag > 0 && g.qso.lookupSource != tag) {
+        g.qso.lookupSource = tag;
+        adifhost::setSetting("qsoLookup", tag == 2 ? "qrz" : "hamqth");
+        g.lookup.call.clear();
+        runLookup();
+    }
+}
+
 static void refreshMapDetail() {
     if (!g.settings) return;
     std::array<double, 4> box{};
     NSMutableArray *choices = [NSMutableArray array], *levels = [NSMutableArray array], *have = [NSMutableArray array];
     for (const mapdetail::Choice &c : mapdetail::choices(worldmap::shownArea(&box))) [choices addObject:@[ @(c.id.c_str()), @(c.name.c_str()) ]];
-    for (const mapdetail::Level &l : mapdetail::levels()) [levels addObject:@[ @(l.zoom), @(tr(l.title).c_str()) ]];
+    for (const mapdetail::Level &l : mapdetail::levels())
+        [levels addObject:@[ @(l.zoom), @(tr(l.title).c_str()), @(tr(l.word).c_str()), @(tr(l.what).c_str()) ]];
     for (const mapdetail::Region &r : mapdetail::regions()) {
-        char size[32];
-        snprintf(size, sizeof size, r.bytes >= 1000000 ? "%.0f MB" : "%.0f KB", r.bytes >= 1000000 ? r.bytes / 1e6 : std::max(1.0, r.bytes / 1e3));
-        [have addObject:@[ @(r.path.c_str()), [NSString stringWithFormat:T(@"%s (zoom %d, %s)"), r.name.c_str(), r.maxZoom, size] ]];
+        const mapdetail::Level *level = mapdetail::levelAt(r.maxZoom);
+        NSString *summary = level ? TF(@"{level}: {name}", @{@"level" : @(tr(level->word).c_str()), @"name" : @(tr(level->name).c_str())}) : @"";
+        NSString *size = [NSByteCountFormatter stringFromByteCount:(long long)r.bytes countStyle:NSByteCountFormatterCountStyleFile];
+        NSBezierPath *outline = mapdetail::outlinePath(r);
+        [have addObject:@[ @(r.path.c_str()), @(r.name.c_str()), summary, size, outline ?: [NSNull null] ]];
     }
-    [g.settings setMapDetailChoices:choices levels:levels installed:have summary:mapdetail::status()];
+    [g.settings setMapDetailChoices:choices levels:levels installed:have];
 }
 static void cmdStartLogging() {
     if (workspace::openLogging()) worldmap::showForLogging();
@@ -4373,6 +4433,13 @@ extern "C" NPP_EXPORT void beNotified(SCNotification *n) {
                 imports::documentChanged();
                 checklog::documentChanged();
                 monitor::documentActivated();
+                // A file's first activation is its opening: Check Log opens for an ADI file, when Settings asks for it.
+                if (n->nmhdr.code == NPPN_BUFFERACTIVATED && g.openedBuffers.insert(currentBuffer()).second && g.ready && g.checkLogOnOpen &&
+                    isAdiPath(currentPath()))
+                    checklog::cmdCheckLog();
+                break;
+            case NPPN_FILECLOSED:  // the buffer's id may be reused by a later file, which must count as opened again
+                g.openedBuffers.erase((intptr_t)n->nmhdr.idFrom);
                 break;
             case NPPN_DARKMODECHANGED:
                 for (NppHandle h : {nppData._scintillaMainHandle, nppData._scintillaSecondHandle}) styleIndicators(h);

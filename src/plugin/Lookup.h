@@ -19,6 +19,7 @@
 
 #include <map>
 #include <string>
+#include <vector>
 
 typedef NS_ENUM(NSInteger, ADIFSource) {
     ADIFSourceQRZ = 0,         // callbook (Enrich)
@@ -49,14 +50,33 @@ NSString *ADIFSourceSecretLabel(ADIFSource source);     // "Password" or "API ke
 BOOL ADIFSourceCanTest(ADIFSource source);              // a sign-in test exists
 BOOL ADIFLookupFakeMode(void);
 
-// Keychain: one credential per source.
-NSString *ADIFSavedAccount(ADIFSource source);  // username (or "API key"); nil if none saved
-BOOL ADIFHasSecret(ADIFSource source);
-BOOL ADIFSaveCredential(ADIFSource source, NSString *user, NSString *secret, NSString **error);
-BOOL ADIFDeleteCredential(ADIFSource source);
+// Keychain: one credential per account. An integration's first account has no label. QRZ.com Logbook and LoTW keep one
+// account for each log as well, labelled by the log's callsign.
+struct ADIFAccountRef {
+    ADIFSource source;
+    std::string label;  // empty: the integration's first account
+};
+BOOL ADIFAllowsManyAccounts(ADIFSource source);  // QRZ.com Logbook and LoTW: one account for each log
+NSString *ADIFSavedAccount(ADIFSource source, NSString *label = nil);  // username (or "API key"); nil if none saved
+NSString *ADIFSavedSecret(ADIFSource source, NSString *label = nil);  // the saved password or key; Settings shows only that one is saved
+BOOL ADIFHasSavedSecret(ADIFSource source, NSString *label = nil);  // a credential is saved (for the label, or any of the source's when nil)
+BOOL ADIFHasSecret(ADIFSource source, NSString *label = nil);  // a saved credential whose account is on: lookups, imports and uploads use it
+BOOL ADIFSourceOn(ADIFSource source, NSString *label = nil);  // the account is on (Settings, Accounts); off keeps its credential
+void ADIFSetSourceOn(ADIFSource source, BOOL on, NSString *label = nil);
+BOOL ADIFSaveCredential(ADIFSource source, NSString *user, NSString *secret, NSString **error, NSString *label = nil);
+BOOL ADIFDeleteCredential(ADIFSource source, NSString *label = nil);
+std::vector<ADIFAccountRef> ADIFAccounts();  // the saved accounts, in the order Settings lists them
+void ADIFSetAccountOrder(const std::vector<ADIFAccountRef> &accounts);
+// The account a log with this callsign uses (QRZ.com Logbook, LoTW): the enabled one labelled with the callsign, else the
+// integration's first enabled one. @"" for the first account, otherwise its label; nil when none is on.
+NSString *ADIFAccountLabelFor(ADIFSource source, NSString *call);
+// The callbook that Look up starts with and Station lookup uses (ADIFSource: QRZ.com or HamQTH); -1 for none.
+int ADIFLookupDefault(void);
+void ADIFSetLookupDefault(int source);
 
-// Try the saved credential against the service. Completion on the main queue.
-void ADIFTestCredential(ADIFSource source, void (^done)(BOOL ok, NSString *message));
+// Test a typed credential before it is saved: it stands in for the saved one for the test only. Completion on the main queue.
+void ADIFTestCredential(ADIFSource source, NSString *label, NSString *user, NSString *secret, void (^done)(BOOL ok, NSString *message));
+
 
 typedef void (^ADIFCallbookDone)(BOOL found, const std::map<std::string, std::string> &raw, NSString *error, BOOL fatal);
 

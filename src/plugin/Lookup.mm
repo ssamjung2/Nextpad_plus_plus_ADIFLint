@@ -1,12 +1,14 @@
 #import "Lookup.h"
 #import "L10n.h"
 #import "Network.h"
+#include "PluginHost.h"
 
 #import <Security/Security.h>
 
 #include "adif_upload.h"
 
 #include <algorithm>
+#include <cstdlib>
 
 // Endpoints (checked 2026-10-07):
 //   QRZ.com XML 1.34: https://xmldata.qrz.com/xml/current/  login with username, password, agent
@@ -109,8 +111,22 @@ static NSString *fakeNet() { return ADIFOffline() ? nil : fakeDir(); }
 
 // ── Credentials ─────────────────────────────────────────────────────────────
 
-static NSString *keychainService(ADIFSource source) {
-    return [@"ADIF Lint: " stringByAppendingString:ADIFSourceName(source)];
+// An account's Keychain item: the integration's name, and the log's callsign for an account that has one.
+static NSString *keychainService(ADIFSource source, NSString *label = nil) {
+    NSString *name = [@"ADIF Lint: " stringByAppendingString:ADIFSourceName(source)];
+    return label.length ? [name stringByAppendingFormat:@" %@", label] : name;
+}
+
+// A typed credential under test stands in for the saved one, for that test only (ADIFTestCredential).
+static NSMutableDictionary<NSString *, NSArray<NSString *> *> *candidates() {
+    static NSMutableDictionary *store;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ store = [NSMutableDictionary dictionary]; });
+    return store;
+}
+
+static NSArray<NSString *> *candidateFor(ADIFSource source, NSString *label) {
+    return candidates()[keychainService(source, label)];
 }
 
 // Test mode: an in-memory store instead of the Keychain.
@@ -124,11 +140,12 @@ static NSMutableDictionary<NSString *, NSArray<NSString *> *> *fakeStore() {
     return store;
 }
 
-NSString *ADIFSavedAccount(ADIFSource source) {
-    if (ADIFLookupFakeMode()) return fakeStore()[keychainService(source)].firstObject;
+NSString *ADIFSavedAccount(ADIFSource source, NSString *label) {
+    if (NSArray<NSString *> *typed = candidateFor(source, label)) return typed.firstObject;
+    if (ADIFLookupFakeMode()) return fakeStore()[keychainService(source, label)].firstObject;
     NSDictionary *query = @{
         (__bridge id)kSecClass : (__bridge id)kSecClassGenericPassword,
-        (__bridge id)kSecAttrService : keychainService(source),
+        (__bridge id)kSecAttrService : keychainService(source, label),
         (__bridge id)kSecReturnAttributes : @YES,
         (__bridge id)kSecMatchLimit : (__bridge id)kSecMatchLimitOne,
     };
@@ -138,11 +155,12 @@ NSString *ADIFSavedAccount(ADIFSource source) {
     return attrs[(__bridge id)kSecAttrAccount];
 }
 
-static NSString *savedSecret(ADIFSource source) {
-    if (ADIFLookupFakeMode()) return fakeStore()[keychainService(source)].lastObject;
+static NSString *savedSecret(ADIFSource source, NSString *label = nil) {
+    if (NSArray<NSString *> *typed = candidateFor(source, label)) return typed.lastObject;
+    if (ADIFLookupFakeMode()) return fakeStore()[keychainService(source, label)].lastObject;
     NSDictionary *query = @{
         (__bridge id)kSecClass : (__bridge id)kSecClassGenericPassword,
-        (__bridge id)kSecAttrService : keychainService(source),
+        (__bridge id)kSecAttrService : keychainService(source, label),
         (__bridge id)kSecReturnData : @YES,
         (__bridge id)kSecMatchLimit : (__bridge id)kSecMatchLimitOne,
     };
@@ -152,37 +170,44 @@ static NSString *savedSecret(ADIFSource source) {
     return [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
 }
 
-BOOL ADIFHasSecret(ADIFSource source) { return savedSecret(source).length > 0; }
+// The setting that turns an account on or off: "accountOn2" for an integration's first account, "accountOn2:KW9D" for another.
+static std::string accountOnKey(ADIFSource source, NSString *label) {
+    std::string key = "accountOn" + std::to_string((int)source);
+    if (label.length) key += ":" + std::string(label.UTF8String);
+    return key;
+}
+BOOL ADIFSourceOn(ADIFSource source, NSString *label) { return adifhost::setting(accountOnKey(source, label)) != "0"; }
+void ADIFSetSourceOn(ADIFSource source, BOOL on, NSString *label) { adifhost::setSetting(accountOnKey(source, label), on ? "1" : "0"); }
 
-BOOL ADIFDeleteCredential(ADIFSource source) {
+BOOL ADIFDeleteCredential(ADIFSource source, NSString *label) {
     if (ADIFLookupFakeMode()) {
-        [fakeStore() removeObjectForKey:keychainService(source)];
+        [fakeStore() removeObjectForKey:keychainService(source, label)];
         return YES;
     }
     NSDictionary *match = @{
         (__bridge id)kSecClass : (__bridge id)kSecClassGenericPassword,
-        (__bridge id)kSecAttrService : keychainService(source),
+        (__bridge id)kSecAttrService : keychainService(source, label),
     };
     OSStatus st = SecItemDelete((__bridge CFDictionaryRef)match);
     return st == errSecSuccess || st == errSecItemNotFound;
 }
 
-BOOL ADIFSaveCredential(ADIFSource source, NSString *user, NSString *secret, NSString **error) {
+BOOL ADIFSaveCredential(ADIFSource source, NSString *user, NSString *secret, NSString **error, NSString *label) {
     if (ADIFSourceCredentialKind(source) == ADIFCredentialAPIKey) user = @"API key";
     if (!user.length || !secret.length) {
         if (error) *error = T(@"Enter both fields.");
         return NO;
     }
     if (ADIFLookupFakeMode()) {
-        fakeStore()[keychainService(source)] = @[ user, secret ];
+        fakeStore()[keychainService(source, label)] = @[ user, secret ];
         return YES;
     }
-    ADIFDeleteCredential(source);  // one credential per source
+    ADIFDeleteCredential(source, label);  // one credential per account
     NSDictionary *item = @{
         (__bridge id)kSecClass : (__bridge id)kSecClassGenericPassword,
-        (__bridge id)kSecAttrService : keychainService(source),
+        (__bridge id)kSecAttrService : keychainService(source, label),
         (__bridge id)kSecAttrAccount : user,
-        (__bridge id)kSecAttrLabel : keychainService(source),
+        (__bridge id)kSecAttrLabel : keychainService(source, label),
         (__bridge id)kSecValueData : [secret dataUsingEncoding:NSUTF8StringEncoding],
     };
     OSStatus st = SecItemAdd((__bridge CFDictionaryRef)item, NULL);
@@ -191,6 +216,108 @@ BOOL ADIFSaveCredential(ADIFSource source, NSString *user, NSString *secret, NSS
         *error = msg ?: [NSString stringWithFormat:T(@"Keychain error %d"), (int)st];
     }
     return st == errSecSuccess;
+}
+
+// ── Accounts ────────────────────────────────────────────────────────────────
+
+BOOL ADIFAllowsManyAccounts(ADIFSource source) { return source == ADIFSourceQRZLogbook || source == ADIFSourceLoTW; }
+
+NSString *ADIFSavedSecret(ADIFSource source, NSString *label) { return savedSecret(source, label); }
+
+std::vector<ADIFAccountRef> ADIFAccounts() {
+    std::vector<ADIFAccountRef> out;
+    auto listed = [&](ADIFSource s, const std::string &label) {
+        for (const ADIFAccountRef &a : out)
+            if (a.source == s && a.label == label) return true;
+        return false;
+    };
+    auto saved = [](ADIFSource s, const std::string &label) {
+        return savedSecret(s, label.empty() ? nil : @(label.c_str())).length > 0;
+    };
+    std::string order = adifhost::setting("accounts");
+    for (size_t i = 0; i < order.size();) {
+        size_t end = order.find(',', i);
+        if (end == std::string::npos) end = order.size();
+        std::string token = order.substr(i, end - i);
+        i = end + 1;
+        size_t colon = token.find(':');
+        int source = std::atoi(token.substr(0, colon).c_str());
+        std::string label = colon == std::string::npos ? std::string() : token.substr(colon + 1);
+        if (source < 0 || source >= ADIFSourceCount) continue;
+        if (!listed((ADIFSource)source, label) && saved((ADIFSource)source, label)) out.push_back({(ADIFSource)source, label});
+    }
+    // Accounts saved before the order was kept: each integration's first account, after those in the order.
+    for (NSInteger s = 0; s < ADIFSourceCount; ++s)
+        if (!listed((ADIFSource)s, std::string()) && saved((ADIFSource)s, std::string())) out.push_back({(ADIFSource)s, std::string()});
+    return out;
+}
+
+void ADIFSetAccountOrder(const std::vector<ADIFAccountRef> &accounts) {
+    std::string order;
+    for (const ADIFAccountRef &a : accounts) {
+        if (!order.empty()) order += ',';
+        order += std::to_string((int)a.source);
+        if (!a.label.empty()) order += ":" + a.label;
+    }
+    adifhost::setSetting("accounts", order);
+}
+
+BOOL ADIFHasSavedSecret(ADIFSource source, NSString *label) {
+    if (label.length) return savedSecret(source, label).length > 0;
+    if (savedSecret(source).length) return YES;
+    for (const ADIFAccountRef &a : ADIFAccounts())
+        if (a.source == source && !a.label.empty()) return YES;
+    return NO;
+}
+
+// A saved credential whose account is on.
+static BOOL usable(ADIFSource source, NSString *label) { return ADIFSourceOn(source, label) && savedSecret(source, label).length > 0; }
+
+BOOL ADIFHasSecret(ADIFSource source, NSString *label) {
+    if (label.length) return usable(source, label);
+    if (usable(source, nil)) return YES;
+    for (const ADIFAccountRef &a : ADIFAccounts())
+        if (a.source == source && !a.label.empty() && usable(source, @(a.label.c_str()))) return YES;
+    return NO;
+}
+
+NSString *ADIFAccountLabelFor(ADIFSource source, NSString *call) {
+    NSString *want = call.uppercaseString ?: @"";
+    if (ADIFAllowsManyAccounts(source))
+        for (const ADIFAccountRef &a : ADIFAccounts())
+            if (a.source == source && !a.label.empty() && [want isEqualToString:@(a.label.c_str())] && usable(source, @(a.label.c_str())))
+                return @(a.label.c_str());
+    if (usable(source, nil)) return @"";
+    if (ADIFAllowsManyAccounts(source))
+        for (const ADIFAccountRef &a : ADIFAccounts())
+            if (a.source == source && !a.label.empty() && usable(source, @(a.label.c_str()))) return @(a.label.c_str());
+    return nil;
+}
+
+int ADIFLookupDefault(void) {
+    std::string v = adifhost::setting("lookupDefault");
+    return v.empty() ? -1 : std::atoi(v.c_str());
+}
+
+void ADIFSetLookupDefault(int source) { adifhost::setSetting("lookupDefault", source < 0 ? std::string() : std::to_string(source)); }
+
+// The callsign of the Your Station setting: the log a log-retrieval account is chosen for when nothing else names one.
+static NSString *yourCall(void) { return @(adifhost::setting("stationCall").c_str()); }
+
+// The STATION_CALLSIGN of an ADI text's first record (the log the upload or import belongs to), else Your Station's.
+static NSString *callOfAdi(NSString *adi) {
+    NSRange tag = [adi rangeOfString:@"<STATION_CALLSIGN:" options:NSCaseInsensitiveSearch];
+    if (tag.location == NSNotFound) return yourCall();
+    NSUInteger from = NSMaxRange(tag);
+    NSRange close = [adi rangeOfString:@">" options:0 range:NSMakeRange(from, adi.length - from)];
+    if (close.location == NSNotFound) return yourCall();
+    NSUInteger lengthEnd = close.location;
+    NSRange colon = [adi rangeOfString:@":" options:0 range:NSMakeRange(from, lengthEnd - from)];
+    if (colon.location != NSNotFound) lengthEnd = colon.location;
+    NSInteger n = [[adi substringWithRange:NSMakeRange(from, lengthEnd - from)] integerValue];
+    if (n <= 0 || NSMaxRange(close) + n > adi.length) return yourCall();
+    NSString *value = [adi substringWithRange:NSMakeRange(NSMaxRange(close), (NSUInteger)n)];
+    return [value stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet].uppercaseString;
 }
 
 // ── HTTP and XML helpers ────────────────────────────────────────────────────
@@ -456,8 +583,8 @@ static void callbookLogin(ADIFSource source, NSString *agent, void (^done)(NSStr
 
 // ── LoTW ────────────────────────────────────────────────────────────────────
 
-static NSURL *lotwURL(NSString *query) {
-    NSString *user = ADIFSavedAccount(ADIFSourceLoTW), *pass = savedSecret(ADIFSourceLoTW);
+static NSURL *lotwURL(NSString *query, NSString *label) {
+    NSString *user = ADIFSavedAccount(ADIFSourceLoTW, label), *pass = savedSecret(ADIFSourceLoTW, label);
     if (!user.length || !pass.length) return nil;
     // The LoTW API takes the login as query parameters (over HTTPS); that is its documented form.
     return [NSURL URLWithString:[NSString stringWithFormat:@"%@?login=%@&password=%@&%@", kLotwBase, encode(user), encode(pass), query]];
@@ -478,8 +605,9 @@ static NSString *lotwText(NSData *body) {
 // your station's details, qso_qsldetail the confirming station's.
 static void lotwDownload(NSString *from, NSString *to, void (^done)(NSString *adif, NSString *error)) {
     NSString *const kBadLogin = T(@"LoTW did not return a report. Check your LoTW username and password in Settings.");
+    NSString *label = ADIFAccountLabelFor(ADIFSourceLoTW, yourCall());  // the LoTW account for Your Station's log
     if (NSString *dir = fakeNet()) {
-        NSData *body = ADIFSavedAccount(ADIFSourceLoTW)
+        NSData *body = ADIFSavedAccount(ADIFSourceLoTW, label)
                            ? [NSData dataWithContentsOfFile:[dir stringByAppendingPathComponent:@"lotw/lotwreport.adi"]]
                            : nil;
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -494,7 +622,7 @@ static void lotwDownload(NSString *from, NSString *to, void (^done)(NSString *ad
         [query appendFormat:@"&qso_startdate=%@-%@-%@&qso_enddate=%@-%@-%@", [from substringToIndex:4],
                             [from substringWithRange:NSMakeRange(4, 2)], [from substringFromIndex:6], [to substringToIndex:4],
                             [to substringWithRange:NSMakeRange(4, 2)], [to substringFromIndex:6]];
-    NSURL *url = lotwURL(query);
+    NSURL *url = lotwURL(query, label);
     if (!url) {
         dispatch_async(dispatch_get_main_queue(), ^{ done(nil, T(@"No LoTW account. Add one in Settings.")); });
         return;
@@ -515,13 +643,13 @@ static void wrlRequest(NSString *agent, NSString *method, NSString *path, NSData
 static NSString *fakeText(NSString *relative);
 static NSString *utf8(const std::string &s) { return [[NSString alloc] initWithBytes:s.data() length:s.size() encoding:NSUTF8StringEncoding] ?: @""; }
 
-void ADIFTestCredential(ADIFSource source, void (^done)(BOOL ok, NSString *message)) {
-    if (!ADIFSavedAccount(source) || !ADIFHasSecret(source)) {
+static void runCredentialTest(ADIFSource source, NSString *label, void (^done)(BOOL ok, NSString *message)) {
+    if (!ADIFSavedAccount(source, label) || !ADIFHasSecret(source, label)) {
         dispatch_async(dispatch_get_main_queue(), ^{ done(NO, T(@"Nothing saved yet.")); });
         return;
     }
     if (source == ADIFSourceQRZLogbook) {
-        NSString *key = savedSecret(source);
+        NSString *key = savedSecret(source, label);
         void (^handle)(NSString *) = ^(NSString *body) {
             adif::QrzReply r = adif::parseQrzReply(body.UTF8String ?: "");
             if (r.result == "OK") done(YES, T(@"QRZ.com accepted the key."));
@@ -585,7 +713,7 @@ void ADIFTestCredential(ADIFSource source, void (^done)(BOOL ok, NSString *messa
         f.timeZone = [NSTimeZone timeZoneWithAbbreviation:@"UTC"];
         f.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
         NSString *today = [f stringFromDate:[NSDate date]];
-        httpGet(lotwURL([@"qso_query=1&qso_qsl=yes&qso_qslsince=" stringByAppendingString:today]), ^(NSData *body, NSString *error) {
+        httpGet(lotwURL([@"qso_query=1&qso_qsl=yes&qso_qslsince=" stringByAppendingString:today], label), ^(NSData *body, NSString *error) {
             if (error) done(NO, [@"LoTW: " stringByAppendingString:error]);
             else if (lotwText(body)) done(YES, T(@"LoTW accepted the login."));
             else done(NO, T(@"LoTW did not accept this username and password."));
@@ -610,6 +738,20 @@ static NSArray<NSDictionary *> *spotObjects(NSData *data, NSString **error) {
     for (id o in (NSArray *)json)
         if ([o isKindOfClass:NSDictionary.class]) [out addObject:o];
     return out;
+}
+
+void ADIFTestCredential(ADIFSource source, NSString *label, NSString *user, NSString *secret, void (^done)(BOOL ok, NSString *message)) {
+    if (ADIFSourceCredentialKind(source) == ADIFCredentialAPIKey) user = @"API key";
+    if (!user.length || !secret.length) {
+        dispatch_async(dispatch_get_main_queue(), ^{ done(NO, T(@"Enter both fields.")); });
+        return;
+    }
+    NSString *key = keychainService(source, label);
+    candidates()[key] = @[ user, secret ];
+    runCredentialTest(source, label, ^(BOOL ok, NSString *message) {
+        [candidates() removeObjectForKey:key];
+        done(ok, message);
+    });
 }
 
 void ADIFFetchPotaSpots(NSString *agent, void (^done)(NSArray<NSDictionary *> *spots, NSString *error)) {
@@ -689,7 +831,8 @@ static NSMutableURLRequest *multipartRequest(NSString *url, NSString *agent, con
 }
 
 void ADIFQrzLogbookInsert(NSString *agent, NSString *adi, BOOL replace, void (^done)(NSString *reply, NSString *error)) {
-    NSString *key = savedSecret(ADIFSourceQRZLogbook);
+    NSString *label = ADIFAccountLabelFor(ADIFSourceQRZLogbook, callOfAdi(adi));
+    NSString *key = label ? savedSecret(ADIFSourceQRZLogbook, label) : nil;
     if (!key.length) {
         dispatch_async(dispatch_get_main_queue(), ^{ done(nil, T(@"No QRZ.com Logbook API key yet. Add it in Settings.")); });
         return;
@@ -1222,7 +1365,8 @@ static void qrzDownload(NSString *agent, NSString *from, NSString *to, void (^do
         });
         return;
     }
-    NSString *key = savedSecret(ADIFSourceQRZLogbook);
+    NSString *label = ADIFAccountLabelFor(ADIFSourceQRZLogbook, yourCall());  // the logbook of Your Station's log
+    NSString *key = label ? savedSecret(ADIFSourceQRZLogbook, label) : nil;
     if (!key.length) {
         dispatch_async(dispatch_get_main_queue(), ^{ done(nil, T(@"No QRZ.com Logbook API key yet. Add it in Settings.")); });
         return;

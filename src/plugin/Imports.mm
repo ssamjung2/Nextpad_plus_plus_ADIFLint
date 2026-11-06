@@ -44,10 +44,10 @@ Import &imp(adif::ImportSite s) { return imps[(size_t)s]; }
 
 NSString *accountLine(adif::ImportSite s) {
     ADIFSource src = accountSource(s);
-    if (!ADIFSavedAccount(src) || !ADIFHasSecret(src))
+    if (!ADIFHasSecret(src))
         return [NSString stringWithFormat:T(@"No %@ account yet: add it in Settings."), ADIFSourceName(src)];
     if (s == adif::ImportSite::QRZLogbook) return T(@"QRZ.com Logbook API key saved in your Keychain");
-    return [NSString stringWithFormat:T(@"%@ (saved in your Keychain)"), ADIFSavedAccount(src)];
+    return [NSString stringWithFormat:T(@"%@ (saved in your Keychain)"), ADIFSavedAccount(src) ?: ADIFSourceName(src)];
 }
 
 // The log's first and last QSO_DATE, or false when it has none.
@@ -183,7 +183,7 @@ void setRunning(Import &u, bool running) {
 void startDownload(Import &u) {
     if (u.running) return;
     ADIFSource src = accountSource(u.site);
-    if (!ADIFSavedAccount(src) || !ADIFHasSecret(src)) {
+    if (!ADIFHasSecret(src)) {
         [u.w setStatus:[NSString stringWithFormat:T(@"No %@ account yet. Add it in Settings, then press Download."), ADIFSourceName(src)]
               severity:2];
         return;

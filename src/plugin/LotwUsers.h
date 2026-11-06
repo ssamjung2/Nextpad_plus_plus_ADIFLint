@@ -8,7 +8,6 @@
 #include <string>
 
 bool ADIFLotwUsersOn(void);
-void ADIFSetLotwUsersOn(bool on);
 // "186,523 calls, ARRL's list of 2026-10-05", "Not downloaded yet", "Off".
 NSString *ADIFLotwUsersStatus(void);
 // Download the list, check it, save it, use it. Completion on the main queue.

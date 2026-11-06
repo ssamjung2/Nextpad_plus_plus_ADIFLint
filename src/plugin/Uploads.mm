@@ -207,7 +207,7 @@ void runTqsl(const std::string &path, NSArray<NSString *> *args, Upload *u, void
 // ── The window ──────────────────────────────────────────────────────────────
 
 NSString *accountLine(adif::UploadService s) {
-    auto saved = [](ADIFSource src) { return ADIFSavedAccount(src) && ADIFHasSecret(src); };
+    auto saved = [](ADIFSource src) { return ADIFHasSecret(src); };
     switch (s) {
         case adif::UploadService::QRZ:
             return saved(ADIFSourceQRZLogbook) ? T(@"QRZ.com Logbook API key saved in your Keychain")

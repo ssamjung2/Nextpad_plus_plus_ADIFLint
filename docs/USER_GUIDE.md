@@ -456,7 +456,7 @@ it while it is closed), a row each:
 - **Local time**: the time where the station is, from the country file's standard time for
   its entity ("15:08 (UTC+1)": no daylight saving time, and a large country spans several
   zones).
-- **QSL**: with **LoTW Users** on in Settings, whether the station uploads to LoTW ("LoTW user
+- **QSL**: with the LoTW users list downloaded (Settings → **LoTW Users**), whether the station uploads to LoTW ("LoTW user
   (last upload 2026-09-30)").
 - **Worked before**: the call in this log on other bands, modes or days, and in the logs
   folder Worked Before searches (when, band and mode).
@@ -1063,7 +1063,7 @@ editor), each field with its length, and an uploaded QSO whose data changes beco
   20m), dates and times in time order, numbers by value, and empty cells last.
 - Selecting a row shows that record in the editor; double-clicking the # goes there.
 - Right-click the headings to choose the columns shown; drag a heading to move a column.
-  With **LoTW Users** on in Settings, **LoTW (last upload)** adds a read-only column with
+  With the LoTW users list downloaded, **LoTW (last upload)** adds a read-only column with
   the date each station last uploaded to LoTW (empty when not on ARRL's list).
 
 Editing:
@@ -1986,8 +1986,13 @@ the names of towns and neighbourhoods. Download a region in **Settings → Map D
 
 1. Choose the region: **The area shown on the Map** (open the Map and show it first), a US
    state, or a country.
-2. Choose how much detail with the **Detail** control: **Detailed** is streets and buildings (zoom
-   15), **Normal** is roads and towns (zoom 13) and **Basic** is main roads (zoom 11).
+2. Choose how much detail with the **Detail** control. **Detailed** (zoom 15) is the most: every
+   street and road with its name, each building on its own, parks, land use, water and rail, and
+   the names of towns and neighbourhoods; the largest download. **Normal** (zoom 13) adds more
+   roads and town names, with buildings as merged blocks rather than one by one. **Basic**
+   (zoom 11) is the main roads, the names of towns and cities, water and large parks, with
+   buildings as merged blocks; the smallest download. The description under the control changes
+   with the level chosen.
 3. **Check Size** reads the newest build's index for that region (for a city, under a
    megabyte) and says what the download would take: about 12 MB for 25 by 17 km around
    Madison, Wisconsin, with streets and buildings, hundreds of megabytes for a state. A region too large for
@@ -1997,8 +2002,9 @@ the names of towns and neighbourhoods. Download a region in **Settings → Map D
 The Map draws the detail over its own maps, wherever a downloaded region has it, from about
 100× zoom in (in a window of the usual size), and zooms in up to 16,384× there (elsewhere up to 1,024×). It follows the
 palette, Night (red) included, and the credit "© OpenStreetMap contributors" shows in the
-corner whenever the detail does, in an exported PNG too. **Downloaded** lists the regions,
-with **Remove**. Downloading the same region again replaces it.
+corner whenever the detail does, in an exported PNG too. Each region you have is a card in
+**Settings → Map**, marked **Installed**, with its detail level and its size, and **Remove**;
+downloading the same region again replaces it.
 
 Where it comes from: the regions are cut from [Protomaps](https://protomaps.com)' daily
 build of the whole OpenStreetMap planet (`build.protomaps.com`, about 139 GB), reading only
@@ -2425,13 +2431,17 @@ Rules for every source:
 
 Settings is a window of its own, **ADIF Lint Settings** (it was a card in the Map's selected
 panel): **Settings…** in the ADIF Lint menu, the gear in the Map's header, and every "add one in
-Settings" open it, at the section that needs you. A sidebar, as in macOS System Settings, lists six
-categories, each with its icon: **Station** (with your callsign and grid under it), **Editor**,
-**Data & Awards**, **Map**, **Spot Sources** and **Application**. Select one to see its settings
-alone, under its name, with a hairline between sections. The search field, at the top right of the
-window, navigates to the matching setting, including account credentials and provider options.
-Online-service credentials are in **Data & Awards → Service Accounts** and remain in the macOS
-Keychain. The first time ADIF Lint runs, it opens with a welcome in **Station**.
+Settings" open it, at the section that needs you. A sidebar, as in macOS System Settings, lists
+eight categories, each with its icon: **Station** (with your callsign and grid under it), **Editor**,
+**Accounts**, **Data**, **POTA**, **Map**, **Spot Sources** and **Application**. Select one to see
+its settings alone. Settings that can be turned on or off are cards with a switch in the heading
+(**Accounts**, **Park Outlines**, **Offline Mode**). Each card's heading has a status pill: **Installed**
+for data that is there and ready to use, **Downloading** only while a download runs, **Not
+installed** when it is missing; for an account, **Saved**, **Signed in** after a successful Test
+Sign-In, **Sign-in failed** or **Not saved**, with the detail on hover. The search field, at the top right of the window, navigates to
+the matching setting, including account credentials and provider options. Online-service
+credentials are in **Accounts**. **Map** lists each region you have downloaded as a card, with its
+**Remove** button. The first time ADIF Lint runs, it opens with a welcome in **Station**.
 
 **Spots** and **Your Station** can each be a panel of their own while you operate: the button at
 the right of the section's heading (or **Panels → Show Spot Configuration**, **Show Your Station**)
@@ -2445,8 +2455,19 @@ own; **Back** returns to the list.
   STATION_CALLSIGN and MY_GRIDSQUARE from them in a new log, distances are measured from the
   grid, and the activation and Cabrillo exports offer the callsign. Also the logs folder
   Worked Before searches.
-- **Editor:** checking while typing, syntax colouring, autocomplete, counting lengths in
-  characters instead of bytes, and **Check against**, the ADIF version the checks follow (see
+- **Accounts:** a card for each account you have set up. Its switch turns the account on or off:
+  off keeps the saved sign-in but stops lookups, imports and uploads with it. Open a card to
+  change its username or password; **Save** keeps the changes and **Test Sign-In** checks them.
+  **Add...** sets up another integration: choose it from the list, enter its credentials, and
+  **Save** waits for a successful **Test Sign-In** (a service with no sign-in test is saved as
+  **Not tested**). QRZ.com Logbook and LoTW take an account for each log, named by its callsign.
+  Drag a card's handle, or use its menu, to set the order; **Make Default** on QRZ.com or HamQTH
+  sets the account that Look up starts with. **Remove** is at the card's lower right.
+- **Editor:** a switch each for checking while typing, syntax colouring, autocomplete, counting
+  lengths in characters instead of bytes, and **Check the log when a file opens** (off by
+  default: an ADI file's Check Log opens the first time the file is opened). **ADX Files**, on
+  by default, checks `.adx` (XML) files against the ADX schemas; off, they are left unchecked.
+  **ADIF Version** holds **Check against**, the ADIF version the checks follow (see
   [ADIF versions](#adif-versions)).
 - **Language:** the language of ADIF Lint's menu, windows and messages (see
   [Language](#language)).
@@ -2456,11 +2477,11 @@ own; **Back** returns to the list.
   commands tab) and suggested keys.
 - **Country Data:** the AD1C country file in use. **Update** downloads the newest Big CTY
   release from country-files.com into the plugin config folder.
-- **LoTW Users:** off until you tick **Show LoTW users**. **Update** downloads ARRL's list
-  of LoTW users and their last upload (`lotw.arrl.org`, about 6 MB, updated weekly); it is
-  downloaded again when a week old, and used in the QSO panel's lookup line, the Spots window's
-  LoTW column and the Log Table's optional LoTW column. No terms of use for the list were
-  found; it is only fetched while on.
+- **LoTW Users:** **Download** (then **Update**) fetches ARRL's list of LoTW users and their
+  last upload (`lotw.arrl.org`, about 6 MB, updated weekly). The list is in use whenever it is
+  downloaded: in the QSO panel's lookup line, the Spots window's LoTW column and the Log Table's
+  optional LoTW column. It is downloaded again when a week old. No terms of use for the list
+  were found; it is only fetched when you press Download, or when a downloaded copy is a week old.
 - **POTA Parks:** **Download** fetches POTA's list of parks (`pota.app/all_parks_ext.csv`,
   about 9.5 MB: every park's reference, name, location and place) for the Map's POTA
   overlay; download again for new parks. It is only fetched when you press Download. ADIF
@@ -2469,12 +2490,13 @@ own; **Back** returns to the list.
   **Park Outlines** downloads the parks' boundaries for one POTA location at a time (type or
   pick it, such as `US-IL`, `DE-HE` or `VK-NSW`; it starts at the location of the park
   nearest your grid; the line under it says how many parks it has and what you have of it)
-  and keeps them in the plugin config folder's `parks` folder. **Downloaded** lists each
-  location you have, with how many of its parks have an outline, its size and the day it
-  was downloaded ("US-IL: 154 of 219 parks, 1.2 MB, 2026-10-20"), and **Remove** deletes the
-  one chosen there; under it, a line sums them all up ("3 locations, 2.4 MB: 412 of 590 parks
-  have an outline (70%)."). Choosing a location you have says where its outlines came from
-  ("OSM 12, PAD-US 142") and when. Download a location again to update it. Three sources, each only when you press Download:
+  and keeps them in the plugin config folder's `parks` folder.   Each location you have is a card: **Installed** in its heading, how many of its parks have an
+  outline ("2 of 3 parks have an outline (OSM 1, PAD-US 1)."), its **i** with the sources, its
+  size and the day it was downloaded along the bottom in smaller type, and **Remove** at its lower
+  right. Under them, a line sums them all up
+  ("3 locations, 2.4 MB: 412 of 590 parks have an outline (70%)."). The switch in the heading
+  shows or hides the outlines on the Map; with it off, the cards are greyed out. Download a
+  location again to update it; its card says **Downloading** while it runs. Three sources, each only when you press Download:
   - **OpenStreetMap**: areas tagged with the park's reference
     (`communication:amateur_radio:pota`), through the Overpass API. About 9,700 parks are
     tagged so far (2026-10-20): most of Australia's, about a third of Germany's, few
@@ -2494,7 +2516,10 @@ own; **Back** returns to the list.
   An exact reference wins over a match by name, and OpenStreetMap's over pota-map.info's. A
   state takes from a few seconds to a minute or two, and a few hundred KB to a few MB.
 - **Map Detail:** OpenStreetMap streets and buildings for the regions you download (see
-  [Map Detail](#map-detail-streets-and-buildings)).
+  [Map Detail](#map-detail-streets-and-buildings)). Each region you have is a card: its outline,
+  its detail (**Basic**, **Normal** or **Detailed**) with what that level holds, **Installed** in
+  its heading, its size along the bottom, and **Remove** at the lower right. The top card's
+  **i** gives the credits and licence, and its description follows the **Detail** control.
 - **Spots:** where the Map's Spots layer gets its spots (see
   [Spots on the map](#spots-on-the-map)); nothing is fetched until you tick Show on the Spots
   row of the Map's Layers card.
@@ -2532,15 +2557,16 @@ own; **Back** returns to the list.
   about 290 KB) for the Map's IOTA overlay; download again to update it. The list is
   © RSGB and IOTA Ltd, who allow downloading it for personal non-commercial use, so it
   isn't included with ADIF Lint and is only fetched when you press Download.
-- **Accounts**, one section each: QRZ.com and HamQTH (username and password, for Enrich
-  and the QSO panel's lookup, and HamQTH's also for Upload to HamQTH); HRDLog.net (callsign and
-  upload code); LoTW (your LoTW website login, for Import); QRZ.com Logbook (API
-  key); Club Log (email and Application Password) and Club
-  Log API key; eQSL (username and password); the TQSL certificate password; and World Radio
-  League (API key: Integrations → Developer API → Generate API key). **Save**
-  stores them, **Test Sign-In** tries them where the service allows it (for QRZ.com it also
-  shows the XML subscription end date; for World Radio League, your membership, daily import
-  allowance and default logbook), and **Remove** deletes them.
+- **Accounts**, a card for each service you have set up (**Add...** sets up the rest): QRZ.com
+  and HamQTH (username and password, for Enrich and the QSO panel's lookup, and HamQTH's also
+  for Upload to HamQTH); HRDLog.net (callsign and upload code); LoTW (your LoTW website login,
+  for Import); QRZ.com Logbook (API key, one for each log); Club Log (email and Application
+  Password) and Club Log API key; eQSL (username and password); the TQSL certificate password;
+  and World Radio League (API key: Integrations → Developer API → Generate API key). Each card's
+  **i** says what its credentials are and where to find them. **Save** stores them,
+  **Test Sign-In** tries them where the service allows it (for QRZ.com it also shows the XML
+  subscription end date; for World Radio League, your membership, daily import allowance and
+  default logbook), and **Remove** deletes them.
 
 Where things are kept:
 

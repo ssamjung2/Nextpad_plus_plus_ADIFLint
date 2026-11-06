@@ -43,6 +43,10 @@ const std::vector<adif::ParkOutline> &all();
 const adif::ParkOutline *find(const std::string &ref);
 size_t generation();  // counts the changes: a download or a removal
 
+// Whether the Map draws park outlines (Settings, POTA Parks, Park Outlines): on until turned off.
+bool shown();
+void setShown(bool on);
+
 // Downloads a location's outlines, replacing what it had. `progress` says what it is doing;
 // `done` how many of its parks have one, or why there are none. One download at a time.
 void download(const std::string &location, void (^progress)(NSString *what), void (^done)(BOOL ok, NSString *message));

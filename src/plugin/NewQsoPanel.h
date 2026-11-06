@@ -65,6 +65,8 @@ struct ADIFAidRow {
 @property(nonatomic, copy) void (^onContest)(void);    // Contest... pressed
 // Look up the call as you type: 0 off, 1 country data (offline), 2 QRZ.com, 3 HamQTH.
 @property(nonatomic) NSInteger lookupSource;
+// The callbooks in the order of Accounts (QRZ.com and HamQTH) and the default one, which Look up starts with (-1 for none).
+- (void)setLookupOrder:(NSArray<NSNumber *> *)sources default:(NSInteger)defaultSource;
 @property(nonatomic, copy) void (^onLookupChanged)(NSInteger source);
 @property(nonatomic, copy) void (^onEditLookupSettings)(NSInteger source);
 // The Station popup: index 0 is the log's own station fields, then the profiles,

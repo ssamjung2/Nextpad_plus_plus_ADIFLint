@@ -47,13 +47,16 @@ std::string grouped(size_t n) {
 
 }  // namespace
 
-bool ADIFLotwUsersOn(void) { return adifhost::setting("lotwUsers") == "1"; }
-void ADIFSetLotwUsersOn(bool on) { adifhost::setSetting("lotwUsers", on ? "1" : "0"); }
+// There is no switch: the list is in use whenever it is downloaded, and Update downloads it.
+bool ADIFLotwUsersOn(void) {
+    if (!loaded) loadCache();
+    return users.size() > 0;
+}
 
 NSString *ADIFLotwUsersStatus(void) {
     if (!loaded) loadCache();
-    if (!users.size()) return ADIFLotwUsersOn() ? T(@"Not downloaded yet: press Update.") : T(@"Off.");
-    std::string s = trf(ADIFLotwUsersOn() ? "{n} calls, downloaded {date}." : "{n} calls, downloaded {date} (off).", {{"n", grouped(users.size())}, {"date", listDate}});
+    if (!users.size()) return T(@"Not downloaded yet: press Update.");
+    std::string s = trf("{n} calls, downloaded {date}.", {{"n", grouped(users.size())}, {"date", listDate}});
     return @(s.c_str());
 }
 

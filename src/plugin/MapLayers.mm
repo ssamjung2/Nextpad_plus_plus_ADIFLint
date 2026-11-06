@@ -1312,6 +1312,7 @@ bool mapkit::potaSpot(const adif::Spot &s) { return s.program == "POTA"; }
 
 // POTA parks' outlines (Settings → POTA Parks → Park Outlines), under the rings and pins.
 - (void)drawParkOutlines {
+    if (!parkoutlines::shown()) return;
     _outlineCredit = 0;
     if (!_style[kLayerPota].show && !_style[kLayerPota].overlay) return;
     const std::vector<adif::ParkOutline> &outlines = parkoutlines::all();
@@ -1352,6 +1353,7 @@ bool mapkit::potaSpot(const adif::Spot &s) { return s.program == "POTA"; }
 }
 
 - (size_t)parkOutlineAt:(double)lon lat:(double)lat {
+    if (!parkoutlines::shown()) return (size_t)-1;
     if (!_style[kLayerPota].show && !_style[kLayerPota].overlay) return (size_t)-1;
     const adif::PotaParks &list = ADIFPotaParks();
     std::set<size_t> worked;

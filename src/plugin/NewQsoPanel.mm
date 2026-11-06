@@ -429,9 +429,15 @@ static const CGFloat kAidTail = 6;  // the tail's width beside the bubble
                        @"its duplicate rule");
 
     _lookup = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    [_lookup addItemsWithTitles:@[ T(@"Off"), T(@"Country data"), @"QRZ.com", @"HamQTH" ]];  // chosen by index
+    // Tags: 0 off, 1 country data, 2 QRZ.com, 3 HamQTH (the callbooks follow Accounts' order: setLookupOrder:default:); 100 Edit Settings.
+    [_lookup addItemsWithTitles:@[ T(@"Off"), T(@"Country data"), @"QRZ.com", @"HamQTH" ]];
+    _lookup.itemArray[0].tag = 0;
+    _lookup.itemArray[1].tag = 1;
+    _lookup.itemArray[2].tag = 2;
+    _lookup.itemArray[3].tag = 3;
     [_lookup.menu addItem:NSMenuItem.separatorItem];
     [_lookup addItemWithTitle:T(@"Edit Settings")];
+    _lookup.lastItem.tag = 100;
     _lookup.target = self;
     _lookup.action = @selector(lookupChanged:);
     _lookup.toolTip = T(@"Look the call up as you type and fill the fields that are still empty: country and zones from the "
@@ -759,17 +765,17 @@ static const CGFloat kAidTail = 6;  // the tail's width beside the bubble
 }
 
 - (void)lookupChanged:(id)sender {
-    NSInteger selected = _lookup.indexOfSelectedItem;
-    if (selected == 5) {
-        [_lookup selectItemAtIndex:_lookupSource];
+    NSInteger tag = _lookup.selectedItem.tag;
+    if (tag == 100) {
+        [self selectLookupItem];
         if (self.onEditLookupSettings) self.onEditLookupSettings(_lookupSource);
         return;
     }
-    if (selected < 0 || selected > 3) {
-        [_lookup selectItemAtIndex:_lookupSource];
+    if (tag < 0 || tag > 3) {
+        [self selectLookupItem];
         return;
     }
-    _lookupSource = selected;
+    _lookupSource = tag;
     if (self.onLookupChanged) self.onLookupChanged(_lookupSource);
 }
 
@@ -779,7 +785,25 @@ static const CGFloat kAidTail = 6;  // the tail's width beside the bubble
 
 - (void)setLookupSource:(NSInteger)source {
     _lookupSource = source >= 0 && source < 4 ? source : 0;
-    [_lookup selectItemAtIndex:_lookupSource];
+    [self selectLookupItem];
+}
+
+- (void)selectLookupItem {
+    NSInteger at = [_lookup indexOfItemWithTag:_lookupSource];
+    if (at >= 0) [_lookup selectItemAtIndex:at];
+}
+
+// The callbooks in the order of Accounts, the default marked "(default)"; the menu keeps QRZ.com and HamQTH either way.
+- (void)setLookupOrder:(NSArray<NSNumber *> *)sources default:(NSInteger)defaultSource {
+    NSArray<NSNumber *> *order = sources.count == 2 ? sources : @[ @2, @3 ];
+    for (NSUInteger i = 0; i < 2; ++i) {
+        NSInteger tag = order[i].integerValue == 3 ? 3 : 2;
+        NSMenuItem *item = [_lookup itemAtIndex:2 + (NSInteger)i];
+        NSString *name = tag == 2 ? @"QRZ.com" : @"HamQTH";
+        item.tag = tag;
+        item.title = tag == defaultSource ? [NSString stringWithFormat:T(@"%@ (default)"), name] : name;
+    }
+    [self selectLookupItem];
 }
 
 - (void)setLookupFacts:(NSArray<NSArray<NSString *> *> *)facts message:(NSString *)message severity:(int)severity {

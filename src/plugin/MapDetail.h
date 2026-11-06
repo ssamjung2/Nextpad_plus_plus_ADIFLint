@@ -18,6 +18,7 @@
 #include <vector>
 
 extern NSString *const ADIFMapDetailChangedNotification;  // a region was downloaded or removed
+@class NSBezierPath;
 
 namespace mapdetail {
 
@@ -28,12 +29,17 @@ struct Choice {
 };
 std::vector<Choice> choices(bool mapOpen);
 
-// How much detail: the highest zoom kept.
+// How much detail: the highest zoom kept. Its word is the Detail control's name for it; its name and what it holds are for a
+// region's card and the Detail control's description; its title is its tooltip, with the zoom.
 struct Level {
     int zoom;
+    const char *word;
     const char *title;
+    const char *name;
+    const char *what;
 };
-const std::vector<Level> &levels();
+const std::vector<Level> &levels();  // the most detail first
+const Level *levelAt(int zoom);      // the level kept at that zoom; nil for none
 
 struct Region {
     std::string path, name, build;  // build: YYYYMMDD
@@ -43,6 +49,9 @@ struct Region {
     std::array<double, 4> bounds{};  // west, south, east, north
 };
 const std::vector<Region> &regions();  // the downloaded ones, open for drawing
+// A downloaded region's outline for its Settings card: the state's or country's rings, north up, the longitude narrowed by
+// the latitude; nil when it has none (the area shown on the Map).
+NSBezierPath *outlinePath(const Region &region);
 bool remove(const std::string &path, std::string *why);
 NSString *status();  // what is downloaded, for Settings
 

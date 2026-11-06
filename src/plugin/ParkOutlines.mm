@@ -20,6 +20,12 @@ using adif::i18n::trf;
 
 NSString *const ADIFParkOutlinesChangedNotification = @"ADIFParkOutlinesChanged";
 
+bool parkoutlines::shown() { return adifhost::setting("parkOutlinesOn") != "0"; }
+void parkoutlines::setShown(bool on) {
+    adifhost::setSetting("parkOutlinesOn", on ? "1" : "0");
+    [[NSNotificationCenter defaultCenter] postNotificationName:ADIFParkOutlinesChangedNotification object:nil];
+}
+
 namespace parkoutlines {
 
 namespace {
